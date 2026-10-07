@@ -1,0 +1,13 @@
+# Environment
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Node / Next.js
+node_modules/
+.next/
+next-env.d.ts
