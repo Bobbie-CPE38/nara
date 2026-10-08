@@ -1,7 +1,9 @@
 # Repo Structure
 
+> โครงสร้างเป้าหมายของ Repo ใช้คู่กับ `docs/workflow.md` และ `docs/database-schema.md`
+
 ```text
-NTT-DATA/
+nara/
 │
 ├── README.md
 ├── .env.example
@@ -13,6 +15,7 @@ NTT-DATA/
 │   ├── architecture.md
 │   ├── database-schema.md
 │   ├── workflow.md
+│   ├── repo-structure.md
 │   ├── optimization.md
 │   ├── safety-validation.md
 │   ├── approval.md
@@ -173,11 +176,12 @@ NTT-DATA/
 │   │   │   ├── orchestrator.py
 │   │   │   │
 │   │   │   └── handlers/
+│   │   │       ├── base.py
+│   │   │       ├── intake_event.py
 │   │   │       ├── assess_staffing.py
 │   │   │       ├── optimize.py
 │   │   │       ├── contact_candidate.py
 │   │   │       ├── validate_safety.py
-│   │   │       ├── process_approval.py
 │   │   │       ├── execute_assignment.py
 │   │   │       └── manual_handoff.py
 │   │   │
@@ -197,6 +201,7 @@ NTT-DATA/
 │   │   │   ├── working_time_service.py
 │   │   │   ├── policy_service.py
 │   │   │   ├── handover_service.py
+│   │   │   ├── actor_service.py
 │   │   │   └── audit_service.py
 │   │   │
 │   │   ├── integrations/
@@ -276,12 +281,12 @@ NTT-DATA/
 │   │           ├── safety_failure.py
 │   │           ├── head_nurse_reject.py
 │   │           ├── auto_approval.py
-│   │           ├── test_manual_handoff.py
+│   │           ├── manual_handoff.py
 │   │           ├── duplicate_event.py
-│   │           ├── test_integration_unavailable.py
+│   │           ├── integration_unavailable.py
 │   │           ├── approval_timeout.py
 │   │           └── no_feasible_solution.py
-│   │           
+│   │
 │   └── tests/
 │       ├── unit/
 │       │   ├── domain/
@@ -305,6 +310,7 @@ NTT-DATA/
 │       │
 │       ├── integration/
 │       │   ├── test_golden_flow.py
+│       │   ├── test_event_ignored.py
 │       │   ├── test_line_webhook.py
 │       │   ├── test_candidate_timeout.py
 │       │   ├── test_approval_timeout.py
