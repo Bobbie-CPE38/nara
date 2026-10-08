@@ -15,11 +15,11 @@ from enum import StrEnum
 # --------------------------------------------------------------------------- #
 class EventType(StrEnum):
     # Staff group: staff_id is required
-    STAFF_UNAVAILABLE = "STAFF_UNAVAILABLE"
+    STAFF_UNAVAILABLE = "STAFF_UNAVAILABLE"      # reason lives in STAFF_UNAVAILABILITY.reason
     ASSIGNMENT_CANCELLED = "ASSIGNMENT_CANCELLED"
     # Demand group: staff_id must be NULL
     PATIENT_SURGE = "PATIENT_SURGE"
-    REQUIREMENT_CHANGED = "REQUIREMENT_CHANGED"
+    REQUIREMENT_CHANGED = "REQUIREMENT_CHANGED"  # what changed goes in payload
 
 
 STAFF_EVENT_TYPES: frozenset[EventType] = frozenset({
@@ -75,9 +75,9 @@ AUTOMATION_STOPPED_STATUSES: frozenset[CaseStatus] = TERMINAL_CASE_STATUSES | {
 # Staff, shift, availability, roster
 # --------------------------------------------------------------------------- #
 class StaffStatus(StrEnum):
+    """Employment status only. Leave is stored in STAFF_UNAVAILABILITY."""
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
-    # Leave is not a staff status: see STAFF_UNAVAILABILITY / AvailabilityReason.
 
 
 class ShiftType(StrEnum):
@@ -88,16 +88,23 @@ class ShiftType(StrEnum):
 
 class AvailabilityReason(StrEnum):
     """STAFF_UNAVAILABILITY.reason. Never changes after the row is created."""
-    PLANNED_LEAVE = "PLANNED_LEAVE"        # no clash with a rostered shift, no event
-    UNPLANNED_LEAVE = "UNPLANNED_LEAVE"    # clashes with a rostered shift -> STAFF_UNAVAILABLE
-    NO_SHOW = "NO_SHOW"                    # system-created, no check-in -> STAFF_UNAVAILABLE
+    PLANNED_LEAVE = "PLANNED_LEAVE"        # does not overlap an assigned shift, no event
+    UNPLANNED_LEAVE = "UNPLANNED_LEAVE"    # overlaps an assigned shift -> STAFF_UNAVAILABLE event
+    NO_SHOW = "NO_SHOW"                    # created by the system from ATTENDANCE
 
 
 class RosterStatus(StrEnum):
-    PENDING_APPROVAL = "PENDING_APPROVAL"
+    PENDING_APPROVAL = "PENDING_APPROVAL"   # accepted, waiting for approval (not used in skeleton)
     ASSIGNED = "ASSIGNED"
-    CANCELLED = "CANCELLED"     # includes "staff is absent from this shift"
+    CANCELLED = "CANCELLED"                 # includes "staff is absent from this shift"
     COMPLETED = "COMPLETED"
+
+
+# Rows that block the staff member from another shift at the same time.
+COMMITTED_ROSTER_STATUSES: frozenset[RosterStatus] = frozenset({
+    RosterStatus.PENDING_APPROVAL,
+    RosterStatus.ASSIGNED,
+})
 
 
 class AssignmentType(StrEnum):
@@ -224,7 +231,7 @@ class AuditAction(StrEnum):
     APPROVAL_REJECTED = "APPROVAL_REJECTED"
     ASSIGNMENT_CREATED = "ASSIGNMENT_CREATED"
     HANDOVER_GENERATED = "HANDOVER_GENERATED"
-    # Staff unavailability
+    # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
     UNAVAILABILITY_UPDATED = "UNAVAILABILITY_UPDATED"
 
@@ -232,6 +239,7 @@ class AuditAction(StrEnum):
 # Actions the golden-path E2E test expects to find, in order of first appearance.
 GOLDEN_PATH_AUDIT_ACTIONS: tuple[AuditAction, ...] = (
     AuditAction.EVENT_RECEIVED,
+    AuditAction.UNAVAILABILITY_CREATED,
     AuditAction.CASE_OPENED,
     AuditAction.GAP_ASSESSED,
     AuditAction.SOLVER_EXECUTED,
