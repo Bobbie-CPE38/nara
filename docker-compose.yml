@@ -74,7 +74,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-      start_period: 15s
+      start_period: 120s
     restart: unless-stopped
     networks:
       - staffing_net
@@ -110,7 +110,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 20s
+      start_period: 180s
     restart: unless-stopped
     networks:
       - staffing_net

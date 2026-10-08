@@ -36,16 +36,16 @@ env:
 	@$(COPY_ENV)
 
 up: env
-	$(COMPOSE) up -d
+	@echo Waiting for all services to become healthy. First start installs dependencies and can take a few minutes.
+	$(COMPOSE) up -d --wait
 	@echo Frontend: http://localhost:3000   API docs: http://localhost:8000/docs
-	@echo First start installs dependencies and can take a few minutes. Check with: make ps
 
 down:
 	$(COMPOSE) down
 
 reset: env
 	$(COMPOSE) down -v
-	$(COMPOSE) up -d
+	$(COMPOSE) up -d --wait
 
 test:
 	$(COMPOSE) exec -T backend pytest
