@@ -18,7 +18,7 @@ COPY_ENV := [ -f .env ] || cp .env.example .env
 endif
 
 # These targets are command names, not files that make should look for.
-.PHONY: help up down reset test logs ps env
+.PHONY: help up down reset test lint logs ps env
 
 # The first target is the default, so plain `make` shows this list.
 help:
@@ -27,6 +27,7 @@ help:
 	@echo   down    Stop all services (data is kept)
 	@echo   reset   Stop, DELETE database/Redis/node_modules volumes, start fresh
 	@echo   test    Run backend tests (stack must be running: make up)
+	@echo   lint    Run ruff and mypy on the backend (stack must be running)
 	@echo   logs    Follow logs. One service: make logs s=backend
 	@echo   ps      Show service status and health
 	@echo   env     Create .env from .env.example if it does not exist
@@ -48,6 +49,9 @@ reset: env
 
 test:
 	$(COMPOSE) exec -T backend pytest
+
+lint:
+	$(COMPOSE) exec -T backend sh -c "ruff check . && ruff format --check . && mypy app"
 
 # `s` is an optional service name, e.g. make logs s=frontend
 logs:
