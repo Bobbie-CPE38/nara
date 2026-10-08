@@ -90,11 +90,12 @@ services:
       BACKEND_URL: ${BACKEND_URL:-http://backend:8000}
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
       WATCHPACK_POLLING: "true"
-      command: >
-        sh -c "
+    command:
+      - sh
+      - -c
+      - |
         npm ci &&
-        npm run dev -- --hostname 0.0.0.0 --port 3000
-        "
+        exec npm run dev -- --hostname 0.0.0.0 --port 3000
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
