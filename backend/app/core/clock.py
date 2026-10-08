@@ -10,6 +10,7 @@ Rules:
   * The frozen time lives in process memory. It is lost when the backend
     restarts, and `POST /demo/reset` sets it again.
 """
+
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 
@@ -17,7 +18,7 @@ from threading import Lock
 APP_TIMEZONE = timezone(timedelta(hours=7))
 
 _lock = Lock()
-_frozen_at: datetime | None = None   # None = follow real time
+_frozen_at: datetime | None = None  # None = follow real time
 
 
 def now() -> datetime:

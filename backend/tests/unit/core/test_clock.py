@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -16,9 +16,9 @@ def unfrozen_clock() -> Iterator[None]:
 
 
 def test_now_follows_real_time_by_default() -> None:
-    before = datetime.now(timezone.utc)
+    before = datetime.now(UTC)
     current = clock.now()
-    after = datetime.now(timezone.utc)
+    after = datetime.now(UTC)
 
     assert not clock.is_frozen()
     assert before <= current <= after
@@ -33,11 +33,11 @@ def test_set_time_freezes_the_clock() -> None:
 
     assert clock.is_frozen()
     assert clock.now() == DEMO_TIME
-    assert clock.now() == DEMO_TIME   # does not move by itself
+    assert clock.now() == DEMO_TIME  # does not move by itself
 
 
 def test_set_time_converts_to_app_timezone() -> None:
-    clock.set_time(datetime(2026, 10, 8, 14, 0, tzinfo=timezone.utc))
+    clock.set_time(datetime(2026, 10, 8, 14, 0, tzinfo=UTC))
 
     assert clock.now() == DEMO_TIME
     assert clock.now().utcoffset() == timedelta(hours=7)
