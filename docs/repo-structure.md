@@ -308,6 +308,7 @@ nara/
 │       │       └── test_transitions.py
 │       │
 │       ├── integration/
+│       │   ├── test_health.py
 │       │   ├── test_golden_flow.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_orchestrator.py
