@@ -18,19 +18,23 @@ COPY_ENV := [ -f .env ] || cp .env.example .env
 endif
 
 # These targets are command names, not files that make should look for.
-.PHONY: help up down reset test lint logs ps env
+.PHONY: help up down reset test test-backend test-frontend lint lint-backend lint-frontend logs ps env
 
 # The first target is the default, so plain `make` shows this list.
 help:
 	@echo Usage: make TARGET
-	@echo   up      Start all services in the background (creates .env if missing)
-	@echo   down    Stop all services (data is kept)
-	@echo   reset   Stop, DELETE database/Redis/node_modules volumes, start fresh
-	@echo   test    Run backend tests (stack must be running: make up)
-	@echo   lint    Run ruff and mypy on the backend (stack must be running)
-	@echo   logs    Follow logs. One service: make logs s=backend
-	@echo   ps      Show service status and health
-	@echo   env     Create .env from .env.example if it does not exist
+	@echo   up             Start all services in the background (creates .env if missing)
+	@echo   down           Stop all services (data is kept)
+	@echo   reset          Stop, DELETE database/Redis/node_modules volumes, start fresh
+	@echo   test           Run backend and frontend tests (stack must be running: make up)
+	@echo   test-backend   Run backend tests only (pytest)
+	@echo   test-frontend  Run frontend tests only (vitest)
+	@echo   lint           Run all linters/type checks (stack must be running)
+	@echo   lint-backend   Run ruff and mypy on the backend
+	@echo   lint-frontend  Type-check the frontend (tsc)
+	@echo   logs           Follow logs. One service: make logs s=backend
+	@echo   ps             Show service status and health
+	@echo   env            Create .env from .env.example if it does not exist
 
 env:
 	@$(COPY_ENV)
@@ -47,11 +51,21 @@ reset: env
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d --wait
 
-test:
+test: test-backend test-frontend
+
+test-backend:
 	$(COMPOSE) exec -T backend pytest
 
-lint:
+test-frontend:
+	$(COMPOSE) exec -T frontend npm test
+
+lint: lint-backend lint-frontend
+
+lint-backend:
 	$(COMPOSE) exec -T backend sh -c "ruff check . && ruff format --check . && mypy app"
+
+lint-frontend:
+	$(COMPOSE) exec -T frontend npm run typecheck
 
 # `s` is an optional service name, e.g. make logs s=frontend
 logs:
