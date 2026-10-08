@@ -146,6 +146,7 @@ def advance(db: Session, case_id: int) -> None
 ```
 
 * เดินต่อจนเจอจุดรอหรือ State สิ้นสุด แล้ว Commit
+* ตรวจ `next_status` ของ Handler กับ `domain/workflow/transitions.py` ก่อนเปลี่ยน State (ตารางเดียวของข้อ 5)
 * ทุกการเปลี่ยน State: บันทึก `CASE_STATUS_CHANGED` ด้วย Actor `workflow_orchestrator`
 * ห่อทั้งรอบด้วย try/except ตาม D11
 
