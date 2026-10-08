@@ -17,3 +17,12 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = ["app*"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",  # required by FastAPI's TestClient
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

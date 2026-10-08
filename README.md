@@ -24,9 +24,11 @@ You don't need to install Python or Node locally, because the containers handle 
 # 1. Clone, then create your local env file
 cp .env.example .env
 
-# 2. Start everything (the first run installs pip and npm dependencies, so it takes a few minutes)
-docker compose up
+# 2. Start everything in the background (the first run installs pip and npm dependencies, so it takes a few minutes)
+make up            # or: docker compose up -d
 ```
+
+`make up` also creates `.env` from `.env.example` if you skipped step 1.
 
 When all services report healthy, open these:
 
@@ -48,6 +50,27 @@ Code changes reload automatically. The backend runs `uvicorn --reload`, and the 
 | Frontend (Next.js) | `nara-staffing-frontend` | 3000 | `FRONTEND_PORT` |
 
 If a port is already in use on your machine, change its value in `.env`. If you change `BACKEND_PORT`, also update `NEXT_PUBLIC_API_BASE_URL`, because the browser calls the backend directly.
+
+## Using make
+
+The [Makefile](Makefile) wraps the common Docker Compose commands. Run `make` to list them.
+
+| Command | What it does |
+|---|---|
+| `make up` | Start all services in the background (creates `.env` if it's missing) |
+| `make down` | Stop all services. Data is kept |
+| `make reset` | Stop, **delete** the database, Redis and node_modules volumes, then start fresh |
+| `make test` | Run backend tests with pytest inside the backend container. Run `make up` first |
+| `make logs` | Follow logs. For one service: `make logs s=backend` |
+| `make ps` | Show service status and health |
+
+macOS and Linux already have `make`. On Windows, install it once and then open a new terminal:
+
+```powershell
+winget install ezwinports.make
+```
+
+If you'd rather not install it, the raw `docker compose` commands below do the same job.
 
 ## Common commands
 
