@@ -324,8 +324,17 @@ nara/
 │
 ├── frontend/
 │   ├── package.json
+│   ├── package-lock.json
 │   ├── tsconfig.json
 │   ├── next.config.ts
+│   ├── vitest.config.mts
+│   │
+│   ├── tests/
+│   │   └── unit/
+│   │       ├── lib/
+│   │       │   └── api.test.ts
+│   │       └── hooks/
+│   │           └── usePolling.test.ts
 │   │
 │   └── src/
 │       ├── app/
@@ -372,6 +381,7 @@ nara/
 │       │   └── constants.ts
 │       │
 │       └── hooks/
+│           └── usePolling.ts
 │
 └── infra/
     ├── docker/
@@ -385,3 +395,11 @@ nara/
         ├── iam/
         └── cloudwatch/
 ```
+
+Frontend tests live in `frontend/tests/`, separate from application code, following
+the backend convention. Vitest runs the API tests with mocked network responses;
+the polling hook tests use React Testing Library and jsdom with fake timers.
+These unit tests do not require a running backend or database.
+
+Run once: `docker compose exec frontend npm test`.
+Watch changes: `docker compose exec frontend npm run test:watch`.
