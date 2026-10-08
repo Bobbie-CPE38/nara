@@ -22,7 +22,7 @@ include = ["app*"]
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
-    "httpx>=0.27",  # required by FastAPI's TestClient
+    "httpx2>=2.13",  # required by FastAPI's TestClient (Starlette deprecated httpx)
 ]
 
 [tool.pytest.ini_options]
