@@ -4,11 +4,8 @@ Candidate plans for a case (docs/workflow.md, sections 6.4 and 8).
 The walking skeleton has no solver yet: every case starts from the same Golden
 Case candidates (section 10.3). The real solver replaces `create_stub_plan` later.
 
-The stub drops a candidate who cannot take the case's shift at all:
-  * not ACTIVE,
-  * already has a committed roster row (COMMITTED_ROSTER_STATUSES) on that shift,
-  * has STAFF_UNAVAILABILITY overlapping that shift (no end_at = from start_at on).
-Clashes with other shifts are left to the real hard rules.
+The stub drops a candidate who cannot take the case's shift at all, by the rules
+in availability_service, which Safety uses too.
 
 Rules:
   * Never commits and writes no audit row. The `optimize` handler logs
@@ -20,21 +17,12 @@ Rules:
     section 5 has no transition for it yet, so the case becomes FAILED (D11).
 """
 
-from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.db.models import (
-    CandidateItem,
-    CandidatePlan,
-    RosterAssignment,
-    Shift,
-    Staff,
-    StaffingCase,
-    StaffUnavailability,
-)
-from app.domain.enums import COMMITTED_ROSTER_STATUSES, CandidateSource, SolverStatus, StaffStatus
-from app.services import policy_service
+from app.db.models import CandidateItem, CandidatePlan, Shift, StaffingCase
+from app.domain.enums import CandidateSource, SolverStatus
+from app.services import availability_service, policy_service
 
 # Golden Case candidates in rank order, all from ICU (home ward 1). Outreach
 # contacts rank 1, and the roster copies item.source (seam 8), so SAME_WARD
@@ -56,9 +44,11 @@ def create_stub_plan(db: Session, case: StaffingCase) -> tuple[CandidatePlan, li
     shift = db.get(Shift, case.shift_id)
     if shift is None:
         raise LookupError(f"No shift {case.shift_id}")
-    available = _available_staff_ids(db, shift, [staff_id for staff_id, _ in GOLDEN_CANDIDATES])
+    blocked = availability_service.unavailable_staff(
+        db, shift, [staff_id for staff_id, _ in GOLDEN_CANDIDATES]
+    )
     candidates = [
-        (staff_id, source) for staff_id, source in GOLDEN_CANDIDATES if staff_id in available
+        (staff_id, source) for staff_id, source in GOLDEN_CANDIDATES if staff_id not in blocked
     ]
     if not candidates:
         raise NoCandidatesError(f"No Golden Case candidate can take shift {shift.id}")
@@ -94,34 +84,3 @@ def create_stub_plan(db: Session, case: StaffingCase) -> tuple[CandidatePlan, li
     db.add_all(items)
     db.flush()
     return plan, items
-
-
-def _available_staff_ids(db: Session, shift: Shift, staff_ids: list[int]) -> set[int]:
-    """The subset of staff_ids who are ACTIVE, not on the shift and not unavailable for it."""
-    active = set(
-        db.scalars(
-            select(Staff.id).where(Staff.id.in_(staff_ids), Staff.status == StaffStatus.ACTIVE)
-        )
-    )
-    on_shift = set(
-        db.scalars(
-            select(RosterAssignment.staff_id).where(
-                RosterAssignment.staff_id.in_(staff_ids),
-                RosterAssignment.shift_id == shift.id,
-                RosterAssignment.status.in_(list(COMMITTED_ROSTER_STATUSES)),
-            )
-        )
-    )
-    unavailable = set(
-        db.scalars(
-            select(StaffUnavailability.staff_id).where(
-                StaffUnavailability.staff_id.in_(staff_ids),
-                StaffUnavailability.start_at < shift.end_at,
-                or_(
-                    StaffUnavailability.end_at.is_(None),
-                    StaffUnavailability.end_at > shift.start_at,
-                ),
-            )
-        )
-    )
-    return active - on_shift - unavailable

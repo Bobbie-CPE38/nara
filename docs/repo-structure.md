@@ -199,6 +199,7 @@ nara/
 │   │   │   ├── unavailability_service.py
 │   │   │   ├── working_time_service.py
 │   │   │   ├── policy_service.py
+│   │   │   ├── availability_service.py
 │   │   │   ├── handover_service.py
 │   │   │   ├── actor_service.py
 │   │   │   └── audit_service.py
