@@ -24,8 +24,7 @@ from app.db.models import (
     StaffSkill,
 )
 from app.domain.enums import ActorName, ActorType, RosterStatus, StaffStatus
-from app.seed import base_data
-from app.seed.__main__ import load
+from app.seed import base_data, load
 from app.seed.scenarios import golden_case
 
 DEMO_TIME = datetime(2026, 10, 9, 21, tzinfo=clock.APP_TIMEZONE)
