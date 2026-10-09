@@ -12,6 +12,9 @@ Rules:
     SAFETY_PASSED and APPROVAL_REQUESTED in the same round.
   * "Exactly one" lookups raise instead of taking the first row (section 6.4).
     Inside the handler the error turns the case FAILED (D11).
+  * The accepted item must propose the case's own shift: Execute rosters the
+    candidate onto item.proposed_shift_id (seam 8), so that has to be the shift
+    checked here. A mismatch raises ProposedShiftMismatchError.
   * A candidate who can no longer take the shift raises before any row is
     written. Recording is_passed = false with SAFETY_FAILED and moving on to the
     next candidate needs a section 5 transition that does not exist yet.
@@ -40,6 +43,10 @@ from app.services import availability_service, policy_service
 HEAD_NURSE_ROLE = "HEAD_NURSE"
 
 
+class ProposedShiftMismatchError(ValueError):
+    """The accepted candidate item proposes a different shift than the case's."""
+
+
 class SafetyResult(NamedTuple):
     validation: SafetyValidation
     approval: ApprovalRequest
@@ -65,6 +72,11 @@ def validate_accepted_candidate(db: Session, case: StaffingCase) -> SafetyResult
         raise LookupError(f"No candidate plan {item.plan_id}")
     if plan.case_id != case.id:
         raise ValueError(f"Candidate item {item.id} belongs to case {plan.case_id}, not {case.id}")
+    if item.proposed_shift_id != case.shift_id:
+        raise ProposedShiftMismatchError(
+            f"Candidate item {item.id} proposes shift {item.proposed_shift_id}, "
+            f"not the case's shift {case.shift_id}"
+        )
 
     shift = db.get(Shift, case.shift_id)
     if shift is None:

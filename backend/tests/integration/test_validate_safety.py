@@ -49,11 +49,13 @@ from app.services.availability_service import (
     StaffNotActiveError,
     StaffUnavailableError,
 )
+from app.services.safety_service import ProposedShiftMismatchError
 from app.workflow import orchestrator
 from app.workflow.handlers import validate_safety
 from tests.integration.conftest import DEMO_NOW
 
 SHIFT_ID = 1
+DAY_SHIFT_ID = 2
 LEAVING_STAFF_ID = 105
 ACCEPTING_STAFF_ID = 201
 HEAD_NURSE_ROLE_ID = 2
@@ -86,10 +88,12 @@ def _offer(
     *,
     status: OutreachStatus = OutreachStatus.ACCEPTED,
     planned_for: StaffingCase | None = None,
+    proposed_shift_id: int | None = None,
 ) -> CandidateOutreach:
     """The rows Solver and Outreach leave behind, shaped as seams 1, 2 and 4 describe.
 
     `planned_for` puts the plan on another case, which seam 5 must reject.
+    `proposed_shift_id` defaults to the case's shift; another one must be rejected.
     """
     plan = CandidatePlan(
         case_id=(planned_for or case).id,
@@ -108,7 +112,7 @@ def _offer(
         staff_id=ACCEPTING_STAFF_ID,
         rank=1,
         source=CandidateSource.SAME_WARD,
-        proposed_shift_id=case.shift_id,
+        proposed_shift_id=case.shift_id if proposed_shift_id is None else proposed_shift_id,
     )
     db.add(item)
     db.flush()
@@ -255,6 +259,18 @@ def test_an_item_planned_for_another_case_raises(seeded: Session) -> None:
 
     with pytest.raises(ValueError, match="belongs to case"):
         validate_safety.handle(seeded, case)
+
+
+def test_an_item_proposing_another_shift_raises_before_writing(seeded: Session) -> None:
+    """Execute rosters onto proposed_shift_id, so it must be the shift Safety checks."""
+    case = _make_case(seeded)
+    _offer(seeded, case, proposed_shift_id=DAY_SHIFT_ID)
+
+    with pytest.raises(ProposedShiftMismatchError):
+        validate_safety.handle(seeded, case)
+
+    assert _validations(seeded, case) == []
+    assert _approvals(seeded, case) == []
 
 
 # --------------------------------------------------------------------------- #
