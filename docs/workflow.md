@@ -395,6 +395,17 @@ Workflow ที่จบเป็น `FAILED` ถือเป็นผลที�
 
 **เมื่อ Conflict ในข้อ 9:** หลาย PR จะเติมรูปแบบของ `GET` ที่นี่ ให้เก็บไว้ทั้งสองฝั่ง
 
+**Seam 6 — `GET /approvals?pending=true`**
+
+ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
+การอ่านไม่ตรวจ Role; การอนุมัติตรวจ Role ใน Seam 7 คืน JSON List ที่ชั้นบนสุด เรียง `id` จากน้อยไปมาก
+แต่ละรายการมี `id`, `case_id`, `candidate_item_id`, `required_approver_role` (อาจเป็น `null`),
+`approval_mode`, `is_pending` และ `requested_at` (ISO 8601 พร้อม Timezone)
+ไม่ห่อด้วย `items` และไม่ใช้ `approval_id` แทน `id`
+ไม่ส่ง `pending` เท่ากับ `pending=true`; `pending=false` หรือค่า Boolean ไม่ถูกต้องตอบ `422`
+เคสที่มี Pending Request มากกว่าหนึ่งแถวตอบ `409` ไม่เลือกแถวแรกเอง
+Route / `approval_service.list_pending()` ไม่เขียน DB, Audit, Commit หรือ Explicit Flush
+
 ---
 
 ## 10. Golden Case
@@ -527,3 +538,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | เตรียมขั้นที่ 4: ข้อ 6.4 Seam ระหว่างขั้น, ข้อ 6.5 คอลัมน์เวลา, ข้อ 9.1 ไฟล์ Route และ Error ร่วม (`409` / `404`), ข้อ 9.2 `REJECT` และไม่อนุมัติตอบ `422`, ข้อ 9.3 รูปแบบคำตอบและ Key ที่ E2E ใช้, กติกาเมื่อ Conflict ในข้อ 9 และ 13; line-sim ย้ายไป `routes/line_sim.py` | ทีม |
 | 2026-10-09 | ตามรีวิว PR เตรียมขั้นที่ 4: Seam 1 ไม่เจอ Plan เป็น Error, Seam 6 เรียงด้วย `id`, ข้อ 9.1 ระบุว่า `409` จาก `InvalidTransitionError` เกิดจาก Race และ Route ยังต้องตรวจคำขอซ้ำเอง, ตัวอย่างในข้อ 9 ใช้ Path ที่ไม่ซ้ำ Prefix | ทีม |
 | 2026-10-09 | ขั้นที่ 4 Seam 2: Contact Handler ส่ง Mock Offer ให้อันดับ 1 ของ Plan ล่าสุด, บังคับ Item หนึ่งแถวพอดี, ตั้ง `sent_at` และเขียน `OFFER_SENT` โดยไม่ Commit; เพิ่ม Test การ Rollback และ D11 | คน 3 |
+| 2026-10-10 | ขั้นที่ 4 Seam 6: เพิ่ม `GET /approvals?pending=true` และ `approval_service.list_pending()`; คืน Pending List เรียง ID, ใช้ Demo Auth, ตรวจ Pending ซ้ำต่อเคส, ระบุ Response Fields และเพิ่ม Integration Tests | คน 3 |
