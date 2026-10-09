@@ -13,6 +13,7 @@ from app.api.dependencies import DEMO_USER_HEADER, MAX_STAFF_ID, DbSession, Demo
 from app.db.models import Actor, Role, Staff
 from app.db.session import engine
 from app.domain.enums import ActorType, StaffStatus
+from app.services import actor_service
 
 
 def _client(session: Session) -> Iterator[TestClient]:
@@ -21,9 +22,10 @@ def _client(session: Session) -> Iterator[TestClient]:
     @app.get("/whoami")
     def whoami(db: DbSession, user: DemoUser) -> dict[str, object]:
         return {
-            "staff_id": user.id,
-            "first_name": user.first_name,
-            "same_session": object_session(user) is db,
+            "staff_id": user.staff.id,
+            "first_name": user.staff.first_name,
+            "actor_id": user.actor_id,
+            "same_session": object_session(user.staff) is db,
         }
 
     app.dependency_overrides[get_db] = lambda: session
@@ -79,6 +81,29 @@ def test_known_staff_is_returned(client: TestClient, staff_id: int) -> None:
 
     assert response.status_code == 200
     assert response.json()["staff_id"] == staff_id
+
+
+@pytest.mark.parametrize("staff_id", [105, 201, 900])
+def test_actor_id_is_the_user_actor_of_that_staff(
+    client: TestClient, seeded: Session, staff_id: int
+) -> None:
+    response = client.get("/whoami", headers={DEMO_USER_HEADER: str(staff_id)})
+
+    actor_id = response.json()["actor_id"]
+    assert actor_id == actor_service.user_id(seeded, staff_id)
+    actor = seeded.get(Actor, actor_id)
+    assert actor is not None
+    assert actor.actor_type is ActorType.USER
+    assert actor.staff_id == staff_id
+
+
+def test_known_staff_takes_one_query(client: TestClient, seeded: Session) -> None:
+    """Staff and actor ID come from one joined SELECT, not two lookups."""
+    with mock.patch.object(seeded, "execute", wraps=seeded.execute) as execute:
+        response = client.get("/whoami", headers={DEMO_USER_HEADER: "105"})
+
+    assert response.status_code == 200
+    assert execute.call_count == 1
 
 
 def test_header_name_is_case_insensitive(client: TestClient) -> None:

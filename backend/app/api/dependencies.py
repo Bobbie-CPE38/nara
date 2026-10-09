@@ -8,6 +8,7 @@ with the header `X-Demo-User: <staff_id>`, for example 105 to report leave,
 
 import re
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
@@ -43,14 +44,23 @@ def _unauthorized(detail: str) -> HTTPException:
     )
 
 
+@dataclass(frozen=True)
+class CurrentUser:
+    """Who is acting in this request: the staff member and their audit actor."""
+
+    staff: Staff
+    # ACTORS.id of this staff member, ready for audit_service.log(actor_id=...)
+    actor_id: int
+
+
 def get_demo_user(
     db: DbSession,
     x_demo_user: Annotated[str | None, Header(alias=DEMO_USER_HEADER)] = None,
-) -> Staff:
+) -> CurrentUser:
     """Return the active staff member named by X-Demo-User, or respond 401.
 
-    The staff member must also have a user actor, so an audited route can always
-    resolve `actor_service.user_id()` for its caller.
+    The staff member must have a user actor. Its ID comes back in the same
+    query, so an audited route does not call `actor_service.user_id()` again.
 
     Reads with a SELECT, and SessionLocal has autoflush off: a Staff or Actor row
     added earlier in the same session is visible only after `db.flush()`.
@@ -64,14 +74,15 @@ def get_demo_user(
         raise _unauthorized(f"{DEMO_USER_HEADER} must be a staff ID")
 
     # The join drops staff who have no actor row
-    staff = db.scalar(
-        select(Staff).join(Actor, Actor.staff_id == Staff.id).where(Staff.id == staff_id)
-    )
+    row = db.execute(
+        select(Staff, Actor.id).join(Actor, Actor.staff_id == Staff.id).where(Staff.id == staff_id)
+    ).first()
     # `!=`, not `is not`: a row written earlier in this session with the plain
     # string "ACTIVE" still holds that string until it is reloaded
-    if staff is None or staff.status != StaffStatus.ACTIVE:
+    if row is None or row[0].status != StaffStatus.ACTIVE:
         raise _unauthorized(f"Staff {staff_id} is unknown, inactive or has no actor")
-    return staff
+    staff, actor_id = row
+    return CurrentUser(staff=staff, actor_id=actor_id)
 
 
-DemoUser = Annotated[Staff, Depends(get_demo_user)]
+DemoUser = Annotated[CurrentUser, Depends(get_demo_user)]

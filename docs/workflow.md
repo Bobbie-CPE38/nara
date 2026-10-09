@@ -234,16 +234,23 @@ Route ที่ต้องรู้ตัวผู้ใช้ประกา�
 ```python
 # api/dependencies.py
 def get_db() -> Iterator[Session]                       # Session ต่อ Request ไม่ Commit ให้
-def get_demo_user(db, x_demo_user) -> Staff             # พนักงานจาก X-Demo-User
+def get_demo_user(db, x_demo_user) -> CurrentUser       # ผู้ใช้จาก X-Demo-User
+
+class CurrentUser:                                      # frozen dataclass
+    staff: Staff                                        # แถวพนักงานของ Session เดียวกับ db
+    actor_id: int                                       # ACTORS.id ของพนักงานคนนี้
 
 DbSession = Annotated[Session, Depends(get_db)]
-DemoUser = Annotated[Staff, Depends(get_demo_user)]
+DemoUser = Annotated[CurrentUser, Depends(get_demo_user)]
 
 @router.post("/approvals/{approval_id}/decision")
-def decide(approval_id: int, db: DbSession, user: DemoUser): ...
+def decide(approval_id: int, db: DbSession, user: DemoUser):
+    approver_id = user.staff.id
+    audit_service.log(db, actor_id=user.actor_id, ...)
 ```
 
-* คืน `Staff` ของ Session เดียวกับ `db` ใช้ `user.id` เป็น `approver_id` และ `actor_service.user_id(db, user.id)` เป็น Actor
+* ใช้ `user.staff.id` เป็น `approver_id` และ `user.actor_id` เป็น Actor ของ Audit ได้เลย Route **ไม่ต้อง**เรียก `actor_service.user_id()` ซ้ำ เพราะ `get_demo_user` อ่าน Staff กับ Actor มาใน Query เดียวแล้ว
+* `actor_service.user_id()` ยังใช้สำหรับโค้ดที่มีแค่ `staff_id` ไม่ได้มาจาก Request เช่น Handler ที่เขียน Audit แทนพนักงาน
 * ตอบ `401` เมื่อไม่มี Header, ค่าไม่ใช่เลขจำนวนเต็มบวกในช่วง `bigint` (1 ถึง 9223372036854775807), ไม่มีพนักงาน ID นั้น, พนักงานไม่ `ACTIVE` หรือพนักงานไม่มีแถวใน `ACTORS`
 * ไม่ตรวจ Role การจำกัดว่าใครอนุมัติได้เป็นงานของ Route นั้นเอง
 
