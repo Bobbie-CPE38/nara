@@ -17,7 +17,9 @@ Rules:
     caller's earlier work in the same transaction is kept (the event, the case,
     the recorded answer). The case then becomes FAILED with a WORKFLOW_FAILED
     audit row, and that is committed (D11). The exception is logged, not
-    re-raised: the caller sees the result in the case status.
+    re-raised: the caller sees the result in the case status. The one exception:
+    if writing the FAILED status itself fails (for example the orchestrator
+    actor is missing), that error escapes and nothing is committed.
 """
 
 import logging
@@ -89,12 +91,18 @@ def resume(db: Session, case_id: int, next_status: CaseStatus) -> None:
     Raises InvalidTransitionError, without touching the case, when it is not at
     a wait point or the transition is not allowed. A repeated request (a second
     ACCEPT, a double click on Approve) lands here, so it must not fail the case.
+    The caller's own pending changes were flushed by then: after this error the
+    caller must not commit. Answer 409 and let the session roll back.
     """
     case = _load_for_update(db, case_id)
     if case.status not in WAITING_CASE_STATUSES:
         raise InvalidTransitionError(
             f"Case {case.id} is {case.status.value}, not at a wait point: cannot resume"
         )
+    # FAILED means the system broke (D11). Only _mark_failed sets it, together
+    # with its WORKFLOW_FAILED row; an outside decision can never ask for it
+    if next_status is CaseStatus.FAILED:
+        raise InvalidTransitionError(f"Case {case.id} cannot be resumed to FAILED")
     assert_transition(case.status, next_status)
     _change_status(db, case, next_status)
     _run_round(db, case)
@@ -104,11 +112,14 @@ def _load_for_update(db: Session, case_id: int) -> StaffingCase:
     # SessionLocal has autoflush off: send the caller's pending changes first,
     # so the fresh read below cannot overwrite them
     db.flush()
-    # Row lock: a second request for the same case waits for this round
+    # Row lock: a second request for the same case waits for this round.
+    # FOR NO KEY UPDATE, not FOR UPDATE: an audit row a caller already inserted
+    # for this case holds KEY SHARE on it through the foreign key. Two such
+    # callers asking for FOR UPDATE would deadlock
     case = db.scalar(
         select(StaffingCase)
         .where(StaffingCase.id == case_id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     if case is None:
@@ -117,8 +128,7 @@ def _load_for_update(db: Session, case_id: int) -> StaffingCase:
 
 
 def _run_round(db: Session, case: StaffingCase) -> None:
-    started_at = case.status
-    failed_at = started_at
+    failed_at = case.status
     try:
         # Savepoint: a failure undoes this round only, not the caller's work
         with db.begin_nested():
@@ -147,6 +157,10 @@ def _run_step(db: Session, case: StaffingCase) -> bool:
 
     if case.status != current:
         raise WorkflowError(f"Handler for {current.value} changed case.status itself")
+    # A handler reports a failure by raising, so that _mark_failed writes
+    # WORKFLOW_FAILED. Returning FAILED would skip that row
+    if result.next_status is CaseStatus.FAILED:
+        raise WorkflowError(f"Handler for {current.value} returned FAILED instead of raising")
     waits = result.next_status in WAITING_CASE_STATUSES
     if result.wait != waits:
         raise WorkflowError(

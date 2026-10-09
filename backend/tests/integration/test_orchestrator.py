@@ -1,17 +1,20 @@
 """The orchestrator against the seeded PostgreSQL: transitions, audit rows, commit and D11."""
 
-from collections.abc import Callable
-from datetime import timedelta
+import threading
+from collections.abc import Callable, Iterator
+from datetime import datetime, timedelta
 from typing import Any
 from unittest import mock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import clock
+from app.db.base import Base
 from app.db.models import Actor, AuditLog, Role, StaffingCase, StaffingEvent
+from app.db.session import SessionLocal, engine
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     WAITING_CASE_STATUSES,
@@ -23,13 +26,16 @@ from app.domain.enums import (
     EventType,
 )
 from app.domain.workflow.transitions import InvalidTransitionError
-from app.services import audit_service
+from app.seed import load
+from app.services import actor_service, audit_service
+from app.services.actor_service import ActorNotFoundError
 from app.workflow import orchestrator
 from app.workflow.handlers.base import HandlerResult
 from tests.integration.conftest import DEMO_NOW
 
 SHIFT_ID = 1
 LEAVING_STAFF_ID = 105
+ACCEPTING_STAFF_ID = 201
 
 CaseFactory = Callable[..., StaffingCase]
 
@@ -208,6 +214,9 @@ def test_unknown_case_raises(seeded: Session) -> None:
         (CaseStatus.WAITING_RESPONSE, CaseStatus.EXECUTING),
         (CaseStatus.WAITING_APPROVAL, CaseStatus.SAFETY_VALIDATION),
         (CaseStatus.WAITING_RESPONSE, CaseStatus.WAITING_RESPONSE),
+        # FAILED is an allowed transition, but only the orchestrator's D11 path sets it
+        (CaseStatus.WAITING_RESPONSE, CaseStatus.FAILED),
+        (CaseStatus.WAITING_APPROVAL, CaseStatus.FAILED),
     ],
 )
 def test_resume_rejects_an_invalid_request_without_touching_the_case(
@@ -364,8 +373,15 @@ def _sets_status_itself(db: Session, case: StaffingCase) -> HandlerResult:
         (_returns(next_status=CaseStatus.OPEN), "InvalidTransitionError"),
         (_returns(next_status=CaseStatus.ASSESSING, wait=True), "WorkflowError"),
         (_sets_status_itself, "WorkflowError"),
+        (_returns(next_status=CaseStatus.FAILED), "WorkflowError"),
     ],
-    ids=["skips_states", "same_state", "wait_without_wait_point", "changes_status_itself"],
+    ids=[
+        "skips_states",
+        "same_state",
+        "wait_without_wait_point",
+        "changes_status_itself",
+        "returns_failed_instead_of_raising",
+    ],
 )
 def test_handler_that_breaks_the_contract_fails_the_case(
     seeded: Session,
@@ -470,3 +486,100 @@ def test_callers_unflushed_change_survives_with_production_session_settings(
 
     assert _status(db, case) is CaseStatus.WAITING_RESPONSE
     assert case.required_replacement_time == new_time
+
+
+# --------------------------------------------------------------------------- #
+# When the failure itself cannot be recorded
+# --------------------------------------------------------------------------- #
+def test_error_escapes_and_nothing_is_committed_when_failed_cannot_be_written(
+    seeded: Session, make_case: CaseFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the orchestrator actor no audit row can be written, not even WORKFLOW_FAILED."""
+    case = make_case()
+
+    def failing_intake(db: Session, case: StaffingCase) -> HandlerResult:
+        raise RuntimeError("boom")
+
+    def no_orchestrator_actor(db: Session, name: ActorName) -> int:
+        raise ActorNotFoundError(f"No actor named {name.value!r}")
+
+    _use_handler(monkeypatch, CaseStatus.OPEN, failing_intake)
+    monkeypatch.setattr(orchestrator.actor_service, "component_id", no_orchestrator_actor)
+
+    with (
+        mock.patch.object(seeded, "commit", wraps=seeded.commit) as commit,
+        pytest.raises(ActorNotFoundError),
+    ):
+        orchestrator.advance(seeded, case.id)
+
+    assert commit.call_count == 0
+
+
+# --------------------------------------------------------------------------- #
+# Two real connections on the same case
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def committed_waiting_case(frozen_clock: datetime) -> Iterator[int]:
+    """A committed case at WAITING_RESPONSE, visible to separate connections.
+
+    The other tests share one rolled-back connection, which cannot show a lock
+    conflict. This one commits, so it empties every table again afterwards.
+    """
+    with SessionLocal.begin() as db:
+        load(db)
+        case_id = _make_case(db, CaseStatus.WAITING_RESPONSE).id
+    try:
+        yield case_id
+    finally:
+        tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
+        with engine.begin() as connection:
+            connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        engine.dispose()
+
+
+def test_two_requests_that_wrote_audit_rows_do_not_deadlock_on_resume(
+    committed_waiting_case: int,
+) -> None:
+    """Regression: an audit insert holds KEY SHARE on the case through its foreign key.
+
+    With FOR UPDATE both requests held that lock and then waited for each other,
+    and one died with a deadlock instead of InvalidTransitionError.
+    """
+    case_id = committed_waiting_case
+    both_hold_key_share = threading.Barrier(2, timeout=10)
+    outcomes: list[str] = []
+
+    def accept_offer() -> None:
+        try:
+            with SessionLocal() as db:
+                audit_service.log(
+                    db,
+                    case_id=case_id,
+                    actor_id=actor_service.user_id(db, ACCEPTING_STAFF_ID),
+                    action=AuditAction.OFFER_ACCEPTED,
+                    entity_type=EntityType.CANDIDATE_OUTREACH,
+                    entity_id=None,
+                    payload={"staff_id": ACCEPTING_STAFF_ID},
+                )
+                both_hold_key_share.wait()
+                orchestrator.resume(db, case_id, CaseStatus.SAFETY_VALIDATION)
+            outcomes.append("ok")
+        except Exception as error:
+            outcomes.append(type(error).__name__)
+
+    threads = [threading.Thread(target=accept_offer) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert sorted(outcomes) == ["InvalidTransitionError", "ok"]
+    with SessionLocal() as db:
+        case = db.get(StaffingCase, case_id)
+        assert case is not None
+        assert case.status is CaseStatus.WAITING_APPROVAL
+        actions = [row.action for row in _audit(db, case)]
+    # The rejected request rolled back, so its OFFER_ACCEPTED row is gone too
+    assert actions.count(AuditAction.OFFER_ACCEPTED) == 1
+    assert actions.count(AuditAction.CASE_STATUS_CHANGED) == 2
