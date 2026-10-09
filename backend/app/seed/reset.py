@@ -5,6 +5,7 @@ Runs inside the API process because the frozen clock lives in process memory.
 
 from datetime import datetime
 from pathlib import Path
+from threading import Lock
 
 from alembic import command
 from alembic.config import Config
@@ -15,13 +16,22 @@ from app.db.session import SessionLocal, engine
 from app.seed import load
 
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
+_reset_lock = Lock()
 
 
 def reset_demo() -> datetime:
     """Drop everything, migrate to head, load the Golden Case, freeze the clock at D 21:00.
 
-    Safe to call repeatedly. Returns the frozen demo time.
+    Safe to call repeatedly in this API process. Concurrent requests wait their turn.
+    Returns the frozen demo time.
     """
+    # Schema changes, Alembic's in-process context, and the demo clock must not overlap.
+    # A context manager releases the lock even if migration or seeding raises.
+    with _reset_lock:
+        return _reset_demo()
+
+
+def _reset_demo() -> datetime:
     # D = today in real time, not whatever an earlier reset froze
     clock.reset()
     demo_time = clock.now().replace(hour=21, minute=0, second=0, microsecond=0)

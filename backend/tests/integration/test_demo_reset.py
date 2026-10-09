@@ -5,7 +5,9 @@ migrated schema that the other tests expect.
 """
 
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
+from threading import Barrier
 
 import pytest
 from alembic import command
@@ -80,3 +82,42 @@ def test_reset_can_run_again_on_a_used_database() -> None:
     assert response.status_code == 200
     assert roster(1)[105] is RosterStatus.ASSIGNED
     assert clock.now().hour == 21
+
+
+def test_simultaneous_reset_requests_complete_and_allow_another_reset() -> None:
+    start = Barrier(2)
+
+    def request_reset() -> tuple[int, dict[str, str]]:
+        # Separate clients simulate two browsers clicking Reset at the same time.
+        with TestClient(app) as request_client:
+            start.wait(timeout=5)
+            response = request_client.post("/demo/reset")
+            return response.status_code, response.json()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(request_reset) for _ in range(2)]
+        results = [future.result(timeout=15) for future in futures]
+
+    assert all(status == 200 and body["status"] == "ok" for status, body in results)
+    assert roster(1) == dict.fromkeys((101, 102, 103, 104, 105), RosterStatus.ASSIGNED)
+    assert roster(2) == dict.fromkeys((202, 203), RosterStatus.ASSIGNED)
+    assert clock.is_frozen()
+    assert clock.now().hour == 21
+    # The original bug also caused subsequent resets to hang.
+    assert client.post("/demo/reset").status_code == 200
+
+
+def test_failed_reset_releases_lock_for_next_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.seed import reset as reset_module
+
+    def fail() -> datetime:
+        raise RuntimeError("Reset failed")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(reset_module, "_reset_demo", fail)
+        with pytest.raises(RuntimeError, match="Reset failed"):
+            reset_module.reset_demo()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        response = executor.submit(client.post, "/demo/reset").result(timeout=15)
+    assert response.status_code == 200

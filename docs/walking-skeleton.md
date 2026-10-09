@@ -186,7 +186,7 @@ def test_golden_path(client):
 
 - [x] แก้ 0.1–0.8 แล้ว
 - [ ] `make up` รันได้ทุกเครื่อง, `/health` ตอบ DB ok
-- [ ] `make reset` ได้ Golden Case ครบ
+- [x] `make reset` ได้ Golden Case ครบ (ยืนยันด้วย `tests/integration/test_demo_reset.py` และ `test_seed.py`)
 - [ ] กด "105 แจ้งลา" → เคสหยุดที่ `WAITING_RESPONSE`, Roster ของ 105 `CANCELLED`
 - [ ] กด "203 แจ้งลาเวร 2" → ไม่มีเคสใหม่ Event `IGNORED`
 - [ ] 201 กดรับใน LINE Sim → `WAITING_APPROVAL`

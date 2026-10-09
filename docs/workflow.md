@@ -249,17 +249,19 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 
 **STAFF** (ทั้งหมด `ACTIVE`, `home_ward_id = 1`)
 
+Seed ใช้ชื่อภาษาอังกฤษตามตารางด้านล่าง และ `last_name = "Demo"` ทุกคนสำหรับข้อมูลสาธิต
+
 | id | ชื่อ | role | skill | บทบาทใน Demo |
 |---|---|---|---|---|
-| 101 | พิมพ์ชนก | RN | ICU, BLS | อยู่เวร |
-| 102 | ธนพล | RN | ICU | อยู่เวร |
-| 103 | วรรณา | RN | BLS | อยู่เวร |
-| 104 | กิตติ | RN | BLS | อยู่เวร |
-| 105 | สุดารัตน์ | RN | BLS | อยู่เวร **และแจ้งลา** |
-| 201 | อรุณี | RN | ICU, BLS | ผู้สมัครอันดับ 1 **ตอบรับ** |
-| 202 | ภานุ | RN | BLS | ผู้สมัครอันดับ 2, อยู่เวร 2 |
-| 203 | ชลธิชา | RN | ICU | ผู้สมัครอันดับ 3, อยู่เวร 2 |
-| 900 | มาลัย | HEAD_NURSE | — | ผู้อนุมัติ |
+| 101 | Pimchanok | RN | ICU, BLS | อยู่เวร |
+| 102 | Thanaphon | RN | ICU | อยู่เวร |
+| 103 | Wanna | RN | BLS | อยู่เวร |
+| 104 | Kitti | RN | BLS | อยู่เวร |
+| 105 | Sudarat | RN | BLS | อยู่เวร **และแจ้งลา** |
+| 201 | Arunee | RN | ICU, BLS | ผู้สมัครอันดับ 1 **ตอบรับ** |
+| 202 | Phanu | RN | BLS | ผู้สมัครอันดับ 2, อยู่เวร 2 |
+| 203 | Chonthicha | RN | ICU | ผู้สมัครอันดับ 3, อยู่เวร 2 |
+| 900 | Malai | HEAD_NURSE | — | ผู้อนุมัติ |
 
 **SHIFT**
 * 1 = ICU, `NIGHT`, `D 23:00` – `D+1 07:00`, `patient_count = 10`
@@ -275,7 +277,11 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 
 **ACTORS** 6 ตัวตาม `ActorName` + 1 ตัวต่อพนักงานแต่ละคน
 
-**Policy** `HARD_CONSTRAINT_POLICY` 1 แถว (พัก 11 ชม., วันละ 12 ชม., สัปดาห์ละ 52 ชม.) และ `SOFT_CONSTRAINT_POLICY` 1 แถว (ค่าตามตัวอย่างในคู่มือ Schema)
+**Policy** อย่างละ 1 แถว แต่ละตารางใช้ `id = 1`, `version = "demo-stub-v1"`
+
+* `HARD_CONSTRAINT_POLICY`: พัก 11 ชม., วันละไม่เกิน 12 ชม., สัปดาห์ละไม่เกิน 52 ชม.
+* `SOFT_CONSTRAINT_POLICY`: Weight ทั้ง 5 ตัว = 1 เป็น Placeholder สำหรับ Demo เนื่องจากตัวอย่างในคู่มือ Schema v5 ไม่อยู่ใน Repo นี้ ไม่ใช่ค่าที่ตกลงสำหรับ Solver จริง โดย `candidate_source_priority` และ `optimization_priority` เป็น List ของค่า Enum ตามลำดับที่ประกาศใน `CandidateSource` และ `OptimizationObjective` ตามลำดับ
+* `APPROVAL_POLICY`: `ratio = 2`, `incoming_count = 10` ตามข้อตกลงทีม แต่ Golden Path ใช้ MANUAL approval จึงยังไม่ใช้ค่าเหล่านี้ตัดสินอัตโนมัติ
 
 ### 10.3 ผลที่คาดหวัง
 
