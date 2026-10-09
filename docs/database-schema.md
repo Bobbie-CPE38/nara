@@ -4,6 +4,7 @@
 
 > สรุปจากคู่มือ Schema v5 + การตัดสินใจล่าสุดของทีม ใช้คู่กับ `docs/workflow.md` และ `backend/app/domain/enums.py`
 > สถานะ: สร้างแล้วใน Migration แรก (`backend/alembic/versions/2026_10_09_0646-63c7709cfe6c_initial_schema.py`)
+> เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` ใน Migration `a73d9e2c4b10` (Backfill Policy เดิม = 2 สำหรับ Demo)
 
 
 ## สรุปการตัดสินใจ
@@ -61,6 +62,11 @@
 | `created_at` | timestamptz | NOT NULL |  |  |
 | `updated_at` | timestamptz | NOT NULL |  |  |
 
+
+กติกา Deactivation: เมื่อเปลี่ยน `STAFF.status` เป็น `INACTIVE` Flow ที่แก้สถานะต้องยกเลิก
+Roster ในอนาคตของคนนั้นด้วย; Coverage นับจาก Roster `ASSIGNED` และไม่กรอง `STAFF.status` ซ้ำ
+ส่วน `HARD_CONSTRAINT_POLICY.require_active_staff` ใช้ตรวจสิทธิ์ผู้สมัครมาแทน
+การยกเลิก Roster เมื่อ Deactivate ยังเป็นงานของ Flow นั้น ไม่ใช่งานของ Gap Calculator
 
 ### 2. ACTORS **(ใหม่)**
 
@@ -149,8 +155,8 @@
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
-| `required_staff` | integer | NOT NULL |  |  |
-| `minimum_staff` | integer | NOT NULL |  |  |
+| `required_staff` | integer | NOT NULL |  | จำนวนเป้าหมายที่บันทึกใน Requirement; Skeleton ยังไม่ใช้เป็นเป้าหมาย Headcount Gap (ใช้สูตร Patient Count / Ratio แทน) |
+| `minimum_staff` | integer | NOT NULL |  | จำนวนขั้นต่ำที่เก็บไว้สำหรับกฎความปลอดภัยในอนาคต เช่น เวรต้นทาง; ยังไม่ใช้ใน Gap Calculator ของ Skeleton |
 | `created_at` | timestamptz | NOT NULL |  |  |
 
 
@@ -348,10 +354,11 @@
 | `minimum_rest_hours` | numeric | NOT NULL |  |  |
 | `maximum_daily_hours` | numeric | NOT NULL |  |  |
 | `maximum_weekly_hours` | numeric | NOT NULL |  |  |
+| `maximum_patients_per_nurse` | numeric | NOT NULL |  | จำนวนผู้ป่วยสูงสุดต่อพยาบาล ใช้ Ratio เดียวทั้งโรงพยาบาลใน Skeleton; Seed = 2; CHECK มากกว่า 0 และเป็นค่าจำกัด; ไม่มี Default หลัง Migration |
 | `prevent_shift_conflict` | boolean | NOT NULL |  |  |
 | `require_matching_role` | boolean | NOT NULL |  |  |
 | `require_matching_skill` | boolean | NOT NULL |  |  |
-| `require_active_staff` | boolean | NOT NULL |  |  |
+| `require_active_staff` | boolean | NOT NULL |  | ผู้สมัครมาแทนต้อง ACTIVE; เมื่อ Deactivate ต้องยกเลิก Roster ในอนาคตตามกติกาข้อ 1 |
 | `preserve_minimum_staffing` | boolean | NOT NULL |  |  |
 | `preserve_source_ward_minimum` | boolean | NOT NULL |  |  |
 | `effective_from` | timestamptz | NOT NULL |  |  |
@@ -387,6 +394,10 @@
 | `headcount_gap` | integer | NOT NULL |  |  |
 | `computed_at` | timestamptz | NOT NULL |  |  |
 
+
+งานต่อใน Wiring PR ก่อนเริ่มเขียน Gap ลง DB: เพิ่ม `patient_count` และ `patients_per_nurse`
+(หรือ Policy ID ที่อ้างเวอร์ชันซึ่งไม่แก้ย้อนหลัง) เพื่อย้อนตรวจ Input ของการคำนวณแต่ละครั้ง
+คอลัมน์เหล่านี้ยังไม่ได้เพิ่มใน Schema ปัจจุบัน
 
 ### 25. STAFFING_GAP_ROLE
 

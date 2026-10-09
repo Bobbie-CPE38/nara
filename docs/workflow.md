@@ -70,6 +70,20 @@ POST /events
 * `required_replacement_time` = `SHIFT.start_at`
 * ขั้นตอน 1–3 อยู่ใน Transaction เดียว ถ้าพังกลางทาง Event ไม่ถูกบันทึกเลย
 * `STAFF.status` ของคนที่ลาไม่เปลี่ยน (ยังเป็น `ACTIVE`)
+* เป้าหมายจำนวนคนมาจากภาระงาน: `minimum_required_staff = ceil(SHIFT.patient_count / patients_per_nurse)`
+  และ `headcount_gap = max(minimum_required_staff - current_valid_staff, 0)`
+  ใน Skeleton `current_valid_staff` คือคนไม่ซ้ำที่มี Roster `ASSIGNED` ในเวรนั้น
+  ใน Skeleton ใช้ `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` เป็น Ratio เดียวทั้งโรงพยาบาล
+  ทั้ง `event_service` และ `assess_staffing` โหลดด้วย `policy_service.get_hard_constraint_policy(db)`
+  ซึ่งเลือก Policy `id=1` ตาม Seed แล้วส่ง `patients_per_nurse=policy.maximum_patients_per_nurse`
+  ให้ `calculate_gap()`; ไม่มีค่า Default / Fallback ใน Calculator และไม่มีคอลัมน์ Ratio ใน WARD
+  ค่านี้ไม่ใช่ `APPROVAL_POLICY.ratio` (ตัวคูณสำหรับ Auto-approval)
+* ตรวจ Role / Skill ตาม Requirement แยกจาก Headcount; ขาดอย่างใดอย่างหนึ่งก็ถือว่ามี Gap
+  แม้จำนวนคนจะเพียงพอตาม Ratio แล้วก็ตาม
+* Skeleton ตรึง Hard Policy `id=1` ตลอด Demo ไม่แก้ค่าระหว่างที่มีเคสทำงาน; การเลือกเวอร์ชันตาม
+  `effective_from` และ Ratio แยก Ward เป็นงานภายหลัง
+* `STAFFING_GAP` ยังไม่มี FK ไป Hard Policy จึงยังย้อนดูเวอร์ชันที่ใช้คำนวณ Gap ไม่ได้โดยตรง
+  แม้ `CANDIDATE_PLANS` / `SAFETY_VALIDATION` จะมี FK แล้ว; ต้องเพิ่ม FK หรือ Snapshot ก่อนรองรับการเปลี่ยน Policy ระหว่างเคส
 * `PLANNED_LEAVE` (ลาที่ไม่ชนเวรที่มี Roster) ไม่สร้าง Event และ `NO_SHOW` (ระบบสร้างเองจาก `ATTENDANCE`) อยู่นอก Skeleton ดูข้อ 12
 
 ---
@@ -103,7 +117,7 @@ POST /events
 |---|---|---|---|
 | — | `OPEN` | `event_service` | Event มี Gap (ข้อ 3) |
 | `OPEN` | `ASSESSING` | handler `intake_event` | ทันที |
-| `ASSESSING` | `OPTIMIZING` | handler `assess_staffing` | บันทึก Gap แล้ว `headcount_gap > 0` |
+| `ASSESSING` | `OPTIMIZING` | handler `assess_staffing` | บันทึก Gap แล้ว `result.has_gap` เป็น True (Headcount หรือ Role หรือ Skill ขาด) |
 | `OPTIMIZING` | `OUTREACH` | handler `optimize` | ได้รายชื่อผู้สมัครอย่างน้อย 1 คน |
 | `OUTREACH` | `WAITING_RESPONSE` | handler `contact_candidate` | ส่ง Offer แล้ว (`wait=True`) |
 | `WAITING_RESPONSE` | `SAFETY_VALIDATION` | `outreach_service.record_response()` | ผู้สมัครตอบ `ACCEPT` แล้วเรียก `advance()` |
@@ -199,7 +213,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | ขั้น | Stub ทำอะไร | ตารางที่เขียน |
 |---|---|---|
 | Event | ตามข้อ 3 (ของจริงตั้งแต่ Skeleton) | STAFFING_EVENTS, STAFF_UNAVAILABILITY, ROSTER_ASSIGNMENT, STAFFING_CASES |
-| Gap | ใช้ `gap_calculator` จริงแบบง่าย: นับคนที่ `ASSIGNED` เทียบ Requirement | STAFFING_GAP (+ ROLE, SKILL) |
+| Gap | โหลด Hard Policy `id=1` ผ่าน `policy_service`; ใช้ `gap_calculator` เทียบคนที่ `ASSIGNED` กับ `ceil(patient_count / policy.maximum_patients_per_nurse)` และ Role / Skill กับ Requirement; ใช้ `result.has_gap` | STAFFING_GAP (+ ROLE, SKILL) |
 | Solver | คืนผู้สมัคร 3 คนตายตัวตาม Golden Case `solver_status = FEASIBLE`, `solver_version = "stub"` | CANDIDATE_PLANS, CANDIDATE_ITEMS |
 | Outreach | สร้าง Outreach ให้อันดับ 1 สถานะ `SENT` ไม่ส่ง LINE จริง | CANDIDATE_OUTREACH |
 | Response | LINE Simulator ส่ง `ACCEPT` → `ACCEPTED` | CANDIDATE_OUTREACH |
@@ -271,6 +285,14 @@ Seed ใช้ชื่อภาษาอังกฤษตามตาราง
 * 1 = shift 1, `required_staff = 5`, `minimum_staff = 4`, ROLE: RN = 5, SKILL: ICU = 2
 * 2 = shift 2, `required_staff = 1`, `minimum_staff = 1`, ROLE: RN = 1, ไม่มี SKILL
 
+Golden Case ใช้ `HARD_CONSTRAINT_POLICY(id=1).maximum_patients_per_nurse = 2` จาก Seed
+เพื่อให้ผู้ป่วย 10 คนต้องการพยาบาล 5 คน และผู้ป่วย 2 คนต้องการ 1 คน
+ค่านี้เป็น Ratio เดียวทั้งโรงพยาบาลสำหรับ Skeleton ไม่ใช่ค่า Auto-approval
+`required_staff` เป็นจำนวนเป้าหมายที่บันทึกใน Requirement และ `minimum_staff` เป็นจำนวนขั้นต่ำ
+ที่เก็บไว้สำหรับกฎความปลอดภัยในอนาคต เช่น การย้ายคนออกจากเวรต้นทาง
+Skeleton เก็บทั้งสองตาม Schema เดิม แต่ยังไม่ใช้ตัดสิน Headcount Gap; ใช้สูตรจาก Patient Count แทน
+ส่วน `STAFFING_REQUIREMENT_ROLE` / `STAFFING_REQUIREMENT_SKILL` ยังใช้คำนวณ Role / Skill Gap
+
 **ROSTER_ASSIGNMENT**
 * 101–105 ในเวร 1: `ASSIGNED`, `REGULAR`
 * 202, 203 ในเวร 2: `ASSIGNED`, `REGULAR` (เกิน Requirement 1 คน)
@@ -279,7 +301,7 @@ Seed ใช้ชื่อภาษาอังกฤษตามตาราง
 
 **Policy** อย่างละ 1 แถว แต่ละตารางใช้ `id = 1`, `version = "demo-stub-v1"`
 
-* `HARD_CONSTRAINT_POLICY`: พัก 11 ชม., วันละไม่เกิน 12 ชม., สัปดาห์ละไม่เกิน 52 ชม.
+* `HARD_CONSTRAINT_POLICY`: พัก 11 ชม., วันละไม่เกิน 12 ชม., สัปดาห์ละไม่เกิน 52 ชม., `maximum_patients_per_nurse = 2`
 * `SOFT_CONSTRAINT_POLICY`: Weight ทั้ง 5 ตัว = 1 เป็น Placeholder สำหรับ Demo เนื่องจากตัวอย่างในคู่มือ Schema v5 ไม่อยู่ใน Repo นี้ ไม่ใช่ค่าที่ตกลงสำหรับ Solver จริง โดย `candidate_source_priority` และ `optimization_priority` เป็น List ของค่า Enum ตามลำดับที่ประกาศใน `CandidateSource` และ `OptimizationObjective` ตามลำดับ
 * `APPROVAL_POLICY`: `ratio = 2`, `incoming_count = 10` ตามข้อตกลงทีม แต่ Golden Path ใช้ MANUAL approval จึงยังไม่ใช้ค่าเหล่านี้ตัดสินอัตโนมัติ
 
@@ -331,7 +353,7 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | Auto-Approval | Future feature: activate when the nurse-to-patient ratio exceeds twice the ward's required ratio (`ratio = 2`). `incoming_count` refers to staff awaiting approval by the head nurse or nurse supervisor (policy value = 10); its comparison rule remains to be defined. Skeleton uses MANUAL approval. |
 | รูปแบบ `required_approver_role` | Skeleton เก็บ `ROLE.id` ของ HEAD_NURSE ไปก่อน |
 | LangGraph | ดูทางเลือกในเอกสารแยก |
-| Event กลุ่มภาระงาน (`PATIENT_SURGE` ฯลฯ) | ต้องสร้าง Requirement เวอร์ชันใหม่ก่อนประเมิน |
+| Event กลุ่มภาระงาน (`PATIENT_SURGE` ฯลฯ) | อัปเดต `SHIFT.patient_count` แล้วคำนวณ Headcount จาก Ratio เดียวกันก่อนประเมิน ไม่ต้องสร้าง Requirement ใหม่เพียงเพราะ Patient Count เปลี่ยน; ถ้า Role / Skill Requirement เปลี่ยน ต้องอัปเดต Requirement ก่อนประเมิน การรับ Event กลุ่มนี้ยังเป็นงานภายหลัง |
 
 ---
 
@@ -342,3 +364,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | YYYY-MM-DD | ร่างแรกสำหรับ Walking Skeleton ตาม Schema v5 + ACTORS + Event status | ทีม |
 | 2026-10-08 | ปรับตาม `docs/database-schema.md`: `STAFF_UNAVAILABILITY`, Event type `STAFF_UNAVAILABLE` / `REQUIREMENT_CHANGED`, `PENDING_APPROVAL`, เพิ่มเวร 2 สำหรับ Test Event ที่ไม่มี Gap | ทีม |
 | 2026-10-09 | ปิดขั้นที่ 0 ของ `walking-skeleton.md`: เพิ่ม `UNAVAILABILITY_CREATED` ในข้อ 7 ให้ตรงกับ `GOLDEN_PATH_AUDIT_ACTIONS`, `ACTORS.name` ของ user = `str(staff.id)` | ทีม |
+| 2026-10-09 | Gap Calculator ใช้ `ceil(patient_count / patients_per_nurse)` จาก `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` (Ratio เดียวทั้งโรงพยาบาล, Seed id=1 ค่า 2); เพิ่ม Migration และ shared policy loader; เปิดเคสและ ASSESSING ใช้ `has_gap`; ปรับ Requirement / PATIENT_SURGE และระบุข้อจำกัดประวัติ Policy ของ Gap | ทีม |
