@@ -4,7 +4,10 @@
 
 > สรุปจากคู่มือ Schema v5 + การตัดสินใจล่าสุดของทีม ใช้คู่กับ `docs/workflow.md` และ `backend/app/domain/enums.py`
 > สถานะ: สร้างแล้วใน Migration แรก (`backend/alembic/versions/2026_10_09_0646-63c7709cfe6c_initial_schema.py`)
-> เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` ใน Migration `a73d9e2c4b10` (Backfill Policy เดิม = 2 สำหรับ Demo)
+> Migration ถัดจากนั้น เรียงตามลำดับ:
+> * `a73d9e2c4b10` เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` (Backfill Policy เดิม = 2 สำหรับ Demo)
+> * `b82e4f6a901c` ย่อชื่อ CHECK ของคอลัมน์นั้นเป็น `ck_hard_constraint_policy_patients_per_nurse_valid` (กติกาเดิม)
+> * `c4d7e19a52f3` เพิ่ม Snapshot `patient_count` และ `patients_per_nurse` ใน `STAFFING_GAP` พร้อม CHECK (ไม่ Backfill, ดูข้อ 24)
 
 
 ## สรุปการตัดสินใจ

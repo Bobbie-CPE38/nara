@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import StaffingCase, StaffingEvent, StaffingGap, StaffingRequirement
 from app.domain.enums import CaseStatus, EventStatus, EventType
+from app.seed.reset import ALEMBIC_INI
 from tests.integration.conftest import DEMO_NOW
 
 NIGHT_SHIFT = 1
@@ -69,7 +70,7 @@ def _columns(connection: Connection) -> set[str]:
 
 
 def _snapshot_migration() -> ModuleType:
-    revision = ScriptDirectory.from_config(Config("alembic.ini")).get_revision(SNAPSHOT_REVISION)
+    revision = ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_revision(SNAPSHOT_REVISION)
     assert revision is not None
     return revision.module
 
@@ -179,7 +180,7 @@ def test_sql_only_upgrade_carries_the_guard_before_the_schema_change() -> None:
     """
     script = io.StringIO()
 
-    command.upgrade(Config("alembic.ini", output_buffer=script), "head", sql=True)
+    command.upgrade(Config(str(ALEMBIC_INI), output_buffer=script), "head", sql=True)
 
     sql = script.getvalue()
     guard = _snapshot_migration().REFUSE_EXISTING_ROWS.strip()
