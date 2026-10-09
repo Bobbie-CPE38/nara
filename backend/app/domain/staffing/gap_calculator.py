@@ -1,0 +1,103 @@
+"""Shared gap calculation for event intake and ASSESSING (workflow.md sections 3, 8).
+
+No database access, clock reads, or writes. Callers supply patient count, the ward's
+patients-per-nurse ratio, role/skill requirements and complete roster snapshots.
+They own persistence and audit logging. Headcount is derived from patient workload,
+not the stored required_staff or minimum_staff values.
+"""
+
+from collections import Counter
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from decimal import Decimal
+from fractions import Fraction
+from math import ceil
+
+from app.domain.enums import RosterStatus
+from app.domain.staffing.coverage import RosterMember
+
+
+@dataclass(frozen=True)
+class CountGap:
+    """Counts needed by STAFFING_GAP_ROLE and STAFFING_GAP_SKILL."""
+
+    required_count: int
+    current_count: int
+
+    @property
+    def gap_count(self) -> int:
+        return max(self.required_count - self.current_count, 0)
+
+
+@dataclass(frozen=True)
+class GapResult:
+    minimum_required_staff: int
+    headcount_gap: int
+    role_gaps: dict[int, CountGap]
+    skill_gaps: dict[int, CountGap]
+
+    @property
+    def has_gap(self) -> bool:
+        """A role or skill shortage also matters when total headcount is sufficient."""
+        return (
+            self.headcount_gap > 0
+            or any(gap.gap_count > 0 for gap in self.role_gaps.values())
+            or any(gap.gap_count > 0 for gap in self.skill_gaps.values())
+        )
+
+
+def calculate_gap(
+    *,
+    shift_id: int,
+    patient_count: int,
+    patients_per_nurse: Decimal | int,
+    required_roles: Mapping[int, int],
+    required_skills: Mapping[int, int],
+    roster: Iterable[RosterMember],
+) -> GapResult:
+    """Compare distinct ASSIGNED staff against workload and role/skill requirements.
+
+    minimum_required_staff = ceil(patient_count / patients_per_nurse).
+    The ratio must be positive and finite. Decimal supports non-integer ratios;
+    exact rational division avoids floating-point or Decimal rounding at boundaries.
+
+    Mapping keys are role/skill IDs and values are required counts. Results retain
+    every required role and skill, including those with zero shortage, and clamp
+    shortages at zero. A person counts once toward headcount and their role, and
+    once toward each skill they possess; these gaps must not be summed together.
+
+    Repeated assignments for the same person count once. Conflicting role/skill
+    snapshots for that person raise ValueError instead of depending on input order.
+    """
+    if patient_count < 0:
+        raise ValueError("Patient count must be non-negative")
+    ratio = Decimal(patients_per_nurse)
+    if not ratio.is_finite() or ratio <= 0:
+        raise ValueError("Patients per nurse must be positive and finite")
+    if any(count < 0 for count in (*required_roles.values(), *required_skills.values())):
+        raise ValueError("Requirement counts must be non-negative")
+
+    assigned: dict[int, RosterMember] = {}
+    for member in roster:
+        if member.shift_id != shift_id or member.status != RosterStatus.ASSIGNED:
+            continue
+        previous = assigned.get(member.staff_id)
+        if previous is not None and previous != member:
+            raise ValueError(f"Conflicting coverage for staff_id={member.staff_id}")
+        assigned[member.staff_id] = member
+
+    roles = Counter(member.role_id for member in assigned.values())
+    skills = Counter(skill_id for member in assigned.values() for skill_id in member.skill_ids)
+    minimum_required_staff = ceil(Fraction(patient_count) / Fraction(ratio))
+    return GapResult(
+        minimum_required_staff=minimum_required_staff,
+        headcount_gap=max(minimum_required_staff - len(assigned), 0),
+        role_gaps={
+            role_id: CountGap(required, roles[role_id])
+            for role_id, required in required_roles.items()
+        },
+        skill_gaps={
+            skill_id: CountGap(required, skills[skill_id])
+            for skill_id, required in required_skills.items()
+        },
+    )

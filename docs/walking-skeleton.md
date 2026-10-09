@@ -104,6 +104,21 @@
 
 `gap_calculator` ทำจริงตั้งแต่ตอนนี้ เพราะทั้ง `POST /events` และขั้น `ASSESSING` ใช้ตัวเดียวกัน
 
+สัญญาที่ใช้ร่วมกัน: `domain/staffing/gap_calculator.py` มี
+`calculate_gap(*, shift_id, patient_count, patients_per_nurse, required_roles, required_skills, roster) -> GapResult`
+โดย `required_roles` / `required_skills` เป็น Mapping ของ ID → จำนวนที่ต้องการ
+และ `roster` เป็นรายการ `RosterMember` จาก `domain/staffing/coverage.py`
+(`staff_id`, `shift_id`, `status`, `role_id`, `skill_ids` เป็นชุด Skill ทั้งหมดของคนนั้น)
+ผู้เรียกโหลดข้อมูลจาก DB; Calculator นับคนไม่ซ้ำเฉพาะ `ASSIGNED` ในเวรเป้าหมาย
+ใช้ `minimum_required_staff = ceil(patient_count / patients_per_nurse)` เป็นเป้าหมายจำนวนคน
+โดย `patient_count` มาจาก Shift และ `patients_per_nurse` คือจำนวนผู้ป่วยต่อพยาบาลของ Ward
+(รับ `int` หรือ `Decimal` ที่มากกว่า 0 และเป็นค่าจำกัด; ยังไม่มีที่เก็บ Ratio นี้ใน Schema
+ผู้เรียกต้องส่งเข้ามาเอง ห้ามใช้ `APPROVAL_POLICY.ratio` ซึ่งเป็นตัวคูณ Auto-approval)
+ไม่ใช้ `STAFFING_REQUIREMENTS.required_staff` / `minimum_staff` เป็นเป้าหมาย และไม่เขียน DB / Audit
+ผลมี `minimum_required_staff`, `headcount_gap`, `role_gaps` / `skill_gaps` (ID → `required_count`, `current_count`,
+`gap_count`) โดย Gap ต่ำสุดคือ 0 และเก็บรายการที่ไม่ขาดไว้ด้วย
+ใช้ `result.has_gap` ตรวจว่าขาดจำนวนคน **หรือ** Role **หรือ** Skill; ห้ามบวก Gap ทั้งสามชนิดเข้าด้วยกัน
+
 **เสร็จเมื่อ:** สร้างเคสด้วยมือ เรียก `advance()` แล้วเคสเดินจาก `OPEN` ไปหยุดที่ `WAITING_RESPONSE` พร้อม `CASE_STATUS_CHANGED` 4 แถว
 
 ---

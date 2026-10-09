@@ -70,6 +70,13 @@ POST /events
 * `required_replacement_time` = `SHIFT.start_at`
 * ขั้นตอน 1–3 อยู่ใน Transaction เดียว ถ้าพังกลางทาง Event ไม่ถูกบันทึกเลย
 * `STAFF.status` ของคนที่ลาไม่เปลี่ยน (ยังเป็น `ACTIVE`)
+* เป้าหมายจำนวนคนมาจากภาระงาน: `minimum_required_staff = ceil(SHIFT.patient_count / patients_per_nurse)`
+  และ `headcount_gap = max(minimum_required_staff - current_valid_staff, 0)`
+  ใน Skeleton `current_valid_staff` คือคนไม่ซ้ำที่มี Roster `ASSIGNED` ในเวรนั้น
+  `patients_per_nurse` คือ Ratio ของ Ward ที่ผู้เรียกส่งเข้า Calculator; ยังไม่มีคอลัมน์เก็บใน Schema
+  และไม่ใช่ `APPROVAL_POLICY.ratio` (ตัวคูณสำหรับ Auto-approval)
+* ตรวจ Role / Skill ตาม Requirement แยกจาก Headcount; ขาดอย่างใดอย่างหนึ่งก็ถือว่ามี Gap
+  แม้จำนวนคนจะเพียงพอตาม Ratio แล้วก็ตาม
 * `PLANNED_LEAVE` (ลาที่ไม่ชนเวรที่มี Roster) ไม่สร้าง Event และ `NO_SHOW` (ระบบสร้างเองจาก `ATTENDANCE`) อยู่นอก Skeleton ดูข้อ 12
 
 ---
@@ -270,6 +277,11 @@ Seed ใช้ชื่อภาษาอังกฤษตามตาราง
 **STAFFING_REQUIREMENTS**
 * 1 = shift 1, `required_staff = 5`, `minimum_staff = 4`, ROLE: RN = 5, SKILL: ICU = 2
 * 2 = shift 2, `required_staff = 1`, `minimum_staff = 1`, ROLE: RN = 1, ไม่มี SKILL
+
+ตัวอย่าง Golden Case สำหรับ Calculator ใช้ `patients_per_nurse = 2` เพื่อให้ผู้ป่วย 10 คน
+ต้องการพยาบาล 5 คน และผู้ป่วย 2 คนต้องการ 1 คน ค่านี้เป็น Input ตัวอย่างของการทดสอบ
+ไม่ใช่ Ratio ของ Ward ที่ Seed เก็บไว้ และไม่ใช่ค่า Auto-approval
+ค่า `required_staff` / `minimum_staff` ที่ Seed มีอยู่ไม่ใช่ Input สำหรับสูตร Headcount นี้
 
 **ROSTER_ASSIGNMENT**
 * 101–105 ในเวร 1: `ASSIGNED`, `REGULAR`
