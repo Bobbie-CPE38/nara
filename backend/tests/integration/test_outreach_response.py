@@ -222,6 +222,39 @@ def test_reject_is_422_without_writes(
     _assert_unchanged(production_seeded, offer)
 
 
+def test_reject_works_without_new_starlette_status_constant(
+    client: TestClient,
+    production_seeded: Session,
+    offer: CandidateOutreach,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delattr(line_sim.status, "HTTP_422_UNPROCESSABLE_CONTENT", raising=False)
+    response = client.post(URL, headers=HEADERS, json={"response": "REJECT"})
+    assert response.status_code == 422
+    _assert_unchanged(production_seeded, offer)
+
+
+def test_real_outreach_then_accept_writes_each_offer_audit_once(
+    client: TestClient, production_seeded: Session, offer: CandidateOutreach
+) -> None:
+    db = production_seeded
+    case = db.get(StaffingCase, offer.case_id)
+    assert case is not None
+    # Replace the fixture's offer with one created by the real seam 2 handler.
+    db.delete(offer)
+    case.status = CaseStatus.OUTREACH
+    orchestrator.advance(db, case.id)
+    assert case.status is CaseStatus.WAITING_RESPONSE
+    sent = db.scalars(select(CandidateOutreach)).one()
+    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+    assert response.status_code == 200
+    assert response.json()["outreach_id"] == sent.id
+    assert response.json()["case_status"] == "WAITING_APPROVAL"
+    actions = list(db.scalars(select(AuditLog.action)))
+    assert actions.count(AuditAction.OFFER_SENT) == 1
+    assert actions.count(AuditAction.OFFER_ACCEPTED) == 1
+
+
 @pytest.mark.parametrize("answer", ["ACCEPT", "REJECT"])
 def test_multiple_open_offers_are_conflict_before_answer_check(
     client: TestClient, production_seeded: Session, offer: CandidateOutreach, answer: str

@@ -368,6 +368,7 @@ Seam 3 ใช้ `outreach_service.record_response()` โดย Route ส่ง 
 `user.actor_id` จาก Dependency Body รับแค่ `{"response": "ACCEPT"}` หรือ `{"response": "REJECT"}`
 ไม่รับ `outreach_id` / `staff_id` หรือฟิลด์อื่น Service ค้น Offer ที่ `SENT` ของผู้ตอบผ่าน
 `CANDIDATE_ITEMS.staff_id` และล็อกเฉพาะแถว Outreach ตามลำดับ `id` ก่อนตรวจคำตอบ
+ลำดับการล็อกคือ **Outreach ก่อน Case** (`resume()` ล็อก Case): งาน Timeout ในอนาคตต้องใช้ลำดับเดียวกันเพื่อไม่ให้ Deadlock
 ไม่เจอหรือเจอหลายแถวตอบ `409` โดยไม่เขียนอะไร การ `ACCEPT` ตั้ง `response_at = clock.now()`
 เขียน `OFFER_ACCEPTED` ด้วย Actor ของผู้ตอบ แล้วเรียก `resume(..., SAFETY_VALIDATION)`
 คำขอซ้ำหลังคำขอแรก Commit ตอบ `409` และไม่เขียน Audit ซ้ำ Service / Route ไม่ Commit เอง

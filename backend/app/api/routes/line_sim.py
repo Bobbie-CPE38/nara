@@ -36,7 +36,7 @@ def respond(body: ResponseRequest, db: DbSession, user: DemoUser) -> ResponseRes
     except outreach_service.OpenOfferConflictError as error:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error)) from error
     except outreach_service.UnsupportedResponseError as error:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)) from error
+        raise HTTPException(422, detail=str(error)) from error
     return ResponseResult(
         outreach_id=outreach.id,
         outreach_status=outreach.status,
