@@ -42,7 +42,7 @@ jobs:
     env:
       # tests/conftest.py derives the test database (staffing_test) from this URL
       DATABASE_URL: postgresql+psycopg://staffing:staffing_dev@localhost:5432/staffing
-      # Required by app.core.config (no default), same value as .env.example
+      # Required by app.core.config (no default). Same value Compose derives from the default FRONTEND_PORT
       CORS_ORIGINS: '["http://localhost:3000"]'
 
     steps:
