@@ -259,12 +259,20 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | 5 | Safety → Approval Request | คน 2 | `case_id` = เคสนั้น `candidate_item_id` = Item ของ Outreach ที่ตอบรับ โหลด Plan จาก `item.plan_id` แล้วตรวจ `plan.case_id == case.id` (FK สองตัวไม่ได้รับประกันข้อนี้) ตั้ง `approval_mode = MANUAL`, `required_approver_role` = `id` ของ Role ชื่อ `HEAD_NURSE` (ค้นด้วยชื่อ), `is_pending = true`, `requested_at = clock.now()` |
 | 6 | รายการรออนุมัติ | คน 3 | `GET /approvals?pending=true` คืนแถวที่ `is_pending = true` เรียงด้วย `id` จากน้อยไปมาก ใน Skeleton เคสหนึ่งมีได้ไม่เกินหนึ่งแถว |
 | 7 | Decide | คน 3 | ตรวจตามลำดับ: ไม่มี Request ID นั้น → `404`; `user.staff.role_id != required_approver_role` → `403` (`get_demo_user` ไม่ตรวจ Role ดูข้อ 9); ไม่ได้ Pending → `409`; `approved = false` → `422` ไม่เขียน DB (ข้อ 9.2) ถ้าอนุมัติ: `approver_id = user.staff.id`, `is_approved = true`, `decided_at = clock.now()`, `is_pending = false` แล้วเรียก `orchestrator.resume(db, case_id, EXECUTING)` |
-| 8 | Approval → Execute | คน 3 (คน 2 ถ้าย้ายงาน Roster) | Request ของเคสที่ `is_pending = false` **และ** `is_approved = true` หนึ่งแถวพอดี สร้าง Roster จาก Item ของ Request นั้น: `staff_id = item.staff_id`, `shift_id = item.proposed_shift_id`, `status = ASSIGNED`, `assignment_type = REPLACEMENT`, `candidate_source = item.source` |
+| 8 | Approval → Execute | คน 3 | Request ของเคสที่ `is_pending = false` **และ** `is_approved = true` หนึ่งแถวพอดี สร้าง Roster จาก Item ของ Request นั้น: `staff_id = item.staff_id`, `shift_id = item.proposed_shift_id`, `status = ASSIGNED`, `assignment_type = REPLACEMENT`, `candidate_source = item.source`; โหลด Plan ผ่าน Item และตรวจ `plan.case_id == case.id` และ `item.proposed_shift_id == case.shift_id` และเรียก `availability_service.assert_available()` ก่อนเขียน |
 | 9 | Timeline | คน 1 | `GET /cases/{id}/audit` เรียงด้วย `id` |
 | 10 | Requirement ของเวร | คน 1 (รับ Event + Gap) | `STAFFING_REQUIREMENTS` ที่ `shift_id` ของเวรนั้น เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error ตารางนี้ไม่มี Unique ที่ `shift_id` จึงมีหลายเวอร์ชันได้ (Seed มีเวรละแถว) การรับ Event และ `assess_staffing` ต้องโหลดผ่าน**ฟังก์ชันเดียวกัน** เพื่อให้เห็น Requirement ตัวเดียวกันเสมอ แถว Gap เก็บ `id` นี้ใน `staffing_requirement_id` |
 
 Seam 4 Flush คำตอบที่ค้างอยู่ก่อนค้นหา เพื่อรองรับ `autoflush=False`
 Lookup ไม่สร้างแถวใหม่ ไม่ Commit ไม่เขียน Audit และไม่เพิ่ม Row Lock
+
+Seam 8 ใช้ `roster_service.create_replacement(db, case)` ซึ่ง Flush คำตัดสินก่อนค้น Request (Session ปิด Autoflush)
+Service สร้าง Roster และคืนแถวที่มี ID แต่ไม่เขียน Audit / Commit / เปลี่ยน `case.status`
+`execute_assignment` เขียน `ASSIGNMENT_CREATED` และ `CASE_RESOLVED` ตามข้อ 7 แล้วคืน `RESOLVED`
+Error ส่งให้ D11: Rollback Roster และ Audit ของรอบ Execute แต่เก็บคำตัดสินอนุมัติจากผู้เรียกไว้
+ก่อนสร้าง Roster เรียก `availability_service.assert_available()` เช่นเดียวกับ Safety เพื่อเช็ก `ACTIVE`,
+Roster ที่จองเวรแล้ว และ Unavailability ที่ชนเวรอีกครั้งหลังรออนุมัติ ไม่ผ่านให้ D11 เปลี่ยนเคสเป็น `FAILED`
+และเก็บผลอนุมัติไว้ การล็อก Shift ทั้งระบบยังเป็นงานหลัง Skeleton
 
 ### 6.5 คอลัมน์เวลา
 
@@ -671,3 +679,5 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ขั้นที่ 4 Seam 7: เพิ่ม Route / Schema / `approval_service.decide()` ตรวจ `404 → 403 → 409 → 422`, ล็อก Request กันอนุมัติซ้ำ, เขียน Audit และ `resume(EXECUTING)` | คน 3 |
 | 2026-10-10 | ตามรีวิว Seam 7: รวม staging คืนเจ้าของ Seam 8 ใช้ `MAX_BIGINT` และล็อก Request แบบ `FOR NO KEY UPDATE`; Test ใช้ Main App และ Error Handler ตัวจริง | คน 3 |
 | 2026-10-10 | ตามรีวิว Seam 7 รอบล่าสุด: ย้าย Schema การตัดสินใจมา `schemas/approval.py`, เพิ่มลำดับ Lock Request ก่อน Case ในข้อ 6.2 และ Test อนุมัติแล้วหายจาก Pending List; ระบุว่า Seam 8 เป็นงานคน 3 ใน PR #18 และวางรูปแบบ GET Seam 6 ในข้อ 9.3 | คน 3 |
+| 2026-10-10 | ขั้นที่ 4 Seam 8 (คน 3 รับงานกลับ): สร้าง Roster จาก Request ที่อนุมัติหนึ่งแถวพอดี ตรวจ Plan / Shift ของ Item; Handler เขียน `ASSIGNMENT_CREATED`, `CASE_RESOLVED` และให้ Orchestrator เปลี่ยนสถานะ / Commit; เพิ่ม Test Contract และ D11 Rollback | คน 3 |
+| 2026-10-10 | ตามรีวิว Seam 8: เช็ก Availability ซ้ำก่อนสร้าง Roster ด้วยกติกาเดียวกับ Safety; เปลี่ยนเป็น `FAILED` เมื่อผู้สมัครไม่พร้อมโดยไม่สร้าง Roster ใหม่และเก็บผลอนุมัติไว้ เพิ่ม Regression Tests | คน 3 |
