@@ -37,7 +37,11 @@ from app.domain.enums import (
     CaseStatus,
     EntityType,
 )
-from app.domain.errors import CaseNotFoundError
+
+# Re-exported on purpose (`X as X`): other modules still reach this error as
+# orchestrator.CaseNotFoundError, and strict mypy rejects a plain import there.
+# Import it from app.domain.errors in new code; drop this once nothing uses the old path
+from app.domain.errors import CaseNotFoundError as CaseNotFoundError
 from app.domain.workflow.transitions import InvalidTransitionError, assert_transition
 from app.services import actor_service, audit_service
 from app.workflow.handlers import (
