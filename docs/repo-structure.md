@@ -321,12 +321,15 @@ nara/
 │       │       └── test_transitions.py
 │       │
 │       ├── integration/
+│       │   ├── conftest.py
 │       │   ├── test_migrations.py
 │       │   ├── test_models.py
 │       │   ├── test_seed.py
 │       │   ├── test_gap_policy.py
 │       │   ├── test_demo_reset.py
 │       │   ├── test_health.py
+│       │   ├── test_actor_service.py
+│       │   ├── test_dependencies.py
 │       │   ├── test_golden_flow.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_orchestrator.py

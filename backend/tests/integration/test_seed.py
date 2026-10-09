@@ -1,7 +1,6 @@
 """Seed the real PostgreSQL schema and verify the demo's staffing preconditions."""
 
-from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -25,23 +24,16 @@ from app.db.models import (
 from app.domain.enums import ActorName, ActorType, RosterStatus, StaffStatus
 from app.seed import base_data, load
 from app.seed.scenarios import golden_case
+from tests.integration.conftest import DEMO_NOW
 
-DEMO_TIME = datetime(2026, 10, 9, 21, tzinfo=clock.APP_TIMEZONE)
-
-
-@pytest.fixture(autouse=True)
-def demo_clock() -> Iterator[None]:
-    clock.set_time(DEMO_TIME)
-    yield
-    clock.reset()
+pytestmark = pytest.mark.usefixtures("frozen_clock")
 
 
 @pytest.fixture
-def seeded(db: Session) -> Session:
-    # tests/conftest.py creates the schema using Alembic migrations.
-    load(db)
-    db.expire_all()
-    return db
+def seeded(seeded: Session) -> Session:
+    # Reload from the database so the assertions see what was really stored
+    seeded.expire_all()
+    return seeded
 
 
 def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
@@ -56,7 +48,7 @@ def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
         assert actor.actor_type is ActorType.USER
         assert staff.status is StaffStatus.ACTIVE
         assert staff.password_hash == "!"
-        assert staff.created_at == DEMO_TIME
+        assert staff.created_at == DEMO_NOW
     for model in (HardConstraintPolicy, SoftConstraintPolicy, ApprovalPolicy):
         assert seeded.scalar(select(func.count()).select_from(model)) == 1
     approval = seeded.get(ApprovalPolicy, 1)
@@ -99,9 +91,9 @@ def test_shift_times_and_generated_ids_after_seed(seeded: Session) -> None:
     night = seeded.get(Shift, 1)
     day = seeded.get(Shift, 2)
     assert night is not None and day is not None
-    assert night.start_at == DEMO_TIME + timedelta(hours=2)
-    assert night.end_at == DEMO_TIME + timedelta(hours=10)
-    assert day.start_at == DEMO_TIME + timedelta(days=1, hours=10)
+    assert night.start_at == DEMO_NOW + timedelta(hours=2)
+    assert night.end_at == DEMO_NOW + timedelta(hours=10)
+    assert day.start_at == DEMO_NOW + timedelta(days=1, hours=10)
     assert day.end_at - day.start_at == timedelta(hours=8)
     # Explicit seed IDs must not collide with subsequent generated IDs.
     role = Role(name="NEW_ROLE")

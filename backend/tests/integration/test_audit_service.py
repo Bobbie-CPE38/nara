@@ -1,7 +1,6 @@
 """audit_service.log() against a real PostgreSQL: row contents, no commit, enum-only input."""
 
-from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 from unittest import mock
 
@@ -10,7 +9,6 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm import Session
 
-from app.core import clock
 from app.db.models import Actor, AuditLog, Shift, StaffingCase, StaffingEvent
 from app.domain.enums import (
     ActorName,
@@ -20,23 +18,10 @@ from app.domain.enums import (
     EventStatus,
     EventType,
 )
-from app.seed import load
 from app.services import audit_service
+from tests.integration.conftest import DEMO_NOW
 
-DEMO_NOW = datetime(2026, 10, 9, 21, 0, tzinfo=clock.APP_TIMEZONE)
-
-
-@pytest.fixture(autouse=True)
-def frozen_clock() -> Iterator[None]:
-    clock.set_time(DEMO_NOW)
-    yield
-    clock.reset()
-
-
-@pytest.fixture
-def seeded(db: Session) -> Session:
-    load(db)
-    return db
+pytestmark = pytest.mark.usefixtures("frozen_clock")
 
 
 @pytest.fixture
