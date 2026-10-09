@@ -1,1 +1,1 @@
-"""Workflow handlers; orchestration is implemented separately."""
+"""Workflow orchestrator and the handlers it runs."""

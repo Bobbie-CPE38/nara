@@ -105,7 +105,7 @@ POST /events
 | `UNRESOLVED` | คนจัดการแล้วแต่แก้ไม่ได้ | สิ้นสุด | ภายหลัง |
 | `FAILED` | ระบบหรือบริการขัดข้อง | สิ้นสุด | ✅ (ตาม D11) |
 
-**จุดรอ** คือ State ที่ Orchestrator หยุด และเดินต่อเมื่อ API ภายนอกเปลี่ยน State แล้วเรียก `orchestrator.advance(case_id)`
+**จุดรอ** คือ State ที่ Orchestrator หยุด และเดินต่อเมื่อ Service ของ API ภายนอกเรียก `orchestrator.resume(db, case_id, next_status)` Service ไม่แก้ `case.status` เอง (D3)
 
 ---
 
@@ -120,9 +120,9 @@ POST /events
 | `ASSESSING` | `OPTIMIZING` | handler `assess_staffing` | บันทึก Gap แล้ว `result.has_gap` เป็น True (Headcount หรือ Role หรือ Skill ขาด) |
 | `OPTIMIZING` | `OUTREACH` | handler `optimize` | ได้รายชื่อผู้สมัครอย่างน้อย 1 คน |
 | `OUTREACH` | `WAITING_RESPONSE` | handler `contact_candidate` | ส่ง Offer แล้ว (`wait=True`) |
-| `WAITING_RESPONSE` | `SAFETY_VALIDATION` | `outreach_service.record_response()` | ผู้สมัครตอบ `ACCEPT` แล้วเรียก `advance()` |
+| `WAITING_RESPONSE` | `SAFETY_VALIDATION` | `outreach_service.record_response()` | ผู้สมัครตอบ `ACCEPT` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` |
 | `SAFETY_VALIDATION` | `WAITING_APPROVAL` | handler `validate_safety` | ผ่าน Safety สร้าง Approval Request แล้ว (`wait=True`) |
-| `WAITING_APPROVAL` | `EXECUTING` | `approval_service.decide()` | อนุมัติ แล้วเรียก `advance()` |
+| `WAITING_APPROVAL` | `EXECUTING` | `approval_service.decide()` | อนุมัติ แล้วเรียก `orchestrator.resume(db, case_id, EXECUTING)` |
 | `EXECUTING` | `RESOLVED` | handler `execute_assignment` | สร้าง Roster ของผู้มาแทนแล้ว |
 
 ### 5.2 ทุก State ที่ไม่ใช่สิ้นสุด
@@ -151,13 +151,30 @@ def handle(db: Session, case: StaffingCase) -> HandlerResult: ...
 * **ห้าม** แก้ `case.status` เอง ให้คืนผ่าน `next_status`
 * **ห้าม** เรียก `db.commit()`
 * ต้องเรียก `audit_service.log()` สำหรับงานของตัวเอง (ยกเว้น `CASE_STATUS_CHANGED` ซึ่ง Orchestrator ทำ)
+* `wait=True` ต้องคู่กับ `next_status` ที่เป็นจุดรอ (`WAITING_RESPONSE`, `WAITING_APPROVAL`) เท่านั้น และจุดรอต้องมี `wait=True` เสมอ
+* Handler ที่ฝ่าฝืนข้อใดข้อหนึ่ง (แก้ `case.status` เอง, `wait` ไม่ตรง, Transition ไม่อยู่ในข้อ 5) ทำให้เคสเป็น `FAILED` ตาม D11
 
 ### 6.2 Orchestrator
 
 ```python
 # workflow/orchestrator.py
 def advance(db: Session, case_id: int) -> None
+def resume(db: Session, case_id: int, next_status: CaseStatus) -> None
+
+HANDLERS: dict[CaseStatus, Handler]      # State อัตโนมัติ → Handler ที่รันใน State นั้น
 ```
+
+* `advance()` ใช้หลังสร้างเคส (`event_service`) เดินจาก State ปัจจุบัน ถ้าเคสอยู่ที่จุดรอหรือ State ที่หยุดแล้วจะไม่ทำอะไร
+* `resume()` ใช้ออกจากจุดรอ: ตรวจ Transition, เปลี่ยน State, บันทึก `CASE_STATUS_CHANGED` แล้วเดินต่อเหมือน `advance()`
+  ถ้าเคสไม่ได้อยู่ที่จุดรอหรือ Transition ไม่ถูกต้อง จะโยน `InvalidTransitionError` โดยไม่แตะเคสและ**ไม่**ทำให้เคสเป็น `FAILED`
+  (เช่น ผู้สมัครกด `ACCEPT` ซ้ำ หรือผู้อนุมัติกดสองครั้ง) Route ควรตอบ `409`
+* ล็อกแถวของเคสด้วย `SELECT ... FOR UPDATE` คำขอที่สองของเคสเดียวกันจะรอจนรอบแรกจบ
+* ไม่มีเคส ID นั้น โยน `CaseNotFoundError`
+* D11 ทำด้วย Savepoint: รอบที่พังถูก Rollback กลับไปที่จุดเริ่มรอบ งานที่ผู้เรียกทำไว้ก่อนใน Transaction เดียวกัน
+  (Event, เคส, คำตอบของผู้สมัคร) ยังอยู่ จากนั้นเคสเป็น `FAILED` พร้อม `CASE_STATUS_CHANGED` และ `WORKFLOW_FAILED`
+  (payload: `from`, `failed_at`, `error_type` ไม่เก็บข้อความ Error เพราะอาจมีข้อมูลต้องห้าม) แล้ว Commit
+* ทั้งสองฟังก์ชัน**ไม่โยน** Exception ของ Handler ต่อ ผู้เรียกดูผลจาก `case.status` รายละเอียดอยู่ใน Log ของ Server
+* ผู้เรียกไม่ต้อง Commit ก่อนเรียก และไม่ต้อง Commit หลังเรียก Orchestrator Commit ให้ทั้ง Transaction
 
 * เดินต่อจนเจอจุดรอหรือ State สิ้นสุด แล้ว Commit
 * ตรวจ `next_status` ของ Handler กับ `domain/workflow/transitions.py` ก่อนเปลี่ยน State (ตารางเดียวของข้อ 5)
@@ -393,3 +410,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | ปิดขั้นที่ 0 ของ `walking-skeleton.md`: เพิ่ม `UNAVAILABILITY_CREATED` ในข้อ 7 ให้ตรงกับ `GOLDEN_PATH_AUDIT_ACTIONS`, `ACTORS.name` ของ user = `str(staff.id)` | ทีม |
 | 2026-10-09 | Gap Calculator ใช้ `ceil(patient_count / patients_per_nurse)` จาก `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` (Ratio เดียวทั้งโรงพยาบาล, Seed id=1 ค่า 2); เพิ่ม Migration และ shared policy loader; เปิดเคสและ ASSESSING ใช้ `has_gap`; ปรับ Requirement / PATIENT_SURGE และระบุข้อจำกัดประวัติ Policy ของ Gap | ทีม |
 | 2026-10-09 | ขั้นที่ 3: ข้อ 6.3 `actor_service` โยน `ActorNotFoundError` เมื่อไม่มี Actor, ข้อ 9 เพิ่ม Dependency `get_db` / `get_demo_user` (คืน `CurrentUser` ที่มี `staff` และ `actor_id`) และเงื่อนไข `401` ของ `X-Demo-User` | คน 1 |
+| 2026-10-09 | ขั้นที่ 3 Orchestrator: ข้อ 6.2 เพิ่ม `resume()` สำหรับออกจากจุดรอ (Service ไม่แก้ `case.status` เอง), `HANDLERS`, ล็อกแถวเคส, D11 ทำด้วย Savepoint และไม่โยน Exception ต่อ; ข้อ 6.1 เพิ่มกติกา `wait` คู่กับจุดรอ; ข้อ 4 และ 5.1 เปลี่ยนจาก `advance()` เป็น `resume()` ที่จุดรอ | คน 1 |
