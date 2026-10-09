@@ -68,6 +68,34 @@ POST /events
 ```
 
 * `required_replacement_time` = `SHIFT.start_at`
+* Request: `POST /events` พร้อม `X-Demo-User` และ Body `{event_type, shift_id, end_at?}` ผู้แจ้งคือ `user.staff.id`
+  `end_at` คือเวลากลับที่แจ้ง ต้องมี Timezone และอยู่หลัง `SHIFT.start_at` ไม่ส่งมา = ถึง `SHIFT.end_at`
+* Skeleton รับเฉพาะ `STAFF_UNAVAILABLE` Event type อื่นยังไม่มีกติการับ (ข้อ 12)
+* ตรวจทุกข้อ**ก่อนเขียนแถวแรก** คำขอที่ถูกปฏิเสธจึงไม่ทิ้งอะไรไว้ใน DB ตามลำดับนี้
+
+  | ตรวจ | ไม่ผ่านตอบ |
+  |---|---|
+  | `event_type` เป็น `STAFF_UNAVAILABLE` | `422` |
+  | `shift_id` อยู่ในช่วง `bigint` (1 ถึง 9223372036854775807) | `422` |
+  | มี Shift ID นั้น | `404` |
+  | `end_at` อยู่หลัง `SHIFT.start_at` (ถ้าส่งมา) | `422` |
+  | ผู้แจ้งมี Roster `ASSIGNED` ในเวรนั้นหนึ่งแถวพอดี | ไม่มี → `409`, มีหลายแถว → Error |
+
+  `409` ครอบคลุมทั้งคนที่ไม่ได้อยู่เวรนั้นและการแจ้งลาซ้ำ (แถว Roster ถูก `CANCELLED` ไปแล้วจากครั้งแรก)
+* การรับ Event ทำ**ทีละคำขอต่อเวร**: ล็อกแถว `SHIFT` ก่อน แล้วจึงล็อกแถว Roster ของผู้แจ้ง (ลำดับนี้เสมอ) ด้วย `SELECT ... FOR NO KEY UPDATE`
+  และถือ Lock จน Commit
+  * คนละคนแจ้งลาเวรเดียวกันพร้อมกัน: ถ้าไม่ล็อกเวร แต่ละคำขอจะยกเลิก Roster ของตัวเอง แต่ยังเห็นอีกคนเป็น `ASSIGNED`
+    (ยังไม่ Commit) ทั้งสอง Event จึงเป็น `IGNORED` ทั้งที่เวรขาดคนแล้ว เมื่อล็อกเวร คำขอที่สองจะเห็นผลของคำขอแรกก่อนตรวจ Gap
+  * คนเดียวกันแจ้งลาเวรเดียวกันซ้ำพร้อมกัน: คำขอที่สองเห็นแถว Roster ถูก `CANCELLED` แล้วได้ `409` ไม่เกิด Event หรือเคสซ้ำ
+  * Lock นี้คุมเฉพาะการรับ Event ขั้นอื่นที่เขียน Roster (เช่น `execute_assignment`) ยังไม่ได้ล็อกเวร
+    Lock ต่อ Shift ทั้งระบบเป็นงานหลัง Skeleton (`core/locks.py`)
+* แถว Audit ของ Event (`EVENT_RECEIVED`, `UNAVAILABILITY_CREATED`) เขียน**หลัง**สร้างเคส เพื่อให้มี `case_id` ของเคสนั้น
+  และขึ้นใน Timeline ของเคสตามลำดับของข้อ 7 Event ที่ `IGNORED` ทั้งสามแถวมี `case_id = NULL`
+* `EVENT_IGNORED` ใช้ Actor `workflow_orchestrator` เหมือน `CASE_OPENED` (เป็นการตัดสินของระบบ) `entity_type = STAFFING_EVENTS`
+  payload `event_id`, `shift_id`
+* Event ที่ `IGNORED` ไม่มีรอบของ Orchestrator `event_service` จึง Commit เอง Event ที่เปิดเคส Orchestrator Commit ให้ (ข้อ 6.2)
+* ตรวจ Gap ด้วย `gap_service.assess_shift(db, shift)` ซึ่งโหลด Requirement ผ่าน `requirement_service.get_current_requirement()`
+  (Seam 10) ขั้น `ASSESSING` ต้องเรียกฟังก์ชันเดียวกันนี้
 * ขั้นตอน 1–3 อยู่ใน Transaction เดียว ถ้าพังกลางทาง Event ไม่ถูกบันทึกเลย
 * `STAFF.status` ของคนที่ลาไม่เปลี่ยน (ยังเป็น `ACTIVE`)
 * เป้าหมายจำนวนคนมาจากภาระงาน: `minimum_required_staff = ceil(SHIFT.patient_count / patients_per_nurse)`
@@ -174,6 +202,8 @@ HANDLERS: dict[CaseStatus, Handler]      # State อัตโนมัติ →
   ผู้เรียก**ห้าม Commit** ให้ตอบ `409` แล้วปล่อยให้ Session Rollback (`get_db` ปิด Session ซึ่ง Rollback ให้อยู่แล้ว)
 * ล็อกแถวของเคสด้วย `SELECT ... FOR NO KEY UPDATE` คำขอที่สองของเคสเดียวกันจะรอจนรอบแรกจบ
   (ไม่ใช้ `FOR UPDATE` เพราะแถว Audit ที่ผู้เรียก Insert ไว้ก่อนถือ Lock `KEY SHARE` บนเคสผ่าน FK สองคำขอแบบนี้จะ Deadlock กัน)
+* ลำดับ Lock ทั้งระบบ: แถว `SHIFT` และ `ROSTER_ASSIGNMENT` (รับ Event) → แถวเคส → แถว `STAFF` (Solver ข้อ 8)
+  แถว `STAFF` มาท้ายสุดเสมอและล็อกเรียงตาม `id` ห้ามโค้ดใหม่ล็อก `STAFF` ก่อนแล้วค่อยล็อกเคสหรือเวร ไม่งั้นจะ Deadlock
 * ไม่มีเคส ID นั้น โยน `CaseNotFoundError`
 * D11 ทำด้วย Savepoint: รอบที่พังถูก Rollback กลับไปที่จุดเริ่มรอบ งานที่ผู้เรียกทำไว้ก่อนใน Transaction เดียวกัน
   (Event, เคส, คำตอบของผู้สมัคร) ยังอยู่ จากนั้นเคสเป็น `FAILED` พร้อม `CASE_STATUS_CHANGED` และ `WORKFLOW_FAILED`
@@ -281,10 +311,10 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 |---|---|---|
 | Event | ตามข้อ 3 (ของจริงตั้งแต่ Skeleton) | STAFFING_EVENTS, STAFF_UNAVAILABILITY, ROSTER_ASSIGNMENT, STAFFING_CASES |
 | Gap | โหลด Hard Policy `id=1` ผ่าน `policy_service`; ใช้ `gap_calculator` เทียบคนที่ `ASSIGNED` กับ `ceil(patient_count / policy.maximum_patients_per_nurse)` และ Role / Skill กับ Requirement; ใช้ `result.has_gap` | STAFFING_GAP (+ ROLE, SKILL) |
-| Solver | คืนผู้สมัคร 3 คนตายตัวตาม Golden Case `solver_status = FEASIBLE`, `solver_version = "stub"` | CANDIDATE_PLANS, CANDIDATE_ITEMS |
+| Solver | เริ่มจากผู้สมัคร 3 คนตายตัวตาม Golden Case แล้วตัดคนที่ไม่ `ACTIVE`, มี Roster ในเวรของเคสที่สถานะอยู่ใน `COMMITTED_ROSTER_STATUSES` หรือมี `STAFF_UNAVAILABILITY` ชนช่วงเวลาของเวรนั้น (`end_at` เป็น NULL = ไม่พร้อมตั้งแต่ `start_at`) ออก กติกาอยู่ใน `services/availability_service.py` ใช้ร่วมกับ Safety ไม่เช็กเวรอื่นที่เวลาชนกัน (Hard Rules ของจริงทำภายหลัง) กฎข้อที่ 4 เฉพาะ Solver: ตัดคนที่มี Offer ค้างอยู่ คือ `CANDIDATE_OUTREACH` ที่ `SENT` (ของเคสไหนก็ได้ เพราะ Seam 3 ต้องเจอ Offer `SENT` ของผู้ตอบหนึ่งแถวพอดี ถ้ามีสองแถว ทั้งสองเคสจะค้างที่ `WAITING_RESPONSE`) หรือ `ACCEPTED` ที่เคสยังไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` กฎนี้อยู่ใน `optimization_service` ไม่อยู่ใน `availability_service` เพราะผู้สมัครที่ Safety เช็กมี Offer `ACCEPTED` ของตัวเองเสมอ ก่อนเช็กกติกา Solver ล็อกแถว `STAFF` ของผู้สมัคร (`FOR NO KEY UPDATE` เรียงตาม `id`) จนรอบนั้น Commit ที่ `WAITING_RESPONSE` เคสที่วางแผนพร้อมกันจะรอแล้วเห็น Offer ของเคสแรก จึงไม่เลือกคนเดียวกัน ใส่ `rank` ใหม่ 1, 2, 3 ต่อกัน `solver_status = FEASIBLE`, `solver_version = "stub"` ถ้าไม่เหลือใครเลย โยน `NoCandidatesError` โดยไม่เขียน Plan เคสเป็น `FAILED` ตาม D11 (ข้อ 5 ยังไม่มี Transition ของกรณีนี้) | CANDIDATE_PLANS, CANDIDATE_ITEMS |
 | Outreach | สร้าง Outreach ให้อันดับ 1 สถานะ `SENT` ไม่ส่ง LINE จริง | CANDIDATE_OUTREACH |
 | Response | LINE Simulator ส่ง `ACCEPT` → `ACCEPTED` | CANDIDATE_OUTREACH |
-| Safety | `is_passed = true`, `validation_snapshot = {}` | SAFETY_VALIDATION, APPROVAL_REQUEST |
+| Safety | ตรวจว่า `proposed_shift_id` ของ Item ที่ตอบรับเป็นเวรของเคส (Execute จัดเวรตาม `proposed_shift_id` ตาม Seam 8) ไม่ตรงโยน `ProposedShiftMismatchError` แล้วเช็กผู้สมัครที่ตอบรับซ้ำด้วยกติกา 3 ข้อเดียวกับ Solver (`services/availability_service.py`: `ACTIVE`, ไม่มี Roster ในเวรของเคสที่สถานะอยู่ใน `COMMITTED_ROSTER_STATUSES`, ไม่มี `STAFF_UNAVAILABILITY` ชนเวร) เพราะสถานการณ์เปลี่ยนได้ระหว่างรอคำตอบ ไม่ผ่านข้อใด โยน Exception ที่ชื่อบอกสาเหตุ (`StaffNotActiveError`, `StaffAlreadyOnShiftError`, `StaffUnavailableError`) โดยไม่เขียน SAFETY_VALIDATION และ APPROVAL_REQUEST เคสเป็น `FAILED` ตาม D11 ถ้าผ่าน: `is_passed = true`, `validation_snapshot = {}` การบันทึก `is_passed = false` + `SAFETY_FAILED` แล้วไปผู้สมัครคนถัดไป รอ Transition ในข้อ 5 | SAFETY_VALIDATION, APPROVAL_REQUEST |
 | Approval | `approval_mode = MANUAL` ผู้อนุมัติกดในหน้าเว็บ | APPROVAL_REQUEST |
 | Roster | สร้างแถว `ASSIGNED` + `REPLACEMENT` + `SAME_WARD` | ROSTER_ASSIGNMENT |
 
@@ -394,7 +424,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 
 | Route | Code | Body |
 |---|---|---|
-| `POST /events` | `201` | `{event_id, event_status, case_id, case_status}` เมื่อ Event เป็น `IGNORED` ทั้ง `case_id` และ `case_status` เป็น `null` |
+| `POST /events` | `201` | `{event_id, event_status, case_id, case_status}` เมื่อ Event เป็น `IGNORED` ทั้ง `case_id` และ `case_status` เป็น `null` คำขอที่ถูกปฏิเสธตอบ `401` / `404` / `409` / `422` ตามข้อ 3 |
 | `POST /demo/line-sim/respond` | `200` | `{outreach_id, outreach_status, case_id, case_status}` |
 | `POST /approvals/{id}/decision` | `200` | `{approval_id, is_approved, case_id, case_status}` |
 
@@ -596,4 +626,10 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | ขั้นที่ 4 Seam 2: Contact Handler ส่ง Mock Offer ให้อันดับ 1 ของ Plan ล่าสุด, บังคับ Item หนึ่งแถวพอดี, ตั้ง `sent_at` และเขียน `OFFER_SENT` โดยไม่ Commit; เพิ่ม Test การ Rollback และ D11 | คน 3 |
 | 2026-10-09 | ขั้นที่ 4 Seam 3: `POST /demo/line-sim/respond` ใช้ผู้ตอบจาก Header, ล็อก Offer ที่ `SENT` หนึ่งแถวพอดี, รับ `ACCEPT` และเขียน Audit ก่อน `resume(SAFETY_VALIDATION)`; `REJECT` ตอบ `422`, คำขอซ้ำ / Offer ไม่ชัดเจนตอบ `409`; เพิ่ม Test Race และ Request Rollback | คน 3 |
 | 2026-10-09 | ขั้นที่ 4 Route อ่านข้อมูลของเคส: ข้อ 9.3 เพิ่มรูปแบบคำตอบของ `GET /cases/{id}` และ `GET /cases/{id}/audit` (Seam 9) และกติกาว่าเวลาในคำตอบของ API เป็น `+07:00` ผ่านชนิด `AppDatetime`; `CaseNotFoundError` ย้ายไป `app/domain/errors.py` | คน 1 |
+| 2026-10-09 | ขั้นที่ 4 Solver: ข้อ 8 Stub ตัดผู้สมัครที่ไม่ `ACTIVE`, อยู่เวรของเคสแล้ว หรือไม่พร้อมในช่วงเวรนั้น ใส่ `rank` ใหม่ไม่ข้ามเลข และไม่เหลือใครเป็น `FAILED` (`NoCandidatesError`) กติกาอยู่ใน `availability_service` ใช้ร่วมกับ Safety; Test ใช้ Fixture `stub_handlers` กลางใน `tests/integration/conftest.py` | คน 2 |
+| 2026-10-09 | ขั้นที่ 4 รับ Event: ข้อ 3 เพิ่ม Request Body, ลำดับการตรวจและ Status Code (`404` / `409` / `422`), การล็อกแถว `SHIFT` และ Roster ให้รับ Event ทีละคำขอต่อเวร, ลำดับและ `case_id` ของ Audit, Actor ของ `EVENT_IGNORED`, `gap_service.assess_shift()` และ `requirement_service.get_current_requirement()` (Seam 10) | คน 1 |
+| 2026-10-09 | ขั้นที่ 4 Safety: ข้อ 8 Stub เช็กผู้สมัครที่ตอบรับซ้ำด้วยกติกาเดียวกับ Solver (`availability_service`) ไม่ผ่านเป็น `FAILED` พร้อม `error_type` ที่บอกสาเหตุ โดยไม่เขียน SAFETY_VALIDATION / APPROVAL_REQUEST; `SAFETY_FAILED` + ผู้สมัครคนถัดไปรอ Transition ในข้อ 5 | คน 2 |
+| 2026-10-10 | ขั้นที่ 4 Solver ตามรีวิว: ข้อ 8 กฎข้อที่ 4 ตัดผู้สมัครที่มี Offer ค้าง (`SENT` หรือ `ACCEPTED` ของเคสที่ยังไม่หยุด) เฉพาะ Solver ไม่ใช้กับ Safety เพื่อให้สองเคสที่เปิดพร้อมกันไม่ส่ง Offer ให้คนเดียวกันจน Seam 3 ตอบรับไม่ได้; Merge staging แล้วลบ Stub ชุดเก่าใน `test_orchestrator.py` | คน 2 |
+| 2026-10-10 | ขั้นที่ 4 Solver ตามรีวิว: ข้อ 8 Solver ล็อกแถว `STAFF` ของผู้สมัครก่อนเช็กกติกา สองเคสที่วางแผนพร้อมกันจึงไม่ได้ผู้สมัครคนเดียวกัน; ข้อ 6.2 เพิ่มลำดับ Lock (เวร/Roster → เคส → `STAFF`) | คน 2 |
+| 2026-10-10 | ขั้นที่ 4 Safety ตามรีวิว: ข้อ 8 ตรวจว่า `proposed_shift_id` ของ Item ที่ตอบรับเป็นเวรของเคสก่อนเช็กผู้สมัคร ไม่ตรงเป็น `FAILED` (`ProposedShiftMismatchError`) โดยไม่เขียนแถว | คน 2 |
 | 2026-10-10 | ตามรีวิว Seam 3: นับเฉพาะ Offer `SENT` บนเคส `WAITING_RESPONSE`; Test แทน Safety Handler เพื่อแยกจาก Seam 5 และตรวจว่า Offer ค้างบนเคสอื่นไม่ขวางคำตอบ รวมทั้ง Rollback หลัง Race ที่ `resume()` | คน 3 |
