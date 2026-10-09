@@ -252,6 +252,7 @@ nara/
 │   │   │
 │   │   ├── api/
 │   │   │   ├── dependencies.py
+│   │   │   ├── exception_handlers.py
 │   │   │   │
 │   │   │   └── routes/
 │   │   │       ├── auth.py
@@ -269,6 +270,7 @@ nara/
 │   │   │       ├── roster.py
 │   │   │       ├── audit.py
 │   │   │       ├── webhooks.py
+│   │   │       ├── line_sim.py
 │   │   │       └── demo.py
 │   │   │
 │   │   └── seed/
@@ -292,6 +294,9 @@ nara/
 │   └── tests/
 │       ├── conftest.py
 │       ├── unit/
+│       │   ├── api/
+│       │   │   └── test_scaffold.py
+│       │   │
 │       │   ├── core/
 │       │   │   ├── test_clock.py
 │       │   │   └── test_config.py

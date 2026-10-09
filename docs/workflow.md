@@ -209,6 +209,48 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 * `payload` ห้ามมีข้อมูลผู้ป่วยรายบุคคล เหตุผลการลาแบบข้อความอิสระ หรือ `password_hash`
 * Composite Key (เช่น `STAFF_SKILL`) ยังไม่ต้อง Audit ใน Skeleton จึงยังไม่ต้องตัดสินรูปแบบ `entity_id`
 
+### 6.4 จุดส่งต่อระหว่างขั้น (Seam)
+
+แต่ละขั้นของขั้นที่ 4 หาแถวที่ขั้นก่อนหน้าเขียนไว้ตามกติกานี้ เพื่อให้ทำขนานกันได้โดยไม่ต้องรอโค้ดของกัน
+
+* ที่เขียนว่า **หนึ่งแถวพอดี** ถ้าเจอ 0 แถวหรือหลายแถวถือเป็น Error ห้ามหยิบแถวแรกมาใช้เงียบ ๆ
+  ใน Handler ให้โยน Exception (D11 เปลี่ยนเป็น `FAILED`) ใน Route ให้ตอบเป็น HTTP Error
+* Model ยังไม่มี ORM `relationship()` สักตัว ให้โหลดหรือ Join ผ่านคอลัมน์ FK เช่น โหลด `CANDIDATE_PLANS` จาก `item.plan_id`
+* "ล่าสุด" หมายถึง `id` มากสุดเสมอ ห้ามเรียงด้วยคอลัมน์เวลา เพราะ Clock ของ Demo หยุดนิ่งหลัง Reset ทุกแถวจึงมีเวลาเท่ากัน
+
+| # | Seam | เจ้าของ | กติกา |
+|---|---|---|---|
+| 1 | Plan ล่าสุด | คน 2 → คน 3 | `CANDIDATE_PLANS` ที่ `case_id = case.id` เรียง `id` จากมากไปน้อย เอาแถวแรก |
+| 2 | Plan → Outreach | คน 3 | `CANDIDATE_ITEMS` ที่ `rank = 1` ใน Plan นั้น หนึ่งแถวพอดี |
+| 3 | Respond | คน 3 | ทำตามลำดับ: (1) ผู้ตอบคือ `user.staff.id` จาก `X-Demo-User` Body ไม่มี Outreach ID (2) `CANDIDATE_OUTREACH` ที่ `status = SENT` และ Join ไปที่ Item ซึ่ง `staff_id = user.staff.id` หนึ่งแถวพอดี ไม่เจอ → `409` (ตอบไปแล้วหรือไม่มี Offer) เจอหลายแถว → Error เพราะ Skeleton ส่ง Offer เดียว (3) `REJECT` → `422` ไม่เขียน DB (ข้อ 9.2) (4) `ACCEPT` → `status = ACCEPTED`, `response_at = clock.now()` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` |
+| 4 | Outreach → Safety | คน 3 → คน 2 | `CANDIDATE_OUTREACH` ของเคสที่ `status = ACCEPTED` หนึ่งแถวพอดี |
+| 5 | Safety → Approval Request | คน 2 | `case_id` = เคสนั้น `candidate_item_id` = Item ของ Outreach ที่ตอบรับ โหลด Plan จาก `item.plan_id` แล้วตรวจ `plan.case_id == case.id` (FK สองตัวไม่ได้รับประกันข้อนี้) ตั้ง `approval_mode = MANUAL`, `required_approver_role` = `id` ของ Role ชื่อ `HEAD_NURSE` (ค้นด้วยชื่อ), `is_pending = true`, `requested_at = clock.now()` |
+| 6 | รายการรออนุมัติ | คน 3 | `GET /approvals?pending=true` คืนแถวที่ `is_pending = true` ใน Skeleton เคสหนึ่งมีได้ไม่เกินหนึ่งแถว |
+| 7 | Decide | คน 3 | ตรวจตามลำดับ: ไม่มี Request ID นั้น → `404`; `user.staff.role_id != required_approver_role` → `403` (`get_demo_user` ไม่ตรวจ Role ดูข้อ 9); ไม่ได้ Pending → `409`; `approved = false` → `422` ไม่เขียน DB (ข้อ 9.2) ถ้าอนุมัติ: `approver_id = user.staff.id`, `is_approved = true`, `decided_at = clock.now()`, `is_pending = false` แล้วเรียก `orchestrator.resume(db, case_id, EXECUTING)` |
+| 8 | Approval → Execute | คน 3 (คน 2 ถ้าย้ายงาน Roster) | Request ของเคสที่ `is_pending = false` **และ** `is_approved = true` หนึ่งแถวพอดี สร้าง Roster จาก Item ของ Request นั้น: `staff_id = item.staff_id`, `shift_id = item.proposed_shift_id`, `status = ASSIGNED`, `assignment_type = REPLACEMENT`, `candidate_source = item.source` |
+| 9 | Timeline | คน 1 | `GET /cases/{id}/audit` เรียงด้วย `id` |
+| 10 | Requirement ของเวร | คน 1 (รับ Event + Gap) | `STAFFING_REQUIREMENTS` ที่ `shift_id` ของเวรนั้น เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error ตารางนี้ไม่มี Unique ที่ `shift_id` จึงมีหลายเวอร์ชันได้ (Seed มีเวรละแถว) การรับ Event และ `assess_staffing` ต้องโหลดผ่าน**ฟังก์ชันเดียวกัน** เพื่อให้เห็น Requirement ตัวเดียวกันเสมอ แถว Gap เก็บ `id` นี้ใน `staffing_requirement_id` |
+
+### 6.5 คอลัมน์เวลา
+
+คอลัมน์ที่บันทึกว่าขั้นนั้นทำงานเมื่อไร ต้องใส่ค่า `clock.now()` เองโดยขั้นที่เขียนแถว ห้ามใช้ `datetime.now()` (D10)
+
+| คอลัมน์ | Null | ใครใส่ | ถ้าลืม |
+|---|---|---|---|
+| `STAFFING_GAP.computed_at` | NOT NULL | Gap | `IntegrityError` → เคส `FAILED` |
+| `CANDIDATE_PLANS.generated_at` | NOT NULL | Solver | `IntegrityError` → เคส `FAILED` |
+| `SAFETY_VALIDATION.validated_at` | NOT NULL | Safety | `IntegrityError` → เคส `FAILED` |
+| `APPROVAL_REQUEST.requested_at` | NOT NULL | Safety | `IntegrityError` → เคส `FAILED` |
+| `CANDIDATE_OUTREACH.sent_at` | NULL | Outreach | ไม่ Error แต่ข้อมูลหาย |
+| `CANDIDATE_OUTREACH.response_at` | NULL | Respond | ไม่ Error แต่ข้อมูลหาย |
+| `APPROVAL_REQUEST.decided_at` | NULL | Decide | ไม่ Error แต่ข้อมูลหาย |
+
+คอลัมน์เวลาอีกสองชนิดไม่ต้องใส่ตามตารางนี้
+
+* `created_at` ใส่ให้เองด้วย `default` และ `updated_at` ด้วย `default` กับ `onupdate`
+* คอลัมน์เวลาที่มีความหมายของตัวเองทำตามสเปกของมัน เช่น `STAFFING_CASES.required_replacement_time = SHIFT.start_at`,
+  `STAFFING_EVENTS.occurred_at` และเวลาของ `STAFF_UNAVAILABILITY` ตามข้อ 3
+
 ---
 
 ## 7. Audit ของ Golden Path
@@ -290,6 +332,66 @@ def decide(approval_id: int, db: DbSession, user: DemoUser):
 * `actor_service.user_id()` ยังใช้สำหรับโค้ดที่มีแค่ `staff_id` ไม่ได้มาจาก Request เช่น Handler ที่เขียน Audit แทนพนักงาน
 * ตอบ `401` เมื่อไม่มี Header, ค่าไม่ใช่เลขจำนวนเต็มบวกในช่วง `bigint` (1 ถึง 9223372036854775807), ไม่มีพนักงาน ID นั้น, พนักงานไม่ `ACTIVE` หรือพนักงานไม่มีแถวใน `ACTORS`
 * ไม่ตรวจ Role การจำกัดว่าใครอนุมัติได้เป็นงานของ Route นั้นเอง
+
+### 9.1 ไฟล์ Route และ Error ที่ใช้ร่วมกัน
+
+Router ทุกตัวของขั้นที่ 4 มีไฟล์และลงทะเบียนใน `main.py` ไว้แล้ว เจ้าของเพิ่ม Route ในไฟล์ของตัวเอง **ไม่ต้องแก้ `main.py`**
+
+| ไฟล์ | Prefix |
+|---|---|
+| `api/routes/events.py` | `/events` |
+| `api/routes/cases.py` | `/cases` |
+| `api/routes/approvals.py` | `/approvals` |
+| `api/routes/roster.py` | `/roster` |
+| `api/routes/line_sim.py` | `/demo/line-sim` |
+| `api/routes/demo.py` | `/demo` (มีแค่ `/demo/reset`) |
+
+Error สองตัวนี้ถูกแปลงเป็น HTTP ให้ที่เดียวใน `api/exception_handlers.py` Route ไม่ต้อง `try/except` เอง
+
+| Exception | ตอบ | เกิดเมื่อ |
+|---|---|---|
+| `InvalidTransitionError` | `409` | `orchestrator.resume()` ปฏิเสธ เช่น ผู้สมัครกด `ACCEPT` ซ้ำ |
+| `CaseNotFoundError` | `404` | ไม่มีเคส ID นั้น |
+
+ทั้งสองกรณี Route **ห้าม Commit** `get_db` ปิด Session ซึ่ง Rollback งานที่ Flush ไปแล้วให้เอง Exception อื่นตอบ `500` ตามปกติ
+
+### 9.2 ขอบเขตของ Skeleton: มีแต่คำตอบของ Golden Path ที่ทำให้เคสเดิน
+
+ข้อ 5 ยังไม่มี Transition ของการปฏิเสธและการไม่อนุมัติ จนกว่าจะเพิ่ม ให้ทำดังนี้ โดยการตรวจที่มาก่อนใน Seam 3 และ 7 ยังทำตามเดิม
+
+* `POST /demo/line-sim/respond`: ไม่มี Offer ที่เปิดอยู่ → `409` ถ้ามี Offer และคำตอบคือ `REJECT` → `422` ไม่เขียนอะไรลง DB
+* `POST /approvals/{id}/decision`: `404` / `403` / `409` ตาม Seam 7 ถ้าผ่านทั้งหมดและ `approved = false` → `422` ไม่เขียนอะไรลง DB
+
+เส้นทางปฏิเสธแต่ละเส้นจะได้ Transition การเขียน DB และ Status Code ของตัวเองเมื่อ Implement หลัง Skeleton
+
+### 9.3 รูปแบบคำตอบ
+
+Workflow ที่จบเป็น `FAILED` ถือเป็นผลที่บันทึกแล้ว ให้ตอบ `200` / `201` และใส่สถานะใน Body
+ถ้า Orchestrator บันทึก `FAILED` เองไม่สำเร็จ Exception จะหลุดออกมาและ Route ตอบ `500` ตามปกติ (ข้อ 6.2)
+
+การตั้งชื่อ: `GET` ที่คืน Resource ชนิดเดียวใช้ `id` / `status` เฉย ๆ สำหรับฟิลด์ของ Resource นั้น
+`POST` ที่คำตอบครอบคลุมหลาย Resource ใส่ Prefix ทุกฟิลด์ (`case_id`, `case_status`, ...)
+
+**คำตอบของ POST**
+
+| Route | Code | Body |
+|---|---|---|
+| `POST /events` | `201` | `{event_id, event_status, case_id, case_status}` เมื่อ Event เป็น `IGNORED` ทั้ง `case_id` และ `case_status` เป็น `null` |
+| `POST /demo/line-sim/respond` | `200` | `{outreach_id, outreach_status, case_id, case_status}` |
+| `POST /approvals/{id}/decision` | `200` | `{approval_id, is_approved, case_id, case_status}` |
+
+**Key ของ GET ที่ E2E Test อ่านอยู่แล้ว** (`walking-skeleton.md` ขั้นที่ 6) ต้องตรงตามนี้ ไม่งั้น E2E แดง
+
+| Route | รูปแบบที่ E2E ต้องการ | จุดที่พลาดง่าย |
+|---|---|---|
+| `GET /cases/{id}` | Object ที่มี `status` | ใช้ `case_status` ตามคำตอบของ POST |
+| `GET /cases/{id}/audit` | JSON **List** ที่ชั้นบนสุด แต่ละตัวมี `action` เรียงด้วย `id` (Seam 9) | ห่อ List ด้วย `{items: [...]}` |
+| `GET /approvals?pending=true` | JSON **List** ที่ชั้นบนสุด แต่ละตัวมี `id` | ใช้ `approval_id` ตามคำตอบของ Decision |
+
+ฟิลด์ที่เหลือของ `GET` แต่ละตัว เจ้าของ Route ส่งร่างรายการฟิลด์ให้ Frontend **ตั้งแต่เริ่มทำ** ไม่ต้องรอ Backend เสร็จ
+แล้วเขียนรูปแบบสุดท้ายลงข้อนี้ใน PR ของ Route ตัวเอง Frontend ทำตามข้อนี้
+
+**เมื่อ Conflict ในข้อ 9:** หลาย PR จะเติมรูปแบบของ `GET` ที่นี่ ให้เก็บไว้ทั้งสองฝั่ง
 
 ---
 
@@ -409,6 +511,8 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 
 ## 13. ประวัติการเปลี่ยนแปลง
 
+**เมื่อ Conflict ในตารางนี้:** เก็บไว้ทั้งสองแถว แถวที่วันที่เดียวกันเรียงตามลำดับที่ Merge
+
 | วันที่ | เปลี่ยนอะไร | ใครเสนอ |
 |---|---|---|
 | YYYY-MM-DD | ร่างแรกสำหรับ Walking Skeleton ตาม Schema v5 + ACTORS + Event status | ทีม |
@@ -418,3 +522,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | ขั้นที่ 3: ข้อ 6.3 `actor_service` โยน `ActorNotFoundError` เมื่อไม่มี Actor, ข้อ 9 เพิ่ม Dependency `get_db` / `get_demo_user` (คืน `CurrentUser` ที่มี `staff` และ `actor_id`) และเงื่อนไข `401` ของ `X-Demo-User` | คน 1 |
 | 2026-10-09 | ขั้นที่ 3 Orchestrator: ข้อ 6.2 เพิ่ม `resume()` สำหรับออกจากจุดรอ (Service ไม่แก้ `case.status` เอง), `HANDLERS`, ล็อกแถวเคส, D11 ทำด้วย Savepoint และไม่โยน Exception ต่อ; ข้อ 6.1 เพิ่มกติกา `wait` คู่กับจุดรอ; ข้อ 4 และ 5.1 เปลี่ยนจาก `advance()` เป็น `resume()` ที่จุดรอ | คน 1 |
 | 2026-10-09 | Orchestrator ตามรีวิว: ล็อกเป็น `FOR NO KEY UPDATE`, `resume()` และ Handler ห้ามใช้ `FAILED` เป็น `next_status`, D11 ในข้อ 1 ใช้ Savepoint, ข้อ 6.2 เพิ่มว่าผู้เรียกห้าม Commit หลัง `InvalidTransitionError` และข้อยกเว้นของการไม่โยน Exception | คน 1 |
+| 2026-10-09 | เตรียมขั้นที่ 4: ข้อ 6.4 Seam ระหว่างขั้น, ข้อ 6.5 คอลัมน์เวลา, ข้อ 9.1 ไฟล์ Route และ Error ร่วม (`409` / `404`), ข้อ 9.2 `REJECT` และไม่อนุมัติตอบ `422`, ข้อ 9.3 รูปแบบคำตอบและ Key ที่ E2E ใช้, กติกาเมื่อ Conflict ในข้อ 9 และ 13; line-sim ย้ายไป `routes/line_sim.py` | ทีม |

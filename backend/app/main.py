@@ -4,12 +4,19 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.api.routes import demo
+from app.api.exception_handlers import register_exception_handlers
+from app.api.routes import approvals, cases, demo, events, line_sim, roster
 from app.core.config import settings
 from app.db.session import engine
 
 app = FastAPI(title="Staffing API")
-app.include_router(demo.router)
+
+# Every router of walking-skeleton step 4 is registered here once, so a route
+# PR adds routes to its own file and never edits this one
+for module in (demo, events, cases, approvals, roster, line_sim):
+    app.include_router(module.router)
+
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
