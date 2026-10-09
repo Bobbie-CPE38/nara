@@ -14,7 +14,9 @@ from app.workflow.orchestrator import CaseNotFoundError
 
 
 def _conflict(request: Request, error: Exception) -> JSONResponse:
-    # A repeated request: the case already moved on (a second ACCEPT, a double click)
+    # Two requests for one case at once: both passed the route's own lookup
+    # before either committed, and orchestrator.resume() rejected the second.
+    # A repeat that arrives later is the route's job (seams 3 and 7), not this
     return JSONResponse({"detail": str(error)}, status_code=status.HTTP_409_CONFLICT)
 
 

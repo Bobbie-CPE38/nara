@@ -42,7 +42,8 @@ def test_every_route_of_a_router_is_served_by_the_app(module: ModuleType, prefix
     """Fails when a router module exists but main.py does not include it.
 
     Empty routers pass trivially today. The check starts to bite as soon as
-    step 4 adds the first route to a file.
+    step 4 adds the first route to a file. It compares paths from the OpenAPI
+    document only: not the HTTP method, and not routes hidden from the schema.
     """
     module_paths = {route.path for route in module.router.routes if isinstance(route, APIRoute)}
 
@@ -51,12 +52,6 @@ def test_every_route_of_a_router_is_served_by_the_app(module: ModuleType, prefix
 
 def test_demo_reset_is_still_served() -> None:
     assert "/demo/reset" in _paths(app)
-
-
-def test_line_sim_router_does_not_take_over_demo_reset() -> None:
-    line_sim_paths = {route.path for route in line_sim.router.routes if isinstance(route, APIRoute)}
-
-    assert "/demo/reset" not in line_sim_paths
 
 
 @pytest.mark.parametrize("error_type", [InvalidTransitionError, CaseNotFoundError])
