@@ -5,8 +5,7 @@ from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base
-from app.db.types import StrEnumText
+from app.db.base import Base, StrEnumText
 from app.domain.enums import STAFF_EVENT_TYPES, EventStatus, EventType
 
 # Alembic does not compare CHECK constraints, so a change to STAFF_EVENT_TYPES

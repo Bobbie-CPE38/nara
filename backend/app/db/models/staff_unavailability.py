@@ -3,8 +3,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base
-from app.db.types import StrEnumText
+from app.db.base import Base, StrEnumText
 from app.domain.enums import AvailabilityReason
 
 

@@ -1,7 +1,7 @@
 import pytest
 from sqlalchemy.dialects import postgresql
 
-from app.db.types import StrEnumText
+from app.db.base import StrEnumText
 from app.domain.enums import StaffStatus
 
 DIALECT = postgresql.dialect()

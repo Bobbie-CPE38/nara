@@ -7,8 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 import app.db.models  # noqa: F401  registers all tables on Base.metadata
-from app.db.base import Base
-from app.db.types import StrEnumText
+from app.db.base import Base, StrEnumText
 
 NOT_NULL = False
 NULL = True

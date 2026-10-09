@@ -7,8 +7,7 @@ from sqlalchemy import create_engine, pool
 
 import app.db.models  # noqa: F401  registers all tables on Base.metadata
 from app.core.config import settings
-from app.db.base import Base
-from app.db.types import StrEnumText
+from app.db.base import Base, StrEnumText
 
 config = context.config
 
