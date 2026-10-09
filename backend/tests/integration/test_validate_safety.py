@@ -1,5 +1,6 @@
 """The stub safety step against the seeded PostgreSQL: validation, approval request, audit."""
 
+from collections.abc import Callable
 from datetime import timedelta
 
 import pytest
@@ -15,14 +16,20 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    RosterAssignment,
     SafetyValidation,
+    Shift,
+    Staff,
     StaffingCase,
     StaffingEvent,
+    StaffUnavailability,
 )
 from app.domain.enums import (
     ActorName,
     ApprovalMode,
+    AssignmentType,
     AuditAction,
+    AvailabilityReason,
     CandidateSource,
     CaseStatus,
     Channel,
@@ -30,10 +37,18 @@ from app.domain.enums import (
     EventStatus,
     EventType,
     OutreachStatus,
+    RosterStatus,
     SolverStatus,
+    StaffStatus,
 )
 from app.services import actor_service
 from app.services.actor_service import ActorNotFoundError
+from app.services.availability_service import (
+    CandidateNotAvailableError,
+    StaffAlreadyOnShiftError,
+    StaffNotActiveError,
+    StaffUnavailableError,
+)
 from app.workflow import orchestrator
 from app.workflow.handlers import validate_safety
 from tests.integration.conftest import DEMO_NOW
@@ -240,6 +255,86 @@ def test_an_item_planned_for_another_case_raises(seeded: Session) -> None:
 
     with pytest.raises(ValueError, match="belongs to case"):
         validate_safety.handle(seeded, case)
+
+
+# --------------------------------------------------------------------------- #
+# The accepted candidate is re-checked with the Solver's rules
+# --------------------------------------------------------------------------- #
+def _make_inactive(db: Session) -> None:
+    staff = db.get(Staff, ACCEPTING_STAFF_ID)
+    assert staff is not None
+    staff.status = StaffStatus.INACTIVE
+    db.flush()
+
+
+def _assign_to_the_shift(db: Session) -> None:
+    db.add(
+        RosterAssignment(
+            staff_id=ACCEPTING_STAFF_ID,
+            shift_id=SHIFT_ID,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REGULAR,
+            candidate_source=None,
+        )
+    )
+    db.flush()
+
+
+def _mark_unavailable(db: Session) -> None:
+    shift = db.get(Shift, SHIFT_ID)
+    assert shift is not None
+    db.add(
+        StaffUnavailability(
+            staff_id=ACCEPTING_STAFF_ID,
+            start_at=shift.start_at - timedelta(hours=1),
+            end_at=None,
+            reason=AvailabilityReason.UNPLANNED_LEAVE,
+        )
+    )
+    db.flush()
+
+
+@pytest.mark.parametrize(
+    ("change", "error"),
+    [
+        (_make_inactive, StaffNotActiveError),
+        (_assign_to_the_shift, StaffAlreadyOnShiftError),
+        (_mark_unavailable, StaffUnavailableError),
+    ],
+    ids=["inactive", "already_on_the_shift", "unavailable"],
+)
+def test_a_candidate_who_can_no_longer_take_the_shift_raises_before_writing(
+    seeded: Session,
+    change: Callable[[Session], None],
+    error: type[CandidateNotAvailableError],
+) -> None:
+    """The situation changed while the offer waited for an answer."""
+    case = _make_case(seeded)
+    _offer(seeded, case)
+    change(seeded)
+
+    with pytest.raises(error):
+        validate_safety.handle(seeded, case)
+
+    assert _validations(seeded, case) == []
+    assert _approvals(seeded, case) == []
+
+
+def test_resume_with_a_candidate_who_became_inactive_fails_the_case(seeded: Session) -> None:
+    case = _make_case(seeded, CaseStatus.WAITING_RESPONSE)
+    _offer(seeded, case)
+    _make_inactive(seeded)
+
+    orchestrator.resume(seeded, case.id, CaseStatus.SAFETY_VALIDATION)
+
+    seeded.expire_all()
+    assert case.status is CaseStatus.FAILED
+    failure = _audit(seeded, case)[-1]
+    assert failure.action is AuditAction.WORKFLOW_FAILED
+    assert failure.payload["failed_at"] == "SAFETY_VALIDATION"
+    assert failure.payload["error_type"] == "StaffNotActiveError"
+    assert _validations(seeded, case) == []
+    assert _approvals(seeded, case) == []
 
 
 # --------------------------------------------------------------------------- #

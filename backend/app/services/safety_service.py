@@ -1,15 +1,20 @@
 """
 Safety check of the accepted candidate (docs/workflow.md, sections 6.4 and 8).
 
-The walking skeleton has no hard rules yet: the accepted candidate always
-passes, and the case waits for a head nurse's manual approval. The real rule
-engine replaces the pass later; the lookups and the approval request stay.
+The walking skeleton has no hard rules yet. The accepted candidate is re-checked
+with the Solver's rules (availability_service), because the situation can change
+while the offer waits for an answer. If they still hold, the candidate passes and
+the case waits for a head nurse's manual approval. The real rule engine replaces
+the pass later; the lookups and the approval request stay.
 
 Rules:
   * Never commits and writes no audit row. The `validate_safety` handler logs
     SAFETY_PASSED and APPROVAL_REQUESTED in the same round.
   * "Exactly one" lookups raise instead of taking the first row (section 6.4).
     Inside the handler the error turns the case FAILED (D11).
+  * A candidate who can no longer take the shift raises before any row is
+    written. Recording is_passed = false with SAFETY_FAILED and moving on to the
+    next candidate needs a section 5 transition that does not exist yet.
 """
 
 from typing import NamedTuple
@@ -25,10 +30,11 @@ from app.db.models import (
     CandidatePlan,
     Role,
     SafetyValidation,
+    Shift,
     StaffingCase,
 )
 from app.domain.enums import ApprovalMode, OutreachStatus
-from app.services import policy_service
+from app.services import availability_service, policy_service
 
 # No RoleName enum exists; the seed names role 2 this way (docs/workflow.md 10.2)
 HEAD_NURSE_ROLE = "HEAD_NURSE"
@@ -59,6 +65,11 @@ def validate_accepted_candidate(db: Session, case: StaffingCase) -> SafetyResult
         raise LookupError(f"No candidate plan {item.plan_id}")
     if plan.case_id != case.id:
         raise ValueError(f"Candidate item {item.id} belongs to case {plan.case_id}, not {case.id}")
+
+    shift = db.get(Shift, case.shift_id)
+    if shift is None:
+        raise LookupError(f"No shift {case.shift_id}")
+    availability_service.assert_available(db, shift, item.staff_id)
 
     validation = SafetyValidation(
         case_id=case.id,
