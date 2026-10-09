@@ -54,6 +54,7 @@ class SafetyResult(NamedTuple):
 
 def validate_accepted_candidate(db: Session, case: StaffingCase) -> SafetyResult:
     """Pass the case's accepted candidate and open a pending MANUAL approval; flush only."""
+    # Seam 4: exactly one accepted offer for this case.
     outreach = outreach_service.get_accepted_outreach(db, case.id)
 
     # Seam 5: the two foreign keys do not prove the item was planned for this case
