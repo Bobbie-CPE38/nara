@@ -493,14 +493,16 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 * `actor_name` ของ Actor ที่เป็นพนักงานคือ `str(staff.id)` เช่น `"105"`
 **Seam 6 — `GET /approvals?pending=true`**
 
-ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
-การอ่านไม่ตรวจ Role; การอนุมัติตรวจ Role ใน Seam 7 คืน JSON List ที่ชั้นบนสุด เรียง `id` จากน้อยไปมาก
-แต่ละรายการมี `id`, `case_id`, `candidate_item_id`, `required_approver_role` (อาจเป็น `null`),
-`approval_mode`, `is_pending` และ `requested_at` (ISO 8601 พร้อม Timezone)
-ไม่ห่อด้วย `items` และไม่ใช้ `approval_id` แทน `id`
-ไม่ส่ง `pending` เท่ากับ `pending=true`; `pending=false` หรือค่า Boolean ไม่ถูกต้องตอบ `422`
-เคสที่มี Pending Request มากกว่าหนึ่งแถวตอบ `409` ไม่เลือกแถวแรกเอง
-Route / `approval_service.list_pending()` ไม่เขียน DB, Audit, Commit หรือ Explicit Flush
+* ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
+* การอ่านไม่ตรวจ Role; การอนุมัติตรวจ Role ใน Seam 7
+* คืน JSON List ที่ชั้นบนสุด เรียง `id` จากน้อยไปมาก ไม่ห่อด้วย `items` และไม่ใช้ `approval_id` แทน `id`
+* แต่ละรายการมี `id`, `case_id`, `candidate_item_id`, `staff_id`, `proposed_shift_id`,
+  `required_approver_role` (อาจเป็น `null`), `approval_mode`, `is_pending` และ `requested_at` (ISO 8601, `+07:00`)
+  `staff_id` และ `proposed_shift_id` โหลดจาก Item ของ Request นั้นเพื่อให้ Frontend ระบุผู้สมัครและเวรได้
+* ไม่ส่ง `pending` เท่ากับ `pending=true`; `pending=false` หรือค่า Boolean ไม่ถูกต้องตอบ `422`
+* คืนทุก Pending Request แม้เคสเดียวมีหลายแถว เพื่อไม่ซ่อน Request ของเคสอื่น
+  การบังคับว่าหนึ่งเคสมี Pending Request ได้ไม่เกินหนึ่งแถวเป็นหน้าที่ฝั่งสร้างข้อมูล ไม่ใช่ List Read
+* Route / `approval_service.list_pending()` ไม่เขียน DB, Audit, Commit หรือ Explicit Flush
 
 ---
 
@@ -644,3 +646,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ขั้นที่ 4 Safety ตามรีวิว: ข้อ 8 ตรวจว่า `proposed_shift_id` ของ Item ที่ตอบรับเป็นเวรของเคสก่อนเช็กผู้สมัคร ไม่ตรงเป็น `FAILED` (`ProposedShiftMismatchError`) โดยไม่เขียนแถว | คน 2 |
 | 2026-10-10 | ตามรีวิว Seam 3: นับเฉพาะ Offer `SENT` บนเคส `WAITING_RESPONSE`; Test แทน Safety Handler เพื่อแยกจาก Seam 5 และตรวจว่า Offer ค้างบนเคสอื่นไม่ขวางคำตอบ รวมทั้ง Rollback หลัง Race ที่ `resume()` | คน 3 |
 | 2026-10-10 | ขั้นที่ 4 Seam 6: เพิ่ม `GET /approvals?pending=true` และ `approval_service.list_pending()`; คืน Pending List เรียง ID, ใช้ Demo Auth, ตรวจ Pending ซ้ำต่อเคส, ระบุ Response Fields และเพิ่ม Integration Tests | คน 3 |
+| 2026-10-10 | ตามรีวิว Seam 6: ไม่ปิด Pending List เมื่อเคสมี Request ซ้ำ เพิ่ม `staff_id` / `proposed_shift_id` จาก Item และเวลา `+07:00`; จัดเอกสารเป็น Bullet List และ Test ผ่าน Main App | คน 3 |

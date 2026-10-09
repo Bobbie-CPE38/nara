@@ -5,13 +5,11 @@ from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.api.routes import approvals
 from app.db.models import (
     ApprovalRequest,
     AuditLog,
@@ -30,6 +28,7 @@ from app.domain.enums import (
     SolverStatus,
     StaffStatus,
 )
+from app.main import app
 from app.services import approval_service
 from tests.integration.conftest import DEMO_NOW
 
@@ -102,11 +101,12 @@ def _request(
 
 @pytest.fixture
 def client(production_seeded: Session) -> Iterator[TestClient]:
-    app = FastAPI()
-    app.include_router(approvals.router)
     app.dependency_overrides[get_db] = lambda: production_seeded
-    with TestClient(app) as client:
-        yield client
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
 
 def test_empty_list_is_a_top_level_array(client: TestClient) -> None:
@@ -127,6 +127,8 @@ def test_pending_response_contract(client: TestClient, production_seeded: Sessio
             "required_approver_role": 2,
             "approval_mode": "MANUAL",
             "is_pending": True,
+            "staff_id": 201,
+            "proposed_shift_id": 1,
             "requested_at": DEMO_NOW.isoformat(),
         }
     ]
@@ -147,19 +149,19 @@ def test_filters_non_pending_rows_and_sorts_by_id(
     assert [item["id"] for item in response.json()] == [first.id, second.id]
 
 
-def test_multiple_pending_rows_for_one_case_are_conflict(
+def test_duplicate_case_does_not_hide_other_pending_requests(
     client: TestClient, production_seeded: Session
 ) -> None:
-    first = _request(production_seeded)
-    case = production_seeded.get(StaffingCase, first.case_id)
+    db = production_seeded
+    first = _request(db)
+    case = db.get(StaffingCase, first.case_id)
     assert case is not None
-    _request(production_seeded, case=case)
+    duplicate = _request(db, case=case)
+    unrelated = _request(db)
     response = client.get(URL, headers=HEADERS)
-    assert response.status_code == 409
-    assert response.json() == {
-        "detail": f"Case {case.id} has more than one pending approval request"
-    }
-    assert production_seeded.scalar(select(AuditLog.id)) is None
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [first.id, duplicate.id, unrelated.id]
+    assert db.scalar(select(AuditLog.id)) is None
 
 
 def test_a_completed_request_for_the_same_case_is_not_a_duplicate(
@@ -199,7 +201,10 @@ def test_inactive_user_cannot_read(client: TestClient, production_seeded: Sessio
 
 @pytest.mark.parametrize("url", ["/approvals?pending=false", "/approvals?pending=invalid"])
 def test_unsupported_filter_is_422(client: TestClient, url: str) -> None:
-    assert client.get(url, headers=HEADERS).status_code == 422
+    response = client.get(url, headers=HEADERS)
+    assert response.status_code == 422
+    assert isinstance(response.json()["detail"], list)
+    assert response.json()["detail"][0]["loc"] == ["query", "pending"]
 
 
 def test_pending_defaults_to_true(client: TestClient, production_seeded: Session) -> None:
@@ -237,11 +242,30 @@ def test_get_is_read_only(client: TestClient, production_seeded: Session) -> Non
     assert db.scalar(select(AuditLog.id)) is None
 
 
-def test_service_reports_duplicate_without_hiding_rows(production_seeded: Session) -> None:
+def test_service_returns_duplicates_without_hiding_rows(production_seeded: Session) -> None:
     db = production_seeded
     first = _request(db)
     case = db.get(StaffingCase, first.case_id)
     assert case is not None
-    _request(db, case=case)
-    with pytest.raises(approval_service.DuplicatePendingApprovalError):
-        approval_service.list_pending(db)
+    duplicate = _request(db, case=case)
+    assert [row.id for row in approval_service.list_pending(db)] == [first.id, duplicate.id]
+
+
+def test_candidate_details_come_from_each_requests_item(
+    client: TestClient, production_seeded: Session
+) -> None:
+    db = production_seeded
+    first = _request(db)
+    second = _request(db)
+    item = db.get(CandidateItem, second.candidate_item_id)
+    assert item is not None
+    item.staff_id = 202
+    item.proposed_shift_id = 2
+    db.flush()
+    db.expire_all()
+    rows = client.get(URL, headers=HEADERS).json()
+    assert [(r["id"], r["staff_id"], r["proposed_shift_id"]) for r in rows] == [
+        (first.id, 201, 1),
+        (second.id, 202, 2),
+    ]
+    assert all(r["requested_at"] == DEMO_NOW.isoformat() for r in rows)
