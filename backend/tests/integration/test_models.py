@@ -1,7 +1,6 @@
 """Person 1's models against a real PostgreSQL: defaults, enum round trip and constraints."""
 
-from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import pytest
 from sqlalchemy.exc import IntegrityError, StatementError
@@ -18,15 +17,9 @@ from app.domain.enums import (
     ShiftType,
     StaffStatus,
 )
+from tests.integration.conftest import DEMO_NOW
 
-DEMO_NOW = datetime(2026, 10, 9, 21, 0, tzinfo=clock.APP_TIMEZONE)
-
-
-@pytest.fixture(autouse=True)
-def frozen_clock() -> Iterator[None]:
-    clock.set_time(DEMO_NOW)
-    yield
-    clock.reset()
+pytestmark = pytest.mark.usefixtures("frozen_clock")
 
 
 @pytest.fixture

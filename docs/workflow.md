@@ -166,6 +166,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 ```
 
 * `component_id()` รับเฉพาะ `ActorName` และทั้งสองฟังก์ชันโยน `ActorNotFoundError` เมื่อไม่มี Actor (Seed ไม่ครบ) ไม่คืน `None`
+* `actor_service` และ `get_demo_user` อ่านด้วย SELECT และ `SessionLocal` ปิด autoflush แถว `ACTORS` / `STAFF` ที่เพิ่งเพิ่มใน Session เดียวกันต้อง `db.flush()` ก่อนจึงจะหาเจอ
 * `log()` **ห้าม Commit เอง**
 * `action` และ `entity_type` ต้องเป็น Enum ห้ามพิมพ์ข้อความเอง
 * `payload` ห้ามมีข้อมูลผู้ป่วยรายบุคคล เหตุผลการลาแบบข้อความอิสระ หรือ `password_hash`
@@ -243,7 +244,7 @@ def decide(approval_id: int, db: DbSession, user: DemoUser): ...
 ```
 
 * คืน `Staff` ของ Session เดียวกับ `db` ใช้ `user.id` เป็น `approver_id` และ `actor_service.user_id(db, user.id)` เป็น Actor
-* ตอบ `401` เมื่อไม่มี Header, ค่าไม่ใช่เลขจำนวนเต็มบวกในช่วง `bigint` (1 ถึง 9223372036854775807), ไม่มีพนักงาน ID นั้น หรือพนักงานไม่ `ACTIVE`
+* ตอบ `401` เมื่อไม่มี Header, ค่าไม่ใช่เลขจำนวนเต็มบวกในช่วง `bigint` (1 ถึง 9223372036854775807), ไม่มีพนักงาน ID นั้น, พนักงานไม่ `ACTIVE` หรือพนักงานไม่มีแถวใน `ACTORS`
 * ไม่ตรวจ Role การจำกัดว่าใครอนุมัติได้เป็นงานของ Route นั้นเอง
 
 ---

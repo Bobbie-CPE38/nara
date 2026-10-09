@@ -6,6 +6,9 @@ that ID: a system/component name, or the staff member behind a request.
 
 Rules:
   * Read-only. Nothing here adds, flushes or commits.
+  * SessionLocal has autoflush off, so these lookups do not see an Actor row
+    that was added earlier in the same round but not flushed yet. A caller
+    that creates an actor must `db.flush()` before looking it up.
   * A missing actor raises ActorNotFoundError: the seed data is incomplete, so
     the caller must not continue (the orchestrator turns it into FAILED, D11).
 """
@@ -37,6 +40,10 @@ def component_id(db: Session, name: ActorName) -> int:
 
 def user_id(db: Session, staff_id: int) -> int:
     """Return ACTORS.id of the user actor that belongs to a staff member."""
+    # bool is an int: True would silently look up staff 1
+    if isinstance(staff_id, bool) or not isinstance(staff_id, int):
+        raise TypeError(f"staff_id must be an int, got {staff_id!r}")
+
     actor_id = db.scalar(select(Actor.id).where(Actor.staff_id == staff_id))
     if actor_id is None:
         raise ActorNotFoundError(f"No actor for staff {staff_id}")

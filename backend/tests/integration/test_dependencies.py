@@ -1,7 +1,6 @@
 """get_db and get_demo_user (docs/workflow.md, D9) on a throwaway app with the seeded DB."""
 
 from collections.abc import Iterator
-from datetime import datetime
 from unittest import mock
 
 import pytest
@@ -11,30 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
 
 from app.api.dependencies import DEMO_USER_HEADER, MAX_STAFF_ID, DbSession, DemoUser, get_db
-from app.core import clock
-from app.db.models import Role, Staff
+from app.db.models import Actor, Role, Staff
 from app.db.session import engine
-from app.domain.enums import StaffStatus
-from app.seed import load
-
-DEMO_NOW = datetime(2026, 10, 9, 21, 0, tzinfo=clock.APP_TIMEZONE)
+from app.domain.enums import ActorType, StaffStatus
 
 
-@pytest.fixture(autouse=True)
-def frozen_clock() -> Iterator[None]:
-    clock.set_time(DEMO_NOW)
-    yield
-    clock.reset()
-
-
-@pytest.fixture
-def seeded(db: Session) -> Session:
-    load(db)
-    return db
-
-
-@pytest.fixture
-def client(seeded: Session) -> Iterator[TestClient]:
+def _client(session: Session) -> Iterator[TestClient]:
     app = FastAPI()
 
     @app.get("/whoami")
@@ -45,9 +26,43 @@ def client(seeded: Session) -> Iterator[TestClient]:
             "same_session": object_session(user) is db,
         }
 
-    app.dependency_overrides[get_db] = lambda: seeded
+    app.dependency_overrides[get_db] = lambda: session
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture
+def client(seeded: Session) -> Iterator[TestClient]:
+    yield from _client(seeded)
+
+
+@pytest.fixture
+def production_client(production_seeded: Session) -> Iterator[TestClient]:
+    """Same app, but the session has SessionLocal's options (autoflush off)."""
+    yield from _client(production_seeded)
+
+
+def _add_staff(
+    db: Session, staff_id: int, *, status: StaffStatus | str = StaffStatus.ACTIVE
+) -> Staff:
+    template = db.get(Staff, 105)
+    assert template is not None
+    staff = Staff(
+        id=staff_id,
+        first_name="Extra",
+        last_name="Staff",
+        email=f"{staff_id}@demo.local",
+        password_hash="!",
+        role_id=template.role_id,
+        home_ward_id=template.home_ward_id,
+        status=status,
+    )
+    db.add(staff)
+    return staff
+
+
+def _add_actor(db: Session, staff_id: int) -> None:
+    db.add(Actor(name=str(staff_id), actor_type=ActorType.USER, staff_id=staff_id))
 
 
 def test_missing_header_is_401(client: TestClient) -> None:
@@ -93,20 +108,9 @@ def test_malformed_staff_id_is_401(client: TestClient, value: str) -> None:
 def test_nineteen_digit_staff_id_within_bigint_is_accepted(
     client: TestClient, seeded: Session, staff_id: int
 ) -> None:
-    template = seeded.get(Staff, 105)
-    assert template is not None
-    seeded.add(
-        Staff(
-            id=staff_id,
-            first_name="Big",
-            last_name="Id",
-            email="big-id@demo.local",
-            password_hash="!",
-            role_id=template.role_id,
-            home_ward_id=template.home_ward_id,
-            status=StaffStatus.ACTIVE,
-        )
-    )
+    _add_staff(seeded, staff_id)
+    seeded.flush()
+    _add_actor(seeded, staff_id)
     seeded.flush()
 
     response = client.get("/whoami", headers={DEMO_USER_HEADER: str(staff_id)})
@@ -120,6 +124,7 @@ def test_staff_id_above_bigint_is_401_without_querying(client: TestClient, seede
 
     with (
         mock.patch.object(seeded, "get", side_effect=AssertionError("queried")),
+        mock.patch.object(seeded, "scalar", side_effect=AssertionError("queried")),
         mock.patch.object(seeded, "execute", side_effect=AssertionError("queried")),
     ):
         response = client.get("/whoami", headers={DEMO_USER_HEADER: str(MAX_STAFF_ID + 1)})
@@ -132,7 +137,7 @@ def test_unknown_staff_is_401(client: TestClient) -> None:
     response = client.get("/whoami", headers={DEMO_USER_HEADER: "999"})
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Unknown or inactive staff 999"}
+    assert response.json() == {"detail": "Staff 999 is unknown, inactive or has no actor"}
 
 
 def test_inactive_staff_is_401(client: TestClient, seeded: Session) -> None:
@@ -144,7 +149,33 @@ def test_inactive_staff_is_401(client: TestClient, seeded: Session) -> None:
     response = client.get("/whoami", headers={DEMO_USER_HEADER: "104"})
 
     assert response.status_code == 401
-    assert response.json() == {"detail": "Unknown or inactive staff 104"}
+    assert response.json() == {"detail": "Staff 104 is unknown, inactive or has no actor"}
+
+
+def test_staff_without_an_actor_is_401(client: TestClient, seeded: Session) -> None:
+    """Otherwise an audited route fails later in user_id() and the case goes FAILED."""
+    _add_staff(seeded, 106)
+    seeded.flush()
+
+    response = client.get("/whoami", headers={DEMO_USER_HEADER: "106"})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Staff 106 is unknown, inactive or has no actor"}
+
+
+def test_status_written_as_a_plain_string_in_this_session_is_accepted(
+    client: TestClient, seeded: Session
+) -> None:
+    """StrEnumText accepts "ACTIVE"; the in-memory row keeps the string until reloaded."""
+    staff = _add_staff(seeded, 106, status="ACTIVE")
+    seeded.flush()
+    _add_actor(seeded, 106)
+    seeded.flush()
+    assert type(staff.status) is str
+
+    response = client.get("/whoami", headers={DEMO_USER_HEADER: "106"})
+
+    assert response.status_code == 200
 
 
 def test_get_db_yields_a_session_and_never_commits() -> None:
@@ -160,3 +191,40 @@ def test_get_db_yields_a_session_and_never_commits() -> None:
             select(func.count()).select_from(Role).where(Role.name == "GET_DB_PROBE")
         )
     assert count == 0
+
+
+def test_get_db_session_has_the_production_settings() -> None:
+    generator = get_db()
+    db = next(generator)
+    try:
+        assert db.autoflush is False
+        assert db.expire_on_commit is False
+    finally:
+        generator.close()
+
+
+@pytest.mark.parametrize(("staff_id", "status_code"), [(105, 200), (900, 200), (999, 401)])
+def test_demo_user_with_production_session_settings(
+    production_client: TestClient, production_seeded: Session, staff_id: int, status_code: int
+) -> None:
+    assert production_seeded.autoflush is False
+
+    response = production_client.get("/whoami", headers={DEMO_USER_HEADER: str(staff_id)})
+
+    assert response.status_code == status_code
+
+
+def test_new_staff_is_accepted_only_after_flush_with_production_settings(
+    production_client: TestClient, production_seeded: Session
+) -> None:
+    """get_demo_user reads with a SELECT, so unflushed rows are invisible when autoflush is off."""
+    _add_staff(production_seeded, 106)
+    production_seeded.flush()
+    _add_actor(production_seeded, 106)
+
+    before = production_client.get("/whoami", headers={DEMO_USER_HEADER: "106"})
+    production_seeded.flush()
+    after = production_client.get("/whoami", headers={DEMO_USER_HEADER: "106"})
+
+    assert before.status_code == 401
+    assert after.status_code == 200
