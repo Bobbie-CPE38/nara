@@ -290,6 +290,14 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 
 `CANDIDATE_PLANS` และ `SAFETY_VALIDATION` อ้าง Policy แบบ NOT NULL จึงต้อง Seed `HARD_CONSTRAINT_POLICY` และ `SOFT_CONSTRAINT_POLICY` อย่างละ 1 แถว แม้ Stub ยังไม่ได้ใช้ค่าข้างใน
 
+Seam 2 ทำงานผ่าน `contact_candidate.handle()` → `outreach_service.send_offer()`:
+โหลด Plan ล่าสุดตามข้อ 6.4 แล้วต้องมี Item อันดับ 1 หนึ่งแถวพอดี ไม่เจอ Plan / Item
+หรือมีอันดับ 1 ซ้ำจะโยน Exception ให้ Orchestrator จัดการตาม D11 ไม่เลือกแถวแรกเอง
+สร้าง Outreach ผ่าน `integrations/line/mock.py` ตั้ง `SENT` และ `sent_at = clock.now()`
+เขียน `OFFER_SENT` ด้วย Actor `outreach_agent` แล้วคืน `WAITING_RESPONSE`, `wait=True`
+Handler / Service ไม่ Commit และไม่แก้ `case.status` เอง Mock ไม่ส่ง Network และไม่เก็บข้อความแยก:
+Offer ใน DB คือข้อความของ Simulator จึงถูก Rollback พร้อมรอบเมื่อ Error
+
 ---
 
 ## 9. API
@@ -526,3 +534,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | Orchestrator ตามรีวิว: ล็อกเป็น `FOR NO KEY UPDATE`, `resume()` และ Handler ห้ามใช้ `FAILED` เป็น `next_status`, D11 ในข้อ 1 ใช้ Savepoint, ข้อ 6.2 เพิ่มว่าผู้เรียกห้าม Commit หลัง `InvalidTransitionError` และข้อยกเว้นของการไม่โยน Exception | คน 1 |
 | 2026-10-09 | เตรียมขั้นที่ 4: ข้อ 6.4 Seam ระหว่างขั้น, ข้อ 6.5 คอลัมน์เวลา, ข้อ 9.1 ไฟล์ Route และ Error ร่วม (`409` / `404`), ข้อ 9.2 `REJECT` และไม่อนุมัติตอบ `422`, ข้อ 9.3 รูปแบบคำตอบและ Key ที่ E2E ใช้, กติกาเมื่อ Conflict ในข้อ 9 และ 13; line-sim ย้ายไป `routes/line_sim.py` | ทีม |
 | 2026-10-09 | ตามรีวิว PR เตรียมขั้นที่ 4: Seam 1 ไม่เจอ Plan เป็น Error, Seam 6 เรียงด้วย `id`, ข้อ 9.1 ระบุว่า `409` จาก `InvalidTransitionError` เกิดจาก Race และ Route ยังต้องตรวจคำขอซ้ำเอง, ตัวอย่างในข้อ 9 ใช้ Path ที่ไม่ซ้ำ Prefix | ทีม |
+| 2026-10-09 | ขั้นที่ 4 Seam 2: Contact Handler ส่ง Mock Offer ให้อันดับ 1 ของ Plan ล่าสุด, บังคับ Item หนึ่งแถวพอดี, ตั้ง `sent_at` และเขียน `OFFER_SENT` โดยไม่ Commit; เพิ่ม Test การ Rollback และ D11 | คน 3 |

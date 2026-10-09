@@ -40,6 +40,19 @@ ACCEPTING_STAFF_ID = 201
 CaseFactory = Callable[..., StaffingCase]
 
 
+@pytest.fixture(autouse=True)
+def isolate_outreach_handler(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests exercise orchestration independently of candidate selection.
+
+    The real outreach handler and D11 integration are covered in test_outreach.
+    """
+    monkeypatch.setitem(
+        orchestrator.HANDLERS,
+        CaseStatus.OUTREACH,
+        lambda db, case: HandlerResult(next_status=CaseStatus.WAITING_RESPONSE, wait=True),
+    )
+
+
 def _make_case(db: Session, status: CaseStatus) -> StaffingCase:
     event = StaffingEvent(
         event_type=EventType.STAFF_UNAVAILABLE,
