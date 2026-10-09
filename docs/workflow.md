@@ -223,13 +223,18 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | 1 | Plan ล่าสุด | คน 2 → คน 3 | `CANDIDATE_PLANS` ที่ `case_id = case.id` เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error |
 | 2 | Plan → Outreach | คน 3 | `CANDIDATE_ITEMS` ที่ `rank = 1` ใน Plan นั้น หนึ่งแถวพอดี |
 | 3 | Respond | คน 3 | ทำตามลำดับ: (1) ผู้ตอบคือ `user.staff.id` จาก `X-Demo-User` Body ไม่มี Outreach ID (2) `CANDIDATE_OUTREACH` ที่ `status = SENT` และ Join ไปที่ Item ซึ่ง `staff_id = user.staff.id` หนึ่งแถวพอดี ไม่เจอ → `409` (ตอบไปแล้วหรือไม่มี Offer) เจอหลายแถว → Error เพราะ Skeleton ส่ง Offer เดียว (3) `REJECT` → `422` ไม่เขียน DB (ข้อ 9.2) (4) `ACCEPT` → `status = ACCEPTED`, `response_at = clock.now()` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` |
-| 4 | Outreach → Safety | คน 3 → คน 2 | `CANDIDATE_OUTREACH` ของเคสที่ `status = ACCEPTED` หนึ่งแถวพอดี |
+| 4 | Outreach → Safety | คน 3 → คน 2 | โหลดผ่าน `outreach_service.get_accepted_outreach(db, case_id)` ต้องมี `CANDIDATE_OUTREACH` ของเคสที่ `status = ACCEPTED` หนึ่งแถวพอดี ไม่เจอ → `NoResultFound`, หลายแถว → `MultipleResultsFound` ให้ Handler ปล่อย Error ไปยัง D11 |
 | 5 | Safety → Approval Request | คน 2 | `case_id` = เคสนั้น `candidate_item_id` = Item ของ Outreach ที่ตอบรับ โหลด Plan จาก `item.plan_id` แล้วตรวจ `plan.case_id == case.id` (FK สองตัวไม่ได้รับประกันข้อนี้) ตั้ง `approval_mode = MANUAL`, `required_approver_role` = `id` ของ Role ชื่อ `HEAD_NURSE` (ค้นด้วยชื่อ), `is_pending = true`, `requested_at = clock.now()` |
 | 6 | รายการรออนุมัติ | คน 3 | `GET /approvals?pending=true` คืนแถวที่ `is_pending = true` เรียงด้วย `id` จากน้อยไปมาก ใน Skeleton เคสหนึ่งมีได้ไม่เกินหนึ่งแถว |
 | 7 | Decide | คน 3 | ตรวจตามลำดับ: ไม่มี Request ID นั้น → `404`; `user.staff.role_id != required_approver_role` → `403` (`get_demo_user` ไม่ตรวจ Role ดูข้อ 9); ไม่ได้ Pending → `409`; `approved = false` → `422` ไม่เขียน DB (ข้อ 9.2) ถ้าอนุมัติ: `approver_id = user.staff.id`, `is_approved = true`, `decided_at = clock.now()`, `is_pending = false` แล้วเรียก `orchestrator.resume(db, case_id, EXECUTING)` |
 | 8 | Approval → Execute | คน 3 (คน 2 ถ้าย้ายงาน Roster) | Request ของเคสที่ `is_pending = false` **และ** `is_approved = true` หนึ่งแถวพอดี สร้าง Roster จาก Item ของ Request นั้น: `staff_id = item.staff_id`, `shift_id = item.proposed_shift_id`, `status = ASSIGNED`, `assignment_type = REPLACEMENT`, `candidate_source = item.source` |
 | 9 | Timeline | คน 1 | `GET /cases/{id}/audit` เรียงด้วย `id` |
 | 10 | Requirement ของเวร | คน 1 (รับ Event + Gap) | `STAFFING_REQUIREMENTS` ที่ `shift_id` ของเวรนั้น เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error ตารางนี้ไม่มี Unique ที่ `shift_id` จึงมีหลายเวอร์ชันได้ (Seed มีเวรละแถว) การรับ Event และ `assess_staffing` ต้องโหลดผ่าน**ฟังก์ชันเดียวกัน** เพื่อให้เห็น Requirement ตัวเดียวกันเสมอ แถว Gap เก็บ `id` นี้ใน `staffing_requirement_id` |
+
+Seam 4 เป็น Lookup แบบอ่านอย่างเดียว ไม่ Flush, Commit, เขียน Audit หรือเพิ่ม Row Lock
+ผู้เรียกต้อง Flush คำตอบก่อนอ่านเมื่อ `autoflush=False` (`orchestrator.resume()` ทำให้แล้ว)
+Service ของ Safety (คน 2, Seam 5) ใช้ `candidate_item_id` ของ Outreach ที่คืนมาเพื่อโหลด Item
+และตรวจ `plan.case_id` ก่อนสร้าง Validation / Approval ตามกติกา Seam 5
 
 ### 6.5 คอลัมน์เวลา
 
@@ -527,3 +532,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | เตรียมขั้นที่ 4: ข้อ 6.4 Seam ระหว่างขั้น, ข้อ 6.5 คอลัมน์เวลา, ข้อ 9.1 ไฟล์ Route และ Error ร่วม (`409` / `404`), ข้อ 9.2 `REJECT` และไม่อนุมัติตอบ `422`, ข้อ 9.3 รูปแบบคำตอบและ Key ที่ E2E ใช้, กติกาเมื่อ Conflict ในข้อ 9 และ 13; line-sim ย้ายไป `routes/line_sim.py` | ทีม |
 | 2026-10-09 | ตามรีวิว PR เตรียมขั้นที่ 4: Seam 1 ไม่เจอ Plan เป็น Error, Seam 6 เรียงด้วย `id`, ข้อ 9.1 ระบุว่า `409` จาก `InvalidTransitionError` เกิดจาก Race และ Route ยังต้องตรวจคำขอซ้ำเอง, ตัวอย่างในข้อ 9 ใช้ Path ที่ไม่ซ้ำ Prefix | ทีม |
 | 2026-10-09 | ขั้นที่ 4 Seam 2: Contact Handler ส่ง Mock Offer ให้อันดับ 1 ของ Plan ล่าสุด, บังคับ Item หนึ่งแถวพอดี, ตั้ง `sent_at` และเขียน `OFFER_SENT` โดยไม่ Commit; เพิ่ม Test การ Rollback และ D11 | คน 3 |
+| 2026-10-09 | ขั้นที่ 4 Seam 4: เพิ่ม `outreach_service.get_accepted_outreach()` เป็น Lookup ของ Offer ที่ตอบรับหนึ่งแถวพอดีต่อเคสสำหรับ Safety; ไม่ Flush / Commit / เขียน Audit; เพิ่ม Test ขอบเขตเคส, Cardinality และ D11 | คน 3 |

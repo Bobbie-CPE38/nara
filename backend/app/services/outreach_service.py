@@ -42,3 +42,22 @@ def send_offer(db: Session, case: StaffingCase) -> tuple[CandidateOutreach, int]
     db.flush()
     line_mock.send_offer(staff_id=item.staff_id, outreach_id=outreach.id)
     return outreach, item.staff_id
+
+
+def get_accepted_outreach(db: Session, case_id: int) -> CandidateOutreach:
+    """Return exactly one ACCEPTED outreach for the case (seam 4).
+
+    Missing or multiple accepted offers raise NoResultFound / MultipleResultsFound
+    for the safety handler to let D11 handle. Read-only: no explicit flush,
+    commit, audit, or row lock. With autoflush disabled, the caller must flush
+    pending answers first; orchestrator.resume() already does this.
+
+    The safety service owns seam 5: loading the candidate item and checking its
+    plan belongs to this case before writing validation and approval rows.
+    """
+    return db.scalars(
+        select(CandidateOutreach).where(
+            CandidateOutreach.case_id == case_id,
+            CandidateOutreach.status == OutreachStatus.ACCEPTED,
+        )
+    ).one()
