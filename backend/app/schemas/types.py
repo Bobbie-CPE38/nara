@@ -7,6 +7,9 @@ from pydantic import AfterValidator
 
 from app.core import clock
 
+# The largest PostgreSQL bigint. Every table ID is a bigint (docs/workflow.md, D7)
+MAX_BIGINT = 2**63 - 1
+
 
 def _to_app_timezone(value: datetime) -> datetime:
     if value.utcoffset() is None:

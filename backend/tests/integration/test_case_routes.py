@@ -449,9 +449,18 @@ def test_unknown_case_is_404(client: TestClient, path: str) -> None:
     assert response.json() == {"detail": "No case 999999"}
 
 
-@pytest.mark.parametrize("path", ["/cases/abc", "/cases/abc/audit"])
-def test_case_id_that_is_not_a_number_is_422(client: TestClient, path: str) -> None:
-    assert client.get(path).status_code == 422
+@pytest.mark.parametrize("case_id", ["abc", "0", "-1", str(2**63)])
+@pytest.mark.parametrize("suffix", ["", "/audit"])
+def test_case_id_outside_the_bigint_range_is_422(
+    client: TestClient, case_id: str, suffix: str
+) -> None:
+    """Rejected by validation. 2**63 would otherwise fail inside PostgreSQL as a 500."""
+    assert client.get(f"/cases/{case_id}{suffix}").status_code == 422
+
+
+@pytest.mark.parametrize("suffix", ["", "/audit"])
+def test_largest_bigint_case_id_reaches_the_lookup(client: TestClient, suffix: str) -> None:
+    assert client.get(f"/cases/{2**63 - 1}{suffix}").status_code == 404
 
 
 def test_read_routes_write_nothing(client: TestClient, seeded: Session, case: StaffingCase) -> None:
