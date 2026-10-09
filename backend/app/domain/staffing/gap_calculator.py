@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from fractions import Fraction
 from math import ceil
+from types import MappingProxyType
 
 from app.domain.enums import RosterStatus
 from app.domain.staffing.coverage import RosterMember
@@ -34,8 +35,26 @@ class CountGap:
 class GapResult:
     minimum_required_staff: int
     headcount_gap: int
-    role_gaps: dict[int, CountGap]
-    skill_gaps: dict[int, CountGap]
+    role_gaps: Mapping[int, CountGap]
+    skill_gaps: Mapping[int, CountGap]
+
+    def __post_init__(self) -> None:
+        # Copy first: a read-only view of a caller-owned dict would still change
+        # when that caller mutates the original dict.
+        object.__setattr__(self, "role_gaps", MappingProxyType(dict(self.role_gaps)))
+        object.__setattr__(self, "skill_gaps", MappingProxyType(dict(self.skill_gaps)))
+
+    def __hash__(self) -> int:
+        # MappingProxyType is not hashable on Python 3.11. Ignore insertion order
+        # to match mapping equality, and hash the immutable CountGap values.
+        return hash(
+            (
+                self.minimum_required_staff,
+                self.headcount_gap,
+                frozenset(self.role_gaps.items()),
+                frozenset(self.skill_gaps.items()),
+            )
+        )
 
     @property
     def has_gap(self) -> bool:
@@ -62,7 +81,8 @@ def calculate_gap(
     Event intake and ASSESSING both load the skeleton's hospital-wide policy with
     policy_service.get_hard_constraint_policy(db) and pass its
     maximum_patients_per_nurse. There is no fallback ratio in the calculator.
-    The ratio must be positive and finite. Decimal supports non-integer ratios;
+    The ratio must be a positive, finite Decimal or int; float and bool are rejected.
+    Decimal supports non-integer ratios;
     exact rational division avoids floating-point or Decimal rounding at boundaries.
 
     Mapping keys are role/skill IDs and values are required counts. Results retain
@@ -75,6 +95,8 @@ def calculate_gap(
     """
     if patient_count < 0:
         raise ValueError("Patient count must be non-negative")
+    if isinstance(patients_per_nurse, bool) or not isinstance(patients_per_nurse, (Decimal, int)):
+        raise TypeError("Patients per nurse must be a Decimal or int, not float or bool")
     ratio = Decimal(patients_per_nurse)
     if not ratio.is_finite() or ratio <= 0:
         raise ValueError("Patients per nurse must be positive and finite")

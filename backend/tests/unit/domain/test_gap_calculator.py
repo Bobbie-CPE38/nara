@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, replace
 from decimal import Decimal
 
 import pytest
@@ -222,6 +222,7 @@ def test_conflicting_staff_snapshots_are_rejected(kind: str) -> None:
         (0, Decimal("2"), 0),
         (5, Decimal("2.5"), 2),
         (6, Decimal("2.5"), 3),
+        (12, Decimal("2.4"), 5),
         (1, Decimal("0.1"), 10),
         (10, Decimal("1.999999999999999999999999999999"), 6),
     ],
@@ -277,3 +278,53 @@ def test_invalid_workload_ratio_is_rejected(ratio: str) -> None:
             required_skills={},
             roster=[],
         )
+
+
+@pytest.mark.parametrize("ratio", [2.4, 2.0, True, False, "2.4", None])
+def test_ratio_requires_decimal_or_integer(ratio: object) -> None:
+    with pytest.raises(TypeError, match="Decimal or int"):
+        calculate_gap(
+            shift_id=1,
+            patient_count=12,
+            patients_per_nurse=ratio,  # type: ignore[arg-type]
+            required_roles={},
+            required_skills={},
+            roster=[],
+        )
+
+
+def test_calculated_result_cannot_be_mutated() -> None:
+    result = calculate_gap(
+        shift_id=1,
+        patient_count=10,
+        patients_per_nurse=2,
+        required_roles={RN: 5},
+        required_skills={ICU: 2},
+        roster=golden_roster(),
+    )
+    with pytest.raises(TypeError):
+        result.role_gaps[RN] = CountGap(5, 0)  # type: ignore[index]
+    with pytest.raises(TypeError):
+        result.skill_gaps[ICU] = CountGap(2, 0)  # type: ignore[index]
+    with pytest.raises(FrozenInstanceError):
+        result.role_gaps[RN].current_count = 0  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        result.headcount_gap = 99  # type: ignore[misc]
+    assert not result.has_gap
+
+
+def test_result_copies_input_mappings_and_hash_ignores_insertion_order() -> None:
+    roles = {RN: CountGap(5, 4), HEAD_NURSE: CountGap(1, 1)}
+    skills = {ICU: CountGap(2, 2), BLS: CountGap(3, 3)}
+    result = GapResult(5, 1, roles, skills)
+    reordered = GapResult(
+        5, 1, dict(reversed(list(roles.items()))), dict(reversed(list(skills.items())))
+    )
+    original_hash = hash(result)
+    roles.clear()
+    skills[ICU] = CountGap(2, 0)
+    assert result == reordered
+    assert hash(result) == hash(reordered) == original_hash
+    assert len({result, reordered}) == 1
+    assert result.role_gaps[RN] == CountGap(5, 4)
+    assert result.skill_gaps[ICU] == CountGap(2, 2)
