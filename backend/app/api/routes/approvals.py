@@ -1,11 +1,13 @@
-"""Manual approval decisions for the walking skeleton (seam 7)."""
+"""Pending approval reads and manual decisions (seams 6 and 7)."""
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, HTTPException, Path, Query, status
+from pydantic import AfterValidator
 
 from app.api.dependencies import DbSession, DemoUser
 from app.core.constants import MAX_BIGINT
+from app.schemas.approval import PendingApproval
 from app.schemas.approval_decision import ApprovalDecision, ApprovalDecisionResult
 from app.services import approval_service
 
@@ -43,3 +45,20 @@ def decide(
         case_id=case.id,
         case_status=case.status,
     )
+
+
+def _pending_only(value: bool) -> bool:
+    if not value:
+        raise ValueError("Only pending approvals are supported in the walking skeleton")
+    return value
+
+
+PendingFilter = Annotated[bool, Query(), AfterValidator(_pending_only)]
+
+
+@router.get("")
+def pending_approvals(
+    db: DbSession, user: DemoUser, pending: PendingFilter = True
+) -> list[PendingApproval]:
+    """Return the pending list to an authenticated demo user, without writing."""
+    return approval_service.list_pending(db)
