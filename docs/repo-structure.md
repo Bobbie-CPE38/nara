@@ -201,6 +201,7 @@ nara/
 │   │   │   ├── unavailability_service.py
 │   │   │   ├── working_time_service.py
 │   │   │   ├── policy_service.py
+│   │   │   ├── availability_service.py
 │   │   │   ├── handover_service.py
 │   │   │   ├── actor_service.py
 │   │   │   └── audit_service.py
@@ -341,6 +342,7 @@ nara/
 │       │   ├── test_golden_flow.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_orchestrator.py
+│       │   ├── test_optimize.py
 │       │   ├── test_outreach.py
 │       │   ├── test_line_webhook.py
 │       │   ├── test_candidate_timeout.py
