@@ -3,7 +3,8 @@ from datetime import datetime
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base
+from app.db.base import Base, StrEnumText
+from app.domain.enums import ApprovalMode
 
 
 class ApprovalRequest(Base):
@@ -13,7 +14,7 @@ class ApprovalRequest(Base):
     case_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("staffing_cases.id"))
     candidate_item_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("candidate_items.id"))
     required_approver_role: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("role.id"))
-    approval_mode: Mapped[str] = mapped_column(Text)  # ApprovalMode
+    approval_mode: Mapped[ApprovalMode] = mapped_column(StrEnumText(ApprovalMode))
     is_pending: Mapped[bool] = mapped_column(Boolean)
     approver_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("staff.id"))
     is_approved: Mapped[bool | None] = mapped_column(Boolean)

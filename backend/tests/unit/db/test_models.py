@@ -7,6 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 import app.db.models  # noqa: F401  registers all tables on Base.metadata
+from app.core import clock
 from app.db.base import Base, StrEnumText
 
 NOT_NULL = False
@@ -246,3 +247,16 @@ def test_staffing_event_constraint() -> None:
         "(event_type IN ('ASSIGNMENT_CANCELLED', 'STAFF_UNAVAILABLE')) = (staff_id IS NOT NULL)"
         in ddl
     )
+
+
+def test_created_and_updated_timestamps_default_to_the_clock() -> None:
+    """Team convention for all 30 tables: these two columns never rely on the caller."""
+    missing = [
+        f"{table.name}.{column.name}"
+        for table in Base.metadata.tables.values()
+        for column in table.columns
+        if column.name in {"created_at", "updated_at"}
+        and (column.default is None or column.default.arg.__wrapped__ is not clock.now)
+    ]
+
+    assert missing == []
