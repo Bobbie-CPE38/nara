@@ -36,14 +36,30 @@ from app.domain.enums import (
     OutreachStatus,
     SolverStatus,
 )
+from app.domain.workflow.transitions import InvalidTransitionError
 from app.seed import load
 from app.services import actor_service, outreach_service
 from app.services.actor_service import ActorNotFoundError
 from app.workflow import orchestrator
+from app.workflow.handlers.base import HandlerResult
 from tests.integration.conftest import DEMO_NOW
 
 URL = "/demo/line-sim/respond"
 HEADERS = {"X-Demo-User": "201"}
+
+
+@pytest.fixture(autouse=True)
+def stub_safety_handler(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Respond owns the handoff to safety; safety's writes have their own tests.
+
+    Stub only safety so the seam 2 integration test still runs real outreach.
+    Tests of D11 can replace this handler with a failing one.
+    """
+
+    def wait_for_approval(db: Session, case: StaffingCase) -> HandlerResult:
+        return HandlerResult(next_status=CaseStatus.WAITING_APPROVAL, wait=True)
+
+    monkeypatch.setitem(orchestrator.HANDLERS, CaseStatus.SAFETY_VALIDATION, wait_for_approval)
 
 
 def _make_offer(db: Session, *, staff_id: int = 201) -> CandidateOutreach:
@@ -204,6 +220,56 @@ def test_other_staff_offers_and_answered_offers_do_not_make_selection_ambiguous(
     assert response.json()["outreach_id"] == offer.id
 
 
+@pytest.mark.parametrize(
+    "status", [status for status in CaseStatus if status != CaseStatus.WAITING_RESPONSE]
+)
+def test_sent_offer_on_another_case_does_not_block_the_waiting_offer(
+    client: TestClient, production_seeded: Session, offer: CandidateOutreach, status: CaseStatus
+) -> None:
+    stale = _make_offer(production_seeded)
+    stale_case = production_seeded.get(StaffingCase, stale.case_id)
+    assert stale_case is not None
+    stale_case.status = status
+    production_seeded.commit()
+
+    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+
+    assert response.status_code == 200
+    assert response.json()["outreach_id"] == offer.id
+    production_seeded.expire_all()
+    assert offer.status is OutreachStatus.ACCEPTED
+    assert stale.status is OutreachStatus.SENT
+    assert stale.response_at is None
+    assert stale_case.status is status
+    accepted = list(
+        production_seeded.scalars(
+            select(AuditLog).where(AuditLog.action == AuditAction.OFFER_ACCEPTED)
+        )
+    )
+    assert len(accepted) == 1
+    assert accepted[0].entity_id == offer.id
+
+
+@pytest.mark.parametrize("status", [CaseStatus.FAILED, CaseStatus.RESOLVED])
+def test_only_offer_on_a_finished_case_is_conflict_without_writes(
+    client: TestClient, production_seeded: Session, offer: CandidateOutreach, status: CaseStatus
+) -> None:
+    case = production_seeded.get(StaffingCase, offer.case_id)
+    assert case is not None
+    case.status = status
+    production_seeded.commit()
+
+    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "No open offer for this staff member"}
+    production_seeded.expire_all()
+    assert offer.status is OutreachStatus.SENT
+    assert offer.response_at is None
+    assert case.status is status
+    assert production_seeded.scalar(select(AuditLog.id)) is None
+
+
 @pytest.mark.parametrize("answer", ["ACCEPT", "REJECT"])
 def test_other_staff_cannot_answer_offer(
     client: TestClient, production_seeded: Session, offer: CandidateOutreach, answer: str
@@ -320,19 +386,21 @@ def test_body_only_accepts_a_response(
 
 
 def test_invalid_case_transition_rolls_back_answer_and_audit(
-    client: TestClient, production_seeded: Session, offer: CandidateOutreach
+    client: TestClient,
+    production_seeded: Session,
+    offer: CandidateOutreach,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    case = production_seeded.get(StaffingCase, offer.case_id)
-    assert case is not None
-    case.status = CaseStatus.RESOLVED
-    production_seeded.commit()
+    # A case can change after offer selection; resume must still reject it and
+    # the request must roll back the already-flushed answer and audit.
+    def conflict(db: Session, case_id: int, next_status: CaseStatus) -> None:
+        assert db.scalar(select(AuditLog.action)) is AuditAction.OFFER_ACCEPTED
+        raise InvalidTransitionError("case changed after offer selection")
+
+    monkeypatch.setattr(orchestrator, "resume", conflict)
     response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
     assert response.status_code == 409
-    production_seeded.expire_all()
-    assert offer.status is OutreachStatus.SENT
-    assert offer.response_at is None
-    assert case.status is CaseStatus.RESOLVED
-    assert production_seeded.scalar(select(AuditLog.id)) is None
+    _assert_unchanged(production_seeded, offer)
 
 
 def test_handler_failure_returns_200_failed_and_preserves_answer(

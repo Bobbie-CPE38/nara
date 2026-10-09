@@ -66,7 +66,8 @@ def record_response(
     """Record ACCEPT and resume; leave commits and case status to the orchestrator.
 
     The caller supplies the authenticated staff ID and their actor ID. Exactly
-    one SENT offer is required before checking whether the answer is supported.
+    one SENT offer on a WAITING_RESPONSE case is required before checking
+    whether the answer is supported. Offers on other cases are ignored.
     Lock only outreach rows, in ID order, and refresh cached ORM state: a second
     request waits, then sees that the first request already answered the offer.
     Errors must propagate so the request session closes and rolls back, including
@@ -82,9 +83,11 @@ def record_response(
         db.scalars(
             select(CandidateOutreach)
             .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+            .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
             .where(
                 CandidateOutreach.status == OutreachStatus.SENT,
                 CandidateItem.staff_id == staff_id,
+                StaffingCase.status == CaseStatus.WAITING_RESPONSE,
             )
             .order_by(CandidateOutreach.id)
             .with_for_update(of=CandidateOutreach)
@@ -111,6 +114,5 @@ def record_response(
     )
     orchestrator.resume(db, outreach.case_id, CaseStatus.SAFETY_VALIDATION)
     case = db.get(StaffingCase, outreach.case_id)
-    if case is None:
-        raise orchestrator.CaseNotFoundError(f"No case {outreach.case_id}")
+    assert case is not None  # resume() already raises when the case is missing.
     return outreach, case
