@@ -76,13 +76,19 @@ POST /events
   | ตรวจ | ไม่ผ่านตอบ |
   |---|---|
   | `event_type` เป็น `STAFF_UNAVAILABLE` | `422` |
+  | `shift_id` อยู่ในช่วง `bigint` (1 ถึง 9223372036854775807) | `422` |
   | มี Shift ID นั้น | `404` |
   | `end_at` อยู่หลัง `SHIFT.start_at` (ถ้าส่งมา) | `422` |
   | ผู้แจ้งมี Roster `ASSIGNED` ในเวรนั้นหนึ่งแถวพอดี | ไม่มี → `409`, มีหลายแถว → Error |
 
   `409` ครอบคลุมทั้งคนที่ไม่ได้อยู่เวรนั้นและการแจ้งลาซ้ำ (แถว Roster ถูก `CANCELLED` ไปแล้วจากครั้งแรก)
-* แถว Roster ถูกล็อกด้วย `SELECT ... FOR NO KEY UPDATE` ตอนตรวจ สองคำขอแจ้งลาของคนเดียวกันในเวรเดียวกันที่มาพร้อมกัน
-  จึงทำทีละคำขอ คำขอที่สองเห็นแถวถูก `CANCELLED` แล้วได้ `409` ไม่เกิด Event หรือเคสซ้ำ
+* การรับ Event ทำ**ทีละคำขอต่อเวร**: ล็อกแถว `SHIFT` ก่อน แล้วจึงล็อกแถว Roster ของผู้แจ้ง (ลำดับนี้เสมอ) ด้วย `SELECT ... FOR NO KEY UPDATE`
+  และถือ Lock จน Commit
+  * คนละคนแจ้งลาเวรเดียวกันพร้อมกัน: ถ้าไม่ล็อกเวร แต่ละคำขอจะยกเลิก Roster ของตัวเอง แต่ยังเห็นอีกคนเป็น `ASSIGNED`
+    (ยังไม่ Commit) ทั้งสอง Event จึงเป็น `IGNORED` ทั้งที่เวรขาดคนแล้ว เมื่อล็อกเวร คำขอที่สองจะเห็นผลของคำขอแรกก่อนตรวจ Gap
+  * คนเดียวกันแจ้งลาเวรเดียวกันซ้ำพร้อมกัน: คำขอที่สองเห็นแถว Roster ถูก `CANCELLED` แล้วได้ `409` ไม่เกิด Event หรือเคสซ้ำ
+  * Lock นี้คุมเฉพาะการรับ Event ขั้นอื่นที่เขียน Roster (เช่น `execute_assignment`) ยังไม่ได้ล็อกเวร
+    Lock ต่อ Shift ทั้งระบบเป็นงานหลัง Skeleton (`core/locks.py`)
 * แถว Audit ของ Event (`EVENT_RECEIVED`, `UNAVAILABILITY_CREATED`) เขียน**หลัง**สร้างเคส เพื่อให้มี `case_id` ของเคสนั้น
   และขึ้นใน Timeline ของเคสตามลำดับของข้อ 7 Event ที่ `IGNORED` ทั้งสามแถวมี `case_id = NULL`
 * `EVENT_IGNORED` ใช้ Actor `workflow_orchestrator` เหมือน `CASE_OPENED` (เป็นการตัดสินของระบบ) `entity_type = STAFFING_EVENTS`
@@ -548,4 +554,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | Orchestrator ตามรีวิว: ล็อกเป็น `FOR NO KEY UPDATE`, `resume()` และ Handler ห้ามใช้ `FAILED` เป็น `next_status`, D11 ในข้อ 1 ใช้ Savepoint, ข้อ 6.2 เพิ่มว่าผู้เรียกห้าม Commit หลัง `InvalidTransitionError` และข้อยกเว้นของการไม่โยน Exception | คน 1 |
 | 2026-10-09 | เตรียมขั้นที่ 4: ข้อ 6.4 Seam ระหว่างขั้น, ข้อ 6.5 คอลัมน์เวลา, ข้อ 9.1 ไฟล์ Route และ Error ร่วม (`409` / `404`), ข้อ 9.2 `REJECT` และไม่อนุมัติตอบ `422`, ข้อ 9.3 รูปแบบคำตอบและ Key ที่ E2E ใช้, กติกาเมื่อ Conflict ในข้อ 9 และ 13; line-sim ย้ายไป `routes/line_sim.py` | ทีม |
 | 2026-10-09 | ตามรีวิว PR เตรียมขั้นที่ 4: Seam 1 ไม่เจอ Plan เป็น Error, Seam 6 เรียงด้วย `id`, ข้อ 9.1 ระบุว่า `409` จาก `InvalidTransitionError` เกิดจาก Race และ Route ยังต้องตรวจคำขอซ้ำเอง, ตัวอย่างในข้อ 9 ใช้ Path ที่ไม่ซ้ำ Prefix | ทีม |
-| 2026-10-09 | ขั้นที่ 4 รับ Event: ข้อ 3 เพิ่ม Request Body, ลำดับการตรวจและ Status Code (`404` / `409` / `422`), การล็อกแถว Roster กันแจ้งลาซ้ำ, ลำดับและ `case_id` ของ Audit, Actor ของ `EVENT_IGNORED`, `gap_service.assess_shift()` และ `requirement_service.get_current_requirement()` (Seam 10) | คน 1 |
+| 2026-10-09 | ขั้นที่ 4 รับ Event: ข้อ 3 เพิ่ม Request Body, ลำดับการตรวจและ Status Code (`404` / `409` / `422`), การล็อกแถว `SHIFT` และ Roster ให้รับ Event ทีละคำขอต่อเวร, ลำดับและ `case_id` ของ Audit, Actor ของ `EVENT_IGNORED`, `gap_service.assess_shift()` และ `requirement_service.get_current_requirement()` (Seam 10) | คน 1 |

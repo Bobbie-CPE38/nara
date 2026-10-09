@@ -1,5 +1,6 @@
 """POST /events on the seeded Golden Case (docs/workflow.md, section 3)."""
 
+import contextlib
 import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta
@@ -35,6 +36,7 @@ from app.domain.enums import (
 )
 from app.main import app
 from app.seed import load
+from app.services import gap_service
 from app.workflow import orchestrator
 from app.workflow.handlers.base import HandlerResult
 
@@ -277,6 +279,8 @@ def test_workflow_failure_is_a_recorded_result_not_an_http_error(
         (AS_105, LEAVE | {"event_type": "ASSIGNMENT_CANCELLED"}, 422),
         (AS_105, LEAVE | {"event_type": "NOT_AN_EVENT"}, 422),
         (AS_105, LEAVE | {"shift_id": 0}, 422),
+        # One above PostgreSQL bigint: must be rejected before the database sees it
+        (AS_105, LEAVE | {"shift_id": 2**63}, 422),
         (AS_105, {"event_type": "STAFF_UNAVAILABLE"}, 422),
         # A return time without a timezone
         (AS_105, LEAVE | {"end_at": "2026-10-10T03:00:00"}, 422),
@@ -292,6 +296,7 @@ def test_workflow_failure_is_a_recorded_result_not_an_http_error(
         "assignment_cancelled",
         "unknown_event_type",
         "shift_id_zero",
+        "shift_id_above_bigint",
         "missing_shift_id",
         "naive_end_at",
         "end_at_before_shift",
@@ -366,4 +371,66 @@ def test_same_leave_reported_twice_at_once_opens_one_case(committed_seed: None) 
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(StaffingEvent)) == 1
         assert db.scalar(select(func.count()).select_from(StaffUnavailability)) == 1
+        assert db.scalar(select(func.count()).select_from(StaffingCase)) == 1
+
+
+def test_largest_bigint_shift_id_reaches_the_lookup(client: TestClient) -> None:
+    """The upper bound is the bigint maximum itself, which is a valid (unknown) shift ID."""
+    response = client.post("/events", headers=AS_105, json=LEAVE | {"shift_id": 2**63 - 1})
+
+    assert response.status_code == 404
+
+
+def test_two_people_leaving_the_same_shift_at_once_do_not_hide_the_gap(
+    committed_seed: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """202 and 203 are the whole day shift, which needs one nurse.
+
+    Without a lock on the shift, each request cancels its own roster row, still
+    sees the other person as ASSIGNED (that cancellation is not committed yet),
+    and marks its event IGNORED. The shift ends up empty with no case.
+
+    The barrier holds both requests just before the gap check, which is the
+    moment they would both read the stale roster. With the shift lock only one
+    request gets that far at a time, so the barrier times out and lets it go on.
+    """
+    both_cancelled = threading.Barrier(2, timeout=10)
+    real_assess = gap_service.assess_shift
+
+    def assess_when_both_are_ready(db: Session, shift: Shift) -> gap_service.ShiftAssessment:
+        with contextlib.suppress(threading.BrokenBarrierError):
+            both_cancelled.wait(timeout=1.5)
+        return real_assess(db, shift)
+
+    monkeypatch.setattr(gap_service, "assess_shift", assess_when_both_are_ready)
+    start = threading.Barrier(2, timeout=10)
+    answers: dict[int, tuple[int, dict[str, Any]]] = {}
+
+    def report_leave(staff_id: int) -> None:
+        with TestClient(app) as real_client:
+            start.wait()
+            response = real_client.post(
+                "/events",
+                headers={"X-Demo-User": str(staff_id)},
+                json=LEAVE | {"shift_id": DAY_SHIFT},
+            )
+            answers[staff_id] = (response.status_code, response.json())
+
+    threads = [threading.Thread(target=report_leave, args=(staff_id,)) for staff_id in (202, 203)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert [status_code for status_code, _ in answers.values()] == [201, 201]
+    # The first one leaves the shift covered. The second one must see it empty
+    assert sorted(body["event_status"] for _, body in answers.values()) == ["IGNORED", "PROCESSED"]
+    with SessionLocal() as db:
+        roster = set(
+            db.scalars(
+                select(RosterAssignment.status).where(RosterAssignment.shift_id == DAY_SHIFT)
+            )
+        )
+        assert roster == {RosterStatus.CANCELLED}
         assert db.scalar(select(func.count()).select_from(StaffingCase)) == 1

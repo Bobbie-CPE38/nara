@@ -13,6 +13,7 @@ intake rules yet (section 12).
 from dataclasses import dataclass
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -49,6 +50,28 @@ def _iso(moment: datetime) -> str:
     return moment.astimezone(clock.APP_TIMEZONE).isoformat()
 
 
+def _lock_shift(db: Session, shift_id: int) -> Shift:
+    """Return the shift, locked until this transaction commits.
+
+    Event intake runs one at a time per shift. Without this, two people who
+    report leave for the same shift at the same moment each cancel their own
+    roster row, still see the other one as ASSIGNED (that change is not
+    committed yet), and both events are IGNORED although the shift is now short.
+
+    FOR NO KEY UPDATE, not FOR UPDATE: the event and roster rows written below
+    reference the shift and take KEY SHARE on it.
+    """
+    shift = db.scalar(
+        select(Shift)
+        .where(Shift.id == shift_id)
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
+    if shift is None:
+        raise ShiftNotFoundError(f"No shift {shift_id}")
+    return shift
+
+
 @dataclass(frozen=True)
 class EventOutcome:
     event_id: int
@@ -76,13 +99,11 @@ def receive_event(
     """
     if event_type is not EventType.STAFF_UNAVAILABLE:
         raise EventNotSupportedError(f"Event type {event_type.value} is not supported yet")
-    shift = db.get(Shift, shift_id)
-    if shift is None:
-        raise ShiftNotFoundError(f"No shift {shift_id}")
+    shift = _lock_shift(db, shift_id)
     if end_at is not None and end_at <= shift.start_at:
         raise InvalidLeaveEndError("end_at must be after the start of the shift")
-    # Locks the roster row: a second report for the same person and shift
-    # waits here, then finds the row cancelled
+    # Taken after the shift lock, always in this order. A second report for the
+    # same person and shift finds the row already cancelled
     roster = unavailability_service.lock_assigned_roster(db, staff_id=staff_id, shift_id=shift.id)
 
     event = StaffingEvent(
