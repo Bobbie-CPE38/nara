@@ -5,10 +5,15 @@ migrated schema that the other tests expect.
 """
 
 import time
+import traceback
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from threading import Barrier, Thread
-from typing import TypeVar, cast
+from multiprocessing import get_context
+from multiprocessing.queues import Queue
+from queue import Empty
+from threading import Barrier
+from typing import Any, TypedDict, TypeVar, cast
 
 import pytest
 from alembic import command
@@ -35,8 +40,9 @@ T = TypeVar("T")
 def restore_empty_database() -> Iterator[None]:
     yield
     with engine.begin() as connection:
-        # A reset that hung in another thread may still hold schema locks; end its
-        # session so the DROP cannot block forever and the hung thread releases its lock
+        # A killed reset process can leave a session behind that still holds schema locks
+        # (a backend waiting on a lock does not notice its client is gone); end it so the
+        # DROP cannot block forever
         connection.execute(
             text(
                 "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
@@ -56,35 +62,101 @@ def roster(shift_id: int) -> dict[int, RosterStatus]:
         return {row.staff_id: row.status for row in rows}
 
 
-def run_concurrently(*calls: Callable[[], T], timeout: float = 30.0) -> list[T]:
-    """Run each call in its own thread and return the results in order.
+def _child_main(outcome: "Queue[tuple[str, Any]]", target: Callable[[], Any]) -> None:
+    try:
+        outcome.put(("ok", target()))
+    except BaseException:
+        # Exceptions may not pickle, so the traceback travels as text
+        outcome.put(("error", traceback.format_exc()))
 
-    Fails the test if any call is still running after `timeout` seconds. Daemon threads
-    are used instead of ThreadPoolExecutor, whose shutdown waits for a stuck worker and
-    would hang the run instead of failing it.
+
+def run_in_child_process(target: Callable[[], T], timeout: float = 60.0) -> T:
+    """Run `target` in a separate process and return its result.
+
+    A thread stuck in a reset cannot be stopped, so after a timeout it could start
+    another reset while the cleanup fixture migrates the database. A process can be
+    killed: on timeout the child is killed and joined before the test fails and the
+    cleanup runs. `target` must be a module-level function so the child can import it.
     """
-    results: list[T | None] = [None] * len(calls)
-    errors: list[BaseException] = []
-
-    def run(index: int, call: Callable[[], T]) -> None:
-        try:
-            results[index] = call()
-        except BaseException as error:
-            errors.append(error)
-
-    threads = [
-        Thread(target=run, args=(index, call), daemon=True) for index, call in enumerate(calls)
-    ]
-    for thread in threads:
-        thread.start()
+    # spawn, not fork: the parent holds open database connections and threads
+    context = get_context("spawn")
+    outcome: Queue[tuple[str, Any]] = context.Queue()
+    child = context.Process(target=_child_main, args=(outcome, target), daemon=True)
+    child.start()
+    status, value = "timeout", None
     deadline = time.monotonic() + timeout
-    for thread in threads:
-        thread.join(max(0.0, deadline - time.monotonic()))
-    if any(thread.is_alive() for thread in threads):
+    while time.monotonic() < deadline:
+        try:
+            status, value = outcome.get(timeout=0.5)
+            break
+        except Empty:
+            if not child.is_alive():
+                # The result may have arrived just before the child exited
+                try:
+                    status, value = outcome.get(timeout=1)
+                except Empty:
+                    status, value = "crashed", f"exit code {child.exitcode}"
+                break
+    else:
+        child.kill()
+    child.join(timeout=10)
+    if child.is_alive():
+        child.kill()
+        child.join()
+
+    if status == "timeout":
         pytest.fail(f"Reset did not finish within {timeout:g}s; it may be deadlocked")
-    if errors:
-        raise errors[0]
-    return cast(list[T], results)
+    if status != "ok":
+        pytest.fail(f"Reset child process failed ({status}):\n{value}")
+    return cast(T, value)
+
+
+class SimultaneousResetOutcome(TypedDict):
+    responses: list[tuple[int, dict[str, str]]]
+    rosters: dict[int, dict[int, RosterStatus]]
+    clock_frozen: bool
+    clock_hour: int
+    follow_up_status: int
+
+
+def _simultaneous_resets() -> SimultaneousResetOutcome:
+    """Runs in a child process: two resets at the same time, then one more."""
+    start = Barrier(2)
+
+    def request_reset(_: int) -> tuple[int, dict[str, str]]:
+        # Separate clients simulate two browsers clicking Reset at the same time.
+        with TestClient(app) as request_client:
+            start.wait(timeout=5)
+            response = request_client.post("/demo/reset")
+            return response.status_code, response.json()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(executor.map(request_reset, range(2)))
+    rosters = {shift_id: roster(shift_id) for shift_id in (1, 2)}
+    clock_frozen, clock_hour = clock.is_frozen(), clock.now().hour
+    return {
+        "responses": responses,
+        "rosters": rosters,
+        "clock_frozen": clock_frozen,
+        "clock_hour": clock_hour,
+        "follow_up_status": client.post("/demo/reset").status_code,
+    }
+
+
+def _failed_reset_then_reset() -> int:
+    """Runs in a child process: a reset that raises, then a real one."""
+    from app.seed import reset as reset_module
+
+    def fail() -> datetime:
+        raise RuntimeError("Reset failed")
+
+    real_reset = reset_module._reset_demo
+    reset_module._reset_demo = fail
+    with pytest.raises(RuntimeError, match="Reset failed"):
+        reset_module.reset_demo()
+    reset_module._reset_demo = real_reset
+
+    return client.post("/demo/reset").status_code
 
 
 def test_reset_freezes_the_clock_at_today_21_00() -> None:
@@ -127,37 +199,17 @@ def test_reset_can_run_again_on_a_used_database() -> None:
 
 
 def test_simultaneous_reset_requests_complete_and_allow_another_reset() -> None:
-    start = Barrier(2)
+    outcome = run_in_child_process(_simultaneous_resets)
 
-    def request_reset() -> tuple[int, dict[str, str]]:
-        # Separate clients simulate two browsers clicking Reset at the same time.
-        with TestClient(app) as request_client:
-            start.wait(timeout=5)
-            response = request_client.post("/demo/reset")
-            return response.status_code, response.json()
-
-    results = run_concurrently(request_reset, request_reset)
-
-    assert all(status == 200 and body["status"] == "ok" for status, body in results)
-    assert roster(1) == dict.fromkeys((101, 102, 103, 104, 105), RosterStatus.ASSIGNED)
-    assert roster(2) == dict.fromkeys((202, 203), RosterStatus.ASSIGNED)
-    assert clock.is_frozen()
-    assert clock.now().hour == 21
+    responses = outcome["responses"]
+    assert all(status == 200 and body["status"] == "ok" for status, body in responses)
+    assert outcome["rosters"][1] == dict.fromkeys((101, 102, 103, 104, 105), RosterStatus.ASSIGNED)
+    assert outcome["rosters"][2] == dict.fromkeys((202, 203), RosterStatus.ASSIGNED)
+    assert outcome["clock_frozen"]
+    assert outcome["clock_hour"] == 21
     # The original bug also caused subsequent resets to hang.
-    [response] = run_concurrently(lambda: client.post("/demo/reset"))
-    assert response.status_code == 200
+    assert outcome["follow_up_status"] == 200
 
 
-def test_failed_reset_releases_lock_for_next_request(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.seed import reset as reset_module
-
-    def fail() -> datetime:
-        raise RuntimeError("Reset failed")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(reset_module, "_reset_demo", fail)
-        with pytest.raises(RuntimeError, match="Reset failed"):
-            run_concurrently(reset_module.reset_demo)
-
-    [response] = run_concurrently(lambda: client.post("/demo/reset"))
-    assert response.status_code == 200
+def test_failed_reset_releases_lock_for_next_request() -> None:
+    assert run_in_child_process(_failed_reset_then_reset) == 200
