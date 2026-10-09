@@ -3,7 +3,6 @@
 import threading
 from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
-from typing import Any
 from unittest import mock
 
 import pytest
@@ -25,13 +24,17 @@ from app.domain.enums import (
     EventStatus,
     EventType,
 )
+from app.domain.errors import CaseNotFoundError
 from app.domain.workflow.transitions import InvalidTransitionError
 from app.seed import load
 from app.services import actor_service, audit_service
 from app.services.actor_service import ActorNotFoundError
 from app.workflow import orchestrator
 from app.workflow.handlers.base import HandlerResult
-from tests.integration.conftest import DEMO_NOW
+from tests.integration.conftest import DEMO_NOW, returns
+
+# These tests are about the orchestrator, not the step 4 handlers
+pytestmark = pytest.mark.usefixtures("stub_handlers")
 
 SHIFT_ID = 1
 LEAVING_STAFF_ID = 105
@@ -93,34 +96,6 @@ def _use_handler(
     monkeypatch: pytest.MonkeyPatch, status: CaseStatus, handler: orchestrator.Handler
 ) -> None:
     monkeypatch.setitem(orchestrator.HANDLERS, status, handler)
-
-
-def _returns(**result: Any) -> orchestrator.Handler:
-    def handler(db: Session, case: StaffingCase) -> HandlerResult:
-        return HandlerResult(**result)
-
-    return handler
-
-
-# Each automatic status moves to its golden-path successor. These tests are about
-# the orchestrator, not the step 4 handlers: a real handler needs the rows of the
-# steps before it, and each handler has its own tests.
-_STUB_STEPS: dict[CaseStatus, tuple[CaseStatus, bool]] = {
-    CaseStatus.OPEN: (CaseStatus.ASSESSING, False),
-    CaseStatus.ASSESSING: (CaseStatus.OPTIMIZING, False),
-    CaseStatus.OPTIMIZING: (CaseStatus.OUTREACH, False),
-    CaseStatus.OUTREACH: (CaseStatus.WAITING_RESPONSE, True),
-    CaseStatus.SAFETY_VALIDATION: (CaseStatus.WAITING_APPROVAL, True),
-    CaseStatus.EXECUTING: (CaseStatus.RESOLVED, False),
-}
-
-
-@pytest.fixture(autouse=True)
-def _stub_handlers(monkeypatch: pytest.MonkeyPatch) -> None:
-    # A new handler needs a stub here, or its real code would run in these tests
-    assert set(_STUB_STEPS) == set(orchestrator.HANDLERS)
-    for status, (next_status, wait) in _STUB_STEPS.items():
-        _use_handler(monkeypatch, status, _returns(next_status=next_status, wait=wait))
 
 
 # --------------------------------------------------------------------------- #
@@ -224,7 +199,7 @@ def test_advance_does_nothing_at_a_wait_point_or_stopped_status(
 
 
 def test_unknown_case_raises(seeded: Session) -> None:
-    with pytest.raises(orchestrator.CaseNotFoundError, match="999999"):
+    with pytest.raises(CaseNotFoundError, match="999999"):
         orchestrator.advance(seeded, 999_999)
 
 
@@ -390,11 +365,11 @@ def _sets_status_itself(db: Session, case: StaffingCase) -> HandlerResult:
 @pytest.mark.parametrize(
     ("handler", "error_type"),
     [
-        (_returns(next_status=CaseStatus.RESOLVED), "InvalidTransitionError"),
-        (_returns(next_status=CaseStatus.OPEN), "InvalidTransitionError"),
-        (_returns(next_status=CaseStatus.ASSESSING, wait=True), "WorkflowError"),
+        (returns(next_status=CaseStatus.RESOLVED), "InvalidTransitionError"),
+        (returns(next_status=CaseStatus.OPEN), "InvalidTransitionError"),
+        (returns(next_status=CaseStatus.ASSESSING, wait=True), "WorkflowError"),
         (_sets_status_itself, "WorkflowError"),
-        (_returns(next_status=CaseStatus.FAILED), "WorkflowError"),
+        (returns(next_status=CaseStatus.FAILED), "WorkflowError"),
     ],
     ids=[
         "skips_states",
@@ -424,9 +399,7 @@ def test_wait_point_without_the_wait_flag_fails_the_case(
     seeded: Session, make_case: CaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     case = make_case(CaseStatus.OUTREACH)
-    _use_handler(
-        monkeypatch, CaseStatus.OUTREACH, _returns(next_status=CaseStatus.WAITING_RESPONSE)
-    )
+    _use_handler(monkeypatch, CaseStatus.OUTREACH, returns(next_status=CaseStatus.WAITING_RESPONSE))
 
     orchestrator.advance(seeded, case.id)
 

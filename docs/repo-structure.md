@@ -111,6 +111,7 @@ nara/
 │   │   │   └── audit_repository.py
 │   │   │
 │   │   ├── schemas/
+│   │   │   ├── types.py
 │   │   │   ├── auth.py
 │   │   │   ├── staff.py
 │   │   │   ├── ward.py
@@ -133,6 +134,7 @@ nara/
 │   │   │
 │   │   ├── domain/
 │   │   │   ├── enums.py
+│   │   │   ├── errors.py
 │   │   │   │
 │   │   │   ├── workflow/
 │   │   │   │   └── transitions.py
@@ -199,6 +201,7 @@ nara/
 │   │   │   ├── unavailability_service.py
 │   │   │   ├── working_time_service.py
 │   │   │   ├── policy_service.py
+│   │   │   ├── availability_service.py
 │   │   │   ├── handover_service.py
 │   │   │   ├── actor_service.py
 │   │   │   └── audit_service.py
@@ -335,10 +338,17 @@ nara/
 │       │   ├── test_health.py
 │       │   ├── test_actor_service.py
 │       │   ├── test_dependencies.py
+│       │   ├── test_case_routes.py
 │       │   ├── test_golden_flow.py
+│       │   ├── test_events.py
 │       │   ├── test_event_ignored.py
+│       │   ├── test_gap_service.py
 │       │   ├── test_orchestrator.py
+│       │   ├── test_optimize.py
 │       │   ├── test_outreach.py
+│       │   ├── test_accepted_outreach.py
+│       │   ├── test_outreach_response.py
+│       │   ├── test_validate_safety.py
 │       │   ├── test_approval_decision.py
 │       │   ├── test_line_webhook.py
 │       │   ├── test_candidate_timeout.py
