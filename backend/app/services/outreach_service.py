@@ -60,6 +60,23 @@ def send_offer(db: Session, case: StaffingCase) -> tuple[CandidateOutreach, int]
     return outreach, item.staff_id
 
 
+def get_accepted_outreach(db: Session, case_id: int) -> CandidateOutreach:
+    """Return exactly one ACCEPTED outreach for the case (seam 4).
+
+    Missing or multiple accepted offers raise NoResultFound / MultipleResultsFound
+    for the safety handler to let D11 handle. Flush pending answers first because
+    production sessions disable autoflush. Does not create rows, commit, audit,
+    or acquire row locks. A flush error requires rollback before continuing.
+    """
+    db.flush()
+    return db.scalars(
+        select(CandidateOutreach).where(
+            CandidateOutreach.case_id == case_id,
+            CandidateOutreach.status == OutreachStatus.ACCEPTED,
+        )
+    ).one()
+
+
 def record_response(
     db: Session, *, staff_id: int, actor_id: int, response: CandidateResponse
 ) -> tuple[CandidateOutreach, StaffingCase]:

@@ -253,13 +253,16 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | 1 | Plan ล่าสุด | คน 2 → คน 3 | `CANDIDATE_PLANS` ที่ `case_id = case.id` เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error |
 | 2 | Plan → Outreach | คน 3 | `CANDIDATE_ITEMS` ที่ `rank = 1` ใน Plan นั้น หนึ่งแถวพอดี |
 | 3 | Respond | คน 3 | ทำตามลำดับ: (1) ผู้ตอบคือ `user.staff.id` จาก `X-Demo-User` Body ไม่มี Outreach ID (2) `CANDIDATE_OUTREACH` ที่ `status = SENT` บนเคสที่ `status = WAITING_RESPONSE` และ Join ไปที่ Item ซึ่ง `staff_id = user.staff.id` หนึ่งแถวพอดี ไม่เจอ → `409` (ตอบไปแล้วหรือไม่มี Offer) เจอหลายแถว → Error เพราะ Skeleton ส่ง Offer เดียว (3) `REJECT` → `422` ไม่เขียน DB (ข้อ 9.2) (4) `ACCEPT` → `status = ACCEPTED`, `response_at = clock.now()` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` |
-| 4 | Outreach → Safety | คน 3 → คน 2 | `CANDIDATE_OUTREACH` ของเคสที่ `status = ACCEPTED` หนึ่งแถวพอดี |
+| 4 | Outreach → Safety | คน 3 → คน 2 | โหลดผ่าน `outreach_service.get_accepted_outreach(db, case_id)` ต้องมี `CANDIDATE_OUTREACH` ของเคสที่ `status = ACCEPTED` หนึ่งแถวพอดี ไม่เจอ → `NoResultFound`, หลายแถว → `MultipleResultsFound` ให้ Handler ปล่อย Error ไปยัง D11 |
 | 5 | Safety → Approval Request | คน 2 | `case_id` = เคสนั้น `candidate_item_id` = Item ของ Outreach ที่ตอบรับ โหลด Plan จาก `item.plan_id` แล้วตรวจ `plan.case_id == case.id` (FK สองตัวไม่ได้รับประกันข้อนี้) ตั้ง `approval_mode = MANUAL`, `required_approver_role` = `id` ของ Role ชื่อ `HEAD_NURSE` (ค้นด้วยชื่อ), `is_pending = true`, `requested_at = clock.now()` |
 | 6 | รายการรออนุมัติ | คน 3 | `GET /approvals?pending=true` คืนแถวที่ `is_pending = true` เรียงด้วย `id` จากน้อยไปมาก ใน Skeleton เคสหนึ่งมีได้ไม่เกินหนึ่งแถว |
 | 7 | Decide | คน 3 | ตรวจตามลำดับ: ไม่มี Request ID นั้น → `404`; `user.staff.role_id != required_approver_role` → `403` (`get_demo_user` ไม่ตรวจ Role ดูข้อ 9); ไม่ได้ Pending → `409`; `approved = false` → `422` ไม่เขียน DB (ข้อ 9.2) ถ้าอนุมัติ: `approver_id = user.staff.id`, `is_approved = true`, `decided_at = clock.now()`, `is_pending = false` แล้วเรียก `orchestrator.resume(db, case_id, EXECUTING)` |
 | 8 | Approval → Execute | คน 3 (คน 2 ถ้าย้ายงาน Roster) | Request ของเคสที่ `is_pending = false` **และ** `is_approved = true` หนึ่งแถวพอดี สร้าง Roster จาก Item ของ Request นั้น: `staff_id = item.staff_id`, `shift_id = item.proposed_shift_id`, `status = ASSIGNED`, `assignment_type = REPLACEMENT`, `candidate_source = item.source` |
 | 9 | Timeline | คน 1 | `GET /cases/{id}/audit` เรียงด้วย `id` |
 | 10 | Requirement ของเวร | คน 1 (รับ Event + Gap) | `STAFFING_REQUIREMENTS` ที่ `shift_id` ของเวรนั้น เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error ตารางนี้ไม่มี Unique ที่ `shift_id` จึงมีหลายเวอร์ชันได้ (Seed มีเวรละแถว) การรับ Event และ `assess_staffing` ต้องโหลดผ่าน**ฟังก์ชันเดียวกัน** เพื่อให้เห็น Requirement ตัวเดียวกันเสมอ แถว Gap เก็บ `id` นี้ใน `staffing_requirement_id` |
+
+Seam 4 Flush คำตอบที่ค้างอยู่ก่อนค้นหา เพื่อรองรับ `autoflush=False`
+Lookup ไม่สร้างแถวใหม่ ไม่ Commit ไม่เขียน Audit และไม่เพิ่ม Row Lock
 
 ### 6.5 คอลัมน์เวลา
 
@@ -625,6 +628,7 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | ตามรีวิว PR เตรียมขั้นที่ 4: Seam 1 ไม่เจอ Plan เป็น Error, Seam 6 เรียงด้วย `id`, ข้อ 9.1 ระบุว่า `409` จาก `InvalidTransitionError` เกิดจาก Race และ Route ยังต้องตรวจคำขอซ้ำเอง, ตัวอย่างในข้อ 9 ใช้ Path ที่ไม่ซ้ำ Prefix | ทีม |
 | 2026-10-09 | ขั้นที่ 4 Seam 2: Contact Handler ส่ง Mock Offer ให้อันดับ 1 ของ Plan ล่าสุด, บังคับ Item หนึ่งแถวพอดี, ตั้ง `sent_at` และเขียน `OFFER_SENT` โดยไม่ Commit; เพิ่ม Test การ Rollback และ D11 | คน 3 |
 | 2026-10-09 | ขั้นที่ 4 Seam 3: `POST /demo/line-sim/respond` ใช้ผู้ตอบจาก Header, ล็อก Offer ที่ `SENT` หนึ่งแถวพอดี, รับ `ACCEPT` และเขียน Audit ก่อน `resume(SAFETY_VALIDATION)`; `REJECT` ตอบ `422`, คำขอซ้ำ / Offer ไม่ชัดเจนตอบ `409`; เพิ่ม Test Race และ Request Rollback | คน 3 |
+| 2026-10-09 | ขั้นที่ 4 Seam 4: เพิ่ม `outreach_service.get_accepted_outreach()` เป็น Lookup ของ Offer ที่ตอบรับหนึ่งแถวพอดีต่อเคสสำหรับ Safety; Flush ก่อนอ่าน ไม่ Commit / เขียน Audit; เพิ่ม Test ขอบเขตเคส, Cardinality และ D11 | คน 3 |
 | 2026-10-09 | ขั้นที่ 4 Route อ่านข้อมูลของเคส: ข้อ 9.3 เพิ่มรูปแบบคำตอบของ `GET /cases/{id}` และ `GET /cases/{id}/audit` (Seam 9) และกติกาว่าเวลาในคำตอบของ API เป็น `+07:00` ผ่านชนิด `AppDatetime`; `CaseNotFoundError` ย้ายไป `app/domain/errors.py` | คน 1 |
 | 2026-10-09 | ขั้นที่ 4 Solver: ข้อ 8 Stub ตัดผู้สมัครที่ไม่ `ACTIVE`, อยู่เวรของเคสแล้ว หรือไม่พร้อมในช่วงเวรนั้น ใส่ `rank` ใหม่ไม่ข้ามเลข และไม่เหลือใครเป็น `FAILED` (`NoCandidatesError`) กติกาอยู่ใน `availability_service` ใช้ร่วมกับ Safety; Test ใช้ Fixture `stub_handlers` กลางใน `tests/integration/conftest.py` | คน 2 |
 | 2026-10-09 | ขั้นที่ 4 รับ Event: ข้อ 3 เพิ่ม Request Body, ลำดับการตรวจและ Status Code (`404` / `409` / `422`), การล็อกแถว `SHIFT` และ Roster ให้รับ Event ทีละคำขอต่อเวร, ลำดับและ `case_id` ของ Audit, Actor ของ `EVENT_IGNORED`, `gap_service.assess_shift()` และ `requirement_service.get_current_requirement()` (Seam 10) | คน 1 |
@@ -633,3 +637,5 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ขั้นที่ 4 Solver ตามรีวิว: ข้อ 8 Solver ล็อกแถว `STAFF` ของผู้สมัครก่อนเช็กกติกา สองเคสที่วางแผนพร้อมกันจึงไม่ได้ผู้สมัครคนเดียวกัน; ข้อ 6.2 เพิ่มลำดับ Lock (เวร/Roster → เคส → `STAFF`) | คน 2 |
 | 2026-10-10 | ขั้นที่ 4 Safety ตามรีวิว: ข้อ 8 ตรวจว่า `proposed_shift_id` ของ Item ที่ตอบรับเป็นเวรของเคสก่อนเช็กผู้สมัคร ไม่ตรงเป็น `FAILED` (`ProposedShiftMismatchError`) โดยไม่เขียนแถว | คน 2 |
 | 2026-10-10 | ตามรีวิว Seam 3: นับเฉพาะ Offer `SENT` บนเคส `WAITING_RESPONSE`; Test แทน Safety Handler เพื่อแยกจาก Seam 5 และตรวจว่า Offer ค้างบนเคสอื่นไม่ขวางคำตอบ รวมทั้ง Rollback หลัง Race ที่ `resume()` | คน 3 |
+| 2026-10-10 | ตามรีวิว Seam 4: Lookup Flush คำตอบก่อนอ่าน ลดคำอธิบายที่ซ้ำ Seam 5 และปรับ Test สำหรับ Session ที่ปิด Autoflush | คน 3 |
+| 2026-10-10 | Seam 4 เชื่อมกับ Safety ตัวจริง: `safety_service` ใช้ Lookup กลางแทน Query ซ้ำ; Test Resume และ D11 ใช้ Handler ตัวจริง ตรวจ Validation / Approval และ Rollback | คน 3 |
