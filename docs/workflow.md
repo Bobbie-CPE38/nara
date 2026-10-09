@@ -503,6 +503,19 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 * เป็น List ที่ชั้นบนสุด มีเฉพาะแถวที่ `case_id` ตรงกับเคส เรียงด้วย `id` จากน้อยไปมาก (Seam 9) เคสที่ยังไม่มี Audit คืน `[]`
 * `actor_name` ของ Actor ที่เป็นพนักงานคือ `str(staff.id)` เช่น `"105"`
 
+**Seam 6 — `GET /approvals?pending=true`**
+
+* ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
+* การอ่านไม่ตรวจ Role; การอนุมัติตรวจ Role ใน Seam 7
+* คืน JSON List ที่ชั้นบนสุด เรียง `id` จากน้อยไปมาก ไม่ห่อด้วย `items` และไม่ใช้ `approval_id` แทน `id`
+* แต่ละรายการมี `id`, `case_id`, `candidate_item_id`, `staff_id`, `proposed_shift_id`,
+  `required_approver_role` (อาจเป็น `null`), `approval_mode`, `is_pending` และ `requested_at` (ISO 8601, `+07:00`)
+  `staff_id` และ `proposed_shift_id` โหลดจาก Item ของ Request นั้นเพื่อให้ Frontend ระบุผู้สมัครและเวรได้
+* ไม่ส่ง `pending` เท่ากับ `pending=true`; `pending=false` หรือค่า Boolean ไม่ถูกต้องตอบ `422`
+* คืนทุก Pending Request แม้เคสเดียวมีหลายแถว เพื่อไม่ซ่อน Request ของเคสอื่น
+  การบังคับว่าหนึ่งเคสมี Pending Request ได้ไม่เกินหนึ่งแถวเป็นหน้าที่ฝั่งสร้างข้อมูล ไม่ใช่ List Read
+* Route / `approval_service.list_pending()` ไม่เขียน DB, Audit, Commit หรือ Explicit Flush
+
 ---
 
 ## 10. Golden Case
@@ -647,6 +660,7 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ตามรีวิว Seam 3: นับเฉพาะ Offer `SENT` บนเคส `WAITING_RESPONSE`; Test แทน Safety Handler เพื่อแยกจาก Seam 5 และตรวจว่า Offer ค้างบนเคสอื่นไม่ขวางคำตอบ รวมทั้ง Rollback หลัง Race ที่ `resume()` | คน 3 |
 | 2026-10-10 | ตามรีวิว Seam 4: Lookup Flush คำตอบก่อนอ่าน ลดคำอธิบายที่ซ้ำ Seam 5 และปรับ Test สำหรับ Session ที่ปิด Autoflush | คน 3 |
 | 2026-10-10 | Seam 4 เชื่อมกับ Safety ตัวจริง: `safety_service` ใช้ Lookup กลางแทน Query ซ้ำ; Test Resume และ D11 ใช้ Handler ตัวจริง ตรวจ Validation / Approval และ Rollback | คน 3 |
-
+| 2026-10-10 | ขั้นที่ 4 Seam 6: เพิ่ม `GET /approvals?pending=true` และ `approval_service.list_pending()`; คืน Pending List เรียง ID, ใช้ Demo Auth, ระบุ Response Fields และเพิ่ม Integration Tests | คน 3 |
+| 2026-10-10 | ตามรีวิว Seam 6: ไม่ปิด Pending List เมื่อเคสมี Request ซ้ำ เพิ่ม `staff_id` / `proposed_shift_id` จาก Item และเวลา `+07:00`; จัดเอกสารเป็น Bullet List และ Test ผ่าน Main App | คน 3 |
 | 2026-10-10 | ขั้นที่ 4 Seam 8 (คน 3 รับงานกลับ): สร้าง Roster จาก Request ที่อนุมัติหนึ่งแถวพอดี ตรวจ Plan / Shift ของ Item; Handler เขียน `ASSIGNMENT_CREATED`, `CASE_RESOLVED` และให้ Orchestrator เปลี่ยนสถานะ / Commit; เพิ่ม Test Contract และ D11 Rollback | คน 3 |
 | 2026-10-10 | ตามรีวิว Seam 8: เช็ก Availability ซ้ำก่อนสร้าง Roster ด้วยกติกาเดียวกับ Safety; เปลี่ยนเป็น `FAILED` เมื่อผู้สมัครไม่พร้อมโดยไม่สร้าง Roster ใหม่และเก็บผลอนุมัติไว้ เพิ่ม Regression Tests | คน 3 |

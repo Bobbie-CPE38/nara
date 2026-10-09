@@ -345,12 +345,12 @@ nara/
 │       │   ├── test_gap_service.py
 │       │   ├── test_orchestrator.py
 │       │   ├── test_optimize.py
-
 │       │   ├── test_execute_assignment.py
 │       │   ├── test_outreach.py
 │       │   ├── test_accepted_outreach.py
 │       │   ├── test_outreach_response.py
 │       │   ├── test_validate_safety.py
+│       │   ├── test_pending_approvals.py
 │       │   ├── test_line_webhook.py
 │       │   ├── test_candidate_timeout.py
 │       │   ├── test_approval_timeout.py
