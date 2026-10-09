@@ -11,7 +11,6 @@ from app.domain.enums import CaseStatus
 from app.domain.workflow.transitions import assert_transition
 from app.workflow.handlers import (
     assess_staffing,
-    execute_assignment,
     intake_event,
     optimize,
     validate_safety,
@@ -26,7 +25,6 @@ from app.workflow.handlers.base import HandlerResult
         (assess_staffing.handle, CaseStatus.ASSESSING, CaseStatus.OPTIMIZING, False),
         (optimize.handle, CaseStatus.OPTIMIZING, CaseStatus.OUTREACH, False),
         (validate_safety.handle, CaseStatus.SAFETY_VALIDATION, CaseStatus.WAITING_APPROVAL, True),
-        (execute_assignment.handle, CaseStatus.EXECUTING, CaseStatus.RESOLVED, False),
     ],
 )
 def test_stub_preserves_case_and_transaction_ownership(
