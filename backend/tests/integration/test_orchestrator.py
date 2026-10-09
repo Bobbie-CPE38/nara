@@ -95,6 +95,34 @@ def _use_handler(
     monkeypatch.setitem(orchestrator.HANDLERS, status, handler)
 
 
+def _returns(**result: Any) -> orchestrator.Handler:
+    def handler(db: Session, case: StaffingCase) -> HandlerResult:
+        return HandlerResult(**result)
+
+    return handler
+
+
+# Each automatic status moves to its golden-path successor. These tests are about
+# the orchestrator, not the step 4 handlers: a real handler needs the rows of the
+# steps before it, and each handler has its own tests.
+_STUB_STEPS: dict[CaseStatus, tuple[CaseStatus, bool]] = {
+    CaseStatus.OPEN: (CaseStatus.ASSESSING, False),
+    CaseStatus.ASSESSING: (CaseStatus.OPTIMIZING, False),
+    CaseStatus.OPTIMIZING: (CaseStatus.OUTREACH, False),
+    CaseStatus.OUTREACH: (CaseStatus.WAITING_RESPONSE, True),
+    CaseStatus.SAFETY_VALIDATION: (CaseStatus.WAITING_APPROVAL, True),
+    CaseStatus.EXECUTING: (CaseStatus.RESOLVED, False),
+}
+
+
+@pytest.fixture(autouse=True)
+def _stub_handlers(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A new handler needs a stub here, or its real code would run in these tests
+    assert set(_STUB_STEPS) == set(orchestrator.HANDLERS)
+    for status, (next_status, wait) in _STUB_STEPS.items():
+        _use_handler(monkeypatch, status, _returns(next_status=next_status, wait=wait))
+
+
 # --------------------------------------------------------------------------- #
 # Golden path
 # --------------------------------------------------------------------------- #
@@ -352,13 +380,6 @@ def test_failure_after_a_wait_point_keeps_the_resume_transition(
         ("WAITING_RESPONSE", "SAFETY_VALIDATION"),
         ("SAFETY_VALIDATION", "FAILED"),
     ]
-
-
-def _returns(**result: Any) -> orchestrator.Handler:
-    def handler(db: Session, case: StaffingCase) -> HandlerResult:
-        return HandlerResult(**result)
-
-    return handler
 
 
 def _sets_status_itself(db: Session, case: StaffingCase) -> HandlerResult:
