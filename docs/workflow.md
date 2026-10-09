@@ -420,7 +420,7 @@ Body รับ `approved` เป็น JSON Boolean และ `reason` เป็
 เขียน `APPROVAL_APPROVED` ด้วย Actor ของผู้อนุมัติ แล้วเรียก `resume(..., EXECUTING)`
 Service / Route ไม่ Commit และไม่แก้ `case.status`; Error จาก `resume()` ต้องปล่อยให้ Request Rollback
 ถ้า Execution ล้มเหลวแต่ Orchestrator บันทึก `FAILED` ได้ ให้ตอบ `200` พร้อมสถานะ `FAILED` และเก็บผลอนุมัติไว้
-การสร้าง Roster ใน Seam 8 เป็นงานคน 2 และอยู่นอก PR นี้
+การสร้าง Roster ใน Seam 8 เป็นงานคน 3 อยู่ใน PR #18 และอยู่นอก PR นี้
 
 ### 9.3 รูปแบบคำตอบ
 
