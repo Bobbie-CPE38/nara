@@ -1,7 +1,8 @@
 """Shared gap calculation for event intake and ASSESSING (workflow.md sections 3, 8).
 
-No database access, clock reads, or writes. Callers supply patient count, the ward's
-patients-per-nurse ratio, role/skill requirements and complete roster snapshots.
+No database access, clock reads, or writes. Callers supply patient count,
+role/skill requirements and complete roster snapshots. The ratio comes from
+HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse via the shared policy service.
 They own persistence and audit logging. Headcount is derived from patient workload,
 not the stored required_staff or minimum_staff values.
 """
@@ -58,6 +59,9 @@ def calculate_gap(
     """Compare distinct ASSIGNED staff against workload and role/skill requirements.
 
     minimum_required_staff = ceil(patient_count / patients_per_nurse).
+    Event intake and ASSESSING both load the skeleton's hospital-wide policy with
+    policy_service.get_hard_constraint_policy(db) and pass its
+    maximum_patients_per_nurse. There is no fallback ratio in the calculator.
     The ratio must be positive and finite. Decimal supports non-integer ratios;
     exact rational division avoids floating-point or Decimal rounding at boundaries.
 
