@@ -335,6 +335,7 @@ nara/
 │       │   ├── test_health.py
 │       │   ├── test_actor_service.py
 │       │   ├── test_dependencies.py
+│       │   ├── test_case_routes.py
 │       │   ├── test_golden_flow.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_orchestrator.py
