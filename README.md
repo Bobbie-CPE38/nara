@@ -49,7 +49,7 @@ Code changes reload automatically. The backend runs `uvicorn --reload`, and the 
 | Backend (FastAPI) | `nara-staffing-backend` | 8000 | `BACKEND_PORT` |
 | Frontend (Next.js) | `nara-staffing-frontend` | 3000 | `FRONTEND_PORT` |
 
-If a port is already in use on your machine, change its value in `.env`. If you change `BACKEND_PORT`, also update `NEXT_PUBLIC_API_BASE_URL`, because the browser calls the backend directly. If you change `FRONTEND_PORT`, also update `CORS_ORIGINS`. Otherwise the backend blocks the browser and the page says "Cannot reach the API".
+If a port is already in use on your machine, change its value in `.env` and run `make up` again. That is the only edit you need. The API URL the browser uses follows `BACKEND_PORT`, and the CORS origin the backend allows follows `FRONTEND_PORT`. Set `NEXT_PUBLIC_API_BASE_URL` or `CORS_ORIGINS` in `.env` only for a non-localhost setup. A value you set there replaces the automatic one.
 
 ## Using make
 
@@ -157,6 +157,6 @@ New modules follow the team's target structure: `api/`, `services/`, `repositori
 ## Troubleshooting
 
 - **The backend stays `unhealthy` or the frontend never starts.** The frontend waits for a healthy backend, and the backend waits for a healthy Postgres. Check `docker compose logs backend`. Common causes are a failed `pip install` or a wrong `DATABASE_URL`.
-- **The page says "Cannot reach the API".** Check that http://localhost:8000/health opens in your browser, and that `NEXT_PUBLIC_API_BASE_URL` matches the backend port.
+- **The page says "Cannot reach the API".** Check that `http://localhost:<BACKEND_PORT>/health` opens in your browser. If your `.env` sets `NEXT_PUBLIC_API_BASE_URL` or `CORS_ORIGINS` (older copies of `.env.example` did), delete those lines so they follow the ports again.
 - **`database: unreachable`.** Postgres isn't up yet, or its credentials don't match `DATABASE_URL`. If you changed `POSTGRES_*` after the first run, the old volume still has the old credentials. Run `docker compose down -v` to recreate it.
 - **Hot reload doesn't work on Windows.** File-watching polling is already turned on (`WATCHPACK_POLLING`). Keep the repo on a local drive rather than a network share.
