@@ -105,15 +105,25 @@ def test_database_rejects_invalid_policy_ratios(db: Session, ratio: str | None) 
 def test_ratio_migration_backfills_existing_policy_and_can_be_reversed(db: Session) -> None:
     load(db)
     connection = db.connection()
-    revision = ScriptDirectory.from_config(Config("alembic.ini")).get_revision("a73d9e2c4b10")
+    scripts = ScriptDirectory.from_config(Config("alembic.ini"))
+    revision = scripts.get_revision("a73d9e2c4b10")
+    rename_revision = scripts.get_revision("b82e4f6a901c")
     assert revision is not None
+    assert rename_revision is not None
     migration = revision.module
+    rename = rename_revision.module
     with Operations.context(MigrationContext.configure(connection)):
+        rename.downgrade()
         migration.downgrade()
         assert "maximum_patients_per_nurse" not in {
             column["name"] for column in inspect(connection).get_columns("hard_constraint_policy")
         }
         migration.upgrade()
+        rename.upgrade()
+    assert "ck_hard_constraint_policy_patients_per_nurse_valid" in {
+        check["name"]
+        for check in inspect(connection).get_check_constraints("hard_constraint_policy")
+    }
     assert connection.execute(
         text("SELECT maximum_patients_per_nurse FROM hard_constraint_policy WHERE id=1")
     ).scalar_one() == Decimal("2")

@@ -13,7 +13,7 @@ class HardConstraintPolicy(Base):
     __table_args__ = (
         CheckConstraint(
             "maximum_patients_per_nurse > 0 AND maximum_patients_per_nurse < 'Infinity'::numeric",
-            name="maximum_patients_per_nurse_positive_finite",
+            name="patients_per_nurse_valid",
         ),
     )
 
