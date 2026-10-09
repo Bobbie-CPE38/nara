@@ -204,6 +204,8 @@ HANDLERS: dict[CaseStatus, Handler]      # State อัตโนมัติ →
   (ไม่ใช้ `FOR UPDATE` เพราะแถว Audit ที่ผู้เรียก Insert ไว้ก่อนถือ Lock `KEY SHARE` บนเคสผ่าน FK สองคำขอแบบนี้จะ Deadlock กัน)
 * ลำดับ Lock ทั้งระบบ: แถว `SHIFT` และ `ROSTER_ASSIGNMENT` (รับ Event) → แถวเคส → แถว `STAFF` (Solver ข้อ 8)
   แถว `STAFF` มาท้ายสุดเสมอและล็อกเรียงตาม `id` ห้ามโค้ดใหม่ล็อก `STAFF` ก่อนแล้วค่อยล็อกเคสหรือเวร ไม่งั้นจะ Deadlock
+  สำหรับการตอบ Offer ล็อก `CANDIDATE_OUTREACH` ก่อนเคส และสำหรับการอนุมัติล็อก `APPROVAL_REQUEST` ก่อนเคส
+  งาน Timeout และผู้เขียนข้อมูลอื่นต้องใช้ลำดับเดียวกัน
 * ไม่มีเคส ID นั้น โยน `CaseNotFoundError`
 * D11 ทำด้วย Savepoint: รอบที่พังถูก Rollback กลับไปที่จุดเริ่มรอบ งานที่ผู้เรียกทำไว้ก่อนใน Transaction เดียวกัน
   (Event, เคส, คำตอบของผู้สมัคร) ยังอยู่ จากนั้นเคสเป็น `FAILED` พร้อม `CASE_STATUS_CHANGED` และ `WORKFLOW_FAILED`
@@ -410,6 +412,19 @@ Service ล็อกเฉพาะแถว Outreach ตามลำดับ `
 
 เส้นทางปฏิเสธแต่ละเส้นจะได้ Transition การเขียน DB และ Status Code ของตัวเองเมื่อ Implement หลัง Skeleton
 
+**Seam 6 — `GET /approvals?pending=true`**
+
+* ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
+* การอ่านไม่ตรวจ Role; การอนุมัติตรวจ Role ใน Seam 7
+* คืน JSON List ที่ชั้นบนสุด เรียง `id` จากน้อยไปมาก ไม่ห่อด้วย `items` และไม่ใช้ `approval_id` แทน `id`
+* แต่ละรายการมี `id`, `case_id`, `candidate_item_id`, `staff_id`, `proposed_shift_id`,
+  `required_approver_role` (อาจเป็น `null`), `approval_mode`, `is_pending` และ `requested_at` (ISO 8601, `+07:00`)
+  `staff_id` และ `proposed_shift_id` โหลดจาก Item ของ Request นั้นเพื่อให้ Frontend ระบุผู้สมัครและเวรได้
+* ไม่ส่ง `pending` เท่ากับ `pending=true`; `pending=false` หรือค่า Boolean ไม่ถูกต้องตอบ `422`
+* คืนทุก Pending Request แม้เคสเดียวมีหลายแถว เพื่อไม่ซ่อน Request ของเคสอื่น
+  การบังคับว่าหนึ่งเคสมี Pending Request ได้ไม่เกินหนึ่งแถวเป็นหน้าที่ฝั่งสร้างข้อมูล ไม่ใช่ List Read
+* Route / `approval_service.list_pending()` ไม่เขียน DB, Audit, Commit หรือ Explicit Flush
+
 **Seam 7 — `POST /approvals/{id}/decision`**
 
 Body รับ `approved` เป็น JSON Boolean และ `reason` เป็น String หรือ `null` (ไม่ส่งเท่ากับ `null`)
@@ -506,19 +521,6 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 
 * เป็น List ที่ชั้นบนสุด มีเฉพาะแถวที่ `case_id` ตรงกับเคส เรียงด้วย `id` จากน้อยไปมาก (Seam 9) เคสที่ยังไม่มี Audit คืน `[]`
 * `actor_name` ของ Actor ที่เป็นพนักงานคือ `str(staff.id)` เช่น `"105"`
-
-**Seam 6 — `GET /approvals?pending=true`**
-
-* ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
-* การอ่านไม่ตรวจ Role; การอนุมัติตรวจ Role ใน Seam 7
-* คืน JSON List ที่ชั้นบนสุด เรียง `id` จากน้อยไปมาก ไม่ห่อด้วย `items` และไม่ใช้ `approval_id` แทน `id`
-* แต่ละรายการมี `id`, `case_id`, `candidate_item_id`, `staff_id`, `proposed_shift_id`,
-  `required_approver_role` (อาจเป็น `null`), `approval_mode`, `is_pending` และ `requested_at` (ISO 8601, `+07:00`)
-  `staff_id` และ `proposed_shift_id` โหลดจาก Item ของ Request นั้นเพื่อให้ Frontend ระบุผู้สมัครและเวรได้
-* ไม่ส่ง `pending` เท่ากับ `pending=true`; `pending=false` หรือค่า Boolean ไม่ถูกต้องตอบ `422`
-* คืนทุก Pending Request แม้เคสเดียวมีหลายแถว เพื่อไม่ซ่อน Request ของเคสอื่น
-  การบังคับว่าหนึ่งเคสมี Pending Request ได้ไม่เกินหนึ่งแถวเป็นหน้าที่ฝั่งสร้างข้อมูล ไม่ใช่ List Read
-* Route / `approval_service.list_pending()` ไม่เขียน DB, Audit, Commit หรือ Explicit Flush
 
 ---
 

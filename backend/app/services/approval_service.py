@@ -56,8 +56,6 @@ def decide(
         raise ApproverRoleError("The staff member does not have the required approver role")
     if not request.is_pending:
         raise ApprovalNotPendingError(f"Approval request {approval_id} is not pending")
-    if not isinstance(approved, bool):
-        raise TypeError("approved must be a bool")
     if not approved:
         raise UnsupportedApprovalDecisionError(
             "Declining approval is not supported in the walking skeleton"

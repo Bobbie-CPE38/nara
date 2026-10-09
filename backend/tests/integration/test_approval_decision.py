@@ -184,6 +184,21 @@ def test_approval_fields_response_and_audit(
     assert rows[2].payload == {"from": "EXECUTING", "to": "RESOLVED"}
 
 
+def test_approved_request_leaves_pending_list(
+    client: TestClient, request_row: ApprovalRequest
+) -> None:
+    before = client.get("/approvals?pending=true", headers=HEADERS)
+    assert before.status_code == 200
+    assert [row["id"] for row in before.json()] == [request_row.id]
+
+    decision = client.post(_url(request_row), headers=HEADERS, json={"approved": True})
+    assert decision.status_code == 200
+
+    after = client.get("/approvals?pending=true", headers=HEADERS)
+    assert after.status_code == 200
+    assert after.json() == []
+
+
 @pytest.mark.parametrize("approved", [True, False])
 def test_missing_request_is_404_before_role_and_answer(
     client: TestClient, production_seeded: Session, request_row: ApprovalRequest, approved: bool

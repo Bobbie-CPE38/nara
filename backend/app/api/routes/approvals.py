@@ -7,8 +7,7 @@ from pydantic import AfterValidator
 
 from app.api.dependencies import DbSession, DemoUser
 from app.core.constants import MAX_BIGINT
-from app.schemas.approval import PendingApproval
-from app.schemas.approval_decision import ApprovalDecision, ApprovalDecisionResult
+from app.schemas.approval import ApprovalDecision, ApprovalDecisionResult, PendingApproval
 from app.services import approval_service
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
