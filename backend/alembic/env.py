@@ -1,11 +1,14 @@
 from logging.config import fileConfig
+from typing import Any, Literal
 
 from alembic import context
+from alembic.autogenerate.api import AutogenContext
 from sqlalchemy import create_engine, pool
 
 import app.db.models  # noqa: F401  registers all tables on Base.metadata
 from app.core.config import settings
 from app.db.base import Base
+from app.db.types import StrEnumText
 
 config = context.config
 
@@ -19,6 +22,13 @@ target_metadata = Base.metadata
 database_url = settings.database_url
 
 
+def render_item(type_: str, obj: Any, autogen_context: AutogenContext) -> str | Literal[False]:
+    """Write StrEnumText columns as sa.Text(): the enum only exists on the Python side."""
+    if type_ == "type" and isinstance(obj, StrEnumText):
+        return "sa.Text()"
+    return False  # default rendering
+
+
 def run_migrations_offline() -> None:
     """Emit SQL to stdout without a DB connection (`alembic upgrade --sql`)."""
     context.configure(
@@ -27,6 +37,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        render_item=render_item,
     )
 
     with context.begin_transaction():
@@ -41,6 +52,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            render_item=render_item,
         )
 
         with context.begin_transaction():

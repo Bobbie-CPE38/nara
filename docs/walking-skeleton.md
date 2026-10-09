@@ -73,7 +73,7 @@
 
 ### 2.2 Migration แรก
 
-คน 1 รวม Model ทั้งหมด แล้วสร้าง Migration เดียวด้วย `alembic revision --autogenerate -m "initial schema"` จากนั้นเพิ่ม Constraint 4 ข้อด้วยมือ (CHECK `staff_id` ตามกลุ่ม Event, CHECK Actor ที่เป็น user, UNIQUE `staff_id`, UNIQUE `name` ของ Component) ตามท้าย `database-schema.md`
+คน 1 รวม Model ทั้งหมด แล้วสร้าง Migration เดียวด้วย `alembic revision --autogenerate -m "initial schema"` Constraint 4 ข้อท้าย `database-schema.md` (CHECK `staff_id` ตามกลุ่ม Event, CHECK Actor ที่เป็น user, UNIQUE `staff_id`, UNIQUE `name` ของ Component) ประกาศไว้ใน `__table_args__` ของ Model `actor` และ `staffing_event` แล้ว autogenerate จึงสร้างให้เอง ไม่ต้องเพิ่มด้วยมือ ให้เปิดไฟล์ Migration ตรวจว่าออกมาครบ 4 ข้อก่อนรัน
 
 ### 2.3 Seed
 
