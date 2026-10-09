@@ -4,10 +4,11 @@ The reset commits to the test database, so every test here puts back the empty,
 migrated schema that the other tests expect.
 """
 
-from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
+import time
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
-from threading import Barrier
+from threading import Barrier, Thread
+from typing import TypeVar, cast
 
 import pytest
 from alembic import command
@@ -27,11 +28,21 @@ client = TestClient(app)
 
 ICU_SKILL_ID = 1
 
+T = TypeVar("T")
+
 
 @pytest.fixture(autouse=True)
 def restore_empty_database() -> Iterator[None]:
     yield
     with engine.begin() as connection:
+        # A reset that hung in another thread may still hold schema locks; end its
+        # session so the DROP cannot block forever and the hung thread releases its lock
+        connection.execute(
+            text(
+                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+            )
+        )
         connection.execute(text("DROP SCHEMA public CASCADE"))
         connection.execute(text("CREATE SCHEMA public"))
     engine.dispose()
@@ -43,6 +54,37 @@ def roster(shift_id: int) -> dict[int, RosterStatus]:
     with Session(engine) as db:
         rows = db.scalars(select(RosterAssignment).where(RosterAssignment.shift_id == shift_id))
         return {row.staff_id: row.status for row in rows}
+
+
+def run_concurrently(*calls: Callable[[], T], timeout: float = 30.0) -> list[T]:
+    """Run each call in its own thread and return the results in order.
+
+    Fails the test if any call is still running after `timeout` seconds. Daemon threads
+    are used instead of ThreadPoolExecutor, whose shutdown waits for a stuck worker and
+    would hang the run instead of failing it.
+    """
+    results: list[T | None] = [None] * len(calls)
+    errors: list[BaseException] = []
+
+    def run(index: int, call: Callable[[], T]) -> None:
+        try:
+            results[index] = call()
+        except BaseException as error:
+            errors.append(error)
+
+    threads = [
+        Thread(target=run, args=(index, call), daemon=True) for index, call in enumerate(calls)
+    ]
+    for thread in threads:
+        thread.start()
+    deadline = time.monotonic() + timeout
+    for thread in threads:
+        thread.join(max(0.0, deadline - time.monotonic()))
+    if any(thread.is_alive() for thread in threads):
+        pytest.fail(f"Reset did not finish within {timeout:g}s; it may be deadlocked")
+    if errors:
+        raise errors[0]
+    return cast(list[T], results)
 
 
 def test_reset_freezes_the_clock_at_today_21_00() -> None:
@@ -94,9 +136,7 @@ def test_simultaneous_reset_requests_complete_and_allow_another_reset() -> None:
             response = request_client.post("/demo/reset")
             return response.status_code, response.json()
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = [executor.submit(request_reset) for _ in range(2)]
-        results = [future.result(timeout=15) for future in futures]
+    results = run_concurrently(request_reset, request_reset)
 
     assert all(status == 200 and body["status"] == "ok" for status, body in results)
     assert roster(1) == dict.fromkeys((101, 102, 103, 104, 105), RosterStatus.ASSIGNED)
@@ -104,7 +144,8 @@ def test_simultaneous_reset_requests_complete_and_allow_another_reset() -> None:
     assert clock.is_frozen()
     assert clock.now().hour == 21
     # The original bug also caused subsequent resets to hang.
-    assert client.post("/demo/reset").status_code == 200
+    [response] = run_concurrently(lambda: client.post("/demo/reset"))
+    assert response.status_code == 200
 
 
 def test_failed_reset_releases_lock_for_next_request(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -116,8 +157,7 @@ def test_failed_reset_releases_lock_for_next_request(monkeypatch: pytest.MonkeyP
     with monkeypatch.context() as patch:
         patch.setattr(reset_module, "_reset_demo", fail)
         with pytest.raises(RuntimeError, match="Reset failed"):
-            reset_module.reset_demo()
+            run_concurrently(reset_module.reset_demo)
 
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        response = executor.submit(client.post, "/demo/reset").result(timeout=15)
+    [response] = run_concurrently(lambda: client.post("/demo/reset"))
     assert response.status_code == 200
