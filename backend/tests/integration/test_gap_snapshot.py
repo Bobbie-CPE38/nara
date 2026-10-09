@@ -1,16 +1,18 @@
 """The workload snapshot on STAFFING_GAP: its columns, its CHECK and its migration."""
 
+import io
 from datetime import timedelta
 from decimal import Decimal
 from types import ModuleType
 
 import pytest
+from alembic import command
 from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, Integer, Numeric, inspect, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import StaffingCase, StaffingEvent, StaffingGap, StaffingRequirement
@@ -160,8 +162,28 @@ def test_snapshot_migration_stops_when_gap_rows_exist(seeded: Session) -> None:
             ),
             {"case_id": case_id, "requirement_id": requirement_id, "computed_at": DEMO_NOW},
         )
-        with pytest.raises(RuntimeError, match="make reset"):
+        # The savepoint keeps the outer test transaction usable after the refusal
+        with pytest.raises(DBAPIError, match="make reset"), connection.begin_nested():
             migration.upgrade()
 
     # It stopped before changing anything
     assert _columns(connection).isdisjoint(SNAPSHOT_COLUMNS)
+
+
+def test_sql_only_upgrade_carries_the_guard_before_the_schema_change() -> None:
+    """Regression: `alembic upgrade head --sql` has no query result to inspect.
+
+    The guard used to read one in Python, which crashed SQL-only mode. The
+    generated script must hold the same statement the online upgrade runs (the
+    test above shows that statement refuses), ahead of the first schema change.
+    """
+    script = io.StringIO()
+
+    command.upgrade(Config("alembic.ini", output_buffer=script), "head", sql=True)
+
+    sql = script.getvalue()
+    guard = _snapshot_migration().REFUSE_EXISTING_ROWS.strip()
+    assert "make reset" in guard
+    assert guard in sql
+    assert sql.index(guard) < sql.index("ALTER TABLE staffing_gap ADD COLUMN patient_count")
+    assert "ck_staffing_gap_patients_per_nurse_valid" in sql
