@@ -142,12 +142,12 @@ Calculator รับ `int` หรือ `Decimal` ที่มากกว่า
 | Gap | 1 | `handlers/assess_staffing.py`, `gap_service.py` | เรียก `gap_calculator` บันทึกผล | STAFFING_GAP (+ ROLE, SKILL) | `GAP_ASSESSED` |
 | Solver | 2 | `handlers/optimize.py`, `optimization_service.py` | Plan + Items 201, 202, 203 ตายตัว `FEASIBLE`, `"stub"`, อ้าง Policy จาก Seed | CANDIDATE_PLANS, CANDIDATE_ITEMS | `SOLVER_EXECUTED` |
 | Outreach | 3 | `handlers/contact_candidate.py`, `outreach_service.py`, `integrations/line/mock.py` | Outreach ให้อันดับ 1 สถานะ `SENT` ผ่าน LINE Mock คืน `wait=True` | CANDIDATE_OUTREACH | `OFFER_SENT` |
-| Response | 3 | `routes/demo.py` (line-sim), `outreach_service.record_response()` | `ACCEPT` → `ACCEPTED` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` (ไม่แก้ `case.status` เอง) | CANDIDATE_OUTREACH, CASES | `OFFER_ACCEPTED` |
+| Response | 3 | `routes/line_sim.py`, `outreach_service.record_response()` | `ACCEPT` → `ACCEPTED` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` (ไม่แก้ `case.status` เอง) | CANDIDATE_OUTREACH, CASES | `OFFER_ACCEPTED` |
 | Safety | 2 | `handlers/validate_safety.py`, `safety_service.py` | `is_passed = true`, snapshot `{}`, สร้าง Approval Request (`MANUAL`, Role HEAD_NURSE) คืน `wait=True` | SAFETY_VALIDATION, APPROVAL_REQUEST | `SAFETY_PASSED`, `APPROVAL_REQUESTED` |
 | Approval | 3 | `routes/approvals.py`, `approval_service.decide()` | ผู้อนุมัติ = `X-Demo-User` แล้วเรียก `orchestrator.resume(db, case_id, EXECUTING)` (ไม่แก้ `case.status` เอง) | APPROVAL_REQUEST, CASES | `APPROVAL_APPROVED` |
 | Roster | 3 | `handlers/execute_assignment.py`, `roster_service.py` | Roster ของ 201: `ASSIGNED` + `REPLACEMENT` + `SAME_WARD` | ROSTER_ASSIGNMENT | `ASSIGNMENT_CREATED`, `CASE_RESOLVED` |
 | อ่านข้อมูล | 1 | `routes/cases.py` | `GET /cases/{id}`, `GET /cases/{id}/audit` | | |
-| อ่านข้อมูล | 3 | `routes/roster.py`, `routes/approvals.py` | `GET /roster`, `GET /approvals?pending=true`, `GET /demo/line-sim/offers` | | |
+| อ่านข้อมูล | 3 | `routes/roster.py`, `routes/approvals.py`, `routes/line_sim.py` | `GET /roster`, `GET /approvals?pending=true`, `GET /demo/line-sim/offers` | | |
 
 **กติกา**
 
