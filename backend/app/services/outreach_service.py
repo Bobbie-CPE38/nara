@@ -48,13 +48,11 @@ def get_accepted_outreach(db: Session, case_id: int) -> CandidateOutreach:
     """Return exactly one ACCEPTED outreach for the case (seam 4).
 
     Missing or multiple accepted offers raise NoResultFound / MultipleResultsFound
-    for the safety handler to let D11 handle. Read-only: no explicit flush,
-    commit, audit, or row lock. With autoflush disabled, the caller must flush
-    pending answers first; orchestrator.resume() already does this.
-
-    The safety service owns seam 5: loading the candidate item and checking its
-    plan belongs to this case before writing validation and approval rows.
+    for the safety handler to let D11 handle. Flush pending answers first because
+    production sessions disable autoflush. Does not create rows, commit, audit,
+    or acquire row locks. A flush error requires rollback before continuing.
     """
+    db.flush()
     return db.scalars(
         select(CandidateOutreach).where(
             CandidateOutreach.case_id == case_id,

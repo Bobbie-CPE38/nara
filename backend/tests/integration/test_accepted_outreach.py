@@ -107,7 +107,7 @@ def test_returns_the_accepted_offer_without_writes(
     assert result is offer
     assert vars(offer) == before
     assert case.status is CaseStatus.WAITING_RESPONSE
-    flush.assert_not_called()
+    flush.assert_called_once_with()
     commit.assert_not_called()
     assert not db.new
     assert not db.dirty
@@ -171,7 +171,7 @@ def test_other_offers_do_not_make_the_accepted_offer_ambiguous(
     assert outreach_service.get_accepted_outreach(db, case.id).id == accepted.id
 
 
-def test_pending_answer_needs_flush_with_production_settings(
+def test_pending_answer_is_flushed_with_production_settings(
     production_seeded: Session, case: StaffingCase
 ) -> None:
     db = production_seeded
@@ -180,9 +180,6 @@ def test_pending_answer_needs_flush_with_production_settings(
     offer.status = OutreachStatus.SENT
     db.flush()
     offer.status = OutreachStatus.ACCEPTED
-    with pytest.raises(NoResultFound):
-        outreach_service.get_accepted_outreach(db, case.id)
-    db.flush()
     assert outreach_service.get_accepted_outreach(db, case.id).id == offer.id
 
 

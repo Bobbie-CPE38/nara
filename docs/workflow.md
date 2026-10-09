@@ -233,10 +233,8 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | 9 | Timeline | คน 1 | `GET /cases/{id}/audit` เรียงด้วย `id` |
 | 10 | Requirement ของเวร | คน 1 (รับ Event + Gap) | `STAFFING_REQUIREMENTS` ที่ `shift_id` ของเวรนั้น เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error ตารางนี้ไม่มี Unique ที่ `shift_id` จึงมีหลายเวอร์ชันได้ (Seed มีเวรละแถว) การรับ Event และ `assess_staffing` ต้องโหลดผ่าน**ฟังก์ชันเดียวกัน** เพื่อให้เห็น Requirement ตัวเดียวกันเสมอ แถว Gap เก็บ `id` นี้ใน `staffing_requirement_id` |
 
-Seam 4 เป็น Lookup แบบอ่านอย่างเดียว ไม่ Flush, Commit, เขียน Audit หรือเพิ่ม Row Lock
-ผู้เรียกต้อง Flush คำตอบก่อนอ่านเมื่อ `autoflush=False` (`orchestrator.resume()` ทำให้แล้ว)
-Service ของ Safety (คน 2, Seam 5) ใช้ `candidate_item_id` ของ Outreach ที่คืนมาเพื่อโหลด Item
-และตรวจ `plan.case_id` ก่อนสร้าง Validation / Approval ตามกติกา Seam 5
+Seam 4 Flush คำตอบที่ค้างอยู่ก่อนค้นหา เพื่อรองรับ `autoflush=False`
+Lookup ไม่สร้างแถวใหม่ ไม่ Commit ไม่เขียน Audit และไม่เพิ่ม Row Lock
 
 ### 6.5 คอลัมน์เวลา
 
@@ -595,3 +593,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | ขั้นที่ 4 Solver: ข้อ 8 Stub ตัดผู้สมัครที่ไม่ `ACTIVE`, อยู่เวรของเคสแล้ว หรือไม่พร้อมในช่วงเวรนั้น ใส่ `rank` ใหม่ไม่ข้ามเลข และไม่เหลือใครเป็น `FAILED` (`NoCandidatesError`) กติกาอยู่ใน `availability_service` ใช้ร่วมกับ Safety; Test ใช้ Fixture `stub_handlers` กลางใน `tests/integration/conftest.py` | คน 2 |
 | 2026-10-10 | ขั้นที่ 4 Solver ตามรีวิว: ข้อ 8 กฎข้อที่ 4 ตัดผู้สมัครที่มี Offer ค้าง (`SENT` หรือ `ACCEPTED` ของเคสที่ยังไม่หยุด) เฉพาะ Solver ไม่ใช้กับ Safety เพื่อให้สองเคสที่เปิดพร้อมกันไม่ส่ง Offer ให้คนเดียวกันจน Seam 3 ตอบรับไม่ได้; Merge staging แล้วลบ Stub ชุดเก่าใน `test_orchestrator.py` | คน 2 |
 | 2026-10-10 | ขั้นที่ 4 Solver ตามรีวิว: ข้อ 8 Solver ล็อกแถว `STAFF` ของผู้สมัครก่อนเช็กกติกา สองเคสที่วางแผนพร้อมกันจึงไม่ได้ผู้สมัครคนเดียวกัน; ข้อ 6.2 เพิ่มลำดับ Lock (เวร/Roster → เคส → `STAFF`) | คน 2 |
+| 2026-10-10 | ตามรีวิว Seam 4: Lookup Flush คำตอบก่อนอ่าน ลดคำอธิบายที่ซ้ำ Seam 5 และปรับ Test สำหรับ Session ที่ปิด Autoflush | คน 3 |
