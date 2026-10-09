@@ -126,6 +126,10 @@ Calculator รับ `int` หรือ `Decimal` ที่มากกว่า
 
 ข้อจำกัด: `STAFFING_GAP` ยังไม่เก็บ Policy ID; การย้อนดูเวอร์ชันของ Gap และ Ratio แยก Ward เป็นงานภายหลัง
 
+ก่อน Wiring PR เริ่มบันทึก Gap ต้องเพิ่ม Snapshot `patient_count` และ `patients_per_nurse`
+(หรือ Policy ID ของเวอร์ชันที่ไม่แก้ย้อนหลัง) ใน `STAFFING_GAP` พร้อม Migration
+และเติม `assess_staffing` ให้ใช้ `result.has_gap` ตามข้อ 5.1; ปัจจุบัน Handler ยังเป็น Stub
+
 **เสร็จเมื่อ:** สร้างเคสด้วยมือ เรียก `advance()` แล้วเคสเดินจาก `OPEN` ไปหยุดที่ `WAITING_RESPONSE` พร้อม `CASE_STATUS_CHANGED` 4 แถว
 
 ---

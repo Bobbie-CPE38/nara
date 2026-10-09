@@ -10,6 +10,9 @@ class RosterMember:
     Callers load and join the database records before constructing these values.
     Employment status and home ward do not determine coverage: assignment to the
     target shift does, including replacements from another ward.
+    The staff-deactivation flow must cancel future assignments when setting
+    INACTIVE; require_active_staff governs candidate eligibility. That flow is
+    a caller responsibility, not implemented by this coverage snapshot.
     """
 
     staff_id: int

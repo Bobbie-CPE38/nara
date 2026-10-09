@@ -63,6 +63,11 @@
 | `updated_at` | timestamptz | NOT NULL |  |  |
 
 
+กติกา Deactivation: เมื่อเปลี่ยน `STAFF.status` เป็น `INACTIVE` Flow ที่แก้สถานะต้องยกเลิก
+Roster ในอนาคตของคนนั้นด้วย; Coverage นับจาก Roster `ASSIGNED` และไม่กรอง `STAFF.status` ซ้ำ
+ส่วน `HARD_CONSTRAINT_POLICY.require_active_staff` ใช้ตรวจสิทธิ์ผู้สมัครมาแทน
+การยกเลิก Roster เมื่อ Deactivate ยังเป็นงานของ Flow นั้น ไม่ใช่งานของ Gap Calculator
+
 ### 2. ACTORS **(ใหม่)**
 
 
@@ -353,7 +358,7 @@
 | `prevent_shift_conflict` | boolean | NOT NULL |  |  |
 | `require_matching_role` | boolean | NOT NULL |  |  |
 | `require_matching_skill` | boolean | NOT NULL |  |  |
-| `require_active_staff` | boolean | NOT NULL |  |  |
+| `require_active_staff` | boolean | NOT NULL |  | ผู้สมัครมาแทนต้อง ACTIVE; เมื่อ Deactivate ต้องยกเลิก Roster ในอนาคตตามกติกาข้อ 1 |
 | `preserve_minimum_staffing` | boolean | NOT NULL |  |  |
 | `preserve_source_ward_minimum` | boolean | NOT NULL |  |  |
 | `effective_from` | timestamptz | NOT NULL |  |  |
@@ -389,6 +394,10 @@
 | `headcount_gap` | integer | NOT NULL |  |  |
 | `computed_at` | timestamptz | NOT NULL |  |  |
 
+
+งานต่อใน Wiring PR ก่อนเริ่มเขียน Gap ลง DB: เพิ่ม `patient_count` และ `patients_per_nurse`
+(หรือ Policy ID ที่อ้างเวอร์ชันซึ่งไม่แก้ย้อนหลัง) เพื่อย้อนตรวจ Input ของการคำนวณแต่ละครั้ง
+คอลัมน์เหล่านี้ยังไม่ได้เพิ่มใน Schema ปัจจุบัน
 
 ### 25. STAFFING_GAP_ROLE
 
