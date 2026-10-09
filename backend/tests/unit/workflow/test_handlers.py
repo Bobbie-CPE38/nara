@@ -14,7 +14,6 @@ from app.workflow.handlers import (
     contact_candidate,
     execute_assignment,
     intake_event,
-    optimize,
     validate_safety,
 )
 from app.workflow.handlers.base import HandlerResult
@@ -25,7 +24,6 @@ from app.workflow.handlers.base import HandlerResult
     [
         (intake_event.handle, CaseStatus.OPEN, CaseStatus.ASSESSING, False),
         (assess_staffing.handle, CaseStatus.ASSESSING, CaseStatus.OPTIMIZING, False),
-        (optimize.handle, CaseStatus.OPTIMIZING, CaseStatus.OUTREACH, False),
         (contact_candidate.handle, CaseStatus.OUTREACH, CaseStatus.WAITING_RESPONSE, True),
         (validate_safety.handle, CaseStatus.SAFETY_VALIDATION, CaseStatus.WAITING_APPROVAL, True),
         (execute_assignment.handle, CaseStatus.EXECUTING, CaseStatus.RESOLVED, False),

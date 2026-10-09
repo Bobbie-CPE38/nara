@@ -338,6 +338,7 @@ nara/
 │       │   ├── test_golden_flow.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_orchestrator.py
+│       │   ├── test_optimize.py
 │       │   ├── test_line_webhook.py
 │       │   ├── test_candidate_timeout.py
 │       │   ├── test_approval_timeout.py
