@@ -340,7 +340,9 @@ nara/
 │       │   ├── test_dependencies.py
 │       │   ├── test_case_routes.py
 │       │   ├── test_golden_flow.py
+│       │   ├── test_events.py
 │       │   ├── test_event_ignored.py
+│       │   ├── test_gap_service.py
 │       │   ├── test_orchestrator.py
 │       │   ├── test_optimize.py
 │       │   ├── test_outreach.py

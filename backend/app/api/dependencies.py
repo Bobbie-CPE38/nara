@@ -15,6 +15,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.constants import MAX_BIGINT
 from app.db.models import Actor, Staff
 from app.db.session import SessionLocal
 from app.domain.enums import StaffStatus
@@ -24,7 +25,7 @@ DEMO_USER_HEADER = "X-Demo-User"
 # Positive integer without sign, spaces or leading zero. 19 digits can still
 # exceed STAFF.id (bigint), so the value is also checked against MAX_STAFF_ID
 _STAFF_ID_PATTERN = re.compile(r"[1-9][0-9]{0,18}")
-MAX_STAFF_ID = 2**63 - 1
+MAX_STAFF_ID = MAX_BIGINT
 
 
 def get_db() -> Iterator[Session]:
