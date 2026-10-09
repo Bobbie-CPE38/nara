@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 from datetime import datetime
+from unittest import mock
 
 import pytest
 from fastapi import FastAPI
@@ -9,7 +10,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
 
-from app.api.dependencies import DEMO_USER_HEADER, DbSession, DemoUser, get_db
+from app.api.dependencies import DEMO_USER_HEADER, MAX_STAFF_ID, DbSession, DemoUser, get_db
 from app.core import clock
 from app.db.models import Role, Staff
 from app.db.session import engine
@@ -79,10 +80,49 @@ def test_user_comes_from_the_request_session(client: TestClient) -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["", "abc", "0", "-105", "+105", "1.5", "0105", "105,201", "1e3", "9" * 19],
+    ["", "abc", "0", "-105", "+105", "1.5", "0105", "105,201", "1e3", "9" * 19, "9" * 20],
 )
 def test_malformed_staff_id_is_401(client: TestClient, value: str) -> None:
     response = client.get("/whoami", headers={DEMO_USER_HEADER: value})
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "X-Demo-User must be a staff ID"}
+
+
+@pytest.mark.parametrize("staff_id", [1_000_000_000_000_000_000, MAX_STAFF_ID])
+def test_nineteen_digit_staff_id_within_bigint_is_accepted(
+    client: TestClient, seeded: Session, staff_id: int
+) -> None:
+    template = seeded.get(Staff, 105)
+    assert template is not None
+    seeded.add(
+        Staff(
+            id=staff_id,
+            first_name="Big",
+            last_name="Id",
+            email="big-id@demo.local",
+            password_hash="!",
+            role_id=template.role_id,
+            home_ward_id=template.home_ward_id,
+            status=StaffStatus.ACTIVE,
+        )
+    )
+    seeded.flush()
+
+    response = client.get("/whoami", headers={DEMO_USER_HEADER: str(staff_id)})
+
+    assert response.status_code == 200
+    assert response.json()["staff_id"] == staff_id
+
+
+def test_staff_id_above_bigint_is_401_without_querying(client: TestClient, seeded: Session) -> None:
+    assert MAX_STAFF_ID == 9_223_372_036_854_775_807
+
+    with (
+        mock.patch.object(seeded, "get", side_effect=AssertionError("queried")),
+        mock.patch.object(seeded, "execute", side_effect=AssertionError("queried")),
+    ):
+        response = client.get("/whoami", headers={DEMO_USER_HEADER: str(MAX_STAFF_ID + 1)})
 
     assert response.status_code == 401
     assert response.json() == {"detail": "X-Demo-User must be a staff ID"}

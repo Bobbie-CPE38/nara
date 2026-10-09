@@ -19,8 +19,10 @@ from app.domain.enums import StaffStatus
 
 DEMO_USER_HEADER = "X-Demo-User"
 
-# Positive integer that fits STAFF.id (bigint): no sign, spaces or leading zero
-_STAFF_ID_PATTERN = re.compile(r"[1-9][0-9]{0,17}")
+# Positive integer without sign, spaces or leading zero. 19 digits can still
+# exceed STAFF.id (bigint), so the value is also checked against MAX_STAFF_ID
+_STAFF_ID_PATTERN = re.compile(r"[1-9][0-9]{0,18}")
+MAX_STAFF_ID = 2**63 - 1
 
 
 def get_db() -> Iterator[Session]:
@@ -47,7 +49,7 @@ def get_demo_user(
     """Return the active staff member named by X-Demo-User, or respond 401."""
     if x_demo_user is None:
         raise _unauthorized(f"Missing {DEMO_USER_HEADER} header")
-    if _STAFF_ID_PATTERN.fullmatch(x_demo_user) is None:
+    if _STAFF_ID_PATTERN.fullmatch(x_demo_user) is None or int(x_demo_user) > MAX_STAFF_ID:
         raise _unauthorized(f"{DEMO_USER_HEADER} must be a staff ID")
 
     staff = db.get(Staff, int(x_demo_user))

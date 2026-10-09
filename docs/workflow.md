@@ -243,7 +243,7 @@ def decide(approval_id: int, db: DbSession, user: DemoUser): ...
 ```
 
 * คืน `Staff` ของ Session เดียวกับ `db` ใช้ `user.id` เป็น `approver_id` และ `actor_service.user_id(db, user.id)` เป็น Actor
-* ตอบ `401` เมื่อไม่มี Header, ค่าไม่ใช่เลขจำนวนเต็มบวก, ไม่มีพนักงาน ID นั้น หรือพนักงานไม่ `ACTIVE`
+* ตอบ `401` เมื่อไม่มี Header, ค่าไม่ใช่เลขจำนวนเต็มบวกในช่วง `bigint` (1 ถึง 9223372036854775807), ไม่มีพนักงาน ID นั้น หรือพนักงานไม่ `ACTIVE`
 * ไม่ตรวจ Role การจำกัดว่าใครอนุมัติได้เป็นงานของ Route นั้นเอง
 
 ---
