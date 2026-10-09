@@ -20,9 +20,16 @@ Rules:
   * Ranks run 1..n without gaps, so seam 2 always finds exactly one rank 1.
   * No candidate left raises NoCandidatesError before any row is written:
     section 5 has no transition for it yet, so the case becomes FAILED (D11).
-  * Rule 4 sees committed and this session's flushed offers only. Two cases
-    planned at the same moment in different transactions can still pick the
-    same candidate; that is accepted for the walking skeleton.
+  * Rule 4 only sees committed offers (and this session's own). So that two
+    cases planned at the same moment cannot both pick the same candidate, the
+    candidates' STAFF rows are locked before the rules run, and stay locked
+    until the round commits its offer at WAITING_RESPONSE. A second round that
+    plans any of the same candidates waits for that commit, then sees the offer.
+  * Lock order: STAFF rows always come last, after the case row the
+    orchestrator holds (and after event intake's shift and roster locks).
+    They are taken in id order, so two rounds never wait on each other in a
+    cycle. FOR NO KEY UPDATE, like the orchestrator: inserts with a foreign key
+    to STAFF hold KEY SHARE, which FOR UPDATE would block.
 """
 
 from sqlalchemy import and_, or_, select
@@ -34,6 +41,7 @@ from app.db.models import (
     CandidateOutreach,
     CandidatePlan,
     Shift,
+    Staff,
     StaffingCase,
 )
 from app.domain.enums import (
@@ -65,6 +73,13 @@ def create_stub_plan(db: Session, case: StaffingCase) -> tuple[CandidatePlan, li
     if shift is None:
         raise LookupError(f"No shift {case.shift_id}")
     staff_ids = [staff_id for staff_id, _ in GOLDEN_CANDIDATES]
+    # Wait for any round that is planning the same candidates to commit (see Rules)
+    db.execute(
+        select(Staff.id)
+        .where(Staff.id.in_(staff_ids))
+        .order_by(Staff.id)
+        .with_for_update(key_share=True)
+    )
     blocked = set(availability_service.unavailable_staff(db, shift, staff_ids))
     blocked |= _staff_with_open_offers(db, staff_ids)
     candidates = [

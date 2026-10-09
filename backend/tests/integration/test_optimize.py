@@ -1,11 +1,15 @@
 """The stub solver against the seeded PostgreSQL: the candidate plan and its audit row."""
 
-from datetime import timedelta
+import contextlib
+import threading
+from collections.abc import Iterator
+from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.db.base import Base
 from app.db.models import (
     Actor,
     AuditLog,
@@ -19,6 +23,7 @@ from app.db.models import (
     StaffingEvent,
     StaffUnavailability,
 )
+from app.db.session import SessionLocal, engine
 from app.domain.enums import (
     ActorName,
     AuditAction,
@@ -33,6 +38,8 @@ from app.domain.enums import (
     SolverStatus,
     StaffStatus,
 )
+from app.seed import load
+from app.services import optimization_service
 from app.services.optimization_service import NoCandidatesError
 from app.workflow import orchestrator
 from app.workflow.handlers import optimize
@@ -425,3 +432,101 @@ def test_everyone_holding_an_open_offer_fails_the_case(seeded: Session) -> None:
     assert failure.payload["failed_at"] == "OPTIMIZING"
     assert failure.payload["error_type"] == "NoCandidatesError"
     assert _plans(seeded, case) == []
+
+
+# --------------------------------------------------------------------------- #
+# Two rounds planning at the same moment (separate committed transactions)
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def committed_optimizing_cases(
+    frozen_clock: datetime, request: pytest.FixtureRequest
+) -> Iterator[tuple[int, int]]:
+    """Two committed cases at OPTIMIZING, on the shifts given by the test's parameter.
+
+    The other tests share one rolled-back connection, which cannot show two
+    transactions racing. This one commits, so it empties every table afterwards.
+    """
+    first_shift, second_shift = request.param
+    with SessionLocal.begin() as db:
+        load(db)
+        case_ids = (
+            _make_case(db, shift_id=first_shift).id,
+            _make_case(db, shift_id=second_shift).id,
+        )
+    try:
+        yield case_ids
+    finally:
+        tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
+        with engine.begin() as connection:
+            connection.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    "committed_optimizing_cases",
+    [(SHIFT_ID, SHIFT_ID), (SHIFT_ID, DAY_SHIFT_ID)],
+    ids=["same_shift", "other_shift"],
+    indirect=True,
+)
+def test_two_cases_planned_at_once_never_offer_the_same_candidate(
+    committed_optimizing_cases: tuple[int, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: both rounds passed rule 4 before either wrote its offer, so 201
+    got two SENT offers and could answer neither (seam 3 needs exactly one).
+
+    Each round waits for the other right after rule 4. Without the STAFF row lock
+    both get there and the race is certain. With it, the second round is still
+    waiting for the lock, so the first gives up waiting and commits its offer.
+    """
+    rule_4 = optimization_service._staff_with_open_offers
+    both_checked = threading.Barrier(2, timeout=2)
+
+    def rule_4_then_wait(db: Session, staff_ids: list[int]) -> set[int]:
+        holders = rule_4(db, staff_ids)
+        # A timeout means the other round is blocked on the lock: the fix at work
+        with contextlib.suppress(threading.BrokenBarrierError):
+            both_checked.wait()
+        return holders
+
+    monkeypatch.setattr(optimization_service, "_staff_with_open_offers", rule_4_then_wait)
+    errors: list[BaseException] = []
+
+    def plan(case_id: int) -> None:
+        try:
+            with SessionLocal() as db:
+                orchestrator.advance(db, case_id)
+        except BaseException as error:
+            errors.append(error)
+
+    threads = [
+        threading.Thread(target=plan, args=(case_id,)) for case_id in committed_optimizing_cases
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert not any(thread.is_alive() for thread in threads)
+    assert errors == []
+    with SessionLocal() as db:
+        sent = list(
+            db.scalars(
+                select(CandidateItem.staff_id)
+                .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+                .where(CandidateOutreach.status == OutreachStatus.SENT)
+            )
+        )
+        assert len(sent) == len(set(sent)), f"a candidate holds two offers: {sent}"
+        cases = [db.get(StaffingCase, case_id) for case_id in committed_optimizing_cases]
+        waiting = [case for case in cases if case and case.status is CaseStatus.WAITING_RESPONSE]
+        assert waiting, "at least one round must send its offer"
+        for case in cases:
+            assert case is not None
+            if case.status is CaseStatus.FAILED:
+                failure = _audit(db, case)[-1]
+                assert failure.payload["error_type"] == "NoCandidatesError"
+            else:
+                assert case.status is CaseStatus.WAITING_RESPONSE
+        if cases[0] and cases[1] and cases[0].shift_id == cases[1].shift_id:
+            assert len(waiting) == 2
+            assert sorted(sent) == [201, 202]
