@@ -45,7 +45,7 @@
 
 | งาน | คน | ไฟล์ |
 |---|---|---|
-| Postgres + Backend + Frontend ใน Compose (Redis ใส่ไว้แต่ยังไม่ใช้) พร้อม Healthcheck | 1 | `docker-compose.yml`, `scripts/wait-for-db.sh` |
+| Postgres + Backend + Frontend ใน Compose (Redis ใส่ไว้แต่ยังไม่ใช้) พร้อม Healthcheck | 1 | `docker-compose.yml` |
 | `/health` เช็ก DB (มีไฟล์แล้ว) + CORS + Config | 1 | `main.py`, `core/config.py`, `db/session.py` |
 | `Base`, `alembic init`, `env.py` อ่าน `DATABASE_URL` และ `Base.metadata` | 1 | `db/base.py`, `alembic/env.py` |
 | Clock ตั้งเวลาได้ | 1 | `core/clock.py` |

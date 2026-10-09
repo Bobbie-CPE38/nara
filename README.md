@@ -5,7 +5,7 @@ Staffing workflow system for hospital wards. When a staffing event happens (unpl
 The stack has four parts:
 
 - **Backend:** FastAPI, SQLAlchemy 2 and PostgreSQL
-- **Frontend:** Next.js 15 and Tailwind CSS v4
+- **Frontend:** Next.js 16 and Tailwind CSS v4
 - **Queue/cache:** Redis
 - **Local orchestration:** Docker Compose
 
@@ -45,7 +45,7 @@ Code changes reload automatically. The backend runs `uvicorn --reload`, and the 
 | Service | Container | Default port | `.env` variable |
 |---|---|---|---|
 | PostgreSQL 17 | `nara-staffing-postgres` | 5432 | `POSTGRES_PORT` |
-| Redis 7 | `nara-staffing-redis` | 6379 | `REDIS_PORT` |
+| Redis 8 | `nara-staffing-redis` | 6379 | `REDIS_PORT` |
 | Backend (FastAPI) | `nara-staffing-backend` | 8000 | `BACKEND_PORT` |
 | Frontend (Next.js) | `nara-staffing-frontend` | 3000 | `FRONTEND_PORT` |
 
@@ -60,7 +60,12 @@ The [Makefile](Makefile) wraps the common Docker Compose commands. Run `make` to
 | `make up` | Start all services in the background (creates `.env` if it's missing) |
 | `make down` | Stop all services. Data is kept |
 | `make reset` | Stop, **delete** the database, Redis and node_modules volumes, then start fresh |
-| `make test` | Run backend tests with pytest inside the backend container. Run `make up` first |
+| `make test` | Run backend (pytest) and frontend (vitest) tests inside the containers. Run `make up` first |
+| `make test-backend` | Run backend tests only |
+| `make test-frontend` | Run frontend tests only |
+| `make lint` | Run ruff and mypy on the backend, and `tsc` on the frontend. Run `make up` first |
+| `make lint-backend` | Run ruff and mypy only |
+| `make lint-frontend` | Type-check the frontend only |
 | `make logs` | Follow logs. For one service: `make logs s=backend` |
 | `make ps` | Show service status and health |
 

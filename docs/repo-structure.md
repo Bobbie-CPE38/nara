@@ -24,7 +24,6 @@ nara/
 │   └── demo.md
 │
 ├── scripts/
-│   ├── wait-for-db.sh
 │   ├── reset-demo.sh
 │   ├── load-demo-data.sh
 │   ├── export-openapi.sh
