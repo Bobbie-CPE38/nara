@@ -290,14 +290,6 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 
 `CANDIDATE_PLANS` และ `SAFETY_VALIDATION` อ้าง Policy แบบ NOT NULL จึงต้อง Seed `HARD_CONSTRAINT_POLICY` และ `SOFT_CONSTRAINT_POLICY` อย่างละ 1 แถว แม้ Stub ยังไม่ได้ใช้ค่าข้างใน
 
-Seam 2 ทำงานผ่าน `contact_candidate.handle()` → `outreach_service.send_offer()`:
-โหลด Plan ล่าสุดตามข้อ 6.4 แล้วต้องมี Item อันดับ 1 หนึ่งแถวพอดี ไม่เจอ Plan / Item
-หรือมีอันดับ 1 ซ้ำจะโยน Exception ให้ Orchestrator จัดการตาม D11 ไม่เลือกแถวแรกเอง
-สร้าง Outreach ผ่าน `integrations/line/mock.py` ตั้ง `SENT` และ `sent_at = clock.now()`
-เขียน `OFFER_SENT` ด้วย Actor `outreach_agent` แล้วคืน `WAITING_RESPONSE`, `wait=True`
-Handler / Service ไม่ Commit และไม่แก้ `case.status` เอง Mock ไม่ส่ง Network และไม่เก็บข้อความแยก:
-Offer ใน DB คือข้อความของ Simulator จึงถูก Rollback พร้อมรอบเมื่อ Error
-
 ---
 
 ## 9. API

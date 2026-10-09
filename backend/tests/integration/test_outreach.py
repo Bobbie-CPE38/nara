@@ -29,7 +29,7 @@ from app.domain.enums import (
     OutreachStatus,
     SolverStatus,
 )
-from app.services import actor_service
+from app.services import actor_service, audit_service, outreach_service
 from app.workflow import orchestrator
 from app.workflow.handlers import contact_candidate
 from tests.integration.conftest import DEMO_NOW
@@ -131,6 +131,33 @@ def test_latest_plan_by_id_and_rank_one(production_seeded: Session, case: Staffi
     assert db.scalars(select(CandidateOutreach)).one().candidate_item_id == selected.id
 
 
+def test_service_sends_a_flushed_sent_offer_without_audit_or_commit(
+    production_seeded: Session, case: StaffingCase
+) -> None:
+    db = production_seeded
+    item = _item(db, _plan(db, case))
+
+    def check_delivery(*, staff_id: int, outreach_id: int) -> None:
+        row = db.scalars(select(CandidateOutreach).where(CandidateOutreach.id == outreach_id)).one()
+        assert row.status is OutreachStatus.SENT
+        assert row.sent_at == DEMO_NOW
+        assert staff_id == 201
+
+    with (
+        patch("app.integrations.line.mock.send_offer", side_effect=check_delivery) as send,
+        patch.object(db, "commit", wraps=db.commit) as commit,
+        patch.object(audit_service, "log", wraps=audit_service.log) as audit,
+    ):
+        offer, staff_id = outreach_service.send_offer(db, case)
+    send.assert_called_once_with(staff_id=201, outreach_id=offer.id)
+    commit.assert_not_called()
+    audit.assert_not_called()
+    assert offer.candidate_item_id == item.id
+    assert staff_id == 201
+    assert case.status is CaseStatus.OUTREACH
+    assert db.scalar(select(AuditLog.id)) is None
+
+
 @pytest.mark.parametrize("count", [0, 2])
 def test_rank_one_must_be_exactly_one(
     production_seeded: Session, case: StaffingCase, count: int
@@ -201,10 +228,11 @@ def test_round_failure_rolls_back_offer_and_records_failed(
         _item(db, plan)
         if failure == "duplicate":
             _item(db, plan)
-    real_log = orchestrator.audit_service.log
+    real_log = audit_service.log
     with (
         patch("app.integrations.line.mock.send_offer") as send,
-        patch("app.services.outreach_service.audit_service.log", wraps=real_log) as audit,
+        # Patches the shared audit module, including the handler and orchestrator.
+        patch.object(audit_service, "log", wraps=real_log) as audit,
     ):
         if failure == "delivery":
             send.side_effect = RuntimeError("mock delivery failed")
