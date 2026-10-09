@@ -11,32 +11,41 @@ from app.db.models import (
     AuditLog,
     CandidateItem,
     CandidatePlan,
+    Shift,
     SoftConstraintPolicy,
+    Staff,
     StaffingCase,
     StaffingEvent,
+    StaffUnavailability,
 )
 from app.domain.enums import (
     ActorName,
     AuditAction,
+    AvailabilityReason,
     CandidateSource,
     CaseStatus,
     EntityType,
     EventStatus,
     EventType,
     SolverStatus,
+    StaffStatus,
 )
+from app.services.optimization_service import NoCandidatesError
 from app.workflow import orchestrator
 from app.workflow.handlers import optimize
 from tests.integration.conftest import DEMO_NOW
 
 SHIFT_ID = 1
+DAY_SHIFT_ID = 2
 LEAVING_STAFF_ID = 105
 
 
-def _make_case(db: Session, status: CaseStatus = CaseStatus.OPTIMIZING) -> StaffingCase:
+def _make_case(
+    db: Session, status: CaseStatus = CaseStatus.OPTIMIZING, *, shift_id: int = SHIFT_ID
+) -> StaffingCase:
     event = StaffingEvent(
         event_type=EventType.STAFF_UNAVAILABLE,
-        shift_id=SHIFT_ID,
+        shift_id=shift_id,
         occurred_at=DEMO_NOW,
         staff_id=LEAVING_STAFF_ID,
         status=EventStatus.PROCESSED,
@@ -45,7 +54,7 @@ def _make_case(db: Session, status: CaseStatus = CaseStatus.OPTIMIZING) -> Staff
     db.flush()
     case = StaffingCase(
         event_id=event.id,
-        shift_id=SHIFT_ID,
+        shift_id=shift_id,
         status=status,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
@@ -176,3 +185,120 @@ def test_advance_with_production_session_settings(production_seeded: Session) ->
     assert solver_row.action is AuditAction.SOLVER_EXECUTED
     assert status_row.action is AuditAction.CASE_STATUS_CHANGED
     assert status_row.payload == {"from": "OPTIMIZING", "to": "OUTREACH"}
+
+
+# --------------------------------------------------------------------------- #
+# Candidates who cannot take the case's shift are dropped, ranks stay 1..n
+# --------------------------------------------------------------------------- #
+def _candidates(db: Session, case: StaffingCase) -> list[tuple[int, int]]:
+    [plan] = _plans(db, case)
+    return [(item.staff_id, item.rank) for item in _items(db, plan)]
+
+
+def _deactivate(db: Session, *staff_ids: int) -> None:
+    for staff_id in staff_ids:
+        staff = db.get(Staff, staff_id)
+        assert staff is not None
+        staff.status = StaffStatus.INACTIVE
+    db.flush()
+
+
+def _unavailable(
+    db: Session, staff_id: int, shift_id: int, *, start: timedelta, end: timedelta | None
+) -> None:
+    """Unavailability from shift start + `start` to shift start + `end` (None = open-ended)."""
+    shift = db.get(Shift, shift_id)
+    assert shift is not None
+    db.add(
+        StaffUnavailability(
+            staff_id=staff_id,
+            start_at=shift.start_at + start,
+            end_at=None if end is None else shift.start_at + end,
+            reason=AvailabilityReason.PLANNED_LEAVE,
+        )
+    )
+    db.flush()
+
+
+def test_staff_already_on_the_shift_are_dropped(seeded: Session) -> None:
+    """202 and 203 are ASSIGNED on shift 2 in the Golden Case seed."""
+    case = _make_case(seeded, shift_id=DAY_SHIFT_ID)
+
+    optimize.handle(seeded, case)
+
+    assert _candidates(seeded, case) == [(201, 1)]
+
+
+def test_inactive_staff_are_dropped_and_the_rest_move_up(seeded: Session) -> None:
+    case = _make_case(seeded)
+    _deactivate(seeded, 201)
+
+    optimize.handle(seeded, case)
+
+    assert _candidates(seeded, case) == [(202, 1), (203, 2)]
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (timedelta(hours=-1), timedelta(hours=2)),
+        (timedelta(hours=-1), None),
+        (timedelta(hours=7, minutes=59), timedelta(days=1)),
+    ],
+    ids=["covers_the_start", "open_ended", "starts_before_the_end"],
+)
+def test_staff_unavailable_during_the_shift_are_dropped(
+    seeded: Session, start: timedelta, end: timedelta | None
+) -> None:
+    case = _make_case(seeded)
+    _unavailable(seeded, 202, SHIFT_ID, start=start, end=end)
+
+    optimize.handle(seeded, case)
+
+    assert _candidates(seeded, case) == [(201, 1), (203, 2)]
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (timedelta(hours=-5), timedelta(0)),
+        (timedelta(hours=8), None),
+    ],
+    ids=["ends_at_the_start", "starts_at_the_end"],
+)
+def test_unavailability_that_only_touches_the_shift_keeps_the_candidate(
+    seeded: Session, start: timedelta, end: timedelta | None
+) -> None:
+    """Shift 1 runs 8 hours; touching an edge is not an overlap."""
+    case = _make_case(seeded)
+    _unavailable(seeded, 202, SHIFT_ID, start=start, end=end)
+
+    optimize.handle(seeded, case)
+
+    assert _candidates(seeded, case) == [(201, 1), (202, 2), (203, 3)]
+
+
+def test_no_candidate_left_raises_before_writing_a_plan(seeded: Session) -> None:
+    case = _make_case(seeded)
+    _deactivate(seeded, 201, 202, 203)
+
+    with pytest.raises(NoCandidatesError):
+        optimize.handle(seeded, case)
+
+    assert _plans(seeded, case) == []
+
+
+def test_no_candidate_left_fails_the_case(seeded: Session) -> None:
+    """Section 5 has no transition for it yet, so D11 records the failure."""
+    case = _make_case(seeded)
+    _deactivate(seeded, 201, 202, 203)
+
+    orchestrator.advance(seeded, case.id)
+
+    seeded.expire_all()
+    assert case.status is CaseStatus.FAILED
+    failure = _audit(seeded, case)[-1]
+    assert failure.action is AuditAction.WORKFLOW_FAILED
+    assert failure.payload["failed_at"] == "OPTIMIZING"
+    assert failure.payload["error_type"] == "NoCandidatesError"
+    assert _plans(seeded, case) == []
