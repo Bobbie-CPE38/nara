@@ -252,7 +252,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 |---|---|---|---|
 | 1 | Plan ล่าสุด | คน 2 → คน 3 | `CANDIDATE_PLANS` ที่ `case_id = case.id` เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error |
 | 2 | Plan → Outreach | คน 3 | `CANDIDATE_ITEMS` ที่ `rank = 1` ใน Plan นั้น หนึ่งแถวพอดี |
-| 3 | Respond | คน 3 | ทำตามลำดับ: (1) ผู้ตอบคือ `user.staff.id` จาก `X-Demo-User` Body ไม่มี Outreach ID (2) `CANDIDATE_OUTREACH` ที่ `status = SENT` และ Join ไปที่ Item ซึ่ง `staff_id = user.staff.id` หนึ่งแถวพอดี ไม่เจอ → `409` (ตอบไปแล้วหรือไม่มี Offer) เจอหลายแถว → Error เพราะ Skeleton ส่ง Offer เดียว (3) `REJECT` → `422` ไม่เขียน DB (ข้อ 9.2) (4) `ACCEPT` → `status = ACCEPTED`, `response_at = clock.now()` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` |
+| 3 | Respond | คน 3 | ทำตามลำดับ: (1) ผู้ตอบคือ `user.staff.id` จาก `X-Demo-User` Body ไม่มี Outreach ID (2) `CANDIDATE_OUTREACH` ที่ `status = SENT` บนเคสที่ `status = WAITING_RESPONSE` และ Join ไปที่ Item ซึ่ง `staff_id = user.staff.id` หนึ่งแถวพอดี ไม่เจอ → `409` (ตอบไปแล้วหรือไม่มี Offer) เจอหลายแถว → Error เพราะ Skeleton ส่ง Offer เดียว (3) `REJECT` → `422` ไม่เขียน DB (ข้อ 9.2) (4) `ACCEPT` → `status = ACCEPTED`, `response_at = clock.now()` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` |
 | 4 | Outreach → Safety | คน 3 → คน 2 | `CANDIDATE_OUTREACH` ของเคสที่ `status = ACCEPTED` หนึ่งแถวพอดี |
 | 5 | Safety → Approval Request | คน 2 | `case_id` = เคสนั้น `candidate_item_id` = Item ของ Outreach ที่ตอบรับ โหลด Plan จาก `item.plan_id` แล้วตรวจ `plan.case_id == case.id` (FK สองตัวไม่ได้รับประกันข้อนี้) ตั้ง `approval_mode = MANUAL`, `required_approver_role` = `id` ของ Role ชื่อ `HEAD_NURSE` (ค้นด้วยชื่อ), `is_pending = true`, `requested_at = clock.now()` |
 | 6 | รายการรออนุมัติ | คน 3 | `GET /approvals?pending=true` คืนแถวที่ `is_pending = true` เรียงด้วย `id` จากน้อยไปมาก ใน Skeleton เคสหนึ่งมีได้ไม่เกินหนึ่งแถว |
@@ -393,6 +393,17 @@ Handler นี้เป็นตาข่ายชั้นสุดท้าย
 
 * `POST /demo/line-sim/respond`: ไม่มี Offer ที่เปิดอยู่ → `409` ถ้ามี Offer และคำตอบคือ `REJECT` → `422` ไม่เขียนอะไรลง DB
 * `POST /approvals/{id}/decision`: `404` / `403` / `409` ตาม Seam 7 ถ้าผ่านทั้งหมดและ `approved = false` → `422` ไม่เขียนอะไรลง DB
+
+Seam 3 ใช้ `outreach_service.record_response()` โดย Route ส่ง `user.staff.id` และ
+`user.actor_id` จาก Dependency Body รับแค่ `{"response": "ACCEPT"}` หรือ `{"response": "REJECT"}`
+ไม่รับ `outreach_id` / `staff_id` หรือฟิลด์อื่น Service ค้น Offer ที่ `SENT` ของผู้ตอบผ่าน
+`CANDIDATE_ITEMS.staff_id` และเฉพาะเคสที่ `STAFFING_CASES.status = WAITING_RESPONSE`
+Offer ที่ยังเป็น `SENT` บนเคสสถานะอื่นไม่นับและไม่ขวางการตอบ Offer ของเคสที่กำลังรอคำตอบ
+Service ล็อกเฉพาะแถว Outreach ตามลำดับ `id` ก่อนตรวจคำตอบ
+ลำดับการล็อกคือ **Outreach ก่อน Case** (`resume()` ล็อก Case): งาน Timeout ในอนาคตต้องใช้ลำดับเดียวกันเพื่อไม่ให้ Deadlock
+ไม่เจอหรือเจอหลายแถวตอบ `409` โดยไม่เขียนอะไร การ `ACCEPT` ตั้ง `response_at = clock.now()`
+เขียน `OFFER_ACCEPTED` ด้วย Actor ของผู้ตอบ แล้วเรียก `resume(..., SAFETY_VALIDATION)`
+คำขอซ้ำหลังคำขอแรก Commit ตอบ `409` และไม่เขียน Audit ซ้ำ Service / Route ไม่ Commit เอง
 
 เส้นทางปฏิเสธแต่ละเส้นจะได้ Transition การเขียน DB และ Status Code ของตัวเองเมื่อ Implement หลัง Skeleton
 
@@ -613,6 +624,7 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | เตรียมขั้นที่ 4: ข้อ 6.4 Seam ระหว่างขั้น, ข้อ 6.5 คอลัมน์เวลา, ข้อ 9.1 ไฟล์ Route และ Error ร่วม (`409` / `404`), ข้อ 9.2 `REJECT` และไม่อนุมัติตอบ `422`, ข้อ 9.3 รูปแบบคำตอบและ Key ที่ E2E ใช้, กติกาเมื่อ Conflict ในข้อ 9 และ 13; line-sim ย้ายไป `routes/line_sim.py` | ทีม |
 | 2026-10-09 | ตามรีวิว PR เตรียมขั้นที่ 4: Seam 1 ไม่เจอ Plan เป็น Error, Seam 6 เรียงด้วย `id`, ข้อ 9.1 ระบุว่า `409` จาก `InvalidTransitionError` เกิดจาก Race และ Route ยังต้องตรวจคำขอซ้ำเอง, ตัวอย่างในข้อ 9 ใช้ Path ที่ไม่ซ้ำ Prefix | ทีม |
 | 2026-10-09 | ขั้นที่ 4 Seam 2: Contact Handler ส่ง Mock Offer ให้อันดับ 1 ของ Plan ล่าสุด, บังคับ Item หนึ่งแถวพอดี, ตั้ง `sent_at` และเขียน `OFFER_SENT` โดยไม่ Commit; เพิ่ม Test การ Rollback และ D11 | คน 3 |
+| 2026-10-09 | ขั้นที่ 4 Seam 3: `POST /demo/line-sim/respond` ใช้ผู้ตอบจาก Header, ล็อก Offer ที่ `SENT` หนึ่งแถวพอดี, รับ `ACCEPT` และเขียน Audit ก่อน `resume(SAFETY_VALIDATION)`; `REJECT` ตอบ `422`, คำขอซ้ำ / Offer ไม่ชัดเจนตอบ `409`; เพิ่ม Test Race และ Request Rollback | คน 3 |
 | 2026-10-09 | ขั้นที่ 4 Route อ่านข้อมูลของเคส: ข้อ 9.3 เพิ่มรูปแบบคำตอบของ `GET /cases/{id}` และ `GET /cases/{id}/audit` (Seam 9) และกติกาว่าเวลาในคำตอบของ API เป็น `+07:00` ผ่านชนิด `AppDatetime`; `CaseNotFoundError` ย้ายไป `app/domain/errors.py` | คน 1 |
 | 2026-10-09 | ขั้นที่ 4 Solver: ข้อ 8 Stub ตัดผู้สมัครที่ไม่ `ACTIVE`, อยู่เวรของเคสแล้ว หรือไม่พร้อมในช่วงเวรนั้น ใส่ `rank` ใหม่ไม่ข้ามเลข และไม่เหลือใครเป็น `FAILED` (`NoCandidatesError`) กติกาอยู่ใน `availability_service` ใช้ร่วมกับ Safety; Test ใช้ Fixture `stub_handlers` กลางใน `tests/integration/conftest.py` | คน 2 |
 | 2026-10-09 | ขั้นที่ 4 รับ Event: ข้อ 3 เพิ่ม Request Body, ลำดับการตรวจและ Status Code (`404` / `409` / `422`), การล็อกแถว `SHIFT` และ Roster ให้รับ Event ทีละคำขอต่อเวร, ลำดับและ `case_id` ของ Audit, Actor ของ `EVENT_IGNORED`, `gap_service.assess_shift()` และ `requirement_service.get_current_requirement()` (Seam 10) | คน 1 |
@@ -620,3 +632,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ขั้นที่ 4 Solver ตามรีวิว: ข้อ 8 กฎข้อที่ 4 ตัดผู้สมัครที่มี Offer ค้าง (`SENT` หรือ `ACCEPTED` ของเคสที่ยังไม่หยุด) เฉพาะ Solver ไม่ใช้กับ Safety เพื่อให้สองเคสที่เปิดพร้อมกันไม่ส่ง Offer ให้คนเดียวกันจน Seam 3 ตอบรับไม่ได้; Merge staging แล้วลบ Stub ชุดเก่าใน `test_orchestrator.py` | คน 2 |
 | 2026-10-10 | ขั้นที่ 4 Solver ตามรีวิว: ข้อ 8 Solver ล็อกแถว `STAFF` ของผู้สมัครก่อนเช็กกติกา สองเคสที่วางแผนพร้อมกันจึงไม่ได้ผู้สมัครคนเดียวกัน; ข้อ 6.2 เพิ่มลำดับ Lock (เวร/Roster → เคส → `STAFF`) | คน 2 |
 | 2026-10-10 | ขั้นที่ 4 Safety ตามรีวิว: ข้อ 8 ตรวจว่า `proposed_shift_id` ของ Item ที่ตอบรับเป็นเวรของเคสก่อนเช็กผู้สมัคร ไม่ตรงเป็น `FAILED` (`ProposedShiftMismatchError`) โดยไม่เขียนแถว | คน 2 |
+| 2026-10-10 | ตามรีวิว Seam 3: นับเฉพาะ Offer `SENT` บนเคส `WAITING_RESPONSE`; Test แทน Safety Handler เพื่อแยกจาก Seam 5 และตรวจว่า Offer ค้างบนเคสอื่นไม่ขวางคำตอบ รวมทั้ง Rollback หลัง Race ที่ `resume()` | คน 3 |
