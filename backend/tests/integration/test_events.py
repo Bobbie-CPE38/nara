@@ -43,6 +43,34 @@ LEAVE = {"event_type": "STAFF_UNAVAILABLE", "shift_id": NIGHT_SHIFT}
 AS_105 = {"X-Demo-User": "105"}
 WRITTEN_TABLES = (StaffingEvent, StaffUnavailability, StaffingCase, AuditLog)
 
+# Event intake ends when it hands the case to the orchestrator. What the steps
+# after it write is tested with those steps, so here each one is a stand-in
+# that only moves the case along the golden path. Without this, every step 4
+# handler that becomes real would change what these tests see.
+_STAND_IN_STEPS: dict[CaseStatus, tuple[CaseStatus, bool]] = {
+    CaseStatus.OPEN: (CaseStatus.ASSESSING, False),
+    CaseStatus.ASSESSING: (CaseStatus.OPTIMIZING, False),
+    CaseStatus.OPTIMIZING: (CaseStatus.OUTREACH, False),
+    CaseStatus.OUTREACH: (CaseStatus.WAITING_RESPONSE, True),
+    CaseStatus.SAFETY_VALIDATION: (CaseStatus.WAITING_APPROVAL, True),
+    CaseStatus.EXECUTING: (CaseStatus.RESOLVED, False),
+}
+
+
+def _stand_in(next_status: CaseStatus, wait: bool) -> orchestrator.Handler:
+    def handler(db: Session, case: StaffingCase) -> HandlerResult:
+        return HandlerResult(next_status=next_status, wait=wait)
+
+    return handler
+
+
+@pytest.fixture(autouse=True)
+def stand_in_handlers(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A new handler needs a stand-in here, or its real code would run in these tests
+    assert set(_STAND_IN_STEPS) == set(orchestrator.HANDLERS)
+    for status, (next_status, wait) in _STAND_IN_STEPS.items():
+        monkeypatch.setitem(orchestrator.HANDLERS, status, _stand_in(next_status, wait))
+
 
 @pytest.fixture
 def client(seeded: Session) -> Iterator[TestClient]:
