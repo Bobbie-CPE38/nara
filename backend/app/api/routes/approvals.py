@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, status
 
 from app.api.dependencies import DbSession, DemoUser
+from app.core.constants import MAX_BIGINT
 from app.schemas.approval_decision import ApprovalDecision, ApprovalDecisionResult
 from app.services import approval_service
 
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/approvals", tags=["approvals"])
 
 @router.post("/{approval_id}/decision", response_model=ApprovalDecisionResult)
 def decide(
-    approval_id: Annotated[int, Path(gt=0, le=2**63 - 1)],
+    approval_id: Annotated[int, Path(gt=0, le=MAX_BIGINT)],
     body: ApprovalDecision,
     db: DbSession,
     user: DemoUser,

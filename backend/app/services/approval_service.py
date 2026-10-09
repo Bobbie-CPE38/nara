@@ -46,7 +46,7 @@ def decide(
     request = db.scalar(
         select(ApprovalRequest)
         .where(ApprovalRequest.id == approval_id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     if request is None:

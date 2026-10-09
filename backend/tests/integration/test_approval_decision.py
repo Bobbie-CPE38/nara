@@ -6,14 +6,11 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.api.exception_handlers import register_exception_handlers
-from app.api.routes import approvals
 from app.db.base import Base
 from app.db.models import (
     ApprovalRequest,
@@ -34,6 +31,7 @@ from app.domain.enums import (
     EventType,
     SolverStatus,
 )
+from app.main import app
 from app.seed import load
 from app.services import actor_service, approval_service
 from app.services.actor_service import ActorNotFoundError
@@ -100,16 +98,9 @@ def _make_request(db: Session) -> ApprovalRequest:
     return request
 
 
-def _app() -> FastAPI:
-    app = FastAPI()
-    app.include_router(approvals.router)
-    register_exception_handlers(app)
-    return app
-
-
 @pytest.fixture(autouse=True)
 def execution_stand_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Person 2 owns seam 8. These tests verify the decision-to-execution handoff.
+    # Seam 8 has its own assignment tests. These tests verify the decision-to-execution handoff.
     def execute(db: Session, case: StaffingCase) -> HandlerResult:
         return HandlerResult(next_status=CaseStatus.RESOLVED)
 
@@ -125,8 +116,6 @@ def request_row(production_seeded: Session) -> ApprovalRequest:
 
 @pytest.fixture
 def client(production_seeded: Session, request_row: ApprovalRequest) -> Iterator[TestClient]:
-    app = _app()
-
     def request_db() -> Iterator[Session]:
         with Session(
             bind=production_seeded.get_bind(),
@@ -137,8 +126,11 @@ def client(production_seeded: Session, request_row: ApprovalRequest) -> Iterator
             yield db
 
     app.dependency_overrides[get_db] = request_db
-    with TestClient(app, raise_server_exceptions=False) as client:
-        yield client
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            yield client
+    finally:
+        app.dependency_overrides.pop(get_db, None)
 
 
 def _url(request: ApprovalRequest) -> str:
@@ -415,7 +407,7 @@ def test_concurrent_decisions_write_one_approval(committed_request: int) -> None
 
     def approve() -> None:
         try:
-            with TestClient(_app()) as client:
+            with TestClient(app) as client:
                 barrier.wait()
                 results.append(
                     client.post(
