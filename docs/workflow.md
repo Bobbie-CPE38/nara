@@ -165,6 +165,7 @@ def component_id(db: Session, name: ActorName) -> int        # Actor ที่�
 def user_id(db: Session, staff_id: int) -> int               # Actor ของพนักงาน
 ```
 
+* `component_id()` รับเฉพาะ `ActorName` และทั้งสองฟังก์ชันโยน `ActorNotFoundError` เมื่อไม่มี Actor (Seed ไม่ครบ) ไม่คืน `None`
 * `log()` **ห้าม Commit เอง**
 * `action` และ `entity_type` ต้องเป็น Enum ห้ามพิมพ์ข้อความเอง
 * `payload` ห้ามมีข้อมูลผู้ป่วยรายบุคคล เหตุผลการลาแบบข้อความอิสระ หรือ `password_hash`
@@ -226,6 +227,24 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | POST | `/demo/reset` | ล้าง DB โหลด Golden Case ตั้ง Clock ใหม่ | คน 1 |
 
 ทุก Request ที่ต้องรู้ตัวผู้ใช้ส่ง Header `X-Demo-User: <staff_id>` (D9)
+
+Route ที่ต้องรู้ตัวผู้ใช้ประกาศ Dependency จาก `api/dependencies.py`
+
+```python
+# api/dependencies.py
+def get_db() -> Iterator[Session]                       # Session ต่อ Request ไม่ Commit ให้
+def get_demo_user(db, x_demo_user) -> Staff             # พนักงานจาก X-Demo-User
+
+DbSession = Annotated[Session, Depends(get_db)]
+DemoUser = Annotated[Staff, Depends(get_demo_user)]
+
+@router.post("/approvals/{approval_id}/decision")
+def decide(approval_id: int, db: DbSession, user: DemoUser): ...
+```
+
+* คืน `Staff` ของ Session เดียวกับ `db` ใช้ `user.id` เป็น `approver_id` และ `actor_service.user_id(db, user.id)` เป็น Actor
+* ตอบ `401` เมื่อไม่มี Header, ค่าไม่ใช่เลขจำนวนเต็มบวก, ไม่มีพนักงาน ID นั้น หรือพนักงานไม่ `ACTIVE`
+* ไม่ตรวจ Role การจำกัดว่าใครอนุมัติได้เป็นงานของ Route นั้นเอง
 
 ---
 
@@ -342,3 +361,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | YYYY-MM-DD | ร่างแรกสำหรับ Walking Skeleton ตาม Schema v5 + ACTORS + Event status | ทีม |
 | 2026-10-08 | ปรับตาม `docs/database-schema.md`: `STAFF_UNAVAILABILITY`, Event type `STAFF_UNAVAILABLE` / `REQUIREMENT_CHANGED`, `PENDING_APPROVAL`, เพิ่มเวร 2 สำหรับ Test Event ที่ไม่มี Gap | ทีม |
 | 2026-10-09 | ปิดขั้นที่ 0 ของ `walking-skeleton.md`: เพิ่ม `UNAVAILABILITY_CREATED` ในข้อ 7 ให้ตรงกับ `GOLDEN_PATH_AUDIT_ACTIONS`, `ACTORS.name` ของ user = `str(staff.id)` | ทีม |
+| 2026-10-09 | ขั้นที่ 3: ข้อ 6.3 `actor_service` โยน `ActorNotFoundError` เมื่อไม่มี Actor, ข้อ 9 เพิ่ม Dependency `get_db` / `get_demo_user` และเงื่อนไข `401` ของ `X-Demo-User` | คน 1 |
