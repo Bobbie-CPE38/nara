@@ -1,6 +1,5 @@
 """Answers of the case read routes (docs/workflow.md, section 9.3)."""
 
-from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -13,6 +12,7 @@ from app.domain.enums import (
     EntityType,
     OutreachStatus,
 )
+from app.schemas.types import AppDatetime
 
 
 class GapCount(BaseModel):
@@ -28,7 +28,7 @@ class GapCount(BaseModel):
 class GapView(BaseModel):
     id: int
     headcount_gap: int
-    computed_at: datetime
+    computed_at: AppDatetime
     roles: list[GapCount]
     skills: list[GapCount]
 
@@ -51,9 +51,9 @@ class CaseDetail(BaseModel):
     status: CaseStatus
     event_id: int
     shift_id: int
-    required_replacement_time: datetime
-    created_at: datetime
-    updated_at: datetime
+    required_replacement_time: AppDatetime
+    created_at: AppDatetime
+    updated_at: AppDatetime
     # null until the ASSESSING step stored a gap
     gap: GapView | None
     # Empty until the solver stored a plan. Ordered by rank
@@ -71,4 +71,4 @@ class AuditEntry(BaseModel):
     entity_type: EntityType
     entity_id: int | None
     payload: dict[str, Any]
-    created_at: datetime
+    created_at: AppDatetime

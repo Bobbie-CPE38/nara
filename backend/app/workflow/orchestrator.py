@@ -37,6 +37,7 @@ from app.domain.enums import (
     CaseStatus,
     EntityType,
 )
+from app.domain.errors import CaseNotFoundError
 from app.domain.workflow.transitions import InvalidTransitionError, assert_transition
 from app.services import actor_service, audit_service
 from app.workflow.handlers import (
@@ -66,10 +67,6 @@ HANDLERS: dict[CaseStatus, Handler] = {
 
 # A correct workflow visits each status at most once per round
 _MAX_STEPS = len(CaseStatus)
-
-
-class CaseNotFoundError(LookupError):
-    """No STAFFING_CASES row has this ID."""
 
 
 class WorkflowError(RuntimeError):

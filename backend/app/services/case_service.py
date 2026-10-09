@@ -24,8 +24,8 @@ from app.db.models import (
     StaffingGapRole,
     StaffingGapSkill,
 )
+from app.domain.errors import CaseNotFoundError
 from app.schemas.case import AuditEntry, CandidateView, CaseDetail, GapCount, GapView
-from app.workflow.orchestrator import CaseNotFoundError
 
 
 def get_case_detail(db: Session, case_id: int) -> CaseDetail:
@@ -125,8 +125,9 @@ def _latest_gap(db: Session, case_id: int) -> GapView | None:
 
 
 def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
-    # Section 6.4, seam 1. A case without a plan is normal here: it has not
-    # reached the solver yet, so this returns an empty list instead of raising
+    # The latest plan as in section 6.4, seam 1. Unlike seam 1, no plan is not
+    # an error here: this is a read route, and a case that has not reached the
+    # solver yet simply has no candidates to show (section 9.3)
     plan_id = db.scalar(
         select(CandidatePlan.id)
         .where(CandidatePlan.case_id == case_id)

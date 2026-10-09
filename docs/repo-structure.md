@@ -111,6 +111,7 @@ nara/
 │   │   │   └── audit_repository.py
 │   │   │
 │   │   ├── schemas/
+│   │   │   ├── types.py
 │   │   │   ├── auth.py
 │   │   │   ├── staff.py
 │   │   │   ├── ward.py
@@ -133,6 +134,7 @@ nara/
 │   │   │
 │   │   ├── domain/
 │   │   │   ├── enums.py
+│   │   │   ├── errors.py
 │   │   │   │
 │   │   │   ├── workflow/
 │   │   │   │   └── transitions.py

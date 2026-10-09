@@ -1,12 +1,12 @@
 """GET /cases/{id} and GET /cases/{id}/audit (docs/workflow.md, sections 6.4 seam 9 and 9.3)."""
 
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
@@ -41,6 +41,7 @@ from app.services import audit_service
 from tests.integration.conftest import DEMO_NOW
 
 NIGHT_SHIFT = 1
+LATER = DEMO_NOW + timedelta(hours=1)
 RN, ICU = 1, 1
 
 
@@ -93,7 +94,9 @@ def _log(db: Session, case: StaffingCase, action: AuditAction, actor: ActorName)
     )
 
 
-def _add_gap(db: Session, case: StaffingCase, *, headcount_gap: int) -> StaffingGap:
+def _add_gap(
+    db: Session, case: StaffingCase, *, headcount_gap: int, computed_at: datetime = DEMO_NOW
+) -> StaffingGap:
     requirement_id = db.scalar(
         select(StaffingRequirement.id).where(StaffingRequirement.shift_id == NIGHT_SHIFT)
     )
@@ -102,7 +105,7 @@ def _add_gap(db: Session, case: StaffingCase, *, headcount_gap: int) -> Staffing
         case_id=case.id,
         staffing_requirement_id=requirement_id,
         headcount_gap=headcount_gap,
-        computed_at=DEMO_NOW,
+        computed_at=computed_at,
     )
     db.add(gap)
     db.flush()
@@ -124,11 +127,13 @@ def _add_gap(db: Session, case: StaffingCase, *, headcount_gap: int) -> Staffing
     return gap
 
 
-def _add_plan(db: Session, case: StaffingCase, ranked_staff: list[int]) -> list[CandidateItem]:
+def _add_plan(
+    db: Session, case: StaffingCase, ranked_staff: list[int], *, generated_at: datetime = DEMO_NOW
+) -> list[CandidateItem]:
     plan = CandidatePlan(
         case_id=case.id,
         solver_status=SolverStatus.FEASIBLE,
-        generated_at=DEMO_NOW,
+        generated_at=generated_at,
         execution_time_ms=1,
         objective_score=Decimal(0),
         solver_version="stub",
@@ -155,14 +160,19 @@ def _add_plan(db: Session, case: StaffingCase, ranked_staff: list[int]) -> list[
 
 
 def _add_outreach(
-    db: Session, case: StaffingCase, item: CandidateItem, status: OutreachStatus
+    db: Session,
+    case: StaffingCase,
+    item: CandidateItem,
+    status: OutreachStatus,
+    *,
+    sent_at: datetime = DEMO_NOW,
 ) -> None:
     db.add(
         CandidateOutreach(
             case_id=case.id,
             candidate_item_id=item.id,
             channel=Channel.LINE,
-            sent_at=DEMO_NOW,
+            sent_at=sent_at,
             status=status,
         )
     )
@@ -228,9 +238,9 @@ def test_case_detail_shows_the_gap_with_role_and_skill_names(
 def test_case_detail_shows_the_latest_gap_by_id(
     client: TestClient, seeded: Session, case: StaffingCase
 ) -> None:
-    """Both gaps carry the same frozen computed_at, so only the id tells them apart."""
-    _add_gap(seeded, case, headcount_gap=1)
-    newer = _add_gap(seeded, case, headcount_gap=2)
+    """The newer row has the older computed_at: sorting by time would pick the wrong gap."""
+    _add_gap(seeded, case, headcount_gap=1, computed_at=LATER)
+    newer = _add_gap(seeded, case, headcount_gap=2, computed_at=DEMO_NOW)
 
     body = client.get(f"/cases/{case.id}").json()
 
@@ -241,8 +251,9 @@ def test_case_detail_shows_the_latest_gap_by_id(
 def test_candidates_come_from_the_latest_plan_in_rank_order(
     client: TestClient, seeded: Session, case: StaffingCase
 ) -> None:
-    _add_plan(seeded, case, [203, 202])
-    _add_plan(seeded, case, [201, 202, 203])
+    # The newer plan has the older generated_at: sorting by time would pick the wrong plan
+    _add_plan(seeded, case, [203, 202], generated_at=LATER)
+    _add_plan(seeded, case, [201, 202, 203], generated_at=DEMO_NOW)
 
     body = client.get(f"/cases/{case.id}").json()
 
@@ -268,8 +279,9 @@ def test_candidate_shows_its_newest_outreach_status(
     client: TestClient, seeded: Session, case: StaffingCase
 ) -> None:
     first, second, _ = _add_plan(seeded, case, [201, 202, 203])
-    _add_outreach(seeded, case, first, OutreachStatus.SENT)
-    _add_outreach(seeded, case, first, OutreachStatus.ACCEPTED)
+    # The newer row has the older sent_at: sorting by time would show SENT
+    _add_outreach(seeded, case, first, OutreachStatus.SENT, sent_at=LATER)
+    _add_outreach(seeded, case, first, OutreachStatus.ACCEPTED, sent_at=DEMO_NOW)
     _add_outreach(seeded, case, second, OutreachStatus.SENT)
 
     body = client.get(f"/cases/{case.id}").json()
@@ -306,10 +318,47 @@ def test_timeline_is_a_top_level_list_with_the_action_key(
     assert body[0]["payload"] == {"step": "CASE_OPENED"}
 
 
-def test_timeline_is_sorted_by_id_when_every_row_has_the_same_time(
+def test_timeline_is_sorted_by_id_not_by_time_or_insertion_order(
     client: TestClient, seeded: Session, case: StaffingCase
 ) -> None:
-    """Seam 9: the frozen demo clock gives every row the same created_at."""
+    """Seam 9. The rows go in with descending ids and ascending times, so only
+    ORDER BY id returns them as 9001, 9002, 9003. Sorting by created_at, or not
+    sorting at all, returns 9003 first."""
+    actor_id = _actor(seeded, ActorName.WORKFLOW_ORCHESTRATOR)
+    rows = [
+        (9003, AuditAction.CASE_OPENED, DEMO_NOW),
+        (9002, AuditAction.UNAVAILABILITY_CREATED, DEMO_NOW + timedelta(minutes=1)),
+        (9001, AuditAction.EVENT_RECEIVED, DEMO_NOW + timedelta(minutes=2)),
+    ]
+    for row_id, action, created_at in rows:
+        seeded.add(
+            AuditLog(
+                id=row_id,
+                case_id=case.id,
+                actor_id=actor_id,
+                action=action,
+                entity_type=EntityType.STAFFING_CASES,
+                entity_id=case.id,
+                payload={},
+                created_at=created_at,
+            )
+        )
+        seeded.flush()
+
+    body = client.get(f"/cases/{case.id}/audit").json()
+
+    assert [entry["id"] for entry in body] == [9001, 9002, 9003]
+    assert [entry["action"] for entry in body] == [
+        "EVENT_RECEIVED",
+        "UNAVAILABILITY_CREATED",
+        "CASE_OPENED",
+    ]
+
+
+def test_timeline_keeps_call_order_when_every_row_has_the_same_time(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    """What a demo run looks like: the frozen clock gives every row one created_at."""
     for action in GOLDEN_PATH_AUDIT_ACTIONS:
         _log(seeded, case, action, ActorName.WORKFLOW_ORCHESTRATOR)
     assert len(set(seeded.scalars(select(AuditLog.created_at)))) == 1
@@ -317,7 +366,6 @@ def test_timeline_is_sorted_by_id_when_every_row_has_the_same_time(
     body = client.get(f"/cases/{case.id}/audit").json()
 
     assert [entry["action"] for entry in body] == [a.value for a in GOLDEN_PATH_AUDIT_ACTIONS]
-    assert [entry["id"] for entry in body] == sorted(entry["id"] for entry in body)
 
 
 def test_timeline_filters_like_the_e2e_test(
@@ -369,6 +417,28 @@ def test_case_without_audit_rows_has_an_empty_timeline(
 
 
 # --------------------------------------------------------------------------- #
+# Times
+# --------------------------------------------------------------------------- #
+def test_times_are_sent_as_plus_seven_after_a_database_round_trip(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    """PostgreSQL returns timestamptz in UTC. Without expire_all() the route would
+    serialize the +07:00 objects this test created, and never see what the DB returns."""
+    _add_gap(seeded, case, headcount_gap=1)
+    _log(seeded, case, AuditAction.CASE_OPENED, ActorName.WORKFLOW_ORCHESTRATOR)
+    seeded.expire_all()
+
+    detail = client.get(f"/cases/{case.id}").json()
+    timeline = client.get(f"/cases/{case.id}/audit").json()
+
+    assert detail["created_at"] == "2026-10-09T21:00:00+07:00"
+    assert detail["updated_at"] == "2026-10-09T21:00:00+07:00"
+    assert detail["required_replacement_time"] == "2026-10-09T23:00:00+07:00"
+    assert detail["gap"]["computed_at"] == "2026-10-09T21:00:00+07:00"
+    assert timeline[0]["created_at"] == "2026-10-09T21:00:00+07:00"
+
+
+# --------------------------------------------------------------------------- #
 # Errors
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("path", ["/cases/999999", "/cases/999999/audit"])
@@ -385,8 +455,18 @@ def test_case_id_that_is_not_a_number_is_422(client: TestClient, path: str) -> N
 
 
 def test_read_routes_write_nothing(client: TestClient, seeded: Session, case: StaffingCase) -> None:
-    client.get(f"/cases/{case.id}")
-    client.get(f"/cases/{case.id}/audit")
+    """Looking at session.new afterwards is not enough: it is empty again after a flush."""
+    pending: list[object] = []
 
-    assert not seeded.new
-    assert not seeded.dirty
+    def record_pending(session: Session, flush_context: object, instances: object) -> None:
+        pending.extend([*session.new, *session.dirty, *session.deleted])
+
+    event.listen(seeded, "before_flush", record_pending)
+    try:
+        client.get(f"/cases/{case.id}")
+        client.get(f"/cases/{case.id}/audit")
+        seeded.flush()
+    finally:
+        event.remove(seeded, "before_flush", record_pending)
+
+    assert pending == []
