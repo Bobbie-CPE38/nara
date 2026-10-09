@@ -364,6 +364,14 @@ Handler นี้เป็นตาข่ายชั้นสุดท้าย
 * `POST /demo/line-sim/respond`: ไม่มี Offer ที่เปิดอยู่ → `409` ถ้ามี Offer และคำตอบคือ `REJECT` → `422` ไม่เขียนอะไรลง DB
 * `POST /approvals/{id}/decision`: `404` / `403` / `409` ตาม Seam 7 ถ้าผ่านทั้งหมดและ `approved = false` → `422` ไม่เขียนอะไรลง DB
 
+Seam 3 ใช้ `outreach_service.record_response()` โดย Route ส่ง `user.staff.id` และ
+`user.actor_id` จาก Dependency Body รับแค่ `{"response": "ACCEPT"}` หรือ `{"response": "REJECT"}`
+ไม่รับ `outreach_id` / `staff_id` หรือฟิลด์อื่น Service ค้น Offer ที่ `SENT` ของผู้ตอบผ่าน
+`CANDIDATE_ITEMS.staff_id` และล็อกเฉพาะแถว Outreach ตามลำดับ `id` ก่อนตรวจคำตอบ
+ไม่เจอหรือเจอหลายแถวตอบ `409` โดยไม่เขียนอะไร การ `ACCEPT` ตั้ง `response_at = clock.now()`
+เขียน `OFFER_ACCEPTED` ด้วย Actor ของผู้ตอบ แล้วเรียก `resume(..., SAFETY_VALIDATION)`
+คำขอซ้ำหลังคำขอแรก Commit ตอบ `409` และไม่เขียน Audit ซ้ำ Service / Route ไม่ Commit เอง
+
 เส้นทางปฏิเสธแต่ละเส้นจะได้ Transition การเขียน DB และ Status Code ของตัวเองเมื่อ Implement หลัง Skeleton
 
 ### 9.3 รูปแบบคำตอบ
@@ -527,3 +535,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | เตรียมขั้นที่ 4: ข้อ 6.4 Seam ระหว่างขั้น, ข้อ 6.5 คอลัมน์เวลา, ข้อ 9.1 ไฟล์ Route และ Error ร่วม (`409` / `404`), ข้อ 9.2 `REJECT` และไม่อนุมัติตอบ `422`, ข้อ 9.3 รูปแบบคำตอบและ Key ที่ E2E ใช้, กติกาเมื่อ Conflict ในข้อ 9 และ 13; line-sim ย้ายไป `routes/line_sim.py` | ทีม |
 | 2026-10-09 | ตามรีวิว PR เตรียมขั้นที่ 4: Seam 1 ไม่เจอ Plan เป็น Error, Seam 6 เรียงด้วย `id`, ข้อ 9.1 ระบุว่า `409` จาก `InvalidTransitionError` เกิดจาก Race และ Route ยังต้องตรวจคำขอซ้ำเอง, ตัวอย่างในข้อ 9 ใช้ Path ที่ไม่ซ้ำ Prefix | ทีม |
 | 2026-10-09 | ขั้นที่ 4 Seam 2: Contact Handler ส่ง Mock Offer ให้อันดับ 1 ของ Plan ล่าสุด, บังคับ Item หนึ่งแถวพอดี, ตั้ง `sent_at` และเขียน `OFFER_SENT` โดยไม่ Commit; เพิ่ม Test การ Rollback และ D11 | คน 3 |
+| 2026-10-09 | ขั้นที่ 4 Seam 3: `POST /demo/line-sim/respond` ใช้ผู้ตอบจาก Header, ล็อก Offer ที่ `SENT` หนึ่งแถวพอดี, รับ `ACCEPT` และเขียน Audit ก่อน `resume(SAFETY_VALIDATION)`; `REJECT` ตอบ `422`, คำขอซ้ำ / Offer ไม่ชัดเจนตอบ `409`; เพิ่ม Test Race และ Request Rollback | คน 3 |
