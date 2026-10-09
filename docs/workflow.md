@@ -46,7 +46,7 @@
 
 กติกาของ `ACTORS`
 
-* `actor_type = user` → `staff_id` ต้องมีค่า, `name` = รหัสพนักงาน สร้างแถวพร้อมกับการสร้าง `STAFF`
+* `actor_type = user` → `staff_id` ต้องมีค่า, `name` = `str(staff.id)` สร้างแถวพร้อมกับการสร้าง `STAFF`
 * `actor_type = system` / `component` → `staff_id` เป็น NULL, `name` = ค่าจาก `ActorName`
 * Seed สร้าง Actor ที่ไม่ใช่คนทั้ง 6 ตัวไว้เสมอ
 
@@ -177,6 +177,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | Action | ใครเขียน | Actor | entity_type | payload ขั้นต่ำ |
 |---|---|---|---|---|
 | `EVENT_RECEIVED` | `event_service` | user (คนที่ลา) | STAFFING_EVENTS | `event_type`, `shift_id`, `staff_id` |
+| `UNAVAILABILITY_CREATED` | `event_service` | user (คนที่ลา) | STAFF_UNAVAILABILITY | `unavailability_id`, `staff_id`, `reason`, `start_at`, `end_at` |
 | `CASE_OPENED` | `event_service` | `workflow_orchestrator` | STAFFING_CASES | `event_id`, `shift_id`, `headcount_gap` |
 | `CASE_STATUS_CHANGED` | Orchestrator | `workflow_orchestrator` | STAFFING_CASES | `from`, `to` |
 | `GAP_ASSESSED` | `assess_staffing` | `staffing_gap_assessment_agent` | STAFFING_GAP | `gap_id`, `headcount_gap`, `role_gaps`, `skill_gaps` |
@@ -334,3 +335,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 |---|---|---|
 | YYYY-MM-DD | ร่างแรกสำหรับ Walking Skeleton ตาม Schema v5 + ACTORS + Event status | ทีม |
 | 2026-10-08 | ปรับตาม `docs/database-schema.md`: `STAFF_UNAVAILABILITY`, Event type `STAFF_UNAVAILABLE` / `REQUIREMENT_CHANGED`, `PENDING_APPROVAL`, เพิ่มเวร 2 สำหรับ Test Event ที่ไม่มี Gap | ทีม |
+| 2026-10-09 | ปิดขั้นที่ 0 ของ `walking-skeleton.md`: เพิ่ม `UNAVAILABILITY_CREATED` ในข้อ 7 ให้ตรงกับ `GOLDEN_PATH_AUDIT_ACTIONS`, `ACTORS.name` ของ user = `str(staff.id)` | ทีม |

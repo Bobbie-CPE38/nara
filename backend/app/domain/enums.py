@@ -197,7 +197,7 @@ class ActorType(StrEnum):
 
 
 class ActorName(StrEnum):
-    """ACTORS.name for non-user actors. User actors use the staff code instead."""
+    """ACTORS.name for non-user actors. User actors use str(staff.id) instead."""
 
     SYSTEM = "system"
     WORKFLOW_ORCHESTRATOR = "workflow_orchestrator"

@@ -182,7 +182,7 @@ def test_golden_path(client):
 
 ## Checklist ว่า Skeleton เสร็จ
 
-- [ ] แก้ 0.1–0.8 แล้ว
+- [x] แก้ 0.1–0.8 แล้ว
 - [ ] `make up` รันได้ทุกเครื่อง, `/health` ตอบ DB ok
 - [ ] `make reset` ได้ Golden Case ครบ
 - [ ] กด "105 แจ้งลา" → เคสหยุดที่ `WAITING_RESPONSE`, Roster ของ 105 `CANCELLED`

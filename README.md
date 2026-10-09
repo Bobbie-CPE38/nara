@@ -49,7 +49,7 @@ Code changes reload automatically. The backend runs `uvicorn --reload`, and the 
 | Backend (FastAPI) | `nara-staffing-backend` | 8000 | `BACKEND_PORT` |
 | Frontend (Next.js) | `nara-staffing-frontend` | 3000 | `FRONTEND_PORT` |
 
-If a port is already in use on your machine, change its value in `.env`. If you change `BACKEND_PORT`, also update `NEXT_PUBLIC_API_BASE_URL`, because the browser calls the backend directly.
+If a port is already in use on your machine, change its value in `.env`. If you change `BACKEND_PORT`, also update `NEXT_PUBLIC_API_BASE_URL`, because the browser calls the backend directly. If you change `FRONTEND_PORT`, also update `CORS_ORIGINS`. Otherwise the backend blocks the browser and the page says "Cannot reach the API".
 
 ## Using make
 
@@ -68,6 +68,7 @@ The [Makefile](Makefile) wraps the common Docker Compose commands. Run `make` to
 | `make lint-frontend` | Type-check the frontend only |
 | `make logs` | Follow logs. For one service: `make logs s=backend` |
 | `make ps` | Show service status and health |
+| `make seed` | Placeholder. Loading demo data arrives in walking-skeleton Step 2.3 |
 
 macOS and Linux already have `make`. On Windows, install it once and then open a new terminal:
 
@@ -88,7 +89,7 @@ docker compose down -v               # stop and DELETE the database, Redis and n
 docker compose restart backend       # restart one service (for example, after editing pyproject.toml)
 ```
 
-If you add an npm dependency, run `docker compose down -v` or remove the `frontend_node_modules` volume so that `npm install` runs from a clean state.
+If you add an npm dependency, run `docker compose restart frontend`. The container runs `npm ci` on every start, so it reinstalls from `package-lock.json`.
 
 ## Local development without Docker (optional)
 
@@ -103,12 +104,13 @@ source .venv/bin/activate            # Windows: .venv\Scripts\activate
 pip install -e .
 # Point at localhost instead of the "postgres" container hostname
 export DATABASE_URL=postgresql+psycopg://staffing:staffing_dev@localhost:5432/staffing
+export CORS_ORIGINS='["http://localhost:3000"]'
 uvicorn app.main:app --reload --port 8000
 ```
 
-On Windows PowerShell, use `$env:DATABASE_URL = "..."` instead of `export`. You can also create `backend/.env`, which the settings read automatically.
+Both variables are required. The backend refuses to start if either is missing. On Windows PowerShell, use `$env:DATABASE_URL = "..."` and `$env:CORS_ORIGINS = '["http://localhost:3000"]'` instead of `export`. You can also put them in `backend/.env`, which the settings read automatically.
 
-**Frontend** (Node 20+):
+**Frontend** (Node 22.12+, 24 recommended, the same as Docker and CI):
 
 ```bash
 cd frontend
@@ -120,21 +122,34 @@ npm run dev
 
 ```text
 .
-├── docker-compose.yml      # local stack: postgres, redis, backend, frontend
-├── .env.example            # copy to .env
+├── docker-compose.yml        # local stack: postgres, redis, backend, frontend
+├── Makefile                  # shortcuts for the stack (run `make`)
+├── .env.example              # copy to .env
+├── .github/workflows/ci.yml  # lint + tests on every PR
 ├── docs/
-│   ├── workflow.md         # workflow contract (states, transitions, decisions)
-│   └── database-schema.md  # planned DB schema and enums
+│   ├── workflow.md           # workflow contract (states, transitions, decisions)
+│   ├── database-schema.md    # planned DB schema and enums
+│   ├── walking-skeleton.md   # step-by-step build plan
+│   └── repo-structure.md     # target folder structure
 ├── backend/
-│   ├── pyproject.toml
-│   └── app/
-│       ├── main.py         # FastAPI app and /health
-│       ├── core/config.py  # settings (from env / .env)
-│       ├── db/session.py   # SQLAlchemy engine and session
-│       └── domain/enums.py # shared StrEnums (source of truth together with docs)
+│   ├── pyproject.toml        # dependencies, ruff, mypy, pytest
+│   ├── alembic.ini
+│   ├── alembic/              # migrations (versions/ is empty until Step 2)
+│   ├── app/
+│   │   ├── main.py           # FastAPI app and /health
+│   │   ├── core/config.py    # settings (from env / .env)
+│   │   ├── core/clock.py     # settable system clock, use instead of datetime.now()
+│   │   ├── db/base.py        # declarative Base with constraint naming
+│   │   ├── db/session.py     # SQLAlchemy engine and session
+│   │   ├── db/models/        # ORM models (Step 2)
+│   │   └── domain/enums.py   # shared StrEnums (source of truth together with docs)
+│   └── tests/                # unit/ and integration/, conftest.py creates the test DB
 └── frontend/
     ├── package.json
-    └── src/app/            # Next.js App Router (layout.tsx, page.tsx)
+    ├── src/app/              # Next.js App Router (layout.tsx, page.tsx)
+    ├── src/lib/api.ts        # API client, adds X-Demo-User
+    ├── src/hooks/            # usePolling
+    └── tests/unit/           # vitest tests
 ```
 
 New modules follow the team's target structure: `api/`, `services/`, `repositories/`, `workflow/`, `optimization/` and the rest.

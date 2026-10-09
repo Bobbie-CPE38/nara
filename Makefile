@@ -18,7 +18,7 @@ COPY_ENV := [ -f .env ] || cp .env.example .env
 endif
 
 # These targets are command names, not files that make should look for.
-.PHONY: help up down reset test test-backend test-frontend lint lint-backend lint-frontend logs ps env
+.PHONY: help up down reset test test-backend test-frontend lint lint-backend lint-frontend logs ps env seed
 
 # The first target is the default, so plain `make` shows this list.
 help:
@@ -35,6 +35,7 @@ help:
 	@echo   logs           Follow logs. One service: make logs s=backend
 	@echo   ps             Show service status and health
 	@echo   env            Create .env from .env.example if it does not exist
+	@echo   seed           Load demo data (placeholder until Step 2.3)
 
 env:
 	@$(COPY_ENV)
@@ -50,6 +51,10 @@ down:
 reset: env
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d --wait
+
+# Placeholder: base data and the Golden Case arrive in walking-skeleton Step 2.3
+seed:
+	@echo Seed is not implemented yet. See docs/walking-skeleton.md step 2.3.
 
 test: test-backend test-frontend
 

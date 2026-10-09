@@ -68,7 +68,7 @@
 | Field | Type | Null | Key | Enum / หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
-| `name` | text | NOT NULL |  | user: รหัสพนักงาน / อื่น ๆ: `ActorName` |
+| `name` | text | NOT NULL |  | user: `str(STAFF.id)` / อื่น ๆ: `ActorName` |
 | `actor_type` | text | NOT NULL |  | `ActorType` |
 | `staff_id` | bigint | NULL | FK STAFF.id | ต้องมีค่าเมื่อ `actor_type = user` |
 
