@@ -1,8 +1,7 @@
 from pydantic import AwareDatetime, BaseModel, Field
 
+from app.core.constants import MAX_BIGINT
 from app.domain.enums import CaseStatus, EventStatus, EventType
-
-MAX_BIGINT = 2**63 - 1
 
 
 class EventCreate(BaseModel):

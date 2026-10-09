@@ -351,7 +351,7 @@ def committed_seed(frozen_clock: datetime) -> Iterator[None]:
 
 
 def test_same_leave_reported_twice_at_once_opens_one_case(committed_seed: None) -> None:
-    """The roster row lock lets one request through; the other finds the row cancelled."""
+    """The shift lock lets one request through; the other then finds the roster row cancelled."""
     start = threading.Barrier(2, timeout=10)
     statuses: list[int] = []
 

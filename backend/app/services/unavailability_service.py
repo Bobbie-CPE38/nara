@@ -24,9 +24,13 @@ class NoAssignedRosterError(LookupError):
 def lock_assigned_roster(db: Session, *, staff_id: int, shift_id: int) -> RosterAssignment:
     """Return the staff member's one ASSIGNED roster row in the shift, locked.
 
-    The row lock makes two leave reports for the same person and shift run one
-    after the other. PostgreSQL re-checks the status once the first commits, so
-    the second finds no ASSIGNED row and raises NoAssignedRosterError.
+    Event intake already runs one request at a time per shift, through the
+    shift lock that event_service takes first. So a repeated report for the
+    same person simply finds no ASSIGNED row here and raises
+    NoAssignedRosterError.
+
+    This row lock is for writers that do not take the shift lock: it keeps
+    another transaction from changing this roster row while it is cancelled.
     """
     rows = db.scalars(
         select(RosterAssignment)

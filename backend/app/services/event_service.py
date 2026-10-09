@@ -58,8 +58,9 @@ def _lock_shift(db: Session, shift_id: int) -> Shift:
     roster row, still see the other one as ASSIGNED (that change is not
     committed yet), and both events are IGNORED although the shift is now short.
 
-    FOR NO KEY UPDATE, not FOR UPDATE: the event and roster rows written below
-    reference the shift and take KEY SHARE on it.
+    FOR NO KEY UPDATE, not FOR UPDATE: other transactions that insert a row
+    referencing this shift (a roster row, a candidate item) take KEY SHARE on
+    it. FOR UPDATE would make them wait for event intake; this mode does not.
     """
     shift = db.scalar(
         select(Shift)
