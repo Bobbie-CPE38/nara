@@ -35,7 +35,7 @@ help:
 	@echo   logs           Follow logs. One service: make logs s=backend
 	@echo   ps             Show service status and health
 	@echo   env            Create .env from .env.example if it does not exist
-	@echo   seed           Load demo data (placeholder until Step 2.3)
+	@echo   seed           Load demo data into an empty database (stack must be running)
 
 env:
 	@$(COPY_ENV)
@@ -52,9 +52,8 @@ reset: env
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d --wait
 
-# Placeholder: base data and the Golden Case arrive in walking-skeleton Step 2.3
 seed:
-	@echo Seed is not implemented yet. See docs/walking-skeleton.md step 2.3.
+	$(COMPOSE) exec -T backend python -m app.seed
 
 test: test-backend test-frontend
 

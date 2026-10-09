@@ -68,7 +68,7 @@ The [Makefile](Makefile) wraps the common Docker Compose commands. Run `make` to
 | `make lint-frontend` | Type-check the frontend only |
 | `make logs` | Follow logs. For one service: `make logs s=backend` |
 | `make ps` | Show service status and health |
-| `make seed` | Placeholder. Loading demo data arrives in walking-skeleton Step 2.3 |
+| `make seed` | Load base policies, actors and the Golden Case into an empty database. Run `make up` first |
 
 macOS and Linux already have `make`. On Windows, install it once and then open a new terminal:
 
@@ -79,6 +79,13 @@ winget install ezwinports.make
 If you'd rather not install it, the raw `docker compose` commands below do the same job.
 
 ## Common commands
+
+`make seed` refuses to load into application tables that already contain data.
+It runs Alembic migrations when available. Until the initial migration lands, it
+creates tables from the ORM models and prints that fallback explicitly.
+The seed timestamps use demo day at 21:00 +07:00. This command runs in a separate
+process, so it does not freeze the running API's clock; the future `/demo/reset`
+endpoint will handle that. `make reset` still resets infrastructure only.
 
 ```bash
 docker compose up -d                 # start in the background

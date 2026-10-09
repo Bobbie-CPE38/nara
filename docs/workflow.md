@@ -322,7 +322,7 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | แก้ `end_at` ของ `STAFF_UNAVAILABILITY` | กลับเร็ว / หยุดนานกว่าที่บันทึก / ใส่วันกลับเมื่อเคยเป็น NULL → Audit `UNAVAILABILITY_UPDATED` |
 | การรวม Event + `case_id` ใน STAFFING_EVENTS | ใช้ `EventStatus.RECEIVED` เป็นคิวรอรวม |
 | Celery, Timeout, Approval Timeout | |
-| Auto-Approval | นิยาม `ratio` / `incoming_count` ใน APPROVAL_POLICY ยังไม่ครบ |
+| Auto-Approval | Future feature: activate when the nurse-to-patient ratio exceeds twice the ward's required ratio (`ratio = 2`). `incoming_count` refers to staff awaiting approval by the head nurse or nurse supervisor (policy value = 10); its comparison rule remains to be defined. Skeleton uses MANUAL approval. |
 | รูปแบบ `required_approver_role` | Skeleton เก็บ `ROLE.id` ของ HEAD_NURSE ไปก่อน |
 | LangGraph | ดูทางเลือกในเอกสารแยก |
 | Event กลุ่มภาระงาน (`PATIENT_SURGE` ฯลฯ) | ต้องสร้าง Requirement เวอร์ชันใหม่ก่อนประเมิน |
