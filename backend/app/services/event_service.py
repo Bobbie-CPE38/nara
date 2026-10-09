@@ -41,6 +41,14 @@ class InvalidLeaveEndError(ValueError):
     """The return time is not after the start of the shift."""
 
 
+def _iso(moment: datetime) -> str:
+    """A time for an audit payload, always +07:00.
+
+    A value copied from a row that was read from PostgreSQL is in UTC.
+    """
+    return moment.astimezone(clock.APP_TIMEZONE).isoformat()
+
+
 @dataclass(frozen=True)
 class EventOutcome:
     event_id: int
@@ -127,8 +135,8 @@ def receive_event(
             "unavailability_id": unavailability.id,
             "staff_id": staff_id,
             "reason": unavailability.reason.value,
-            "start_at": unavailability.start_at.isoformat(),
-            "end_at": unavailability.end_at.isoformat() if unavailability.end_at else None,
+            "start_at": _iso(unavailability.start_at),
+            "end_at": _iso(unavailability.end_at) if unavailability.end_at else None,
         },
     )
     orchestrator_actor = actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR)

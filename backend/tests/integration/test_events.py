@@ -210,6 +210,21 @@ def test_timeline_starts_with_the_golden_path_audit_rows(
     }
 
 
+def test_audit_payload_times_are_plus_seven_after_a_database_round_trip(
+    client: TestClient, seeded: Session
+) -> None:
+    """PostgreSQL returns the shift times in UTC. Without expire_all() the service
+    would copy the +07:00 objects the seed created, and the test would prove nothing."""
+    seeded.expire_all()
+
+    body = client.post("/events", headers=AS_105, json=LEAVE).json()
+
+    unavailable = _timeline(seeded, body["case_id"])[1]
+    assert unavailable.action is AuditAction.UNAVAILABILITY_CREATED
+    assert unavailable.payload["start_at"] == "2026-10-09T23:00:00+07:00"
+    assert unavailable.payload["end_at"] == "2026-10-10T07:00:00+07:00"
+
+
 def test_return_time_ends_the_unavailability_early(client: TestClient, seeded: Session) -> None:
     shift = seeded.get(Shift, NIGHT_SHIFT)
     assert shift is not None
