@@ -111,6 +111,7 @@ nara/
 │   │   │   └── audit_repository.py
 │   │   │
 │   │   ├── schemas/
+│   │   │   ├── types.py
 │   │   │   ├── auth.py
 │   │   │   ├── staff.py
 │   │   │   ├── ward.py
@@ -133,6 +134,7 @@ nara/
 │   │   │
 │   │   ├── domain/
 │   │   │   ├── enums.py
+│   │   │   ├── errors.py
 │   │   │   │
 │   │   │   ├── workflow/
 │   │   │   │   └── transitions.py
@@ -335,6 +337,7 @@ nara/
 │       │   ├── test_health.py
 │       │   ├── test_actor_service.py
 │       │   ├── test_dependencies.py
+│       │   ├── test_case_routes.py
 │       │   ├── test_golden_flow.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_orchestrator.py
