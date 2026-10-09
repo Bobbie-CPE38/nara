@@ -11,7 +11,6 @@ from app.domain.enums import CaseStatus
 from app.domain.workflow.transitions import assert_transition
 from app.workflow.handlers import (
     assess_staffing,
-    contact_candidate,
     execute_assignment,
     intake_event,
 )
@@ -23,7 +22,6 @@ from app.workflow.handlers.base import HandlerResult
     [
         (intake_event.handle, CaseStatus.OPEN, CaseStatus.ASSESSING, False),
         (assess_staffing.handle, CaseStatus.ASSESSING, CaseStatus.OPTIMIZING, False),
-        (contact_candidate.handle, CaseStatus.OUTREACH, CaseStatus.WAITING_RESPONSE, True),
         (execute_assignment.handle, CaseStatus.EXECUTING, CaseStatus.RESOLVED, False),
     ],
 )

@@ -5,7 +5,12 @@ The walking skeleton has no solver yet: every case starts from the same Golden
 Case candidates (section 10.3). The real solver replaces `create_stub_plan` later.
 
 The stub drops a candidate who cannot take the case's shift at all, by the rules
-in availability_service, which Safety uses too.
+in availability_service, which Safety uses too. It also drops a candidate who
+already holds an open offer (rule 4): a SENT offer in any case, or an ACCEPTED
+offer whose case is not in AUTOMATION_STOPPED_STATUSES. Seam 3 needs exactly one
+SENT offer per responder across all cases, so a second offer would leave both
+cases waiting forever. Rule 4 is the Solver's only: Safety checks the accepted
+candidate, whose own ACCEPTED offer would block them.
 
 Rules:
   * Never commits and writes no audit row. The `optimize` handler logs
@@ -15,13 +20,28 @@ Rules:
   * Ranks run 1..n without gaps, so seam 2 always finds exactly one rank 1.
   * No candidate left raises NoCandidatesError before any row is written:
     section 5 has no transition for it yet, so the case becomes FAILED (D11).
+  * Rule 4 sees committed and this session's flushed offers only. Two cases
+    planned at the same moment in different transactions can still pick the
+    same candidate; that is accepted for the walking skeleton.
 """
 
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.db.models import CandidateItem, CandidatePlan, Shift, StaffingCase
-from app.domain.enums import CandidateSource, SolverStatus
+from app.db.models import (
+    CandidateItem,
+    CandidateOutreach,
+    CandidatePlan,
+    Shift,
+    StaffingCase,
+)
+from app.domain.enums import (
+    AUTOMATION_STOPPED_STATUSES,
+    CandidateSource,
+    OutreachStatus,
+    SolverStatus,
+)
 from app.services import availability_service, policy_service
 
 # Golden Case candidates in rank order, all from ICU (home ward 1). Outreach
@@ -36,7 +56,7 @@ STUB_SOLVER_VERSION = "stub"
 
 
 class NoCandidatesError(LookupError):
-    """Every Golden Case candidate is inactive, on the shift already or unavailable."""
+    """Every Golden Case candidate is unavailable for the shift or holds an open offer."""
 
 
 def create_stub_plan(db: Session, case: StaffingCase) -> tuple[CandidatePlan, list[CandidateItem]]:
@@ -44,9 +64,9 @@ def create_stub_plan(db: Session, case: StaffingCase) -> tuple[CandidatePlan, li
     shift = db.get(Shift, case.shift_id)
     if shift is None:
         raise LookupError(f"No shift {case.shift_id}")
-    blocked = availability_service.unavailable_staff(
-        db, shift, [staff_id for staff_id, _ in GOLDEN_CANDIDATES]
-    )
+    staff_ids = [staff_id for staff_id, _ in GOLDEN_CANDIDATES]
+    blocked = set(availability_service.unavailable_staff(db, shift, staff_ids))
+    blocked |= _staff_with_open_offers(db, staff_ids)
     candidates = [
         (staff_id, source) for staff_id, source in GOLDEN_CANDIDATES if staff_id not in blocked
     ]
@@ -84,3 +104,24 @@ def create_stub_plan(db: Session, case: StaffingCase) -> tuple[CandidatePlan, li
     db.add_all(items)
     db.flush()
     return plan, items
+
+
+def _staff_with_open_offers(db: Session, staff_ids: list[int]) -> set[int]:
+    """Rule 4: the staff IDs with a SENT offer, or an ACCEPTED one in a running case."""
+    return set(
+        db.scalars(
+            select(CandidateItem.staff_id)
+            .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+            .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
+            .where(
+                CandidateItem.staff_id.in_(staff_ids),
+                or_(
+                    CandidateOutreach.status == OutreachStatus.SENT,
+                    and_(
+                        CandidateOutreach.status == OutreachStatus.ACCEPTED,
+                        StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
+                    ),
+                ),
+            )
+        )
+    )
