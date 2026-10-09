@@ -65,6 +65,7 @@ def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
     assert approval.incoming_count == 10
     hard = seeded.get(HardConstraintPolicy, 1)
     assert hard is not None
+    assert hard.maximum_patients_per_nurse == 2
     assert (hard.minimum_rest_hours, hard.maximum_daily_hours, hard.maximum_weekly_hours) == (
         11,
         12,
