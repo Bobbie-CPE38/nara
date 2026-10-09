@@ -124,11 +124,11 @@ Calculator รับ `int` หรือ `Decimal` ที่มากกว่า
 `gap_count`) โดย Gap ต่ำสุดคือ 0 และเก็บรายการที่ไม่ขาดไว้ด้วย
 ใช้ `result.has_gap` ตรวจว่าขาดจำนวนคน **หรือ** Role **หรือ** Skill; ห้ามบวก Gap ทั้งสามชนิดเข้าด้วยกัน
 
-ข้อจำกัด: `STAFFING_GAP` ยังไม่เก็บ Policy ID; การย้อนดูเวอร์ชันของ Gap และ Ratio แยก Ward เป็นงานภายหลัง
+ข้อจำกัด: `STAFFING_GAP` ยังไม่เก็บ Policy ID; การย้อนดูเวอร์ชันของ Policy และ Ratio แยก Ward เป็นงานภายหลัง
 
-ก่อน Wiring PR เริ่มบันทึก Gap ต้องเพิ่ม Snapshot `patient_count` และ `patients_per_nurse`
-(หรือ Policy ID ของเวอร์ชันที่ไม่แก้ย้อนหลัง) ใน `STAFFING_GAP` พร้อม Migration
-และเติม `assess_staffing` ให้ใช้ `result.has_gap` ตามข้อ 5.1; ปัจจุบัน Handler ยังเป็น Stub
+`STAFFING_GAP` มี Snapshot `patient_count` และ `patients_per_nurse` แล้ว (Migration `c4d7e19a52f3`)
+ผู้เขียนแถว Gap ต้องใส่ทั้งสองค่าจาก Input ที่ใช้คำนวณ
+งานที่เหลือ: เติม `assess_staffing` ให้บันทึก Gap และใช้ `result.has_gap` ตามข้อ 5.1; ปัจจุบัน Handler ยังเป็น Stub
 
 **เสร็จเมื่อ:** สร้างเคสด้วยมือ เรียก `advance()` แล้วเคสเดินจาก `OPEN` ไปหยุดที่ `WAITING_RESPONSE` พร้อม `CASE_STATUS_CHANGED` 4 แถว
 

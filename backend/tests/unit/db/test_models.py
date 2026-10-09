@@ -1,7 +1,7 @@
 """Models owned by person 1 must match docs/database-schema.md exactly."""
 
 import pytest
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Numeric, Text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import CreateIndex, CreateTable
@@ -120,6 +120,8 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "case_id": (BigInteger, NOT_NULL),
         "staffing_requirement_id": (BigInteger, NOT_NULL),
         "headcount_gap": (Integer, NOT_NULL),
+        "patient_count": (Integer, NOT_NULL),
+        "patients_per_nurse": (Numeric, NOT_NULL),
         "computed_at": (DateTime, NOT_NULL),
     },
     "staffing_gap_role": {
