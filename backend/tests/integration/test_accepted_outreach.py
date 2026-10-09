@@ -9,10 +9,12 @@ from sqlalchemy.exc import MultipleResultsFound, NoResultFound
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    ApprovalRequest,
     AuditLog,
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    SafetyValidation,
     StaffingCase,
     StaffingEvent,
 )
@@ -28,7 +30,6 @@ from app.domain.enums import (
 )
 from app.services import outreach_service
 from app.workflow import orchestrator
-from app.workflow.handlers.base import HandlerResult
 from tests.integration.conftest import DEMO_NOW
 
 
@@ -183,40 +184,36 @@ def test_pending_answer_is_flushed_with_production_settings(
     assert outreach_service.get_accepted_outreach(db, case.id).id == offer.id
 
 
-def _use_seam_four_consumer(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Person 2 owns the real safety handler (seam 5). Exercise the handoff here
-    # without taking over validation or approval creation in this PR.
-    def consume(db: Session, case: StaffingCase) -> HandlerResult:
-        outreach_service.get_accepted_outreach(db, case.id)
-        return HandlerResult(next_status=CaseStatus.WAITING_APPROVAL, wait=True)
-
-    monkeypatch.setitem(orchestrator.HANDLERS, CaseStatus.SAFETY_VALIDATION, consume)
-
-
-def test_resume_flushes_the_answer_before_the_safety_consumer_reads_it(
-    production_seeded: Session, case: StaffingCase, monkeypatch: pytest.MonkeyPatch
+def test_resume_uses_shared_lookup_in_real_safety_with_an_unflushed_answer(
+    production_seeded: Session, case: StaffingCase
 ) -> None:
     db = production_seeded
     offer = _offer(db, case)
     offer.status = OutreachStatus.SENT
     db.flush()
     offer.status = OutreachStatus.ACCEPTED
-    _use_seam_four_consumer(monkeypatch)
-    orchestrator.resume(db, case.id, CaseStatus.SAFETY_VALIDATION)
+    with patch.object(
+        outreach_service, "get_accepted_outreach", wraps=outreach_service.get_accepted_outreach
+    ) as lookup:
+        orchestrator.resume(db, case.id, CaseStatus.SAFETY_VALIDATION)
+    lookup.assert_called_once_with(db, case.id)
     assert case.status is CaseStatus.WAITING_APPROVAL
+    assert db.scalars(select(SafetyValidation)).one().candidate_item_id == offer.candidate_item_id
+    assert db.scalars(select(ApprovalRequest)).one().candidate_item_id == offer.candidate_item_id
     assert outreach_service.get_accepted_outreach(db, case.id).id == offer.id
 
 
 @pytest.mark.parametrize("count", [0, 2])
 def test_invalid_handoff_reaches_d11(
-    production_seeded: Session, case: StaffingCase, monkeypatch: pytest.MonkeyPatch, count: int
+    production_seeded: Session, case: StaffingCase, count: int
 ) -> None:
     db = production_seeded
     for _ in range(count):
         _offer(db, case)
-    _use_seam_four_consumer(monkeypatch)
     orchestrator.resume(db, case.id, CaseStatus.SAFETY_VALIDATION)
     assert case.status is CaseStatus.FAILED
+    assert db.scalar(select(SafetyValidation.id)) is None
+    assert db.scalar(select(ApprovalRequest.id)) is None
     failure = db.scalars(select(AuditLog).order_by(AuditLog.id.desc()).limit(1)).one()
     assert failure.action is AuditAction.WORKFLOW_FAILED
     assert failure.payload["failed_at"] == "SAFETY_VALIDATION"
