@@ -79,9 +79,11 @@
 
 | ไฟล์ | ข้อมูล |
 |---|---|
-| `seed/base_data.py` | Actor ที่ไม่ใช่คน 6 ตัว, Policy อย่างละ 1 แถว (Hard, Soft, Approval) |
+| `seed/base_data.py` | Actor ที่ไม่ใช่คน 6 ตัว, Policy อย่างละ 1 แถว (Hard, Soft, Approval), แต่ละตารางใช้ `id = 1` เป็น ID คงที่สำหรับ Demo |
 | `seed/scenarios/golden_case.py` | ข้อมูลตาม `workflow.md` ข้อ 10.2 ทั้งหมด รวม Actor ของพนักงานทุกคน |
-| `POST /demo/reset` + `make reset` | Drop → `alembic upgrade head` → base_data → golden_case → ตั้ง Clock เป็น `D 21:00` |
+| `POST /demo/reset` + `make reset` | Drop → `alembic upgrade head` → ตั้ง Clock เป็น `D 21:00 +07:00` ใน API Process → base_data → golden_case → Commit |
+
+ตั้ง Clock ก่อน Seed เพื่อให้ Timestamp ของข้อมูลเริ่มต้นมาจาก `clock.now()` ที่เวลา Demo เดียวกัน และคง Clock นี้ไว้ให้ Workflow ใช้ต่อหลัง Reset โดย `D` คือวันที่ปัจจุบันตามเวลาจริงในประเทศไทย ไม่ใช่วันที่ที่ Freeze ไว้จาก Reset ครั้งก่อน ส่วน Policy `id = 1` เป็นข้อตกลงของ Demo แยกกันในแต่ละตาราง ไม่ใช่กฎสำหรับ Policy ทุก Version ในอนาคต
 
 **เสร็จเมื่อ:** `make reset` แล้วเปิด DB เห็น RN 5 คนในเวร 1, ICU 2 คน (101, 102), 202 กับ 203 ในเวร 2
 

@@ -8,7 +8,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.db.base import Base
 from app.db.models import (
     Actor,
     ApprovalPolicy,
@@ -39,8 +38,7 @@ def demo_clock() -> Iterator[None]:
 
 @pytest.fixture
 def seeded(db: Session) -> Session:
-    # Until the first migration lands, create tables inside the test transaction.
-    Base.metadata.create_all(db.connection())
+    # tests/conftest.py creates the schema using Alembic migrations.
     load(db)
     db.expire_all()
     return db
@@ -124,7 +122,6 @@ def test_shift_times_and_generated_ids_after_seed(seeded: Session) -> None:
 
 
 def test_seed_loaders_leave_transaction_control_to_caller(db: Session) -> None:
-    Base.metadata.create_all(db.connection())
     transaction = db.begin_nested()
     base_data.seed(db)
     golden_case.seed(db)
