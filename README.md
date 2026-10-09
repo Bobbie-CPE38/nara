@@ -59,7 +59,8 @@ The [Makefile](Makefile) wraps the common Docker Compose commands. Run `make` to
 |---|---|
 | `make up` | Start all services in the background (creates `.env` if it's missing) |
 | `make down` | Stop all services. Data is kept |
-| `make reset` | Stop, **delete** the database, Redis and node_modules volumes, then start fresh |
+| `make reset` | Reload the demo: rebuild the database, load the Golden Case and set the clock to 21:00 today. Run `make up` first |
+| `make wipe` | Stop, **delete** the database, Redis and node_modules volumes, then start fresh |
 | `make test` | Run backend (pytest) and frontend (vitest) tests inside the containers. Run `make up` first |
 | `make test-backend` | Run backend tests only |
 | `make test-frontend` | Run frontend tests only |
@@ -68,7 +69,6 @@ The [Makefile](Makefile) wraps the common Docker Compose commands. Run `make` to
 | `make lint-frontend` | Type-check the frontend only |
 | `make logs` | Follow logs. For one service: `make logs s=backend` |
 | `make ps` | Show service status and health |
-| `make seed` | Placeholder. Loading demo data arrives in walking-skeleton Step 2.3 |
 
 macOS and Linux already have `make`. On Windows, install it once and then open a new terminal:
 
@@ -79,6 +79,11 @@ winget install ezwinports.make
 If you'd rather not install it, the raw `docker compose` commands below do the same job.
 
 ## Common commands
+
+`make reset` calls `POST /demo/reset` on the running backend. It drops every table,
+runs `alembic upgrade head`, loads the base data and the Golden Case, and freezes the
+API clock at 21:00 +07:00 today. Run it as often as you like. The frozen clock lives
+in the backend process, so restarting the backend loses it: run `make reset` again.
 
 ```bash
 docker compose up -d                 # start in the background

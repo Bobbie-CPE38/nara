@@ -15,6 +15,7 @@ nara/
 │   ├── architecture.md
 │   ├── database-schema.md
 │   ├── workflow.md
+│   ├── walking-skeleton.md
 │   ├── repo-structure.md
 │   ├── optimization.md
 │   ├── safety-validation.md
@@ -271,6 +272,9 @@ nara/
 │   │   │       └── demo.py
 │   │   │
 │   │   └── seed/
+│   │       ├── __init__.py
+│   │       ├── __main__.py
+│   │       ├── reset.py
 │   │       ├── base_data.py
 │   │       └── scenarios/
 │   │           ├── golden_case.py
@@ -286,7 +290,16 @@ nara/
 │   │           └── no_feasible_solution.py
 │   │
 │   └── tests/
+│       ├── conftest.py
 │       ├── unit/
+│       │   ├── core/
+│       │   │   ├── test_clock.py
+│       │   │   └── test_config.py
+│       │   │
+│       │   ├── db/
+│       │   │   ├── test_models.py
+│       │   │   └── test_types.py
+│       │   │
 │       │   ├── domain/
 │       │   │   ├── test_gap_calculator.py
 │       │   │   ├── test_hard_rules.py
@@ -307,6 +320,10 @@ nara/
 │       │       └── test_transitions.py
 │       │
 │       ├── integration/
+│       │   ├── test_migrations.py
+│       │   ├── test_models.py
+│       │   ├── test_seed.py
+│       │   ├── test_demo_reset.py
 │       │   ├── test_health.py
 │       │   ├── test_golden_flow.py
 │       │   ├── test_event_ignored.py

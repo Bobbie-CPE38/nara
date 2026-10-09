@@ -18,14 +18,15 @@ COPY_ENV := [ -f .env ] || cp .env.example .env
 endif
 
 # These targets are command names, not files that make should look for.
-.PHONY: help up down reset test test-backend test-frontend lint lint-backend lint-frontend logs ps env seed
+.PHONY: help up down reset wipe test test-backend test-frontend lint lint-backend lint-frontend logs ps env
 
 # The first target is the default, so plain `make` shows this list.
 help:
 	@echo Usage: make TARGET
 	@echo   up             Start all services in the background (creates .env if missing)
 	@echo   down           Stop all services (data is kept)
-	@echo   reset          Stop, DELETE database/Redis/node_modules volumes, start fresh
+	@echo   reset          Reload the demo: rebuild the database, load the Golden Case, clock D 21:00
+	@echo   wipe           Stop, DELETE database/Redis/node_modules volumes, start fresh
 	@echo   test           Run backend and frontend tests (stack must be running: make up)
 	@echo   test-backend   Run backend tests only (pytest)
 	@echo   test-frontend  Run frontend tests only (vitest)
@@ -35,7 +36,6 @@ help:
 	@echo   logs           Follow logs. One service: make logs s=backend
 	@echo   ps             Show service status and health
 	@echo   env            Create .env from .env.example if it does not exist
-	@echo   seed           Load demo data (placeholder until Step 2.3)
 
 env:
 	@$(COPY_ENV)
@@ -48,13 +48,13 @@ up: env
 down:
 	$(COMPOSE) down
 
-reset: env
+# Calls POST /demo/reset on the running backend (stack must be running: make up)
+reset:
+	$(COMPOSE) exec -T backend python -m app.seed
+
+wipe: env
 	$(COMPOSE) down -v
 	$(COMPOSE) up -d --wait
-
-# Placeholder: base data and the Golden Case arrive in walking-skeleton Step 2.3
-seed:
-	@echo Seed is not implemented yet. See docs/walking-skeleton.md step 2.3.
 
 test: test-backend test-frontend
 

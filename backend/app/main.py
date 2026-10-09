@@ -4,10 +4,12 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.routes import demo
 from app.core.config import settings
 from app.db.session import engine
 
 app = FastAPI(title="Staffing API")
+app.include_router(demo.router)
 
 app.add_middleware(
     CORSMiddleware,

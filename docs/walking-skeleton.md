@@ -73,15 +73,17 @@
 
 ### 2.2 Migration แรก
 
-คน 1 รวม Model ทั้งหมด แล้วสร้าง Migration เดียวด้วย `alembic revision --autogenerate -m "initial schema"` จากนั้นเพิ่ม Constraint 4 ข้อด้วยมือ (CHECK `staff_id` ตามกลุ่ม Event, CHECK Actor ที่เป็น user, UNIQUE `staff_id`, UNIQUE `name` ของ Component) ตามท้าย `database-schema.md`
+คน 1 รวม Model ทั้งหมด แล้วสร้าง Migration เดียวด้วย `alembic revision --autogenerate -m "initial schema"` Constraint 4 ข้อท้าย `database-schema.md` (CHECK `staff_id` ตามกลุ่ม Event, CHECK Actor ที่เป็น user, UNIQUE `staff_id`, UNIQUE `name` ของ Component) ประกาศไว้ใน `__table_args__` ของ Model `actor` และ `staffing_event` แล้ว autogenerate จึงสร้างให้เอง ไม่ต้องเพิ่มด้วยมือ ให้เปิดไฟล์ Migration ตรวจว่าออกมาครบ 4 ข้อก่อนรัน
 
 ### 2.3 Seed
 
 | ไฟล์ | ข้อมูล |
 |---|---|
-| `seed/base_data.py` | Actor ที่ไม่ใช่คน 6 ตัว, Policy อย่างละ 1 แถว (Hard, Soft, Approval) |
+| `seed/base_data.py` | Actor ที่ไม่ใช่คน 6 ตัว, Policy อย่างละ 1 แถว (Hard, Soft, Approval), แต่ละตารางใช้ `id = 1` เป็น ID คงที่สำหรับ Demo |
 | `seed/scenarios/golden_case.py` | ข้อมูลตาม `workflow.md` ข้อ 10.2 ทั้งหมด รวม Actor ของพนักงานทุกคน |
-| `POST /demo/reset` + `make reset` | Drop → `alembic upgrade head` → base_data → golden_case → ตั้ง Clock เป็น `D 21:00` |
+| `POST /demo/reset` + `make reset` | Drop → `alembic upgrade head` → ตั้ง Clock เป็น `D 21:00 +07:00` ใน API Process → base_data → golden_case → Commit |
+
+ตั้ง Clock ก่อน Seed เพื่อให้ Timestamp ของข้อมูลเริ่มต้นมาจาก `clock.now()` ที่เวลา Demo เดียวกัน และคง Clock นี้ไว้ให้ Workflow ใช้ต่อหลัง Reset โดย `D` คือวันที่ปัจจุบันตามเวลาจริงในประเทศไทย ไม่ใช่วันที่ที่ Freeze ไว้จาก Reset ครั้งก่อน ส่วน Policy `id = 1` เป็นข้อตกลงของ Demo แยกกันในแต่ละตาราง ไม่ใช่กฎสำหรับ Policy ทุก Version ในอนาคต
 
 **เสร็จเมื่อ:** `make reset` แล้วเปิด DB เห็น RN 5 คนในเวร 1, ICU 2 คน (101, 102), 202 กับ 203 ในเวร 2
 
@@ -184,7 +186,7 @@ def test_golden_path(client):
 
 - [x] แก้ 0.1–0.8 แล้ว
 - [ ] `make up` รันได้ทุกเครื่อง, `/health` ตอบ DB ok
-- [ ] `make reset` ได้ Golden Case ครบ
+- [x] `make reset` ได้ Golden Case ครบ (ยืนยันด้วย `tests/integration/test_demo_reset.py` และ `test_seed.py`)
 - [ ] กด "105 แจ้งลา" → เคสหยุดที่ `WAITING_RESPONSE`, Roster ของ 105 `CANCELLED`
 - [ ] กด "203 แจ้งลาเวร 2" → ไม่มีเคสใหม่ Event `IGNORED`
 - [ ] 201 กดรับใน LINE Sim → `WAITING_APPROVAL`
