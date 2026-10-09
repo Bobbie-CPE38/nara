@@ -111,13 +111,20 @@
 (`staff_id`, `shift_id`, `status`, `role_id`, `skill_ids` เป็นชุด Skill ทั้งหมดของคนนั้น)
 ผู้เรียกโหลดข้อมูลจาก DB; Calculator นับคนไม่ซ้ำเฉพาะ `ASSIGNED` ในเวรเป้าหมาย
 ใช้ `minimum_required_staff = ceil(patient_count / patients_per_nurse)` เป็นเป้าหมายจำนวนคน
-โดย `patient_count` มาจาก Shift และ `patients_per_nurse` คือจำนวนผู้ป่วยต่อพยาบาลของ Ward
-(รับ `int` หรือ `Decimal` ที่มากกว่า 0 และเป็นค่าจำกัด; ยังไม่มีที่เก็บ Ratio นี้ใน Schema
-ผู้เรียกต้องส่งเข้ามาเอง ห้ามใช้ `APPROVAL_POLICY.ratio` ซึ่งเป็นตัวคูณ Auto-approval)
+โดย `patient_count` มาจาก Shift; ทั้ง `event_service` และ `assess_staffing` โหลด Policy
+ด้วย `services/policy_service.py::get_hard_constraint_policy(db)` (Skeleton ตรึง `id=1`)
+แล้วส่ง `patients_per_nurse=policy.maximum_patients_per_nurse` ค่า Seed คือ 2 ใช้ทั้งโรงพยาบาล
+Calculator รับ `int` หรือ `Decimal` ที่มากกว่า 0 และเป็นค่าจำกัด โดยไม่มี Default
+ถ้าไม่มี Policy ให้ Error แทนการเดาค่า; ไม่แก้ Policy กลาง Demo
+เพิ่มคอลัมน์ด้วย Migration `a73d9e2c4b10` ซึ่ง Backfill Policy เดิมด้วยค่า Demo 2
+อัปเกรด DB เดิมด้วย `docker compose exec -T backend alembic upgrade head` โดยไม่ต้อง Reset ข้อมูล
+ห้ามใช้ `APPROVAL_POLICY.ratio` ซึ่งเป็นตัวคูณ Auto-approval
 ไม่ใช้ `STAFFING_REQUIREMENTS.required_staff` / `minimum_staff` เป็นเป้าหมาย และไม่เขียน DB / Audit
 ผลมี `minimum_required_staff`, `headcount_gap`, `role_gaps` / `skill_gaps` (ID → `required_count`, `current_count`,
 `gap_count`) โดย Gap ต่ำสุดคือ 0 และเก็บรายการที่ไม่ขาดไว้ด้วย
 ใช้ `result.has_gap` ตรวจว่าขาดจำนวนคน **หรือ** Role **หรือ** Skill; ห้ามบวก Gap ทั้งสามชนิดเข้าด้วยกัน
+
+ข้อจำกัด: `STAFFING_GAP` ยังไม่เก็บ Policy ID; การย้อนดูเวอร์ชันของ Gap และ Ratio แยก Ward เป็นงานภายหลัง
 
 **เสร็จเมื่อ:** สร้างเคสด้วยมือ เรียก `advance()` แล้วเคสเดินจาก `OPEN` ไปหยุดที่ `WAITING_RESPONSE` พร้อม `CASE_STATUS_CHANGED` 4 แถว
 

@@ -4,6 +4,7 @@
 
 > สรุปจากคู่มือ Schema v5 + การตัดสินใจล่าสุดของทีม ใช้คู่กับ `docs/workflow.md` และ `backend/app/domain/enums.py`
 > สถานะ: สร้างแล้วใน Migration แรก (`backend/alembic/versions/2026_10_09_0646-63c7709cfe6c_initial_schema.py`)
+> เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` ใน Migration `a73d9e2c4b10` (Backfill Policy เดิม = 2 สำหรับ Demo)
 
 
 ## สรุปการตัดสินใจ
@@ -149,8 +150,8 @@
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
-| `required_staff` | integer | NOT NULL |  |  |
-| `minimum_staff` | integer | NOT NULL |  |  |
+| `required_staff` | integer | NOT NULL |  | จำนวนเป้าหมายที่บันทึกใน Requirement; Skeleton ยังไม่ใช้เป็นเป้าหมาย Headcount Gap (ใช้สูตร Patient Count / Ratio แทน) |
+| `minimum_staff` | integer | NOT NULL |  | จำนวนขั้นต่ำที่เก็บไว้สำหรับกฎความปลอดภัยในอนาคต เช่น เวรต้นทาง; ยังไม่ใช้ใน Gap Calculator ของ Skeleton |
 | `created_at` | timestamptz | NOT NULL |  |  |
 
 
@@ -348,6 +349,7 @@
 | `minimum_rest_hours` | numeric | NOT NULL |  |  |
 | `maximum_daily_hours` | numeric | NOT NULL |  |  |
 | `maximum_weekly_hours` | numeric | NOT NULL |  |  |
+| `maximum_patients_per_nurse` | numeric | NOT NULL |  | จำนวนผู้ป่วยสูงสุดต่อพยาบาล ใช้ Ratio เดียวทั้งโรงพยาบาลใน Skeleton; Seed = 2; CHECK มากกว่า 0 และเป็นค่าจำกัด; ไม่มี Default หลัง Migration |
 | `prevent_shift_conflict` | boolean | NOT NULL |  |  |
 | `require_matching_role` | boolean | NOT NULL |  |  |
 | `require_matching_skill` | boolean | NOT NULL |  |  |
