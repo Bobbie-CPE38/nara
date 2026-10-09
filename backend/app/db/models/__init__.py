@@ -1,3 +1,21 @@
-# Import every model module here so its tables register on Base.metadata
-# (alembic/env.py imports this package for autogenerate), e.g.:
-# from app.db.models import staff  # noqa: F401
+"""Register ORM tables on Base.metadata for Alembic autogeneration.
+
+Timestamp values must be supplied using app.core.clock.now(), not database defaults.
+The remaining model modules will register their referenced tables when merged.
+"""
+
+from app.db.models.approval_request import ApprovalRequest
+from app.db.models.attendance import Attendance
+from app.db.models.audit_log import AuditLog
+from app.db.models.candidate_outreach import CandidateOutreach
+from app.db.models.contact import Contact
+from app.db.models.structured_handover import StructuredHandover
+
+__all__ = [
+    "ApprovalRequest",
+    "Attendance",
+    "AuditLog",
+    "CandidateOutreach",
+    "Contact",
+    "StructuredHandover",
+]
