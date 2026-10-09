@@ -7,7 +7,7 @@ from unittest import mock
 
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, StatementError
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -133,27 +133,48 @@ def test_log_never_commits(seeded: Session, orchestrator_id: int) -> None:
     assert seeded.scalar(select(func.count()).select_from(AuditLog)) == 0
 
 
+def _kwargs(actor_id: int, **overrides: Any) -> dict[str, Any]:
+    return {
+        "case_id": None,
+        "actor_id": actor_id,
+        "action": AuditAction.CASE_OPENED,
+        "entity_type": EntityType.STAFFING_CASES,
+        "entity_id": None,
+        "payload": {},
+    } | overrides
+
+
 @pytest.mark.parametrize(
     "overrides",
     [
         {"action": "CASE_OPENED"},
         {"entity_type": "STAFFING_CASES"},
+        {"payload": None},
     ],
-    ids=["action", "entity_type"],
+    ids=["action", "entity_type", "payload"],
 )
-def test_log_rejects_plain_strings(
-    seeded: Session, orchestrator_id: int, overrides: dict[str, str]
+def test_log_rejects_wrong_types(
+    seeded: Session, orchestrator_id: int, overrides: dict[str, Any]
 ) -> None:
-    kwargs: dict[str, Any] = {
-        "case_id": None,
-        "actor_id": orchestrator_id,
-        "action": AuditAction.CASE_OPENED,
-        "entity_type": EntityType.STAFFING_CASES,
-        "entity_id": None,
-        "payload": {},
-    }
     with pytest.raises(TypeError):
-        audit_service.log(seeded, **(kwargs | overrides))
+        audit_service.log(seeded, **_kwargs(orchestrator_id, **overrides))
+    assert _audit_rows(seeded) == []
+
+
+def test_log_rejects_raw_datetime_in_payload(seeded: Session, orchestrator_id: int) -> None:
+    # Callers must send .isoformat() so every audit timestamp has one format
+    kwargs = _kwargs(orchestrator_id, payload={"start_at": DEMO_NOW})
+    with pytest.raises((TypeError, StatementError)) as exc, seeded.begin_nested():
+        audit_service.log(seeded, **kwargs)
+    cause = exc.value.orig if isinstance(exc.value, StatementError) else exc.value
+    assert isinstance(cause, TypeError)
+    assert _audit_rows(seeded) == []
+
+
+def test_log_rejects_password_hash_in_payload(seeded: Session, orchestrator_id: int) -> None:
+    kwargs = _kwargs(orchestrator_id, payload={"staff_id": 1, "password_hash": "!"})
+    with pytest.raises(ValueError, match="password_hash"):
+        audit_service.log(seeded, **kwargs)
     assert _audit_rows(seeded) == []
 
 

@@ -9,6 +9,8 @@ Rules:
     or `password_hash`.
   * `payload` values must be JSON-serializable: send datetimes as `.isoformat()`.
   * `created_at` comes from the model default, `clock.now()` (D10).
+  * If `log()` raises, the caller's transaction is unusable: roll back, never
+    catch the error and continue.
 """
 
 from typing import Any
@@ -35,6 +37,11 @@ def log(
         raise TypeError(f"action must be an AuditAction, got {action!r}")
     if not isinstance(entity_type, EntityType):
         raise TypeError(f"entity_type must be an EntityType, got {entity_type!r}")
+    # None would be stored as JSON null and break readers of payload["..."]
+    if not isinstance(payload, dict):
+        raise TypeError(f"payload must be a dict, got {payload!r}")
+    if "password_hash" in payload:
+        raise ValueError("payload must not contain password_hash")
 
     db.add(
         AuditLog(
