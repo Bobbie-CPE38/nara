@@ -227,7 +227,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | 5 | Safety → Approval Request | คน 2 | `case_id` = เคสนั้น `candidate_item_id` = Item ของ Outreach ที่ตอบรับ โหลด Plan จาก `item.plan_id` แล้วตรวจ `plan.case_id == case.id` (FK สองตัวไม่ได้รับประกันข้อนี้) ตั้ง `approval_mode = MANUAL`, `required_approver_role` = `id` ของ Role ชื่อ `HEAD_NURSE` (ค้นด้วยชื่อ), `is_pending = true`, `requested_at = clock.now()` |
 | 6 | รายการรออนุมัติ | คน 3 | `GET /approvals?pending=true` คืนแถวที่ `is_pending = true` เรียงด้วย `id` จากน้อยไปมาก ใน Skeleton เคสหนึ่งมีได้ไม่เกินหนึ่งแถว |
 | 7 | Decide | คน 3 | ตรวจตามลำดับ: ไม่มี Request ID นั้น → `404`; `user.staff.role_id != required_approver_role` → `403` (`get_demo_user` ไม่ตรวจ Role ดูข้อ 9); ไม่ได้ Pending → `409`; `approved = false` → `422` ไม่เขียน DB (ข้อ 9.2) ถ้าอนุมัติ: `approver_id = user.staff.id`, `is_approved = true`, `decided_at = clock.now()`, `is_pending = false` แล้วเรียก `orchestrator.resume(db, case_id, EXECUTING)` |
-| 8 | Approval → Execute | คน 3 (คน 2 ถ้าย้ายงาน Roster) | Request ของเคสที่ `is_pending = false` **และ** `is_approved = true` หนึ่งแถวพอดี สร้าง Roster จาก Item ของ Request นั้น: `staff_id = item.staff_id`, `shift_id = item.proposed_shift_id`, `status = ASSIGNED`, `assignment_type = REPLACEMENT`, `candidate_source = item.source` |
+| 8 | Approval → Execute | คน 2 | Request ของเคสที่ `is_pending = false` **และ** `is_approved = true` หนึ่งแถวพอดี สร้าง Roster จาก Item ของ Request นั้น: `staff_id = item.staff_id`, `shift_id = item.proposed_shift_id`, `status = ASSIGNED`, `assignment_type = REPLACEMENT`, `candidate_source = item.source` |
 | 9 | Timeline | คน 1 | `GET /cases/{id}/audit` เรียงด้วย `id` |
 | 10 | Requirement ของเวร | คน 1 (รับ Event + Gap) | `STAFFING_REQUIREMENTS` ที่ `shift_id` ของเวรนั้น เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error ตารางนี้ไม่มี Unique ที่ `shift_id` จึงมีหลายเวอร์ชันได้ (Seed มีเวรละแถว) การรับ Event และ `assess_staffing` ต้องโหลดผ่าน**ฟังก์ชันเดียวกัน** เพื่อให้เห็น Requirement ตัวเดียวกันเสมอ แถว Gap เก็บ `id` นี้ใน `staffing_requirement_id` |
 
@@ -365,6 +365,18 @@ Handler นี้เป็นตาข่ายชั้นสุดท้าย
 * `POST /approvals/{id}/decision`: `404` / `403` / `409` ตาม Seam 7 ถ้าผ่านทั้งหมดและ `approved = false` → `422` ไม่เขียนอะไรลง DB
 
 เส้นทางปฏิเสธแต่ละเส้นจะได้ Transition การเขียน DB และ Status Code ของตัวเองเมื่อ Implement หลัง Skeleton
+
+**Seam 7 — `POST /approvals/{id}/decision`**
+
+Body รับ `approved` เป็น JSON Boolean และ `reason` เป็น String หรือ `null` (ไม่ส่งเท่ากับ `null`)
+ไม่รับฟิลด์อื่น ตัวตนและ Role มาจาก `X-Demo-User` เท่านั้น ID ต้องเป็นจำนวนเต็มบวกในช่วง PostgreSQL bigint
+`approval_service.decide()` ตรวจตาม Seam 7 ก่อนเขียนข้อมูล และล็อก **Approval Request ก่อน Case**
+(`resume()` ล็อก Case) งาน Timeout / ผู้เขียนข้อมูลอื่นในอนาคตต้องใช้ลำดับเดียวกันเพื่อเลี่ยง Deadlock
+การอนุมัติตั้ง `approver_id`, `is_approved=true`, `is_pending=false`, `reason`, `decided_at=clock.now()`
+เขียน `APPROVAL_APPROVED` ด้วย Actor ของผู้อนุมัติ แล้วเรียก `resume(..., EXECUTING)`
+Service / Route ไม่ Commit และไม่แก้ `case.status`; Error จาก `resume()` ต้องปล่อยให้ Request Rollback
+ถ้า Execution ล้มเหลวแต่ Orchestrator บันทึก `FAILED` ได้ ให้ตอบ `200` พร้อมสถานะ `FAILED` และเก็บผลอนุมัติไว้
+การสร้าง Roster ใน Seam 8 เป็นงานคน 2 และอยู่นอก PR นี้
 
 ### 9.3 รูปแบบคำตอบ
 
@@ -527,3 +539,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | เตรียมขั้นที่ 4: ข้อ 6.4 Seam ระหว่างขั้น, ข้อ 6.5 คอลัมน์เวลา, ข้อ 9.1 ไฟล์ Route และ Error ร่วม (`409` / `404`), ข้อ 9.2 `REJECT` และไม่อนุมัติตอบ `422`, ข้อ 9.3 รูปแบบคำตอบและ Key ที่ E2E ใช้, กติกาเมื่อ Conflict ในข้อ 9 และ 13; line-sim ย้ายไป `routes/line_sim.py` | ทีม |
 | 2026-10-09 | ตามรีวิว PR เตรียมขั้นที่ 4: Seam 1 ไม่เจอ Plan เป็น Error, Seam 6 เรียงด้วย `id`, ข้อ 9.1 ระบุว่า `409` จาก `InvalidTransitionError` เกิดจาก Race และ Route ยังต้องตรวจคำขอซ้ำเอง, ตัวอย่างในข้อ 9 ใช้ Path ที่ไม่ซ้ำ Prefix | ทีม |
 | 2026-10-09 | ขั้นที่ 4 Seam 2: Contact Handler ส่ง Mock Offer ให้อันดับ 1 ของ Plan ล่าสุด, บังคับ Item หนึ่งแถวพอดี, ตั้ง `sent_at` และเขียน `OFFER_SENT` โดยไม่ Commit; เพิ่ม Test การ Rollback และ D11 | คน 3 |
+| 2026-10-10 | ขั้นที่ 4 Seam 7: เพิ่ม Route / Schema / `approval_service.decide()` ตรวจ `404 → 403 → 409 → 422`, ล็อก Request กันอนุมัติซ้ำ, เขียน Audit และ `resume(EXECUTING)`; ย้ายเจ้าของ Seam 8 เป็นคน 2 | คน 3 |
