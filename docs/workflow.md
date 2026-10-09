@@ -202,6 +202,8 @@ HANDLERS: dict[CaseStatus, Handler]      # State อัตโนมัติ →
   ผู้เรียก**ห้าม Commit** ให้ตอบ `409` แล้วปล่อยให้ Session Rollback (`get_db` ปิด Session ซึ่ง Rollback ให้อยู่แล้ว)
 * ล็อกแถวของเคสด้วย `SELECT ... FOR NO KEY UPDATE` คำขอที่สองของเคสเดียวกันจะรอจนรอบแรกจบ
   (ไม่ใช้ `FOR UPDATE` เพราะแถว Audit ที่ผู้เรียก Insert ไว้ก่อนถือ Lock `KEY SHARE` บนเคสผ่าน FK สองคำขอแบบนี้จะ Deadlock กัน)
+* ลำดับ Lock ทั้งระบบ: แถว `SHIFT` และ `ROSTER_ASSIGNMENT` (รับ Event) → แถวเคส → แถว `STAFF` (Solver ข้อ 8)
+  แถว `STAFF` มาท้ายสุดเสมอและล็อกเรียงตาม `id` ห้ามโค้ดใหม่ล็อก `STAFF` ก่อนแล้วค่อยล็อกเคสหรือเวร ไม่งั้นจะ Deadlock
 * ไม่มีเคส ID นั้น โยน `CaseNotFoundError`
 * D11 ทำด้วย Savepoint: รอบที่พังถูก Rollback กลับไปที่จุดเริ่มรอบ งานที่ผู้เรียกทำไว้ก่อนใน Transaction เดียวกัน
   (Event, เคส, คำตอบของผู้สมัคร) ยังอยู่ จากนั้นเคสเป็น `FAILED` พร้อม `CASE_STATUS_CHANGED` และ `WORKFLOW_FAILED`
@@ -309,7 +311,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 |---|---|---|
 | Event | ตามข้อ 3 (ของจริงตั้งแต่ Skeleton) | STAFFING_EVENTS, STAFF_UNAVAILABILITY, ROSTER_ASSIGNMENT, STAFFING_CASES |
 | Gap | โหลด Hard Policy `id=1` ผ่าน `policy_service`; ใช้ `gap_calculator` เทียบคนที่ `ASSIGNED` กับ `ceil(patient_count / policy.maximum_patients_per_nurse)` และ Role / Skill กับ Requirement; ใช้ `result.has_gap` | STAFFING_GAP (+ ROLE, SKILL) |
-| Solver | คืนผู้สมัคร 3 คนตายตัวตาม Golden Case `solver_status = FEASIBLE`, `solver_version = "stub"` | CANDIDATE_PLANS, CANDIDATE_ITEMS |
+| Solver | เริ่มจากผู้สมัคร 3 คนตายตัวตาม Golden Case แล้วตัดคนที่ไม่ `ACTIVE`, มี Roster ในเวรของเคสที่สถานะอยู่ใน `COMMITTED_ROSTER_STATUSES` หรือมี `STAFF_UNAVAILABILITY` ชนช่วงเวลาของเวรนั้น (`end_at` เป็น NULL = ไม่พร้อมตั้งแต่ `start_at`) ออก กติกาอยู่ใน `services/availability_service.py` ใช้ร่วมกับ Safety ไม่เช็กเวรอื่นที่เวลาชนกัน (Hard Rules ของจริงทำภายหลัง) กฎข้อที่ 4 เฉพาะ Solver: ตัดคนที่มี Offer ค้างอยู่ คือ `CANDIDATE_OUTREACH` ที่ `SENT` (ของเคสไหนก็ได้ เพราะ Seam 3 ต้องเจอ Offer `SENT` ของผู้ตอบหนึ่งแถวพอดี ถ้ามีสองแถว ทั้งสองเคสจะค้างที่ `WAITING_RESPONSE`) หรือ `ACCEPTED` ที่เคสยังไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` กฎนี้อยู่ใน `optimization_service` ไม่อยู่ใน `availability_service` เพราะผู้สมัครที่ Safety เช็กมี Offer `ACCEPTED` ของตัวเองเสมอ ก่อนเช็กกติกา Solver ล็อกแถว `STAFF` ของผู้สมัคร (`FOR NO KEY UPDATE` เรียงตาม `id`) จนรอบนั้น Commit ที่ `WAITING_RESPONSE` เคสที่วางแผนพร้อมกันจะรอแล้วเห็น Offer ของเคสแรก จึงไม่เลือกคนเดียวกัน ใส่ `rank` ใหม่ 1, 2, 3 ต่อกัน `solver_status = FEASIBLE`, `solver_version = "stub"` ถ้าไม่เหลือใครเลย โยน `NoCandidatesError` โดยไม่เขียน Plan เคสเป็น `FAILED` ตาม D11 (ข้อ 5 ยังไม่มี Transition ของกรณีนี้) | CANDIDATE_PLANS, CANDIDATE_ITEMS |
 | Outreach | สร้าง Outreach ให้อันดับ 1 สถานะ `SENT` ไม่ส่ง LINE จริง | CANDIDATE_OUTREACH |
 | Response | LINE Simulator ส่ง `ACCEPT` → `ACCEPTED` | CANDIDATE_OUTREACH |
 | Safety | `is_passed = true`, `validation_snapshot = {}` | SAFETY_VALIDATION, APPROVAL_REQUEST |
@@ -402,6 +404,11 @@ Workflow ที่จบเป็น `FAILED` ถือเป็นผลที�
 การตั้งชื่อ: `GET` ที่คืน Resource ชนิดเดียวใช้ `id` / `status` เฉย ๆ สำหรับฟิลด์ของ Resource นั้น
 `POST` ที่คำตอบครอบคลุมหลาย Resource ใส่ Prefix ทุกฟิลด์ (`case_id`, `case_status`, ...)
 
+เวลา: ทุกค่าเวลาในคำตอบของ API เป็น ISO 8601 ที่มี Offset `+07:00` เสมอ เช่น `2026-10-09T21:00:00+07:00`
+PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ่งเป็น UTC ฟิลด์เวลาใน Schema ของ API จึงต้องใช้ชนิด `AppDatetime`
+(`app/schemas/types.py`) ซึ่งแปลงเป็น `+07:00` ให้ ห้ามใช้ `datetime` เฉย ๆ ไม่งั้นแถวที่อ่านจาก DB จะออกเป็น `...Z`
+เวลาที่ใส่ใน `payload` ของ Audit เป็นข้อความ ผู้เขียนต้องแปลงเองด้วย `.astimezone(clock.APP_TIMEZONE).isoformat()`
+
 **คำตอบของ POST**
 
 | Route | Code | Body |
@@ -422,6 +429,57 @@ Workflow ที่จบเป็น `FAILED` ถือเป็นผลที�
 แล้วเขียนรูปแบบสุดท้ายลงข้อนี้ใน PR ของ Route ตัวเอง Frontend ทำตามข้อนี้
 
 **เมื่อ Conflict ในข้อ 9:** หลาย PR จะเติมรูปแบบของ `GET` ที่นี่ ให้เก็บไว้ทั้งสองฝั่ง
+
+**`GET /cases/{id}`** (คน 1) ไม่ต้องมี `X-Demo-User` ไม่มีเคส ID นั้น → `404` ID นอกช่วง `bigint` (1 ถึง 9223372036854775807) → `422`
+
+```json
+{
+  "id": 1,
+  "status": "WAITING_RESPONSE",
+  "event_id": 1,
+  "shift_id": 1,
+  "required_replacement_time": "2026-10-09T23:00:00+07:00",
+  "created_at": "2026-10-09T21:00:00+07:00",
+  "updated_at": "2026-10-09T21:00:00+07:00",
+  "gap": {
+    "id": 1,
+    "headcount_gap": 1,
+    "computed_at": "2026-10-09T21:00:00+07:00",
+    "roles": [{"id": 1, "name": "RN", "required_count": 5, "current_count": 4, "gap_count": 1}],
+    "skills": [{"id": 1, "name": "ICU", "required_count": 2, "current_count": 2, "gap_count": 0}]
+  },
+  "candidates": [
+    {"candidate_item_id": 1, "rank": 1, "staff_id": 201, "first_name": "Arunee", "last_name": "Demo",
+     "source": "SAME_WARD", "outreach_status": "SENT"}
+  ]
+}
+```
+
+* `gap` เป็น `null` จนกว่าขั้น `ASSESSING` จะบันทึก `STAFFING_GAP` ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
+  ใน `roles` / `skills` ฟิลด์ `id` คือ Role ID / Skill ID
+* `candidates` เป็น `[]` จนกว่า Solver จะบันทึก Plan ใช้ Plan ที่ `id` มากสุดของเคส (Seam 1) เรียงตาม `rank`
+* `outreach_status` เป็น `null` จนกว่าจะมี Outreach ของผู้สมัครคนนั้น ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
+
+**`GET /cases/{id}/audit`** (คน 1) ไม่ต้องมี `X-Demo-User` ไม่มีเคส ID นั้น → `404` ID นอกช่วง `bigint` (1 ถึง 9223372036854775807) → `422`
+
+```json
+[
+  {
+    "id": 3,
+    "action": "CASE_OPENED",
+    "actor_id": 2,
+    "actor_name": "workflow_orchestrator",
+    "actor_type": "component",
+    "entity_type": "STAFFING_CASES",
+    "entity_id": 1,
+    "payload": {"event_id": 1, "shift_id": 1, "headcount_gap": 1},
+    "created_at": "2026-10-09T21:00:00+07:00"
+  }
+]
+```
+
+* เป็น List ที่ชั้นบนสุด มีเฉพาะแถวที่ `case_id` ตรงกับเคส เรียงด้วย `id` จากน้อยไปมาก (Seam 9) เคสที่ยังไม่มี Audit คืน `[]`
+* `actor_name` ของ Actor ที่เป็นพนักงานคือ `str(staff.id)` เช่น `"105"`
 
 ---
 
@@ -555,4 +613,8 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-09 | เตรียมขั้นที่ 4: ข้อ 6.4 Seam ระหว่างขั้น, ข้อ 6.5 คอลัมน์เวลา, ข้อ 9.1 ไฟล์ Route และ Error ร่วม (`409` / `404`), ข้อ 9.2 `REJECT` และไม่อนุมัติตอบ `422`, ข้อ 9.3 รูปแบบคำตอบและ Key ที่ E2E ใช้, กติกาเมื่อ Conflict ในข้อ 9 และ 13; line-sim ย้ายไป `routes/line_sim.py` | ทีม |
 | 2026-10-09 | ตามรีวิว PR เตรียมขั้นที่ 4: Seam 1 ไม่เจอ Plan เป็น Error, Seam 6 เรียงด้วย `id`, ข้อ 9.1 ระบุว่า `409` จาก `InvalidTransitionError` เกิดจาก Race และ Route ยังต้องตรวจคำขอซ้ำเอง, ตัวอย่างในข้อ 9 ใช้ Path ที่ไม่ซ้ำ Prefix | ทีม |
 | 2026-10-09 | ขั้นที่ 4 Seam 2: Contact Handler ส่ง Mock Offer ให้อันดับ 1 ของ Plan ล่าสุด, บังคับ Item หนึ่งแถวพอดี, ตั้ง `sent_at` และเขียน `OFFER_SENT` โดยไม่ Commit; เพิ่ม Test การ Rollback และ D11 | คน 3 |
+| 2026-10-09 | ขั้นที่ 4 Route อ่านข้อมูลของเคส: ข้อ 9.3 เพิ่มรูปแบบคำตอบของ `GET /cases/{id}` และ `GET /cases/{id}/audit` (Seam 9) และกติกาว่าเวลาในคำตอบของ API เป็น `+07:00` ผ่านชนิด `AppDatetime`; `CaseNotFoundError` ย้ายไป `app/domain/errors.py` | คน 1 |
+| 2026-10-09 | ขั้นที่ 4 Solver: ข้อ 8 Stub ตัดผู้สมัครที่ไม่ `ACTIVE`, อยู่เวรของเคสแล้ว หรือไม่พร้อมในช่วงเวรนั้น ใส่ `rank` ใหม่ไม่ข้ามเลข และไม่เหลือใครเป็น `FAILED` (`NoCandidatesError`) กติกาอยู่ใน `availability_service` ใช้ร่วมกับ Safety; Test ใช้ Fixture `stub_handlers` กลางใน `tests/integration/conftest.py` | คน 2 |
 | 2026-10-09 | ขั้นที่ 4 รับ Event: ข้อ 3 เพิ่ม Request Body, ลำดับการตรวจและ Status Code (`404` / `409` / `422`), การล็อกแถว `SHIFT` และ Roster ให้รับ Event ทีละคำขอต่อเวร, ลำดับและ `case_id` ของ Audit, Actor ของ `EVENT_IGNORED`, `gap_service.assess_shift()` และ `requirement_service.get_current_requirement()` (Seam 10) | คน 1 |
+| 2026-10-10 | ขั้นที่ 4 Solver ตามรีวิว: ข้อ 8 กฎข้อที่ 4 ตัดผู้สมัครที่มี Offer ค้าง (`SENT` หรือ `ACCEPTED` ของเคสที่ยังไม่หยุด) เฉพาะ Solver ไม่ใช้กับ Safety เพื่อให้สองเคสที่เปิดพร้อมกันไม่ส่ง Offer ให้คนเดียวกันจน Seam 3 ตอบรับไม่ได้; Merge staging แล้วลบ Stub ชุดเก่าใน `test_orchestrator.py` | คน 2 |
+| 2026-10-10 | ขั้นที่ 4 Solver ตามรีวิว: ข้อ 8 Solver ล็อกแถว `STAFF` ของผู้สมัครก่อนเช็กกติกา สองเคสที่วางแผนพร้อมกันจึงไม่ได้ผู้สมัครคนเดียวกัน; ข้อ 6.2 เพิ่มลำดับ Lock (เวร/Roster → เคส → `STAFF`) | คน 2 |
