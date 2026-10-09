@@ -15,7 +15,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.db.models import RosterAssignment, Shift, Staff, StaffSkill
+from app.db.models import (
+    RosterAssignment,
+    Shift,
+    Staff,
+    StaffingRequirementRole,
+    StaffingRequirementSkill,
+    StaffSkill,
+)
 from app.domain.enums import RosterStatus
 from app.domain.staffing.coverage import RosterMember
 from app.domain.staffing.gap_calculator import calculate_gap
@@ -54,12 +61,28 @@ def test_seeded_policy_drives_golden_case(db: Session) -> None:
         policy = get_hard_constraint_policy(db)
     assert policy.id == 1
     assert policy.maximum_patients_per_nurse == Decimal("2")
+    required_roles = {
+        row.role_id: row.required_count
+        for row in db.scalars(
+            select(StaffingRequirementRole).where(
+                StaffingRequirementRole.staffing_requirement_id == 1
+            )
+        )
+    }
+    required_skills = {
+        row.skill_id: row.required_count
+        for row in db.scalars(
+            select(StaffingRequirementSkill).where(
+                StaffingRequirementSkill.staffing_requirement_id == 1
+            )
+        )
+    }
     result = calculate_gap(
         shift_id=shift.id,
         patient_count=shift.patient_count,
         patients_per_nurse=policy.maximum_patients_per_nurse,
-        required_roles={1: 5},
-        required_skills={1: 2},
+        required_roles=required_roles,
+        required_skills=required_skills,
         roster=roster,
     )
     assert result.minimum_required_staff == 5
