@@ -110,8 +110,10 @@ POST /events
   แม้จำนวนคนจะเพียงพอตาม Ratio แล้วก็ตาม
 * Skeleton ตรึง Hard Policy `id=1` ตลอด Demo ไม่แก้ค่าระหว่างที่มีเคสทำงาน; การเลือกเวอร์ชันตาม
   `effective_from` และ Ratio แยก Ward เป็นงานภายหลัง
-* `STAFFING_GAP` ยังไม่มี FK ไป Hard Policy จึงยังย้อนดูเวอร์ชันที่ใช้คำนวณ Gap ไม่ได้โดยตรง
-  แม้ `CANDIDATE_PLANS` / `SAFETY_VALIDATION` จะมี FK แล้ว; ต้องเพิ่ม FK หรือ Snapshot ก่อนรองรับการเปลี่ยน Policy ระหว่างเคส
+* `STAFFING_GAP` เก็บ Snapshot ของ Input ที่ใช้คำนวณไว้กับแถว: `patient_count` (จาก `SHIFT.patient_count`)
+  และ `patients_per_nurse` (จาก `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse`) ผู้เขียนแถว Gap ต้องใส่ค่าที่ส่งให้
+  `gap_calculator` จริง ไม่อ่านจาก Shift / Policy ใหม่อีกรอบ จึงย้อนตรวจ Gap แต่ละแถวได้แม้ค่าทั้งสองเปลี่ยนภายหลัง
+* `STAFFING_GAP` ยังไม่มี FK ไป Hard Policy (ต่างจาก `CANDIDATE_PLANS` / `SAFETY_VALIDATION`); การอ้างเวอร์ชันของ Policy โดยตรงเป็นงานภายหลัง
 * `PLANNED_LEAVE` (ลาที่ไม่ชนเวรที่มี Roster) ไม่สร้าง Event และ `NO_SHOW` (ระบบสร้างเองจาก `ATTENDANCE`) อยู่นอก Skeleton ดูข้อ 12
 
 ---
@@ -323,7 +325,7 @@ Roster ที่จองเวรแล้ว และ Unavailability ที�
 | ขั้น | Stub ทำอะไร | ตารางที่เขียน |
 |---|---|---|
 | Event | ตามข้อ 3 (ของจริงตั้งแต่ Skeleton) | STAFFING_EVENTS, STAFF_UNAVAILABILITY, ROSTER_ASSIGNMENT, STAFFING_CASES |
-| Gap | โหลด Hard Policy `id=1` ผ่าน `policy_service`; ใช้ `gap_calculator` เทียบคนที่ `ASSIGNED` กับ `ceil(patient_count / policy.maximum_patients_per_nurse)` และ Role / Skill กับ Requirement; ใช้ `result.has_gap` | STAFFING_GAP (+ ROLE, SKILL) |
+| Gap | โหลด Hard Policy `id=1` ผ่าน `policy_service`; ใช้ `gap_calculator` เทียบคนที่ `ASSIGNED` กับ `ceil(patient_count / policy.maximum_patients_per_nurse)` และ Role / Skill กับ Requirement; ใช้ `result.has_gap` แถว `STAFFING_GAP` ต้องเก็บ `patient_count` และ `patients_per_nurse` ค่าเดียวกับที่ส่งให้ `gap_calculator` ไม่อ่านจาก Shift / Policy ใหม่อีกรอบ (ข้อ 3) | STAFFING_GAP (+ ROLE, SKILL) |
 | Solver | เริ่มจากผู้สมัคร 3 คนตายตัวตาม Golden Case แล้วตัดคนที่ไม่ `ACTIVE`, มี Roster ในเวรของเคสที่สถานะอยู่ใน `COMMITTED_ROSTER_STATUSES` หรือมี `STAFF_UNAVAILABILITY` ชนช่วงเวลาของเวรนั้น (`end_at` เป็น NULL = ไม่พร้อมตั้งแต่ `start_at`) ออก กติกาอยู่ใน `services/availability_service.py` ใช้ร่วมกับ Safety ไม่เช็กเวรอื่นที่เวลาชนกัน (Hard Rules ของจริงทำภายหลัง) กฎข้อที่ 4 เฉพาะ Solver: ตัดคนที่มี Offer ค้างอยู่ คือ `CANDIDATE_OUTREACH` ที่ `SENT` (ของเคสไหนก็ได้ เพราะ Seam 3 ต้องเจอ Offer `SENT` ของผู้ตอบหนึ่งแถวพอดี ถ้ามีสองแถว ทั้งสองเคสจะค้างที่ `WAITING_RESPONSE`) หรือ `ACCEPTED` ที่เคสยังไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` กฎนี้อยู่ใน `optimization_service` ไม่อยู่ใน `availability_service` เพราะผู้สมัครที่ Safety เช็กมี Offer `ACCEPTED` ของตัวเองเสมอ ก่อนเช็กกติกา Solver ล็อกแถว `STAFF` ของผู้สมัคร (`FOR NO KEY UPDATE` เรียงตาม `id`) จนรอบนั้น Commit ที่ `WAITING_RESPONSE` เคสที่วางแผนพร้อมกันจะรอแล้วเห็น Offer ของเคสแรก จึงไม่เลือกคนเดียวกัน ใส่ `rank` ใหม่ 1, 2, 3 ต่อกัน `solver_status = FEASIBLE`, `solver_version = "stub"` ถ้าไม่เหลือใครเลย โยน `NoCandidatesError` โดยไม่เขียน Plan เคสเป็น `FAILED` ตาม D11 (ข้อ 5 ยังไม่มี Transition ของกรณีนี้) | CANDIDATE_PLANS, CANDIDATE_ITEMS |
 | Outreach | สร้าง Outreach ให้อันดับ 1 สถานะ `SENT` ไม่ส่ง LINE จริง | CANDIDATE_OUTREACH |
 | Response | LINE Simulator ส่ง `ACCEPT` → `ACCEPTED` | CANDIDATE_OUTREACH |
@@ -681,3 +683,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ตามรีวิว Seam 7 รอบล่าสุด: ย้าย Schema การตัดสินใจมา `schemas/approval.py`, เพิ่มลำดับ Lock Request ก่อน Case ในข้อ 6.2 และ Test อนุมัติแล้วหายจาก Pending List; ระบุว่า Seam 8 เป็นงานคน 3 ใน PR #18 และวางรูปแบบ GET Seam 6 ในข้อ 9.3 | คน 3 |
 | 2026-10-10 | ขั้นที่ 4 Seam 8 (คน 3 รับงานกลับ): สร้าง Roster จาก Request ที่อนุมัติหนึ่งแถวพอดี ตรวจ Plan / Shift ของ Item; Handler เขียน `ASSIGNMENT_CREATED`, `CASE_RESOLVED` และให้ Orchestrator เปลี่ยนสถานะ / Commit; เพิ่ม Test Contract และ D11 Rollback | คน 3 |
 | 2026-10-10 | ตามรีวิว Seam 8: เช็ก Availability ซ้ำก่อนสร้าง Roster ด้วยกติกาเดียวกับ Safety; เปลี่ยนเป็น `FAILED` เมื่อผู้สมัครไม่พร้อมโดยไม่สร้าง Roster ใหม่และเก็บผลอนุมัติไว้ เพิ่ม Regression Tests | คน 3 |
+| 2026-10-10 | Gap Snapshot: `STAFFING_GAP` เพิ่ม `patient_count` และ `patients_per_nurse` (NOT NULL) พร้อม CHECK `ck_staffing_gap_patients_per_nurse_valid` กติกาเดียวกับ Policy; Migration `c4d7e19a52f3` ไม่ Backfill และหยุดถ้ามีแถวเก่า; ข้อ 3 และข้อ 8 ระบุว่าผู้เขียนแถว Gap ต้องใส่ค่าที่ใช้คำนวณจริง; Guard ของ Migration รันใน SQL จึงใช้กับ `alembic upgrade --sql` ได้ | คน 1 |

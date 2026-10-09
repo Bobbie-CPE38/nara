@@ -4,7 +4,10 @@
 
 > สรุปจากคู่มือ Schema v5 + การตัดสินใจล่าสุดของทีม ใช้คู่กับ `docs/workflow.md` และ `backend/app/domain/enums.py`
 > สถานะ: สร้างแล้วใน Migration แรก (`backend/alembic/versions/2026_10_09_0646-63c7709cfe6c_initial_schema.py`)
-> เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` ใน Migration `a73d9e2c4b10` (Backfill Policy เดิม = 2 สำหรับ Demo)
+> Migration ถัดจากนั้น เรียงตามลำดับ:
+> * `a73d9e2c4b10` เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` (Backfill Policy เดิม = 2 สำหรับ Demo)
+> * `b82e4f6a901c` ย่อชื่อ CHECK ของคอลัมน์นั้นเป็น `ck_hard_constraint_policy_patients_per_nurse_valid` (กติกาเดิม)
+> * `c4d7e19a52f3` เพิ่ม Snapshot `patient_count` และ `patients_per_nurse` ใน `STAFFING_GAP` พร้อม CHECK (ไม่ Backfill, ดูข้อ 24)
 
 
 ## สรุปการตัดสินใจ
@@ -392,12 +395,15 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `case_id` | bigint | NOT NULL | FK STAFFING_CASES.id |  |
 | `staffing_requirement_id` | bigint | NOT NULL | FK STAFFING_REQUIREMENTS.id |  |
 | `headcount_gap` | integer | NOT NULL |  |  |
+| `patient_count` | integer | NOT NULL |  | Snapshot ของ `SHIFT.patient_count` ตอนคำนวณ |
+| `patients_per_nurse` | numeric | NOT NULL | CHECK | Snapshot ของ `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` ตอนคำนวณ |
 | `computed_at` | timestamptz | NOT NULL |  |  |
 
 
-งานต่อใน Wiring PR ก่อนเริ่มเขียน Gap ลง DB: เพิ่ม `patient_count` และ `patients_per_nurse`
-(หรือ Policy ID ที่อ้างเวอร์ชันซึ่งไม่แก้ย้อนหลัง) เพื่อย้อนตรวจ Input ของการคำนวณแต่ละครั้ง
-คอลัมน์เหล่านี้ยังไม่ได้เพิ่มใน Schema ปัจจุบัน
+`patient_count` และ `patients_per_nurse` เป็น Snapshot ของ Input ที่ใช้คำนวณ Gap แถวนั้น
+ค่าใน `SHIFT` และ Policy เปลี่ยนภายหลังได้ จึงเก็บไว้กับแถวเพื่อย้อนตรวจการคำนวณแต่ละครั้ง
+CHECK `ck_staffing_gap_patients_per_nurse_valid`: `patients_per_nurse > 0` และไม่เป็น Infinity / NaN (กติกาเดียวกับ Policy)
+Migration `c4d7e19a52f3` ไม่ Backfill และหยุดถ้ามีแถวเก่าใน `STAFFING_GAP` (ให้ `make reset` ก่อน)
 
 ### 25. STAFFING_GAP_ROLE
 

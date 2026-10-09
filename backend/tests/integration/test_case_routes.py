@@ -105,6 +105,8 @@ def _add_gap(
         case_id=case.id,
         staffing_requirement_id=requirement_id,
         headcount_gap=headcount_gap,
+        patient_count=10,
+        patients_per_nurse=Decimal("2"),
         computed_at=computed_at,
     )
     db.add(gap)

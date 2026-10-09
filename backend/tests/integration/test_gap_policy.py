@@ -27,6 +27,7 @@ from app.domain.enums import RosterStatus
 from app.domain.staffing.coverage import RosterMember
 from app.domain.staffing.gap_calculator import calculate_gap
 from app.seed import load
+from app.seed.reset import ALEMBIC_INI
 from app.services.policy_service import get_hard_constraint_policy
 
 
@@ -128,7 +129,7 @@ def test_database_rejects_invalid_policy_ratios(db: Session, ratio: str | None) 
 def test_ratio_migration_backfills_existing_policy_and_can_be_reversed(db: Session) -> None:
     load(db)
     connection = db.connection()
-    scripts = ScriptDirectory.from_config(Config("alembic.ini"))
+    scripts = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
     revision = scripts.get_revision("a73d9e2c4b10")
     rename_revision = scripts.get_revision("b82e4f6a901c")
     assert revision is not None
