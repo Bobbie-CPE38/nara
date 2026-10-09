@@ -494,6 +494,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 
 * เป็น List ที่ชั้นบนสุด มีเฉพาะแถวที่ `case_id` ตรงกับเคส เรียงด้วย `id` จากน้อยไปมาก (Seam 9) เคสที่ยังไม่มี Audit คืน `[]`
 * `actor_name` ของ Actor ที่เป็นพนักงานคือ `str(staff.id)` เช่น `"105"`
+
 **Seam 6 — `GET /approvals?pending=true`**
 
 * ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
