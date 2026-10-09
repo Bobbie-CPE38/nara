@@ -13,6 +13,9 @@ Rules:
   * Read-only. Nothing here adds, flushes or commits.
   * Clashes with other shifts (rest time, double booking) are left to the real
     hard rules after the skeleton.
+  * Open offers are not a rule here. The Solver's rule 4 lives in
+    optimization_service, because the accepted candidate Safety re-checks always
+    holds their own ACCEPTED offer.
   * PENDING_APPROVAL counts as committed. Nothing writes it in the skeleton; a
     later step that writes it for the accepted candidate before Safety must
     exclude that row, or rule 2 blocks the candidate on their own assignment.

@@ -10,6 +10,7 @@ from app.db.models import (
     Actor,
     AuditLog,
     CandidateItem,
+    CandidateOutreach,
     CandidatePlan,
     Shift,
     SoftConstraintPolicy,
@@ -24,9 +25,11 @@ from app.domain.enums import (
     AvailabilityReason,
     CandidateSource,
     CaseStatus,
+    Channel,
     EntityType,
     EventStatus,
     EventType,
+    OutreachStatus,
     SolverStatus,
     StaffStatus,
 )
@@ -177,7 +180,7 @@ def test_advance_with_production_session_settings(production_seeded: Session) ->
     orchestrator.advance(db, case.id)
 
     db.expire_all()
-    # Outreach is still a stub: WAITING_RESPONSE holds once it is real too
+    # The real Outreach step runs next and waits for the answer
     assert case.status is CaseStatus.WAITING_RESPONSE
     [plan] = _plans(db, case)
     assert len(_items(db, plan)) == 3
@@ -292,6 +295,126 @@ def test_no_candidate_left_fails_the_case(seeded: Session) -> None:
     """Section 5 has no transition for it yet, so D11 records the failure."""
     case = _make_case(seeded)
     _deactivate(seeded, 201, 202, 203)
+
+    orchestrator.advance(seeded, case.id)
+
+    seeded.expire_all()
+    assert case.status is CaseStatus.FAILED
+    failure = _audit(seeded, case)[-1]
+    assert failure.action is AuditAction.WORKFLOW_FAILED
+    assert failure.payload["failed_at"] == "OPTIMIZING"
+    assert failure.payload["error_type"] == "NoCandidatesError"
+    assert _plans(seeded, case) == []
+
+
+# --------------------------------------------------------------------------- #
+# Rule 4: candidates who already hold an open offer are dropped
+# --------------------------------------------------------------------------- #
+def _offered_staff(db: Session, case: StaffingCase) -> list[int]:
+    query = (
+        select(CandidateItem.staff_id)
+        .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+        .where(CandidateOutreach.case_id == case.id)
+    )
+    return list(db.scalars(query))
+
+
+def _open_offer(
+    db: Session, staff_id: int, *, offer_status: OutreachStatus, case_status: CaseStatus
+) -> None:
+    """Another case on shift 1 whose offer to `staff_id` has `offer_status`."""
+    other = _make_case(db, case_status)
+    plan = CandidatePlan(
+        case_id=other.id,
+        solver_status=SolverStatus.FEASIBLE,
+        generated_at=DEMO_NOW,
+        execution_time_ms=0,
+        solver_version="stub",
+        hard_constraint_policy_id=1,
+        soft_constraint_policy_id=1,
+        input_snapshot={},
+    )
+    db.add(plan)
+    db.flush()
+    item = CandidateItem(
+        plan_id=plan.id,
+        staff_id=staff_id,
+        rank=1,
+        source=CandidateSource.SAME_WARD,
+        proposed_shift_id=SHIFT_ID,
+    )
+    db.add(item)
+    db.flush()
+    db.add(
+        CandidateOutreach(
+            case_id=other.id,
+            candidate_item_id=item.id,
+            channel=Channel.LINE,
+            sent_at=DEMO_NOW,
+            status=offer_status,
+        )
+    )
+    db.flush()
+
+
+def test_second_case_on_the_shift_offers_the_next_candidate(seeded: Session) -> None:
+    """Seam 3 needs exactly one SENT offer per responder, so 201 is not offered twice."""
+    first = _make_case(seeded)
+    second = _make_case(seeded)
+
+    orchestrator.advance(seeded, first.id)
+    orchestrator.advance(seeded, second.id)
+
+    seeded.expire_all()
+    assert first.status is CaseStatus.WAITING_RESPONSE
+    assert second.status is CaseStatus.WAITING_RESPONSE
+    assert _candidates(seeded, second) == [(202, 1), (203, 2)]
+    assert _offered_staff(seeded, first) == [201]
+    assert _offered_staff(seeded, second) == [202]
+
+
+@pytest.mark.parametrize(
+    ("offer_status", "case_status", "dropped"),
+    [
+        (OutreachStatus.SENT, CaseStatus.WAITING_RESPONSE, True),
+        (OutreachStatus.SENT, CaseStatus.FAILED, True),
+        (OutreachStatus.ACCEPTED, CaseStatus.WAITING_APPROVAL, True),
+        (OutreachStatus.ACCEPTED, CaseStatus.FAILED, False),
+        (OutreachStatus.ACCEPTED, CaseStatus.RESOLVED, False),
+        (OutreachStatus.REJECTED, CaseStatus.WAITING_RESPONSE, False),
+    ],
+    ids=[
+        "sent",
+        "sent_in_a_stopped_case",
+        "accepted_in_a_running_case",
+        "accepted_in_a_failed_case",
+        "accepted_in_a_resolved_case",
+        "rejected",
+    ],
+)
+def test_which_offers_count_as_open(
+    seeded: Session, offer_status: OutreachStatus, case_status: CaseStatus, dropped: bool
+) -> None:
+    case = _make_case(seeded)
+    _open_offer(seeded, 201, offer_status=offer_status, case_status=case_status)
+
+    optimize.handle(seeded, case)
+
+    if dropped:
+        assert _candidates(seeded, case) == [(202, 1), (203, 2)]
+    else:
+        assert _candidates(seeded, case) == [(201, 1), (202, 2), (203, 3)]
+
+
+def test_everyone_holding_an_open_offer_fails_the_case(seeded: Session) -> None:
+    case = _make_case(seeded)
+    for staff_id in (201, 202, 203):
+        _open_offer(
+            seeded,
+            staff_id,
+            offer_status=OutreachStatus.SENT,
+            case_status=CaseStatus.WAITING_RESPONSE,
+        )
 
     orchestrator.advance(seeded, case.id)
 
