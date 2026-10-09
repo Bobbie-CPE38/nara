@@ -29,15 +29,14 @@ from app.core import clock
 from app.db.models import (
     ApprovalRequest,
     CandidateItem,
-    CandidateOutreach,
     CandidatePlan,
     Role,
     SafetyValidation,
     Shift,
     StaffingCase,
 )
-from app.domain.enums import ApprovalMode, OutreachStatus
-from app.services import availability_service, policy_service
+from app.domain.enums import ApprovalMode
+from app.services import availability_service, outreach_service, policy_service
 
 # No RoleName enum exists; the seed names role 2 this way (docs/workflow.md 10.2)
 HEAD_NURSE_ROLE = "HEAD_NURSE"
@@ -55,13 +54,8 @@ class SafetyResult(NamedTuple):
 
 def validate_accepted_candidate(db: Session, case: StaffingCase) -> SafetyResult:
     """Pass the case's accepted candidate and open a pending MANUAL approval; flush only."""
-    # Seam 4. resume() has flushed the caller's ACCEPTED update before this runs
-    outreach = db.scalars(
-        select(CandidateOutreach).where(
-            CandidateOutreach.case_id == case.id,
-            CandidateOutreach.status == OutreachStatus.ACCEPTED,
-        )
-    ).one()
+    # Seam 4: exactly one accepted offer for this case.
+    outreach = outreach_service.get_accepted_outreach(db, case.id)
 
     # Seam 5: the two foreign keys do not prove the item was planned for this case
     item = db.get(CandidateItem, outreach.candidate_item_id)
