@@ -24,6 +24,7 @@ from app.domain.enums import (
     EventStatus,
     EventType,
 )
+from app.domain.errors import CaseNotFoundError
 from app.domain.workflow.transitions import InvalidTransitionError
 from app.seed import load
 from app.services import actor_service, audit_service
@@ -198,7 +199,7 @@ def test_advance_does_nothing_at_a_wait_point_or_stopped_status(
 
 
 def test_unknown_case_raises(seeded: Session) -> None:
-    with pytest.raises(orchestrator.CaseNotFoundError, match="999999"):
+    with pytest.raises(CaseNotFoundError, match="999999"):
         orchestrator.advance(seeded, 999_999)
 
 

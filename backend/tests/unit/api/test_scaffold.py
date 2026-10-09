@@ -10,10 +10,10 @@ from fastapi.testclient import TestClient
 from app.api.exception_handlers import register_exception_handlers
 from app.api.routes import approvals, cases, demo, events, line_sim, roster
 from app.domain.enums import CaseStatus
+from app.domain.errors import CaseNotFoundError
 from app.domain.workflow.transitions import InvalidTransitionError, assert_transition
 from app.main import app
 from app.services.actor_service import ActorNotFoundError
-from app.workflow.orchestrator import CaseNotFoundError
 
 ROUTERS: list[tuple[ModuleType, str]] = [
     (demo, "/demo"),
@@ -101,3 +101,11 @@ def test_other_lookup_errors_stay_500(client: TestClient) -> None:
     response = client.get("/missing-actor")
 
     assert response.status_code == 500
+
+
+def test_case_not_found_error_is_still_reachable_through_the_orchestrator() -> None:
+    """Other branches raise orchestrator.CaseNotFoundError. It must stay the same class,
+    or the shared 404 handler would not catch what they raise."""
+    from app.workflow import orchestrator
+
+    assert orchestrator.CaseNotFoundError is CaseNotFoundError

@@ -9,8 +9,8 @@ back whatever the request had flushed.
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from app.domain.errors import CaseNotFoundError
 from app.domain.workflow.transitions import InvalidTransitionError
-from app.workflow.orchestrator import CaseNotFoundError
 
 
 def _conflict(request: Request, error: Exception) -> JSONResponse:
