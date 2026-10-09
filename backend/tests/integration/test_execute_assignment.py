@@ -15,14 +15,18 @@ from app.db.models import (
     CandidatePlan,
     Role,
     RosterAssignment,
+    Shift,
+    Staff,
     StaffingCase,
     StaffingEvent,
+    StaffUnavailability,
 )
 from app.domain.enums import (
     ActorName,
     ApprovalMode,
     AssignmentType,
     AuditAction,
+    AvailabilityReason,
     CandidateSource,
     CaseStatus,
     EntityType,
@@ -30,6 +34,7 @@ from app.domain.enums import (
     EventType,
     RosterStatus,
     SolverStatus,
+    StaffStatus,
 )
 from app.domain.workflow.transitions import InvalidTransitionError
 from app.services import actor_service, audit_service, roster_service
@@ -345,3 +350,67 @@ def test_d11_rolls_back_assignment_and_execution_audits_but_keeps_approval(
         AuditAction.CASE_STATUS_CHANGED,
         AuditAction.WORKFLOW_FAILED,
     ]
+
+
+@pytest.mark.parametrize(
+    "change,error_type",
+    [
+        ("inactive", "StaffNotActiveError"),
+        ("assigned", "StaffAlreadyOnShiftError"),
+        ("pending_assignment", "StaffAlreadyOnShiftError"),
+        ("unavailable", "StaffUnavailableError"),
+    ],
+)
+def test_changed_availability_fails_execution_without_a_new_assignment(
+    production_seeded: Session,
+    case: StaffingCase,
+    approved: ApprovalRequest,
+    change: str,
+    error_type: str,
+) -> None:
+    db = production_seeded
+    if change == "inactive":
+        staff = db.get(Staff, 201)
+        assert staff is not None
+        staff.status = StaffStatus.INACTIVE
+    elif change in {"assigned", "pending_assignment"}:
+        db.add(
+            RosterAssignment(
+                staff_id=201,
+                shift_id=case.shift_id,
+                status=(
+                    RosterStatus.ASSIGNED if change == "assigned" else RosterStatus.PENDING_APPROVAL
+                ),
+                assignment_type=AssignmentType.REGULAR,
+                candidate_source=None,
+            )
+        )
+    else:
+        shift = db.get(Shift, case.shift_id)
+        assert shift is not None
+        db.add(
+            StaffUnavailability(
+                staff_id=201,
+                start_at=shift.start_at,
+                end_at=shift.end_at,
+                reason=AvailabilityReason.UNPLANNED_LEAVE,
+            )
+        )
+    db.flush()
+    original_ids = set(db.scalars(select(RosterAssignment.id)))
+
+    orchestrator.resume(db, case.id, CaseStatus.EXECUTING)
+
+    assert case.status is CaseStatus.FAILED
+    assert approved.is_approved is True
+    assert approved.is_pending is False
+    assert set(db.scalars(select(RosterAssignment.id))) == original_ids
+    assert _replacements(db) == []
+    rows = _audits(db, case)
+    assert [row.action for row in rows] == [
+        AuditAction.CASE_STATUS_CHANGED,
+        AuditAction.CASE_STATUS_CHANGED,
+        AuditAction.WORKFLOW_FAILED,
+    ]
+    assert rows[-1].payload["failed_at"] == "EXECUTING"
+    assert rows[-1].payload["error_type"] == error_type

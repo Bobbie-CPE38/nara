@@ -11,9 +11,11 @@ from app.db.models import (
     CandidateItem,
     CandidatePlan,
     RosterAssignment,
+    Shift,
     StaffingCase,
 )
 from app.domain.enums import AssignmentType, RosterStatus
+from app.services import availability_service
 
 
 def create_replacement(db: Session, case: StaffingCase) -> RosterAssignment:
@@ -40,6 +42,12 @@ def create_replacement(db: Session, case: StaffingCase) -> RosterAssignment:
         raise ValueError("Approved candidate plan does not belong to this case")
     if item.proposed_shift_id != case.shift_id:
         raise ValueError("Approved candidate shift does not match this case")
+
+    shift = db.get(Shift, item.proposed_shift_id)
+    if shift is None:
+        raise LookupError(f"No shift {item.proposed_shift_id}")
+    # Availability may change while the approval waits. Use Safety's same rules.
+    availability_service.assert_available(db, shift, item.staff_id)
 
     assignment = RosterAssignment(
         staff_id=item.staff_id,
