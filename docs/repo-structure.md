@@ -374,16 +374,25 @@ nara/
 │   ├── vitest.config.mts
 │   │
 │   ├── tests/
+│   │   ├── fixtures/
+│   │   │   └── case.ts
 │   │   └── unit/
 │   │       ├── lib/
 │   │       │   ├── api.test.ts
-│   │       │   └── demo.test.ts
+│   │       │   ├── cases.test.ts
+│   │       │   ├── demo.test.ts
+│   │       │   └── format.test.ts
 │   │       ├── hooks/
 │   │       │   └── usePolling.test.ts
+│   │       ├── components/
+│   │       │   └── case/
+│   │       │       └── CaseView.test.tsx
 │   │       └── app/
 │   │           ├── demoControl.test.ts
 │   │           ├── approvals.test.ts
-│   │           └── lineSimRoster.test.tsx
+│   │           ├── lineSimRoster.test.tsx
+│   │           └── cases/
+│   │               └── page.test.tsx
 │   │
 │   └── src/
 │       ├── app/
@@ -415,22 +424,28 @@ nara/
 │       ├── components/
 │       │   ├── dashboard/
 │       │   ├── case/
+│       │   │   ├── CaseView.tsx
+│       │   │   └── GapTable.tsx
 │       │   ├── candidate/
+│       │   │   └── CandidateTable.tsx
 │       │   ├── optimization/
 │       │   ├── outreach/
 │       │   ├── safety/
 │       │   ├── approval/
 │       │   ├── roster/
 │       │   ├── audit/
+│       │   │   └── AuditTimeline.tsx
 │       │   └── common/
 │       │
 │       ├── lib/
 │       │   ├── api.ts
+│       │   ├── cases.ts
 │       │   ├── demo.ts
 │       │   ├── format.ts
 │       │   ├── types/
 │       │   │   ├── event.ts
 │       │   │   ├── approval.ts
+│       │   │   ├── case.ts
 │       │   │   ├── outreach.ts
 │       │   │   └── roster.ts
 │       │   └── constants.ts
@@ -453,7 +468,7 @@ nara/
 
 Frontend tests live in `frontend/tests/`, separate from application code, following
 the backend convention. Vitest runs the API tests with mocked network responses;
-the polling hook and page tests use React Testing Library and jsdom. Page tests
+the polling hook, page and component tests use React Testing Library and jsdom. Page tests
 cover identity selection, response errors, stale requests and roster rows.
 
 API response types live in `frontend/src/lib/types/`, one file per backend schema
