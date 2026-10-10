@@ -186,12 +186,23 @@ Navigation ของ `demo/control` และ `approvals` เปิดใช้�
 
 ## ขั้นที่ 6: Test และ CI (วันที่ 5)
 
-| Test | คน | ตรวจอะไร |
-|---|---|---|
-| `tests/e2e/test_workforce_recovery.py` | 3 | Golden Path ครบ, Roster ของ 201 เป็น `REPLACEMENT`, Audit ครบตาม `GOLDEN_PATH_AUDIT_ACTIONS` ตามลำดับ |
-| `tests/integration/test_event_ignored.py` | 1 | Event ที่ไม่มี Gap (203 ลาเวร 2) → `IGNORED` ไม่มีเคส |
-| `tests/integration/test_orchestrator.py` | 1 | Exception กลางทาง → Rollback, `FAILED` + `WORKFLOW_FAILED` (D11) |
-| `tests/unit/workflow/test_transitions.py` | 1 | Transition ของ Golden Path ผ่าน, คู่ที่ไม่อยู่ในตารางโยน Error, State สิ้นสุดไปต่อไม่ได้, ทุก State ที่ไม่ใช่สิ้นสุดไป `FAILED` ได้ |
+| Test | คน | ตรวจอะไร | สถานะ |
+|---|---|---|---|
+| `tests/e2e/test_workforce_recovery.py` | 3 | Golden Path ครบ, Roster ของ 201 เป็น `REPLACEMENT`, Audit ครบตาม `GOLDEN_PATH_AUDIT_ACTIONS` ตามลำดับ | ยังไม่มี |
+| `tests/integration/test_event_ignored.py` | 1 | Event ที่ไม่มี Gap (203 ลาเวร 2) → `IGNORED` ไม่มีเคส | มีแล้ว (ขั้นที่ 4) |
+| `tests/integration/test_orchestrator.py` | 1 | Exception กลางทาง → Rollback, `FAILED` + `WORKFLOW_FAILED` (D11) | มีแล้ว (ขั้นที่ 3) |
+| `tests/unit/workflow/test_transitions.py` | 1 | Transition ของ Golden Path ผ่าน, คู่ที่ไม่อยู่ในตารางโยน Error, State สิ้นสุดไปต่อไม่ได้, ทุก State ที่ไม่ใช่สิ้นสุดไป `FAILED` ได้ | มีแล้ว (ขั้นที่ 3) |
+
+สามไฟล์ที่มีแล้วตรวจเทียบกับคอลัมน์ "ตรวจอะไร" ครบทุกข้อ (2026-10-10): ใส่บั๊กทีละจุดในโค้ดที่แต่ละไฟล์ตรวจ 10 แบบ
+(Transition 5 แบบ, D11 3 แบบ, Event ที่ไม่มี Gap 2 แบบ) แล้ว Test แดงทุกแบบ จึงไม่ต้องเพิ่มกรณี
+
+งาน CI ที่เหลือ (คน 2)
+
+| งาน | ทำไม |
+|---|---|
+| เพิ่ม `next build` ใน Job Frontend ของ `.github/workflows/ci.yml` | CI ตอนนี้รันแค่ `tsc` และ `vitest` หน้าที่ Build ไม่ผ่านจึง Merge ได้ |
+| ตั้ง Branch Protection ที่ `staging` และ `main` ให้ CI ต้องเขียวก่อน Merge | กติกา "PR ที่ทำให้แดงห้าม Merge" ข้างล่างยังเป็นแค่ข้อตกลง ต้องใช้สิทธิ์ Admin ของ Repo |
+| ปิด Checklist ท้ายเอกสาร: ยืนยัน `make up` บนเครื่องของทั้งสามคน แล้วติ๊กข้อที่ผ่านจริง | |
 
 ```python
 def test_golden_path(client):
