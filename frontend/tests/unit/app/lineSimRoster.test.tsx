@@ -216,6 +216,36 @@ describe("LINE simulator", () => {
     });
     expect(screen.queryByRole("alert")).toBeNull();
   });
+  it("clears a 409 explanation when another open offer appears beside the old history", async () => {
+    vi.useFakeTimers();
+    let rows: Offer[] = [offer];
+    replies((path) => {
+      if (path.endsWith("/respond")) {
+        rows = [
+          { ...offer, status: "ACCEPTED", case_status: "WAITING_APPROVAL" },
+        ];
+        throw new ApiError(409, { detail: "No open offer" });
+      }
+      return rows;
+    });
+    render(<LineSimulatorPage />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toContain("No open offer");
+    rows = [...rows, { ...offer, id: 2, case_id: 8 }];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Accept offer 2",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+  });
 
   it("preserves success when a pre-response poll lands before the refreshed result", async () => {
     vi.useFakeTimers();

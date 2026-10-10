@@ -138,7 +138,15 @@ function StaffOffers({
         matches: (offers) =>
           offers.some((offer) =>
             cause instanceof ApiError && cause.status === 409
-              ? offer.id === selected.id && offer.sent_at === selected.sent_at
+              ? offer.id === selected.id &&
+                offer.sent_at === selected.sent_at &&
+                !offers.some(
+                  (other) =>
+                    other.status === "SENT" &&
+                    other.case_status === "WAITING_RESPONSE" &&
+                    (other.id !== selected.id ||
+                      other.sent_at !== selected.sent_at),
+                )
               : offerSnapshot(offer) === offerSnapshot(selected),
           ),
         message:

@@ -17,6 +17,55 @@ async function flush() {
 }
 
 describe("usePolling", () => {
+  it("aborts a stalled read, retains data and runs the queued refresh", async () => {
+    let finishLate!: (value: string) => void;
+    const load = vi
+      .fn<(signal: AbortSignal) => Promise<string>>()
+      .mockResolvedValueOnce("initial")
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            finishLate = resolve;
+          }),
+      )
+      .mockResolvedValue("refreshed");
+    const { result } = renderHook(() => usePolling(load, { timeoutMs: 500 }));
+    await flush();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    const signal = load.mock.calls[1][0];
+    act(() => result.current.refresh());
+    expect(result.current.data).toBe("initial");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(signal.aborted).toBe(true);
+    expect(load).toHaveBeenCalledTimes(3);
+    expect(result.current.data).toBe("refreshed");
+    await act(async () => finishLate("stale"));
+    expect(result.current.data).toBe("refreshed");
+  });
+
+  it("shows a timeout error and retries", async () => {
+    const load = vi
+      .fn<(signal: AbortSignal) => Promise<string>>()
+      .mockImplementationOnce(() => new Promise<string>(() => {}))
+      .mockResolvedValue("recovered");
+    const { result } = renderHook(() => usePolling(load, { timeoutMs: 500 }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(500);
+    });
+    expect(result.current.error?.message).toBe(
+      "Polling request timed out after 500 ms",
+    );
+    expect(result.current.isLoading).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(result.current.data).toBe("recovered");
+    expect(result.current.error).toBeNull();
+  });
   it("refreshes without clearing data or flashing initial loading", async () => {
     let finish!: (value: string) => void;
     const load = vi
@@ -99,7 +148,7 @@ describe("usePolling", () => {
           resolve = done;
         }),
     );
-    renderHook(() => usePolling(load));
+    renderHook(() => usePolling(load, { timeoutMs: 20000 }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10000);
     });
@@ -149,11 +198,12 @@ describe("usePolling", () => {
     expect(result.current.isLoading).toBe(false);
     rerender({ enabled: true });
     await flush();
+    load.mockImplementationOnce(() => new Promise<string>(() => {}));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
     expect(load).toHaveBeenCalledTimes(2);
-    const signal = load.mock.calls[0][0];
+    const signal = load.mock.calls[1][0];
     rerender({ enabled: false });
     expect(signal.aborted).toBe(true);
     await act(async () => {
