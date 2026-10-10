@@ -1,5 +1,8 @@
 # Lint, test and build on every pull request, and on pushes to the shared branches.
 # The steps mirror `make lint`, `make test` and `make build`, so a green local run means a green CI run.
+#
+# Both job names are required status checks in the branch protection of staging and main.
+# After renaming a job, update both rules, or every PR waits on a check that never reports.
 name: CI
 
 on:

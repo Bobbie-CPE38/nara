@@ -206,13 +206,13 @@ E2E ใช้ FastAPI App และ Handler ตัวจริง ผ่าน H
 * `test_orchestrator.py`: Test D11 ตัวแรกตรวจเพิ่มว่ารอบที่ล้มเหลวถูก Commit หนึ่งครั้ง (เดิมถ้าข้าม `db.commit()` หลังบันทึก `FAILED`
   มีแต่ Test ของไฟล์อื่นที่แดง)
 
-งาน CI ที่เหลือ (คน 2)
+งาน CI (คน 2)
 
-| งาน | ทำไม |
-|---|---|
-| เพิ่ม `next build` ใน Job Frontend ของ `.github/workflows/ci.yml` | CI ตอนนี้รันแค่ `tsc` และ `vitest` หน้าที่ Build ไม่ผ่านจึง Merge ได้ |
-| ตั้ง Branch Protection ที่ `staging` และ `main` ให้ CI ต้องเขียวก่อน Merge | กติกา "PR ที่ทำให้แดงห้าม Merge" ข้างล่างยังเป็นแค่ข้อตกลง ต้องใช้สิทธิ์ Admin ของ Repo |
-| ปิด Checklist ท้ายเอกสาร: ยืนยัน `make up` บนเครื่องของทั้งสามคน แล้วติ๊กข้อที่ผ่านจริง | Checklist ยังติ๊กไม่ครบ ทั้งที่หลายข้อผ่านแล้วตั้งแต่ขั้นที่ 4 และ 5 จึงยังบอกไม่ได้ว่า Skeleton เสร็จ |
+| งาน | ทำไม | สถานะ |
+|---|---|---|
+| เพิ่ม `next build` ใน Job Frontend ของ `.github/workflows/ci.yml` | เดิม CI รันแค่ `tsc` และ `vitest` หน้าที่ Build ไม่ผ่านจึง Merge ได้ | เสร็จแล้ว (PR #29) รันในเครื่องด้วย `make build` |
+| ตั้ง Branch Protection ที่ `staging` และ `main` ให้ CI ต้องเขียวก่อน Merge | เดิมกติกา "PR ที่ทำให้แดงห้าม Merge" ข้างล่างเป็นแค่ข้อตกลง ต้องใช้สิทธิ์ Admin ของ Repo | เสร็จแล้ว (2026-10-10) |
+| ปิด Checklist ท้ายเอกสาร: ยืนยัน `make up` บนเครื่องของทั้งสามคน แล้วติ๊กข้อที่ผ่านจริง | เดิม Checklist ติ๊กไม่ครบ ทั้งที่หลายข้อผ่านแล้วตั้งแต่ขั้นที่ 4 และ 5 จึงบอกไม่ได้ว่า Skeleton เสร็จ | เสร็จแล้ว (2026-10-10) |
 
 ```python
 def test_golden_path(client):
@@ -239,19 +239,26 @@ def test_golden_path(client):
 
 ตั้ง CI ให้รัน Test ชุดนี้ทุก PR นับจากนี้ PR ที่ทำให้แดงห้าม Merge
 
+GitHub บังคับกติกานี้ด้วย Branch Protection ของ `staging` และ `main` (ตั้งเมื่อ 2026-10-10) ทุกการแก้ไขต้องเข้าผ่าน PR
+และ Check `Backend (ruff, mypy, pytest)` กับ `Frontend (typecheck, vitest, build)` ต้องเขียวก่อน Merge รวมถึงเจ้าของ Repo ด้วย จึง Push ตรงเข้าสอง Branch นี้ไม่ได้
+ชื่อ Check คือชื่อ Job ใน `.github/workflows/ci.yml` ถ้าเปลี่ยนชื่อ Job ต้องแก้ Rule ของทั้งสอง Branch ให้ตรงกัน ไม่เช่นนั้นทุก PR จะรอ Check ที่ไม่มีวันรายงานผล
+Branch ที่แตกก่อน PR #29 ต้อง Merge `staging` เข้ามาหนึ่งครั้ง เพื่อให้รายงาน Check ชื่อใหม่ของ Frontend
+
 ---
 
 ## Checklist ว่า Skeleton เสร็จ
 
 - [x] แก้ 0.1–0.8 แล้ว
-- [ ] `make up` รันได้ทุกเครื่อง, `/health` ตอบ DB ok
+- [x] `make up` รันได้ทุกเครื่อง, `/health` ตอบ DB ok (ยืนยันครบทั้งสามเครื่อง 2026-10-10)
 - [x] `make reset` ได้ Golden Case ครบ (ยืนยันด้วย `tests/integration/test_demo_reset.py` และ `test_seed.py`)
-- [ ] กด "105 แจ้งลา" → เคสหยุดที่ `WAITING_RESPONSE`, Roster ของ 105 `CANCELLED`
-- [ ] กด "203 แจ้งลาเวร 2" → ไม่มีเคสใหม่ Event `IGNORED`
-- [ ] 201 กดรับใน LINE Sim → `WAITING_APPROVAL`
-- [ ] 900 กดอนุมัติ → `RESOLVED`, 201 อยู่ในตารางเวร
-- [ ] Timeline แสดงครบทุกขั้น
-- [ ] E2E Test เขียวใน CI
+- [x] กด "105 แจ้งลา" → เคสหยุดที่ `WAITING_RESPONSE`, Roster ของ 105 `CANCELLED`
+- [x] กด "203 แจ้งลาเวร 2" → ไม่มีเคสใหม่ Event `IGNORED`
+- [x] 201 กดรับใน LINE Sim → `WAITING_APPROVAL`
+- [x] 900 กดอนุมัติ → `RESOLVED`, 201 อยู่ในตารางเวร
+- [x] Timeline แสดงครบทุกขั้น
+- [x] E2E Test เขียวใน CI (`tests/e2e/test_workforce_recovery.py` รันใน Job Backend)
+
+ห้าข้อที่เป็นการกดบนหน้าเว็บ ยืนยันเมื่อ 2026-10-10 หลัง `make reset` ทั้งกดผ่าน Browser และยิง API ชุดเดียวกับที่ปุ่มส่ง
 
 ---
 
