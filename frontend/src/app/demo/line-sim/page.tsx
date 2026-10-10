@@ -1,14 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, apiRequest } from "@/lib/api";
-import { DEMO_STAFF, formatDemoTime } from "@/lib/demo";
+import { DEMO_STAFF_IDS, formatDemoTime } from "@/lib/demo";
 import type { Offer, OfferResponse } from "@/lib/types/outreach";
 
 function StaffOffers({ staffId }: { staffId: number }) {
-  const [revision, setRevision] = useState(0);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -16,22 +14,21 @@ function StaffOffers({ staffId }: { staffId: number }) {
   useEffect(() => () => actionController.current?.abort(), []);
   const load = useCallback(
     (signal: AbortSignal) => {
-      void revision;
       return apiRequest<Offer[]>(`/demo/line-sim/offers?staff_id=${staffId}`, {
         demoUser: staffId,
         signal,
       });
     },
-    [staffId, revision],
+    [staffId],
   );
-  const { data, error, isLoading } = usePolling(load);
+  const { data, error, isLoading, refresh } = usePolling(load);
   const openOffers =
     data?.filter(
       (offer) =>
         offer.status === "SENT" && offer.case_status === "WAITING_RESPONSE",
     ) ?? [];
 
-  async function respond(response: "ACCEPT" | "REJECT") {
+  async function respond(offerId: number, response: "ACCEPT" | "REJECT") {
     // A ref also prevents a second click before React paints the pending state.
     if (actionController.current || openOffers.length !== 1 || error) return;
     const controller = new AbortController();
@@ -47,16 +44,20 @@ function StaffOffers({ staffId }: { staffId: number }) {
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
-      if (result.case_status === "FAILED") {
+      if (result.outreach_id !== offerId) {
+        setActionError(
+          `The offer changed before your response arrived. You selected offer ${offerId}, but the server recorded ${result.outreach_status} for offer ${result.outreach_id} on case ${result.case_id}. Check the refreshed history.`,
+        );
+      } else if (result.case_status === "FAILED") {
         setActionError(
           `Case ${result.case_id} failed after acceptance. Check its timeline.`,
         );
       } else {
         setNotice(
-          `Offer accepted. Case ${result.case_id}: ${result.case_status}.`,
+          `Offer ${result.outreach_id}: ${result.outreach_status}. Case ${result.case_id}: ${result.case_status}.`,
         );
       }
-      setRevision((value) => value + 1);
+      refresh();
     } catch (cause) {
       if (controller.signal.aborted) return;
       setActionError(
@@ -68,8 +69,7 @@ function StaffOffers({ staffId }: { staffId: number }) {
             ? cause.message
             : "Could not send your response.",
       );
-      if (cause instanceof ApiError && cause.status === 409)
-        setRevision((value) => value + 1);
+      if (cause instanceof ApiError && cause.status === 409) refresh();
     } finally {
       if (!controller.signal.aborted) {
         actionController.current = null;
@@ -138,14 +138,7 @@ function StaffOffers({ staffId }: { staffId: number }) {
                 return (
                   <tr key={offer.id} className="border-t border-slate-200">
                     <td className="p-3">{offer.id}</td>
-                    <td className="p-3">
-                      <Link
-                        className="text-blue-700 underline"
-                        href={`/cases/${offer.case_id}`}
-                      >
-                        {offer.case_id}
-                      </Link>
-                    </td>
+                    <td className="p-3">{offer.case_id}</td>
                     <td className="p-3">{offer.proposed_shift_id}</td>
                     <td className="p-3">{offer.status}</td>
                     <td className="p-3">{offer.case_status}</td>
@@ -159,14 +152,14 @@ function StaffOffers({ staffId }: { staffId: number }) {
                       <div className="flex gap-2">
                         <button
                           disabled={!canRespond}
-                          onClick={() => void respond("ACCEPT")}
+                          onClick={() => void respond(offer.id, "ACCEPT")}
                           className="rounded bg-blue-700 px-3 py-2 text-white disabled:opacity-40"
                         >
                           Accept
                         </button>
                         <button
                           disabled={!canRespond}
-                          onClick={() => void respond("REJECT")}
+                          onClick={() => void respond(offer.id, "REJECT")}
                           className="rounded border border-slate-400 px-3 py-2 disabled:opacity-40"
                         >
                           Reject
@@ -206,9 +199,9 @@ export default function LineSimulatorPage() {
         value={staffId}
         onChange={(event) => setStaffId(Number(event.target.value))}
       >
-        {DEMO_STAFF.map(([id, name]) => (
+        {DEMO_STAFF_IDS.map((id) => (
           <option key={id} value={id}>
-            {id} — {name}
+            Staff {id}
           </option>
         ))}
       </select>

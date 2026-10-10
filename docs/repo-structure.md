@@ -376,7 +376,8 @@ nara/
 │   ├── tests/
 │   │   └── unit/
 │   │       ├── lib/
-│   │       │   └── api.test.ts
+│   │       │   ├── api.test.ts
+│   │       │   └── demo.test.ts
 │   │       ├── hooks/
 │   │       │   └── usePolling.test.ts
 │   │       └── app/
@@ -424,6 +425,7 @@ nara/
 │       ├── lib/
 │       │   ├── api.ts
 │       │   ├── demo.ts
+│       │   ├── format.ts
 │       │   ├── types/
 │       │   │   ├── outreach.ts
 │       │   │   └── roster.ts

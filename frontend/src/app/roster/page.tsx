@@ -2,17 +2,17 @@
 
 import { useCallback, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
-import { apiRequest } from "@/lib/api";
+import { createDemoApi } from "@/lib/api";
 import { formatDemoTime } from "@/lib/demo";
 import type { ShiftRoster } from "@/lib/types/roster";
+
+const ROSTER_USER_ID = 900;
+const api = createDemoApi(ROSTER_USER_ID);
 
 function Roster({ shiftId }: { shiftId: number }) {
   const load = useCallback(
     (signal: AbortSignal) =>
-      apiRequest<ShiftRoster>(`/roster?shift_id=${shiftId}`, {
-        demoUser: 900,
-        signal,
-      }),
+      api<ShiftRoster>(`/roster?shift_id=${shiftId}`, { signal }),
     [shiftId],
   );
   const { data, error, isLoading } = usePolling(load);
@@ -100,7 +100,7 @@ export default function RosterPage() {
     <main className="mx-auto max-w-7xl p-6 text-slate-900">
       <h1 className="text-2xl font-semibold">Shift roster</h1>
       <p className="mt-2 text-slate-600">
-        View the demo roster as staff 900. Updates every 2 seconds.
+        View the demo roster as staff {ROSTER_USER_ID}. Updates every 2 seconds.
       </p>
       <label className="mt-6 block" htmlFor="shift">
         Shift
@@ -111,8 +111,8 @@ export default function RosterPage() {
         value={shiftId}
         onChange={(event) => setShiftId(Number(event.target.value))}
       >
-        <option value={1}>1 — ICU night shift</option>
-        <option value={2}>2 — ICU day shift</option>
+        <option value={1}>Shift 1</option>
+        <option value={2}>Shift 2</option>
       </select>
       <Roster key={shiftId} shiftId={shiftId} />
     </main>

@@ -14,10 +14,21 @@ import { ApiError, apiRequest } from "@/lib/api";
 import type { Offer } from "@/lib/types/outreach";
 import type { ShiftRoster } from "@/lib/types/roster";
 
-vi.mock("@/lib/api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/api")>()),
-  apiRequest: vi.fn(),
-}));
+vi.mock("@/lib/api", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/api")>();
+  const apiRequest = vi.fn();
+  return {
+    ...original,
+    apiRequest,
+    createDemoApi:
+      (demoUser: number) =>
+      (
+        path: string,
+        options: Omit<import("@/lib/api").ApiOptions, "demoUser"> = {},
+      ) =>
+        apiRequest(path, { ...options, demoUser }),
+  };
+});
 const request = vi.mocked(apiRequest);
 const offer: Offer = {
   id: 1,
@@ -111,7 +122,12 @@ describe("LINE simulator", () => {
     replies((path) => {
       if (path.endsWith("/respond")) {
         accepted = true;
-        return { case_id: 7, case_status: "WAITING_APPROVAL" };
+        return {
+          outreach_id: 1,
+          outreach_status: "ACCEPTED",
+          case_id: 7,
+          case_status: "WAITING_APPROVAL",
+        };
       }
       return [
         {
@@ -200,7 +216,12 @@ describe("LINE simulator", () => {
     replies((path) => {
       if (path.endsWith("/respond")) {
         accepted = true;
-        return { case_id: 7, case_status: "FAILED" };
+        return {
+          outreach_id: 1,
+          outreach_status: "ACCEPTED",
+          case_id: 7,
+          case_status: "FAILED",
+        };
       }
       return [
         {
@@ -239,8 +260,89 @@ describe("LINE simulator", () => {
     });
     await screen.findByText("No offers for this staff member.");
     await act(async () =>
-      resolve({ case_id: 7, case_status: "WAITING_APPROVAL" }),
+      resolve({
+        outreach_id: 1,
+        outreach_status: "ACCEPTED",
+        case_id: 7,
+        case_status: "WAITING_APPROVAL",
+      }),
     );
+    expect(screen.queryByText(/Offer 1: ACCEPTED/)).toBeNull();
+  });
+
+  it.each([false, true])(
+    "keeps history visible during refresh after conflict=%s",
+    async (conflict) => {
+      let changed = false;
+      let finishRefresh!: (value: Offer[]) => void;
+      request.mockImplementation(<T,>(path: string) => {
+        if (path.endsWith("/respond")) {
+          changed = true;
+          return conflict
+            ? Promise.reject(new ApiError(409, { detail: "No open offer" }))
+            : Promise.resolve({
+                outreach_id: 1,
+                outreach_status: "ACCEPTED",
+                case_id: 7,
+                case_status: "WAITING_APPROVAL",
+              } as T);
+        }
+        if (changed)
+          return new Promise<T>((resolve) => {
+            finishRefresh = (value) => resolve(value as T);
+          });
+        return Promise.resolve([offer] as T);
+      });
+      render(<LineSimulatorPage />);
+      const table = await screen.findByRole("table");
+      fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+      if (conflict) await screen.findByRole("alert");
+      else
+        await screen.findByText("Offer 1: ACCEPTED. Case 7: WAITING_APPROVAL.");
+      expect(screen.getByRole("table")).toBe(table);
+      expect(screen.queryByText("Loading offers…")).toBeNull();
+      await act(async () => finishRefresh([{ ...offer, status: "ACCEPTED" }]));
+      expect(screen.getByText("ACCEPTED")).toBeTruthy();
+    },
+  );
+
+  it("warns when the backend answered a different offer", async () => {
+    replies((path) =>
+      path.endsWith("/respond")
+        ? {
+            outreach_id: 8,
+            outreach_status: "ACCEPTED",
+            case_id: 9,
+            case_status: "WAITING_APPROVAL",
+          }
+        : [offer],
+    );
+    render(<LineSimulatorPage />);
+    await screen.findByText("SENT");
+    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "You selected offer 1, but the server recorded ACCEPTED for offer 8 on case 9",
+    );
+    expect(
+      screen.queryByText("Offer 1: ACCEPTED. Case 7: WAITING_APPROVAL."),
+    ).toBeNull();
+  });
+
+  it("uses the returned offer status for a successful rejection", async () => {
+    replies((path) =>
+      path.endsWith("/respond")
+        ? {
+            outreach_id: 1,
+            outreach_status: "REJECTED",
+            case_id: 7,
+            case_status: "OUTREACH",
+          }
+        : [offer],
+    );
+    render(<LineSimulatorPage />);
+    await screen.findByText("SENT");
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    await screen.findByText("Offer 1: REJECTED. Case 7: OUTREACH.");
     expect(screen.queryByText(/Offer accepted/)).toBeNull();
   });
 });
