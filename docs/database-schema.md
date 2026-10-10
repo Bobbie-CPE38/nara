@@ -354,7 +354,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `version` | text | NOT NULL |  |  |
-| `minimum_rest_hours` | numeric | NOT NULL |  |  |
+| `minimum_rest_hours` | numeric | NOT NULL |  | gap ขั้นต่ำของการจบ shift หนึ่งไปอีก shift หนึ่ง ใช้ปฏิเสธการจัดเวรที่พักไม่พอ |
 | `maximum_daily_hours` | numeric | NOT NULL |  |  |
 | `maximum_weekly_hours` | numeric | NOT NULL |  |  |
 | `maximum_patients_per_nurse` | numeric | NOT NULL |  | จำนวนผู้ป่วยสูงสุดต่อพยาบาล ใช้ Ratio เดียวทั้งโรงพยาบาลใน Skeleton; Seed = 2; CHECK มากกว่า 0 และเป็นค่าจำกัด; ไม่มี Default หลัง Migration |
