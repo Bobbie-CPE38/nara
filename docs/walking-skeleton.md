@@ -175,6 +175,7 @@ LINE Sim ใช้ Staff ที่เลือกเป็น `X-Demo-User`; Ros
 ปุ่ม Reject อธิบาย `422` ตามข้อ 9.2 ของ Workflow; Type ของ API แยกตาม Feature ใน `lib/types/outreach.ts` และ `lib/types/roster.ts`
 Test ของหน้าอยู่ใน `frontend/tests/unit/app/lineSimRoster.test.tsx` และ Navigation กลางอยู่ใน `src/app/layout.tsx`
 Refresh หลังตอบ Offer เก็บตารางเดิมไว้; ถ้า `outreach_id` ที่ตอบกลับไม่ตรงกับแถวที่กด แสดงคำเตือนและอ่านรายการใหม่
+แถวที่ตอบแล้วปิดปุ่มจน Poll เห็นข้อมูลเปลี่ยน; ข้อความผลลัพธ์หายเมื่อข้อมูล Offer / Case ไม่ตรงแล้ว และปิดการเปลี่ยน Staff ระหว่าง POST
 เวลาทุกหน้าใช้ `lib/format.ts`; Dropdown แสดงเฉพาะ ID ไม่คัดลอกชื่อจาก Seed
 Navigation ของ `demo/control`, `approvals` และ Link ของ Case เปิดใช้หลังหน้าใน PR #24 / #25 Merge แล้ว ระหว่างนี้แสดงเป็นข้อความเพื่อไม่ยิง 404
 

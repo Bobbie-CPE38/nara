@@ -6,10 +6,36 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { DEMO_STAFF_IDS, formatDemoTime } from "@/lib/demo";
 import type { Offer, OfferResponse } from "@/lib/types/outreach";
 
-function StaffOffers({ staffId }: { staffId: number }) {
+function offerSnapshot(offer: Offer) {
+  return JSON.stringify([
+    offer.id,
+    offer.case_id,
+    offer.candidate_item_id,
+    offer.staff_id,
+    offer.proposed_shift_id,
+    offer.status,
+    offer.case_status,
+    offer.sent_at,
+    offer.response_at,
+  ]);
+}
+
+type Feedback = {
+  message: string;
+  kind: "notice" | "error";
+  matches: (offers: Offer[]) => boolean;
+};
+
+function StaffOffers({
+  staffId,
+  onPendingChange,
+}: {
+  staffId: number;
+  onPendingChange: (pending: boolean) => void;
+}) {
   const [pending, setPending] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [answeredSnapshot, setAnsweredSnapshot] = useState<string | null>(null);
   const actionController = useRef<AbortController | null>(null);
   useEffect(() => () => actionController.current?.abort(), []);
   const load = useCallback(
@@ -22,6 +48,13 @@ function StaffOffers({ staffId }: { staffId: number }) {
     [staffId],
   );
   const { data, error, isLoading, refresh } = usePolling(load);
+  useEffect(() => {
+    if (!data) return;
+    setFeedback((current) => (current?.matches(data) ? current : null));
+    setAnsweredSnapshot((current) =>
+      data.some((offer) => offerSnapshot(offer) === current) ? current : null,
+    );
+  }, [data]);
   const openOffers =
     data?.filter(
       (offer) =>
@@ -30,12 +63,19 @@ function StaffOffers({ staffId }: { staffId: number }) {
 
   async function respond(offerId: number, response: "ACCEPT" | "REJECT") {
     // A ref also prevents a second click before React paints the pending state.
-    if (actionController.current || openOffers.length !== 1 || error) return;
+    const selected = openOffers.length === 1 ? openOffers[0] : undefined;
+    if (
+      actionController.current ||
+      selected?.id !== offerId ||
+      error ||
+      offerSnapshot(selected) === answeredSnapshot
+    )
+      return;
     const controller = new AbortController();
     actionController.current = controller;
     setPending(true);
-    setNotice(null);
-    setActionError(null);
+    onPendingChange(true);
+    setFeedback(null);
     try {
       const result = await apiRequest<OfferResponse>("/demo/line-sim/respond", {
         method: "POST",
@@ -44,36 +84,62 @@ function StaffOffers({ staffId }: { staffId: number }) {
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;
+      // Keep this stale row disabled even if the refresh is slow or fails.
+      setAnsweredSnapshot(offerSnapshot(selected));
+      const matches = (offers: Offer[]) =>
+        offers.some(
+          (offer) =>
+            offer.id === result.outreach_id &&
+            offer.case_id === result.case_id &&
+            offer.status === result.outreach_status &&
+            offer.case_status === result.case_status,
+        );
       if (result.outreach_id !== offerId) {
-        setActionError(
-          `The offer changed before your response arrived. You selected offer ${offerId}, but the server recorded ${result.outreach_status} for offer ${result.outreach_id} on case ${result.case_id}. Check the refreshed history.`,
-        );
+        setFeedback({
+          kind: "error",
+          matches,
+          message: `The offer changed before your response arrived. You selected offer ${offerId}, but the server recorded ${result.outreach_status} for offer ${result.outreach_id} on case ${result.case_id}. Check the refreshed history.`,
+        });
       } else if (result.case_status === "FAILED") {
-        setActionError(
-          `Case ${result.case_id} failed after acceptance. Check its timeline.`,
-        );
+        setFeedback({
+          kind: "error",
+          matches,
+          message: `Offer ${result.outreach_id}: ${result.outreach_status}. Case ${result.case_id} failed after this response. Check its timeline.`,
+        });
       } else {
-        setNotice(
-          `Offer ${result.outreach_id}: ${result.outreach_status}. Case ${result.case_id}: ${result.case_status}.`,
-        );
+        setFeedback({
+          kind: "notice",
+          matches,
+          message: `Offer ${result.outreach_id}: ${result.outreach_status}. Case ${result.case_id}: ${result.case_status}.`,
+        });
       }
       refresh();
     } catch (cause) {
       if (controller.signal.aborted) return;
-      setActionError(
-        cause instanceof ApiError &&
+      setFeedback({
+        kind: "error",
+        matches: (offers) =>
+          offers.some(
+            (offer) => offerSnapshot(offer) === offerSnapshot(selected),
+          ),
+        message:
+          cause instanceof ApiError &&
           cause.status === 422 &&
           response === "REJECT"
-          ? "Rejection is not supported in this demo yet. The offer remains unchanged."
-          : cause instanceof Error
-            ? cause.message
-            : "Could not send your response.",
-      );
-      if (cause instanceof ApiError && cause.status === 409) refresh();
+            ? "Rejection is not supported in this demo yet. The offer remains unchanged."
+            : cause instanceof Error
+              ? cause.message
+              : "Could not send your response.",
+      });
+      if (cause instanceof ApiError && cause.status === 409) {
+        setAnsweredSnapshot(offerSnapshot(selected));
+        refresh();
+      }
     } finally {
       if (!controller.signal.aborted) {
         actionController.current = null;
         setPending(false);
+        onPendingChange(false);
       }
     }
   }
@@ -86,14 +152,14 @@ function StaffOffers({ staffId }: { staffId: number }) {
           Could not refresh offers: {error.message}
         </p>
       )}
-      {notice && (
+      {feedback?.kind === "notice" && (
         <p role="status" className="text-green-800">
-          {notice}
+          {feedback.message}
         </p>
       )}
-      {actionError && (
+      {feedback?.kind === "error" && (
         <p role="alert" className="text-red-700">
-          {actionError}
+          {feedback.message}
         </p>
       )}
       {data?.length === 0 && <p>No offers for this staff member.</p>}
@@ -130,9 +196,9 @@ function StaffOffers({ staffId }: { staffId: number }) {
             <tbody>
               {data.map((offer) => {
                 const canRespond =
-                  offer.status === "SENT" &&
-                  offer.case_status === "WAITING_RESPONSE" &&
                   openOffers.length === 1 &&
+                  openOffers[0].id === offer.id &&
+                  offerSnapshot(offer) !== answeredSnapshot &&
                   !pending &&
                   !error;
                 return (
@@ -151,6 +217,7 @@ function StaffOffers({ staffId }: { staffId: number }) {
                     <td className="p-3">
                       <div className="flex gap-2">
                         <button
+                          aria-label={`Accept offer ${offer.id}`}
                           disabled={!canRespond}
                           onClick={() => void respond(offer.id, "ACCEPT")}
                           className="rounded bg-blue-700 px-3 py-2 text-white disabled:opacity-40"
@@ -158,6 +225,7 @@ function StaffOffers({ staffId }: { staffId: number }) {
                           Accept
                         </button>
                         <button
+                          aria-label={`Reject offer ${offer.id}`}
                           disabled={!canRespond}
                           onClick={() => void respond(offer.id, "REJECT")}
                           className="rounded border border-slate-400 px-3 py-2 disabled:opacity-40"
@@ -183,6 +251,7 @@ function StaffOffers({ staffId }: { staffId: number }) {
 
 export default function LineSimulatorPage() {
   const [staffId, setStaffId] = useState(201);
+  const [responding, setResponding] = useState(false);
   return (
     <main className="mx-auto max-w-7xl p-6 text-slate-900">
       <h1 className="text-2xl font-semibold">Demo LINE simulator</h1>
@@ -197,7 +266,10 @@ export default function LineSimulatorPage() {
         id="staff"
         className="mt-2 rounded border border-slate-400 p-2"
         value={staffId}
-        onChange={(event) => setStaffId(Number(event.target.value))}
+        disabled={responding}
+        onChange={(event) => {
+          if (!responding) setStaffId(Number(event.target.value));
+        }}
       >
         {DEMO_STAFF_IDS.map((id) => (
           <option key={id} value={id}>
@@ -205,7 +277,11 @@ export default function LineSimulatorPage() {
           </option>
         ))}
       </select>
-      <StaffOffers key={staffId} staffId={staffId} />
+      <StaffOffers
+        key={staffId}
+        staffId={staffId}
+        onPendingChange={setResponding}
+      />
     </main>
   );
 }

@@ -139,7 +139,7 @@ describe("LINE simulator", () => {
     });
     render(<LineSimulatorPage />);
     await screen.findByText("SENT");
-    const button = screen.getByRole("button", { name: "Accept" });
+    const button = screen.getByRole("button", { name: "Accept offer 1" });
     fireEvent.click(button);
     fireEvent.click(button);
     await screen.findByText("ACCEPTED");
@@ -155,8 +155,11 @@ describe("LINE simulator", () => {
       }),
     );
     expect(
-      (screen.getByRole("button", { name: "Accept" }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: "Accept offer 1",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
   it("explains unsupported rejection without changing the offer", async () => {
@@ -167,7 +170,7 @@ describe("LINE simulator", () => {
     });
     render(<LineSimulatorPage />);
     await screen.findByText("SENT");
-    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject offer 1" }));
     await screen.findByText(
       "Rejection is not supported in this demo yet. The offer remains unchanged.",
     );
@@ -184,9 +187,9 @@ describe("LINE simulator", () => {
     });
     render(<LineSimulatorPage />);
     await screen.findByText("SENT");
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
     await screen.findByText("No offers for this staff member.");
-    expect(screen.getByRole("alert").textContent).toContain("No open offer");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
   it.each([
     { offers: [{ ...offer, status: "ACCEPTED" }] },
@@ -233,32 +236,45 @@ describe("LINE simulator", () => {
     });
     render(<LineSimulatorPage />);
     await screen.findByText("SENT");
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
     await screen.findByText(
-      "Case 7 failed after acceptance. Check its timeline.",
+      "Offer 1: ACCEPTED. Case 7 failed after this response. Check its timeline.",
     );
     await screen.findByText("FAILED");
     expect(
-      (screen.getByRole("button", { name: "Accept" }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: "Accept offer 1",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
-  it("ignores an old response when staff changes", async () => {
-    let resolve: (value: unknown) => void = () => {};
+  it("keeps the acting staff selected until the response arrives", async () => {
+    let resolve!: (value: unknown) => void;
+    let accepted = false;
     request.mockImplementation(<T,>(path: string) =>
       path.endsWith("/respond")
         ? new Promise<T>((done) => {
-            resolve = done as (value: unknown) => void;
+            resolve = (value) => {
+              accepted = true;
+              done(value as T);
+            };
           })
-        : Promise.resolve((path.includes("staff_id=201") ? [offer] : []) as T),
+        : Promise.resolve([
+            {
+              ...offer,
+              status: accepted ? "ACCEPTED" : "SENT",
+              case_status: accepted ? "WAITING_APPROVAL" : "WAITING_RESPONSE",
+            },
+          ] as T),
     );
     render(<LineSimulatorPage />);
     await screen.findByText("SENT");
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
-    fireEvent.change(screen.getByLabelText("Staff member"), {
-      target: { value: "202" },
-    });
-    await screen.findByText("No offers for this staff member.");
+    fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
+    const selector = screen.getByLabelText("Staff member") as HTMLSelectElement;
+    expect(selector.disabled).toBe(true);
+    fireEvent.change(selector, { target: { value: "202" } });
+    expect(selector.value).toBe("201");
     await act(async () =>
       resolve({
         outreach_id: 1,
@@ -267,9 +283,9 @@ describe("LINE simulator", () => {
         case_status: "WAITING_APPROVAL",
       }),
     );
-    expect(screen.queryByText(/Offer 1: ACCEPTED/)).toBeNull();
+    await screen.findByText("Offer 1: ACCEPTED. Case 7: WAITING_APPROVAL.");
+    expect(selector.disabled).toBe(false);
   });
-
   it.each([false, true])(
     "keeps history visible during refresh after conflict=%s",
     async (conflict) => {
@@ -295,11 +311,19 @@ describe("LINE simulator", () => {
       });
       render(<LineSimulatorPage />);
       const table = await screen.findByRole("table");
-      fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+      fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
       if (conflict) await screen.findByRole("alert");
       else
         await screen.findByText("Offer 1: ACCEPTED. Case 7: WAITING_APPROVAL.");
       expect(screen.getByRole("table")).toBe(table);
+      const accept = screen.getByRole("button", {
+        name: "Accept offer 1",
+      }) as HTMLButtonElement;
+      expect(accept.disabled).toBe(true);
+      fireEvent.click(accept);
+      expect(
+        request.mock.calls.filter(([path]) => path.endsWith("/respond")),
+      ).toHaveLength(1);
       expect(screen.queryByText("Loading offers…")).toBeNull();
       await act(async () => finishRefresh([{ ...offer, status: "ACCEPTED" }]));
       expect(screen.getByText("ACCEPTED")).toBeTruthy();
@@ -307,19 +331,32 @@ describe("LINE simulator", () => {
   );
 
   it("warns when the backend answered a different offer", async () => {
-    replies((path) =>
-      path.endsWith("/respond")
-        ? {
-            outreach_id: 8,
-            outreach_status: "ACCEPTED",
-            case_id: 9,
-            case_status: "WAITING_APPROVAL",
-          }
-        : [offer],
-    );
+    let answered = false;
+    replies((path) => {
+      if (path.endsWith("/respond")) {
+        answered = true;
+        return {
+          outreach_id: 8,
+          outreach_status: "ACCEPTED",
+          case_id: 9,
+          case_status: "WAITING_APPROVAL",
+        };
+      }
+      return answered
+        ? [
+            {
+              ...offer,
+              id: 8,
+              case_id: 9,
+              status: "ACCEPTED",
+              case_status: "WAITING_APPROVAL",
+            },
+          ]
+        : [offer];
+    });
     render(<LineSimulatorPage />);
     await screen.findByText("SENT");
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
     expect((await screen.findByRole("alert")).textContent).toContain(
       "You selected offer 1, but the server recorded ACCEPTED for offer 8 on case 9",
     );
@@ -329,21 +366,135 @@ describe("LINE simulator", () => {
   });
 
   it("uses the returned offer status for a successful rejection", async () => {
-    replies((path) =>
-      path.endsWith("/respond")
-        ? {
-            outreach_id: 1,
-            outreach_status: "REJECTED",
-            case_id: 7,
-            case_status: "OUTREACH",
-          }
-        : [offer],
-    );
+    let answered = false;
+    replies((path) => {
+      if (path.endsWith("/respond")) {
+        answered = true;
+        return {
+          outreach_id: 1,
+          outreach_status: "REJECTED",
+          case_id: 7,
+          case_status: "OUTREACH",
+        };
+      }
+      return answered
+        ? [{ ...offer, status: "REJECTED", case_status: "OUTREACH" }]
+        : [offer];
+    });
     render(<LineSimulatorPage />);
     await screen.findByText("SENT");
-    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject offer 1" }));
     await screen.findByText("Offer 1: REJECTED. Case 7: OUTREACH.");
     expect(screen.queryByText(/Offer accepted/)).toBeNull();
+  });
+
+  it.each(["RESOLVED", "RESET"])(
+    "clears a success banner when polled data changes to %s",
+    async (next) => {
+      vi.useFakeTimers();
+      let rows = [offer];
+      replies((path) => {
+        if (path.endsWith("/respond")) {
+          rows = [
+            { ...offer, status: "ACCEPTED", case_status: "WAITING_APPROVAL" },
+          ];
+          return {
+            outreach_id: 1,
+            outreach_status: "ACCEPTED",
+            case_id: 7,
+            case_status: "WAITING_APPROVAL",
+          };
+        }
+        return rows;
+      });
+      render(<LineSimulatorPage />);
+      await act(async () => {});
+      fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
+      await act(async () => {});
+      expect(
+        screen.getByText("Offer 1: ACCEPTED. Case 7: WAITING_APPROVAL."),
+      ).toBeTruthy();
+      rows =
+        next === "RESET"
+          ? [{ ...offer }]
+          : [{ ...rows[0], case_status: "RESOLVED" }];
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2000);
+      });
+      expect(
+        screen.queryByText("Offer 1: ACCEPTED. Case 7: WAITING_APPROVAL."),
+      ).toBeNull();
+      if (next === "RESET")
+        expect(
+          (
+            screen.getByRole("button", {
+              name: "Accept offer 1",
+            }) as HTMLButtonElement
+          ).disabled,
+        ).toBe(false);
+    },
+  );
+
+  it("clears an error banner when its offer is replaced", async () => {
+    vi.useFakeTimers();
+    let rows = [offer];
+    replies((path) => {
+      if (path.endsWith("/respond"))
+        throw new ApiError(422, { detail: "Unsupported" });
+      return rows;
+    });
+    render(<LineSimulatorPage />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reject offer 1" }));
+    await act(async () => {});
+    expect(screen.getByRole("alert")).toBeTruthy();
+    rows = [{ ...offer, id: 2 }];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("describes a failed rejection using REJECTED rather than acceptance", async () => {
+    let answered = false;
+    replies((path) => {
+      if (path.endsWith("/respond")) {
+        answered = true;
+        return {
+          outreach_id: 1,
+          outreach_status: "REJECTED",
+          case_id: 7,
+          case_status: "FAILED",
+        };
+      }
+      return [
+        {
+          ...offer,
+          status: answered ? "REJECTED" : "SENT",
+          case_status: answered ? "FAILED" : "WAITING_RESPONSE",
+        },
+      ];
+    });
+    render(<LineSimulatorPage />);
+    await screen.findByText("SENT");
+    fireEvent.click(screen.getByRole("button", { name: "Reject offer 1" }));
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Offer 1: REJECTED. Case 7 failed after this response. Check its timeline.",
+    );
+  });
+
+  it("gives each offer's buttons unique accessible names", async () => {
+    replies(() => [offer, { ...offer, id: 2, status: "ACCEPTED" }]);
+    render(<LineSimulatorPage />);
+    await screen.findByRole("table");
+    expect(screen.getByRole("button", { name: "Accept offer 1" })).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Accept offer 2",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
   });
 });
 
