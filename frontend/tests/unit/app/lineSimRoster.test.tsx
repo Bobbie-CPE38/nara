@@ -183,13 +183,84 @@ describe("LINE simulator", () => {
         stale = true;
         throw new ApiError(409, { detail: "No open offer" });
       }
-      return stale ? [] : [offer];
+      return stale
+        ? [{ ...offer, status: "ACCEPTED", case_status: "WAITING_APPROVAL" }]
+        : [offer];
     });
     render(<LineSimulatorPage />);
     await screen.findByText("SENT");
     fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
-    await screen.findByText("No offers for this staff member.");
+    await screen.findByText("ACCEPTED");
+    expect(screen.getByRole("alert").textContent).toContain("No open offer");
+  });
+  it("clears a 409 explanation when the offer ID is reused with a new sent time", async () => {
+    vi.useFakeTimers();
+    let rows = [offer];
+    replies((path) => {
+      if (path.endsWith("/respond")) {
+        rows = [
+          { ...offer, status: "ACCEPTED", case_status: "WAITING_APPROVAL" },
+        ];
+        throw new ApiError(409, { detail: "No open offer" });
+      }
+      return rows;
+    });
+    render(<LineSimulatorPage />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toContain("No open offer");
+    rows = [{ ...offer, sent_at: "2026-10-10T21:00:00+07:00" }];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("preserves success when a pre-response poll lands before the refreshed result", async () => {
+    vi.useFakeTimers();
+    let reads = 0;
+    let finishOld!: (rows: Offer[]) => void;
+    let finishFresh!: (rows: Offer[]) => void;
+    request.mockImplementation(<T,>(path: string) => {
+      if (path.endsWith("/respond"))
+        return Promise.resolve({
+          outreach_id: 1,
+          outreach_status: "ACCEPTED",
+          case_id: 7,
+          case_status: "WAITING_APPROVAL",
+        } as T);
+      reads += 1;
+      if (reads === 1) return Promise.resolve([offer] as T);
+      return new Promise<T>((resolve) => {
+        if (reads === 2) finishOld = (rows) => resolve(rows as T);
+        else finishFresh = (rows) => resolve(rows as T);
+      });
+    });
+    render(<LineSimulatorPage />);
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
+    await act(async () => {});
+    const message = "Offer 1: ACCEPTED. Case 7: WAITING_APPROVAL.";
+    expect(screen.getByText(message)).toBeTruthy();
+    await act(async () => finishOld([{ ...offer }]));
+    expect(screen.getByText(message)).toBeTruthy();
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Accept offer 1",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    await act(async () =>
+      finishFresh([
+        { ...offer, status: "ACCEPTED", case_status: "WAITING_APPROVAL" },
+      ]),
+    );
+    expect(screen.getByText(message)).toBeTruthy();
   });
   it.each([
     { offers: [{ ...offer, status: "ACCEPTED" }] },

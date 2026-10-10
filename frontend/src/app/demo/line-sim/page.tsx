@@ -24,6 +24,8 @@ type Feedback = {
   message: string;
   kind: "notice" | "error";
   matches: (offers: Offer[]) => boolean;
+  // An older in-flight read may still contain the row from before the POST.
+  beforeSnapshot?: string;
 };
 
 function StaffOffers({
@@ -50,7 +52,19 @@ function StaffOffers({
   const { data, error, isLoading, refresh } = usePolling(load);
   useEffect(() => {
     if (!data) return;
-    setFeedback((current) => (current?.matches(data) ? current : null));
+    setFeedback((current) => {
+      if (!current) return null;
+      if (current.matches(data)) {
+        // Once the result is confirmed, a later reset must not match the old row.
+        return current.beforeSnapshot
+          ? { ...current, beforeSnapshot: undefined }
+          : current;
+      }
+      return current.beforeSnapshot &&
+        data.some((offer) => offerSnapshot(offer) === current.beforeSnapshot)
+        ? current
+        : null;
+    });
     setAnsweredSnapshot((current) =>
       data.some((offer) => offerSnapshot(offer) === current) ? current : null,
     );
@@ -98,18 +112,21 @@ function StaffOffers({
         setFeedback({
           kind: "error",
           matches,
+          beforeSnapshot: offerSnapshot(selected),
           message: `The offer changed before your response arrived. You selected offer ${offerId}, but the server recorded ${result.outreach_status} for offer ${result.outreach_id} on case ${result.case_id}. Check the refreshed history.`,
         });
       } else if (result.case_status === "FAILED") {
         setFeedback({
           kind: "error",
           matches,
+          beforeSnapshot: offerSnapshot(selected),
           message: `Offer ${result.outreach_id}: ${result.outreach_status}. Case ${result.case_id} failed after this response. Check its timeline.`,
         });
       } else {
         setFeedback({
           kind: "notice",
           matches,
+          beforeSnapshot: offerSnapshot(selected),
           message: `Offer ${result.outreach_id}: ${result.outreach_status}. Case ${result.case_id}: ${result.case_status}.`,
         });
       }
@@ -119,8 +136,10 @@ function StaffOffers({
       setFeedback({
         kind: "error",
         matches: (offers) =>
-          offers.some(
-            (offer) => offerSnapshot(offer) === offerSnapshot(selected),
+          offers.some((offer) =>
+            cause instanceof ApiError && cause.status === 409
+              ? offer.id === selected.id && offer.sent_at === selected.sent_at
+              : offerSnapshot(offer) === offerSnapshot(selected),
           ),
         message:
           cause instanceof ApiError &&
