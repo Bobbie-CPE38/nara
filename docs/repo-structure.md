@@ -347,6 +347,7 @@ nara/
 │       │   ├── test_orchestrator.py
 │       │   ├── test_optimize.py
 │       │   ├── test_execute_assignment.py
+│       │   ├── test_roster_route.py
 │       │   ├── test_outreach.py
 │       │   ├── test_accepted_outreach.py
 │       │   ├── test_outreach_response.py

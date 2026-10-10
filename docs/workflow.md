@@ -532,6 +532,62 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
   การบังคับว่าหนึ่งเคสมี Pending Request ได้ไม่เกินหนึ่งแถวเป็นหน้าที่ฝั่งสร้างข้อมูล ไม่ใช่ List Read
 * Route / `approval_service.list_pending()` ไม่เขียน DB, Audit, Commit หรือ Explicit Flush
 
+**`GET /roster?shift_id=`** (คน 3)
+
+```json
+{
+  "shift": {
+    "id": 1,
+    "ward_id": 1,
+    "ward_name": "ICU",
+    "shift_type": "NIGHT",
+    "start_at": "2026-10-09T23:00:00+07:00",
+    "end_at": "2026-10-10T07:00:00+07:00",
+    "is_active": true
+  },
+  "assignments": [
+    {
+      "id": 5,
+      "status": "CANCELLED",
+      "assignment_type": "REGULAR",
+      "candidate_source": null,
+      "staff_id": 105,
+      "first_name": "Sudarat",
+      "last_name": "Demo",
+      "staff_status": "ACTIVE",
+      "role_id": 1,
+      "role_name": "RN",
+      "home_ward_id": 1,
+      "home_ward_name": "ICU",
+      "created_at": "2026-10-09T21:00:00+07:00",
+      "updated_at": "2026-10-09T21:00:00+07:00"
+    }
+  ]
+}
+```
+
+* ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`) การอ่านไม่ตรวจ Role หรือ Ward:
+  พนักงานคนใดก็อ่านเวรใดก็ได้ (ข้อ 12)
+* `shift_id` ต้องส่งมาเสมอ และเป็นจำนวนเต็มในช่วง `bigint` (1 ถึง 9223372036854775807) ไม่ส่งหรือค่าไม่ถูกต้อง → `422`
+* ไม่มี Shift ID นั้น → `404` เวรที่มีอยู่แต่ไม่มีแถว Roster ตอบ `200` พร้อม `assignments: []`
+  ตรวจตามลำดับ `401` → `422` → `404`
+* เวรที่ `is_active = false` ยังตอบ `200` พร้อมแถวของมัน ดูจาก `shift.is_active`
+* `assignments` คือ**แถว** `ROSTER_ASSIGNMENT` ไม่ใช่รายชื่อคน คืนทุกสถานะตามที่เก็บ (`CANCELLED`, `PENDING_APPROVAL`,
+  `COMPLETED` ด้วย) ไม่กรองและไม่รวมแถวซ้ำ คนเดียวกันมีได้หลายแถวในเวรเดียว เพราะตารางไม่มี UNIQUE ที่
+  (`staff_id`, `shift_id`) เรียงด้วย `id` จากน้อยไปมาก
+* Route ไม่นับ Coverage: คนที่นับได้คือคนไม่ซ้ำที่มีแถว `ASSIGNED` เท่านั้น (ข้อ 3) `PENDING_APPROVAL` ไม่นับ
+  ตัวเลข Gap ดูจาก `GET /cases/{id}`
+* `status` คือค่าที่เก็บใน DB ไม่คำนวณจากเวลา เวรที่จบไปแล้วจึงยังเป็น `ASSIGNED` ได้ (ยังไม่มีขั้นใดตั้ง `COMPLETED`
+  ดูข้อ 12) ใช้ `shift.end_at` ดูว่าเวรจบแล้วหรือยัง
+* `candidate_source` เป็น `null` สำหรับแถว `REGULAR`
+* `staff_status` คือ `STAFF.status` คนที่ `INACTIVE` ยังอยู่ในรายการถ้ายังมีแถว Roster
+  (Coverage ไม่กรอง `STAFF.status` ซ้ำ ตาม `database-schema.md`)
+* `home_ward_id` / `home_ward_name` คือหอประจำของพนักงาน เทียบกับ `shift.ward_id` เพื่อดูว่ามาจากหออื่น
+* ไม่ส่ง `email` / `password_hash` และยังไม่บอกว่าคนที่ `ASSIGNED` มี `STAFF_UNAVAILABILITY` ชนเวรหรือไม่ (ข้อ 12)
+* ค่า `status` ที่ไม่อยู่ใน `RosterStatus` (คอลัมน์ไม่มี CHECK ตาม D8) ทำให้ตอบ `500` ไม่ซ่อนแถวนั้นเงียบ ๆ
+* Route / `roster_service.get_shift_roster()` ไม่เขียน DB, Audit, Commit, Explicit Flush และไม่ล็อกแถว จึงไม่ขวางการรับ Event
+  อ่านได้เฉพาะข้อมูลที่ Commit แล้ว แถวของผู้มาแทนจึงปรากฏพร้อมกับเคสเป็น `RESOLVED`
+
 ---
 
 ## 10. Golden Case
@@ -637,6 +693,10 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | เรื่อง | หมายเหตุ |
 |---|---|
 | การใช้ `PENDING_APPROVAL` ใน Roster | ค่ามีใน Enum แล้ว แต่ Skeleton ยังไม่ใช้ ต้องใช้เมื่อรองรับ Gap > 1, ส่ง Offer แบบ Wave หรือหลายเคสพร้อมกัน |
+| การตั้ง Roster เป็น `COMPLETED` | ยังไม่มีขั้นใดเขียน เวรที่จบแล้วจึงยังเป็น `ASSIGNED` ใน `GET /roster` |
+| สิทธิ์อ่าน Roster ตาม Ward | Skeleton ให้ Staff ที่ Active ทุกคนอ่าน `GET /roster` ได้ทุกเวร การจำกัด เช่น Head Nurse อ่านได้เฉพาะหอของตัวเอง รอ Login จริง แล้วตอบ `403` |
+| ธง "อยู่เวรแต่ไม่พร้อม" ใน `GET /roster` | คนที่ `ASSIGNED` แต่มี `STAFF_UNAVAILABILITY` ชนเวร (รวม `end_at = NULL`) ต้องแยกกติกาข้อ 3 ของ `availability_service` ออกมาใช้ร่วมกัน Golden Case สร้างสถานะนี้ไม่ได้ เพราะการรับ Event ยกเลิก Roster ใน Transaction เดียวกับการลา |
+| `GET /roster?staff_id=` | ตารางเวรของพนักงานหนึ่งคน เพิ่มเป็น Filter ของ Route เดิม ไม่ใช่ Path ใหม่ |
 | `NO_SHOW` | ตรวจ check-in ใน `ATTENDANCE` หลัง `SHIFT.start_at` + เวลาผ่อนผัน (สมมติ 15 นาที) แล้วสร้าง `STAFF_UNAVAILABILITY` + Event `STAFF_UNAVAILABLE` ทีละเวร |
 | แก้ `end_at` ของ `STAFF_UNAVAILABILITY` | กลับเร็ว / หยุดนานกว่าที่บันทึก / ใส่วันกลับเมื่อเคยเป็น NULL → Audit `UNAVAILABILITY_UPDATED` |
 | การรวม Event + `case_id` ใน STAFFING_EVENTS | ใช้ `EventStatus.RECEIVED` เป็นคิวรอรวม |
@@ -684,3 +744,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ขั้นที่ 4 Seam 8 (คน 3 รับงานกลับ): สร้าง Roster จาก Request ที่อนุมัติหนึ่งแถวพอดี ตรวจ Plan / Shift ของ Item; Handler เขียน `ASSIGNMENT_CREATED`, `CASE_RESOLVED` และให้ Orchestrator เปลี่ยนสถานะ / Commit; เพิ่ม Test Contract และ D11 Rollback | คน 3 |
 | 2026-10-10 | ตามรีวิว Seam 8: เช็ก Availability ซ้ำก่อนสร้าง Roster ด้วยกติกาเดียวกับ Safety; เปลี่ยนเป็น `FAILED` เมื่อผู้สมัครไม่พร้อมโดยไม่สร้าง Roster ใหม่และเก็บผลอนุมัติไว้ เพิ่ม Regression Tests | คน 3 |
 | 2026-10-10 | Gap Snapshot: `STAFFING_GAP` เพิ่ม `patient_count` และ `patients_per_nurse` (NOT NULL) พร้อม CHECK `ck_staffing_gap_patients_per_nurse_valid` กติกาเดียวกับ Policy; Migration `c4d7e19a52f3` ไม่ Backfill และหยุดถ้ามีแถวเก่า; ข้อ 3 และข้อ 8 ระบุว่าผู้เขียนแถว Gap ต้องใส่ค่าที่ใช้คำนวณจริง; Guard ของ Migration รันใน SQL จึงใช้กับ `alembic upgrade --sql` ได้ | คน 1 |
+| 2026-10-10 | ขั้นที่ 4 อ่าน Roster: เพิ่ม `GET /roster?shift_id=` และ `roster_service.get_shift_roster()`; ข้อ 9.3 ระบุรูปแบบคำตอบ `{shift, assignments}` ลำดับ `401` → `422` → `404` คืนทุกสถานะเรียงด้วย `id` และไม่นับ Coverage; `ShiftNotFoundError` ย้ายไป `app/domain/errors.py`; ข้อ 12 เพิ่มการตั้ง `COMPLETED`, สิทธิ์อ่านตาม Ward, ธงไม่พร้อม และ `?staff_id=` | คน 3 |
