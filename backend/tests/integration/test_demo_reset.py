@@ -6,7 +6,7 @@ migrated schema that the other tests expect.
 
 import time
 import traceback
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from multiprocessing import get_context
@@ -16,10 +16,8 @@ from threading import Barrier
 from typing import Any, TypedDict, TypeVar, cast
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -27,33 +25,14 @@ from app.db.models import RosterAssignment, StaffSkill
 from app.db.session import engine
 from app.domain.enums import RosterStatus
 from app.main import app
-from app.seed.reset import ALEMBIC_INI
+
+pytestmark = pytest.mark.usefixtures("restore_empty_database")
 
 client = TestClient(app)
 
 ICU_SKILL_ID = 1
 
 T = TypeVar("T")
-
-
-@pytest.fixture(autouse=True)
-def restore_empty_database() -> Iterator[None]:
-    yield
-    with engine.begin() as connection:
-        # A killed reset process can leave a session behind that still holds schema locks
-        # (a backend waiting on a lock does not notice its client is gone); end it so the
-        # DROP cannot block forever
-        connection.execute(
-            text(
-                "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                "WHERE datname = current_database() AND pid <> pg_backend_pid()"
-            )
-        )
-        connection.execute(text("DROP SCHEMA public CASCADE"))
-        connection.execute(text("CREATE SCHEMA public"))
-    engine.dispose()
-    command.upgrade(Config(str(ALEMBIC_INI)), "head")
-    clock.reset()
 
 
 def roster(shift_id: int) -> dict[int, RosterStatus]:

@@ -7,14 +7,11 @@ fixture; cleanup restores the empty migrated schema for the rest of the suite.
 """
 
 from collections.abc import Iterator
+from itertools import pairwise
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from fastapi.testclient import TestClient
-from sqlalchemy import text
 
-from app.core import clock
 from app.db.session import engine
 from app.domain.enums import (
     GOLDEN_PATH_AUDIT_ACTIONS,
@@ -27,25 +24,16 @@ from app.domain.enums import (
 from app.main import app
 from app.schemas.case import CaseDetail
 from app.schemas.roster import ShiftRoster
-from app.seed.reset import ALEMBIC_INI
 
 
 @pytest.fixture
-def client() -> Iterator[TestClient]:
+def client(restore_empty_database: None) -> Iterator[TestClient]:
     # Fail before calling the destructive reset if the test DB guard or request
     # wiring ever changes. The real app must run without dependency overrides.
     assert (engine.url.database or "").endswith("_test")
     assert not app.dependency_overrides
-    try:
-        with TestClient(app) as request_client:
-            yield request_client
-    finally:
-        clock.reset()
-        with engine.begin() as connection:
-            connection.execute(text("DROP SCHEMA public CASCADE"))
-            connection.execute(text("CREATE SCHEMA public"))
-        engine.dispose()
-        command.upgrade(Config(str(ALEMBIC_INI)), "head")
+    with TestClient(app) as request_client:
+        yield request_client
 
 
 def _case(client: TestClient, case_id: int) -> CaseDetail:
@@ -163,7 +151,9 @@ def test_golden_path_recovers_workforce(client: TestClient) -> None:
     timeline = audit.json()
     ids = [row["id"] for row in timeline]
     assert ids == sorted(set(ids))
-    actions = [row["action"] for row in timeline if row["action"] != "CASE_STATUS_CHANGED"]
+    actions = [
+        row["action"] for row in timeline if row["action"] != AuditAction.CASE_STATUS_CHANGED
+    ]
     assert actions == [action.value for action in GOLDEN_PATH_AUDIT_ACTIONS]
     transitions = [
         (row["payload"]["from"], row["payload"]["to"])
@@ -181,4 +171,4 @@ def test_golden_path_recovers_workforce(client: TestClient) -> None:
         "EXECUTING",
         "RESOLVED",
     ]
-    assert transitions == list(zip(path, path[1:], strict=False))
+    assert transitions == list(pairwise(path))

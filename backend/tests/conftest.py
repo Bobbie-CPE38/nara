@@ -29,6 +29,7 @@ def _test_database_url() -> str:
 TEST_DATABASE_URL = _test_database_url()
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
+from app.core import clock  # noqa: E402
 from app.db.session import engine  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -50,6 +51,35 @@ def _test_database() -> Iterator[None]:
     yield
     # Left in place after the run so failures can be inspected
     engine.dispose()
+
+
+@pytest.fixture
+def restore_empty_database() -> Iterator[None]:
+    """Clean up tests that commit or rebuild the schema instead of using `db`.
+
+    Opt in explicitly: ordinary tests keep their rollback-only sessions.
+    Reset tests can leave connections behind when a child process is killed.
+    """
+    assert (engine.url.database or "").endswith("_test")
+    try:
+        yield
+    finally:
+        try:
+            with engine.begin() as connection:
+                # A backend waiting on a schema lock may not notice its client
+                # died. End those connections before DROP can wait on them.
+                connection.execute(
+                    text(
+                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                        "WHERE datname = current_database() AND pid <> pg_backend_pid()"
+                    )
+                )
+                connection.execute(text("DROP SCHEMA public CASCADE"))
+                connection.execute(text("CREATE SCHEMA public"))
+            engine.dispose()
+            command.upgrade(Config(str(BACKEND_DIR / "alembic.ini")), "head")
+        finally:
+            clock.reset()
 
 
 @pytest.fixture
