@@ -344,6 +344,7 @@ nara/
 │       │   ├── test_events.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_gap_service.py
+│       │   ├── test_assess_staffing.py
 │       │   ├── test_orchestrator.py
 │       │   ├── test_optimize.py
 │       │   ├── test_execute_assignment.py

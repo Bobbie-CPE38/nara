@@ -128,7 +128,7 @@ Calculator รับ `int` หรือ `Decimal` ที่มากกว่า
 
 `STAFFING_GAP` มี Snapshot `patient_count` และ `patients_per_nurse` แล้ว (Migration `c4d7e19a52f3`)
 ผู้เขียนแถว Gap ต้องใส่ทั้งสองค่าจาก Input ที่ใช้คำนวณ
-งานที่เหลือ: เติม `assess_staffing` ให้บันทึก Gap และใช้ `result.has_gap` ตามข้อ 5.1; ปัจจุบัน Handler ยังเป็น Stub
+`assess_staffing` บันทึกแถว Gap ด้วย `gap_service.record_gap()` เขียน `GAP_ASSESSED` และใช้ `result.has_gap` ตามข้อ 5.1 แล้ว
 
 **เสร็จเมื่อ:** สร้างเคสด้วยมือ เรียก `advance()` แล้วเคสเดินจาก `OPEN` ไปหยุดที่ `WAITING_RESPONSE` พร้อม `CASE_STATUS_CHANGED` 4 แถว
 

@@ -5,7 +5,8 @@ Loads what `domain.staffing.gap_calculator` needs and runs it. Event intake
 uses the result to decide between IGNORED and a new case. The ASSESSING step
 uses the same function, so both always agree.
 
-Nothing here writes STAFFING_GAP rows yet: that comes with the ASSESSING step.
+`assess_shift()` only reads. The ASSESSING step stores its result with
+`record_gap()`; event intake never does, because an ignored event has no case.
 """
 
 from dataclasses import dataclass
@@ -14,7 +15,17 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import RosterAssignment, Shift, Staff, StaffSkill
+from app.core import clock
+from app.db.models import (
+    RosterAssignment,
+    Shift,
+    Staff,
+    StaffingCase,
+    StaffingGap,
+    StaffingGapRole,
+    StaffingGapSkill,
+    StaffSkill,
+)
 from app.domain.staffing.coverage import RosterMember
 from app.domain.staffing.gap_calculator import GapResult, calculate_gap
 from app.services import policy_service, requirement_service
@@ -53,6 +64,49 @@ def assess_shift(db: Session, shift: Shift) -> ShiftAssessment:
         patients_per_nurse=policy.maximum_patients_per_nurse,
         result=result,
     )
+
+
+def record_gap(db: Session, case: StaffingCase, assessment: ShiftAssessment) -> StaffingGap:
+    """Store one assessment as the STAFFING_GAP of a case; flush but never commit.
+
+    The snapshot columns take the values the calculator was given, not a fresh
+    read of the shift or the policy. Every required role and skill gets a row,
+    also the ones without a shortage.
+    """
+    result = assessment.result
+    gap = StaffingGap(
+        case_id=case.id,
+        staffing_requirement_id=assessment.shift_requirement.requirement.id,
+        headcount_gap=result.headcount_gap,
+        patient_count=assessment.patient_count,
+        patients_per_nurse=assessment.patients_per_nurse,
+        computed_at=clock.now(),
+    )
+    db.add(gap)
+    # The role and skill rows need the gap id
+    db.flush()
+    db.add_all(
+        StaffingGapRole(
+            gap_id=gap.id,
+            role_id=role_id,
+            required_count=count.required_count,
+            current_count=count.current_count,
+            gap_count=count.gap_count,
+        )
+        for role_id, count in result.role_gaps.items()
+    )
+    db.add_all(
+        StaffingGapSkill(
+            gap_id=gap.id,
+            skill_id=skill_id,
+            required_count=count.required_count,
+            current_count=count.current_count,
+            gap_count=count.gap_count,
+        )
+        for skill_id, count in result.skill_gaps.items()
+    )
+    db.flush()
+    return gap
 
 
 def _load_roster(db: Session, shift_id: int) -> list[RosterMember]:
