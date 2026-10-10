@@ -350,6 +350,7 @@ nara/
 │       │   ├── test_outreach.py
 │       │   ├── test_accepted_outreach.py
 │       │   ├── test_outreach_response.py
+│       │   ├── test_line_sim_offers.py
 │       │   ├── test_validate_safety.py
 │       │   ├── test_pending_approvals.py
 │       │   ├── test_approval_decision.py

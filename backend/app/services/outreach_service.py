@@ -14,6 +14,7 @@ from app.domain.enums import (
     OutreachStatus,
 )
 from app.integrations.line import mock as line_mock
+from app.schemas.outreach import OfferView
 from app.services import audit_service
 
 
@@ -23,6 +24,35 @@ class OpenOfferConflictError(ValueError):
 
 class UnsupportedResponseError(ValueError):
     """Rejection has no workflow transition in the walking skeleton yet."""
+
+
+def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
+    """Read the selected staff member's offer history by ID, without writing.
+
+    Include all statuses and case status so the simulator can distinguish
+    history from SENT offers on WAITING_RESPONSE cases. Selection is a demo
+    read; record_response() still identifies the responder from X-Demo-User.
+    No explicit flush, commit, audit or row lock.
+    """
+    rows = db.execute(
+        select(
+            CandidateOutreach.id,
+            CandidateOutreach.case_id,
+            CandidateOutreach.candidate_item_id,
+            CandidateItem.staff_id,
+            CandidateItem.proposed_shift_id,
+            CandidateOutreach.status,
+            StaffingCase.status.label("case_status"),
+            CandidateOutreach.channel,
+            CandidateOutreach.sent_at,
+            CandidateOutreach.response_at,
+        )
+        .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+        .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
+        .where(CandidateItem.staff_id == staff_id)
+        .order_by(CandidateOutreach.id)
+    ).mappings()
+    return [OfferView.model_validate(row) for row in rows]
 
 
 def send_offer(db: Session, case: StaffingCase) -> tuple[CandidateOutreach, int]:
