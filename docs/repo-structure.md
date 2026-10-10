@@ -374,9 +374,19 @@ nara/
 │   ├── vitest.config.mts
 │   │
 │   ├── tests/
+│   │   ├── fixtures/
+│   │   │   └── case.ts
 │   │   └── unit/
+│   │       ├── app/
+│   │       │   └── cases/
+│   │       │       └── page.test.tsx
+│   │       ├── components/
+│   │       │   └── case/
+│   │       │       └── CaseView.test.tsx
 │   │       ├── lib/
-│   │       │   └── api.test.ts
+│   │       │   ├── api.test.ts
+│   │       │   ├── cases.test.ts
+│   │       │   └── format.test.ts
 │   │       └── hooks/
 │   │           └── usePolling.test.ts
 │   │
@@ -410,19 +420,26 @@ nara/
 │       ├── components/
 │       │   ├── dashboard/
 │       │   ├── case/
+│       │   │   ├── CaseView.tsx
+│       │   │   └── GapTable.tsx
 │       │   ├── candidate/
+│       │   │   └── CandidateTable.tsx
 │       │   ├── optimization/
 │       │   ├── outreach/
 │       │   ├── safety/
 │       │   ├── approval/
 │       │   ├── roster/
 │       │   ├── audit/
+│       │   │   └── AuditTimeline.tsx
 │       │   └── common/
 │       │
 │       ├── lib/
 │       │   ├── api.ts
-│       │   ├── types.ts
-│       │   └── constants.ts
+│       │   ├── cases.ts
+│       │   ├── constants.ts
+│       │   ├── format.ts
+│       │   └── types/
+│       │       └── case.ts
 │       │
 │       └── hooks/
 │           └── usePolling.ts
@@ -442,8 +459,11 @@ nara/
 
 Frontend tests live in `frontend/tests/`, separate from application code, following
 the backend convention. Vitest runs the API tests with mocked network responses;
-the polling hook tests use React Testing Library and jsdom with fake timers.
+the polling hook and component tests use React Testing Library and jsdom with fake timers.
 These unit tests do not require a running backend or database.
+
+API types live in `frontend/src/lib/types/`, one file per domain that mirrors the backend
+schema file of the same name (`types/case.ts` ↔ `backend/app/schemas/case.py`).
 
 Run once: `docker compose exec frontend npm test`.
 Watch changes: `docker compose exec frontend npm run test:watch`.
