@@ -1,5 +1,5 @@
-# Lint and test on every pull request, and on pushes to the shared branches.
-# The steps mirror `make lint` and `make test`, so a green local run means a green CI run.
+# Lint, test and build on every pull request, and on pushes to the shared branches.
+# The steps mirror `make lint`, `make test` and `make build`, so a green local run means a green CI run.
 name: CI
 
 on:
@@ -70,7 +70,7 @@ jobs:
         run: pytest
 
   frontend:
-    name: Frontend (typecheck, vitest)
+    name: Frontend (typecheck, vitest, build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -93,3 +93,7 @@ jobs:
 
       - name: Test (vitest)
         run: npm test
+
+      # Catches what tsc and vitest miss: a page that type-checks but cannot be built
+      - name: Build (next build)
+        run: npm run build

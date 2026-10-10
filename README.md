@@ -67,6 +67,7 @@ The [Makefile](Makefile) wraps the common Docker Compose commands. Run `make` to
 | `make lint` | Run ruff and mypy on the backend, and `tsc` on the frontend. Run `make up` first |
 | `make lint-backend` | Run ruff and mypy only |
 | `make lint-frontend` | Type-check the frontend only |
+| `make build` | Production-build the frontend (`next build`), the same check CI runs. Run `make up` first |
 | `make logs` | Follow logs. For one service: `make logs s=backend` |
 | `make ps` | Show service status and health |
 
@@ -130,7 +131,7 @@ npm run dev
 ├── docker-compose.yml        # local stack: postgres, redis, backend, frontend
 ├── Makefile                  # shortcuts for the stack (run `make`)
 ├── .env.example              # copy to .env
-├── .github/workflows/ci.yml  # lint + tests on every PR
+├── .github/workflows/ci.yml  # lint, tests and frontend build on every PR
 ├── docs/
 │   ├── workflow.md           # workflow contract (states, transitions, decisions)
 │   ├── database-schema.md    # planned DB schema and enums

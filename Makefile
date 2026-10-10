@@ -18,7 +18,7 @@ COPY_ENV := [ -f .env ] || cp .env.example .env
 endif
 
 # These targets are command names, not files that make should look for.
-.PHONY: help up down reset wipe test test-backend test-frontend lint lint-backend lint-frontend logs ps env
+.PHONY: help up down reset wipe test test-backend test-frontend lint lint-backend lint-frontend build logs ps env
 
 # The first target is the default, so plain `make` shows this list.
 help:
@@ -33,6 +33,7 @@ help:
 	@echo   lint           Run all linters/type checks (stack must be running)
 	@echo   lint-backend   Run ruff and mypy on the backend
 	@echo   lint-frontend  Type-check the frontend (tsc)
+	@echo   build          Production-build the frontend (next build), the same check CI runs
 	@echo   logs           Follow logs. One service: make logs s=backend
 	@echo   ps             Show service status and health
 	@echo   env            Create .env from .env.example if it does not exist
@@ -71,6 +72,10 @@ lint-backend:
 
 lint-frontend:
 	$(COMPOSE) exec -T frontend npm run typecheck
+
+# Safe next to the running dev server: `next dev` writes to .next/dev, the build to .next
+build:
+	$(COMPOSE) exec -T frontend npm run build
 
 # `s` is an optional service name, e.g. make logs s=frontend
 logs:
