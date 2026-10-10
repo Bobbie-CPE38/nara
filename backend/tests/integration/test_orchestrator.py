@@ -262,8 +262,11 @@ def test_handler_exception_rolls_back_the_round_and_fails_the_case(
 
     _use_handler(monkeypatch, CaseStatus.OPTIMIZING, failing_optimize)
 
-    orchestrator.advance(seeded, case.id)
+    with mock.patch.object(seeded, "commit", wraps=seeded.commit) as commit:
+        orchestrator.advance(seeded, case.id)
 
+    # A failed round is a recorded result: it is committed like any other
+    assert commit.call_count == 1
     assert _status(seeded, case) is CaseStatus.FAILED
     # The two changes made earlier in the same round were rolled back with it
     assert _status_changes(seeded, case) == [("OPEN", "FAILED")]
