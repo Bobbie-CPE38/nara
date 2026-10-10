@@ -26,16 +26,15 @@ from app.domain.enums import (
     EventStatus,
     EventType,
 )
+
+# Re-exported: routes and tests still reach it as event_service.ShiftNotFoundError
+from app.domain.errors import ShiftNotFoundError as ShiftNotFoundError
 from app.services import actor_service, audit_service, gap_service, unavailability_service
 from app.workflow import orchestrator
 
 
 class EventNotSupportedError(ValueError):
     """The skeleton has no intake rules for this event type."""
-
-
-class ShiftNotFoundError(LookupError):
-    """No SHIFT row has this ID."""
 
 
 class InvalidLeaveEndError(ValueError):
