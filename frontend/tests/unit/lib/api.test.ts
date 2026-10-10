@@ -11,7 +11,7 @@ describe("API client", () => {
     vi.stubGlobal("fetch", fetchMock);
     const actions = [
       { staff: 105, path: "/events", json: { event_type: "STAFF_UNAVAILABLE", shift_id: 1 } },
-      { staff: 201, path: "/demo/line-sim/respond", json: { response: "ACCEPT" } },
+      { staff: 201, path: "/demo/line-sim/respond", json: { outreach_id: 1, response: "ACCEPT" } },
       { staff: 900, path: "/approvals/1/decision", json: { approved: true } },
     ];
     for (const action of actions) {

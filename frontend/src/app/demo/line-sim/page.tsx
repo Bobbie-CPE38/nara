@@ -94,7 +94,7 @@ function StaffOffers({
       const result = await apiRequest<OfferResponse>("/demo/line-sim/respond", {
         method: "POST",
         demoUser: staffId,
-        json: { response },
+        json: { outreach_id: offerId, response },
         signal: controller.signal,
       });
       if (controller.signal.aborted) return;

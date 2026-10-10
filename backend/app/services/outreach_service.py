@@ -19,7 +19,7 @@ from app.services import audit_service
 
 
 class OpenOfferConflictError(ValueError):
-    """The responder has no open offer, or several instead of exactly one."""
+    """The responder has no unique open offer, or it differs from the expected ID."""
 
 
 class UnsupportedResponseError(ValueError):
@@ -108,13 +108,15 @@ def get_accepted_outreach(db: Session, case_id: int) -> CandidateOutreach:
 
 
 def record_response(
-    db: Session, *, staff_id: int, actor_id: int, response: CandidateResponse
+    db: Session, *, staff_id: int, actor_id: int, outreach_id: int, response: CandidateResponse
 ) -> tuple[CandidateOutreach, StaffingCase]:
     """Record ACCEPT and resume; leave commits and case status to the orchestrator.
 
     The caller supplies the authenticated staff ID and their actor ID. Exactly
     one SENT offer on a WAITING_RESPONSE case is required before checking
-    whether the answer is supported. Offers on other cases are ignored.
+    that its ID matches outreach_id and whether the answer is supported.
+    A mismatch raises before any answer, audit or workflow change. The ID never
+    replaces staff authentication. Offers on other cases are ignored.
     Lock only outreach rows, in ID order, and refresh cached ORM state: a second
     request waits, then sees that the first request already answered the offer.
     Errors must propagate so the request session closes and rolls back, including
@@ -145,9 +147,11 @@ def record_response(
         raise OpenOfferConflictError("No open offer for this staff member")
     if len(offers) != 1:
         raise OpenOfferConflictError("Expected exactly one open offer for this staff member")
+    outreach = offers[0]
+    if outreach.id != outreach_id:
+        raise OpenOfferConflictError("The open offer has changed; refresh offers before responding")
     if response is CandidateResponse.REJECT:
         raise UnsupportedResponseError("REJECT is not supported in the walking skeleton")
-    outreach = offers[0]
     outreach.status = OutreachStatus.ACCEPTED
     outreach.response_at = clock.now()
     audit_service.log(

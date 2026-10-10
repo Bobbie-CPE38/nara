@@ -231,7 +231,11 @@ def test_real_workflow_offer_is_visible_before_and_after_acceptance(
     assert offer["case_status"] == "WAITING_RESPONSE"
     assert client.get(URL, params={"staff_id": 202}, headers=HEADERS).json() == []
 
-    answer = client.post("/demo/line-sim/respond", headers=HEADERS, json={"response": "ACCEPT"})
+    answer = client.post(
+        "/demo/line-sim/respond",
+        headers=HEADERS,
+        json={"outreach_id": offer["id"], "response": "ACCEPT"},
+    )
     assert answer.status_code == 200
     assert answer.json()["case_status"] == "WAITING_APPROVAL"
     after = client.get(URL, params={"staff_id": 201}, headers=HEADERS)
