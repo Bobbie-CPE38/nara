@@ -193,6 +193,11 @@ Navigation ของ `demo/control` และ `approvals` เปิดใช้�
 | `tests/integration/test_orchestrator.py` | 1 | Exception กลางทาง → Rollback, `FAILED` + `WORKFLOW_FAILED` (D11) |
 | `tests/unit/workflow/test_transitions.py` | 1 | Transition ของ Golden Path ผ่าน, คู่ที่ไม่อยู่ในตารางโยน Error, State สิ้นสุดไปต่อไม่ได้, ทุก State ที่ไม่ใช่สิ้นสุดไป `FAILED` ได้ |
 
+E2E ใช้ FastAPI App และ Handler ตัวจริง ผ่าน HTTP (`TestClient`) ตั้งแต่ Reset → แจ้งลา → รับ Offer → อนุมัติ โดยไม่ Override Dependency หรือ Mock Service
+ตรวจว่า 105 เป็น `CANCELLED`, ยังไม่มี Roster ของ 201 ก่อนอนุมัติ, หลังอนุมัติ 201 เป็น `ASSIGNED` / `REPLACEMENT` / `SAME_WARD`, รายการรออนุมัติว่าง และ Audit / Transition เรียงครบตาม Golden Path
+รันเฉพาะ E2E ด้วย `make test-e2e` หรือรันรวมด้วย `make test-backend` และ CI เดิม
+ใช้ฐานข้อมูลชื่อท้าย `_test` เท่านั้น และหลังจบทดสอบคืน Schema ที่ Migrate แล้วแต่ไม่มีข้อมูล ไม่เรียก Reset บน Dev API ที่กำลังรันอยู่
+
 ```python
 def test_golden_path(client):
     client.post("/demo/reset")

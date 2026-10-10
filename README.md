@@ -63,6 +63,7 @@ The [Makefile](Makefile) wraps the common Docker Compose commands. Run `make` to
 | `make wipe` | Stop, **delete** the database, Redis and node_modules volumes, then start fresh |
 | `make test` | Run backend (pytest) and frontend (vitest) tests inside the containers. Run `make up` first |
 | `make test-backend` | Run backend tests only |
+| `make test-e2e` | Run backend Golden Path E2E tests against the test database. Run `make up` first |
 | `make test-frontend` | Run frontend tests only |
 | `make lint` | Run ruff and mypy on the backend, and `tsc` on the frontend. Run `make up` first |
 | `make lint-backend` | Run ruff and mypy only |
