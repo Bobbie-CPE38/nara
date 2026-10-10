@@ -9,10 +9,7 @@ from app.core import clock
 from app.db.models.staffing_case import StaffingCase
 from app.domain.enums import CaseStatus
 from app.domain.workflow.transitions import assert_transition
-from app.workflow.handlers import (
-    assess_staffing,
-    intake_event,
-)
+from app.workflow.handlers import intake_event
 from app.workflow.handlers.base import HandlerResult
 
 
@@ -20,7 +17,6 @@ from app.workflow.handlers.base import HandlerResult
     ("handler", "current", "next_status", "wait"),
     [
         (intake_event.handle, CaseStatus.OPEN, CaseStatus.ASSESSING, False),
-        (assess_staffing.handle, CaseStatus.ASSESSING, CaseStatus.OPTIMIZING, False),
     ],
 )
 def test_stub_preserves_case_and_transaction_ownership(
