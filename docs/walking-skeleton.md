@@ -173,7 +173,7 @@ Calculator รับ `int` หรือ `Decimal` ที่มากกว่า
 คน 3: `demo/line-sim` และ `roster` มีหน้า Client แล้ว ใช้ `apiRequest` และ `usePolling` ทุก 2 วินาที
 LINE Sim ใช้ Staff ที่เลือกเป็น `X-Demo-User`; Roster อ่านด้วยตัวตน 900 และแสดงทุก Assignment รวม `CANCELLED`
 ปุ่ม Reject อธิบาย `422` ตามข้อ 9.2 ของ Workflow; Type ของ API แยกตาม Feature ใน `lib/types/outreach.ts` และ `lib/types/roster.ts`
-Test ของหน้าอยู่ใน `frontend/tests/unit/pages/lineSimRoster.test.tsx`
+Test ของหน้าอยู่ใน `frontend/tests/unit/app/lineSimRoster.test.tsx` และ Navigation กลางอยู่ใน `src/app/layout.tsx`
 
 ---
 
