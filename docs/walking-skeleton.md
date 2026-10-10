@@ -188,7 +188,7 @@ Navigation ของ `demo/control` และ `approvals` เปิดใช้�
 
 | Test | คน | ตรวจอะไร | สถานะ |
 |---|---|---|---|
-| `tests/e2e/test_workforce_recovery.py` | 3 | Golden Path ครบ, Roster ของ 201 เป็น `REPLACEMENT`, Audit ครบตาม `GOLDEN_PATH_AUDIT_ACTIONS` ตามลำดับ | ยังไม่มี |
+| `tests/e2e/test_workforce_recovery.py` | 3 | Golden Path ครบ, Roster ของ 201 เป็น `REPLACEMENT`, Audit ครบตาม `GOLDEN_PATH_AUDIT_ACTIONS` ตามลำดับ | มีแล้ว (ขั้นที่ 6) |
 | `tests/integration/test_event_ignored.py` | 1 | Event ที่ไม่มี Gap (203 ลาเวร 2) → `IGNORED` ไม่มีเคส | มีแล้ว (ขั้นที่ 4) |
 | `tests/integration/test_orchestrator.py` | 1 | Exception กลางทาง → Rollback, `FAILED` + `WORKFLOW_FAILED` (D11) | มีแล้ว (ขั้นที่ 3) |
 | `tests/unit/workflow/test_transitions.py` | 1 | Transition ของ Golden Path ผ่าน, คู่ที่ไม่อยู่ในตารางโยน Error, State สิ้นสุดไปต่อไม่ได้, ทุก State ที่ไม่ใช่สิ้นสุดไป `FAILED` ได้ | มีแล้ว (ขั้นที่ 3) |
