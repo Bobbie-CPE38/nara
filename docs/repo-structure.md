@@ -344,6 +344,7 @@ nara/
 │       │   ├── test_events.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_gap_service.py
+│       │   ├── test_assess_staffing.py
 │       │   ├── test_orchestrator.py
 │       │   ├── test_optimize.py
 │       │   ├── test_execute_assignment.py
@@ -351,6 +352,7 @@ nara/
 │       │   ├── test_outreach.py
 │       │   ├── test_accepted_outreach.py
 │       │   ├── test_outreach_response.py
+│       │   ├── test_line_sim_offers.py
 │       │   ├── test_validate_safety.py
 │       │   ├── test_pending_approvals.py
 │       │   ├── test_approval_decision.py

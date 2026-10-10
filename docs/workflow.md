@@ -325,7 +325,7 @@ Roster ที่จองเวรแล้ว และ Unavailability ที�
 | ขั้น | Stub ทำอะไร | ตารางที่เขียน |
 |---|---|---|
 | Event | ตามข้อ 3 (ของจริงตั้งแต่ Skeleton) | STAFFING_EVENTS, STAFF_UNAVAILABILITY, ROSTER_ASSIGNMENT, STAFFING_CASES |
-| Gap | โหลด Hard Policy `id=1` ผ่าน `policy_service`; ใช้ `gap_calculator` เทียบคนที่ `ASSIGNED` กับ `ceil(patient_count / policy.maximum_patients_per_nurse)` และ Role / Skill กับ Requirement; ใช้ `result.has_gap` แถว `STAFFING_GAP` ต้องเก็บ `patient_count` และ `patients_per_nurse` ค่าเดียวกับที่ส่งให้ `gap_calculator` ไม่อ่านจาก Shift / Policy ใหม่อีกรอบ (ข้อ 3) | STAFFING_GAP (+ ROLE, SKILL) |
+| Gap | โหลด Hard Policy `id=1` ผ่าน `policy_service`; ใช้ `gap_calculator` เทียบคนที่ `ASSIGNED` กับ `ceil(patient_count / policy.maximum_patients_per_nurse)` และ Role / Skill กับ Requirement; ใช้ `result.has_gap` แถว `STAFFING_GAP` ต้องเก็บ `patient_count` และ `patients_per_nurse` ค่าเดียวกับที่ส่งให้ `gap_calculator` ไม่อ่านจาก Shift / Policy ใหม่อีกรอบ (ข้อ 3) Handler `assess_staffing` เรียก `gap_service.assess_shift()` ตัวเดียวกับการรับ Event (Seam 10) แล้วบันทึกด้วย `gap_service.record_gap()`: `STAFFING_GAP` หนึ่งแถว (`computed_at = clock.now()`) และแถว Role / Skill ของทุกรายการใน Requirement รวมรายการที่ไม่ขาด จากนั้นเขียน `GAP_ASSESSED` โดย `role_gaps` / `skill_gaps` ใน payload เป็น List เรียงตาม ID ของ `{role_id หรือ skill_id, required_count, current_count, gap_count}` (ไม่ใช้ ID เป็น Key เพราะ JSON จะเปลี่ยนเป็นข้อความ) ถ้า `result.has_gap` เป็น False โยน `NoGapError` โดยไม่เขียนแถว เคสเป็น `FAILED` ตาม D11 (ข้อ 5 ยังไม่มี Transition ของกรณีนี้ และการรับ Event เปิดเคสเฉพาะเมื่อมี Gap ภายใต้ Lock ของเวรเดียวกัน จึงไม่เกิดใน Golden Path) | STAFFING_GAP (+ ROLE, SKILL) |
 | Solver | เริ่มจากผู้สมัคร 3 คนตายตัวตาม Golden Case แล้วตัดคนที่ไม่ `ACTIVE`, มี Roster ในเวรของเคสที่สถานะอยู่ใน `COMMITTED_ROSTER_STATUSES` หรือมี `STAFF_UNAVAILABILITY` ชนช่วงเวลาของเวรนั้น (`end_at` เป็น NULL = ไม่พร้อมตั้งแต่ `start_at`) ออก กติกาอยู่ใน `services/availability_service.py` ใช้ร่วมกับ Safety ไม่เช็กเวรอื่นที่เวลาชนกัน (Hard Rules ของจริงทำภายหลัง) กฎข้อที่ 4 เฉพาะ Solver: ตัดคนที่มี Offer ค้างอยู่ คือ `CANDIDATE_OUTREACH` ที่ `SENT` (ของเคสไหนก็ได้ เพราะ Seam 3 ต้องเจอ Offer `SENT` ของผู้ตอบหนึ่งแถวพอดี ถ้ามีสองแถว ทั้งสองเคสจะค้างที่ `WAITING_RESPONSE`) หรือ `ACCEPTED` ที่เคสยังไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` กฎนี้อยู่ใน `optimization_service` ไม่อยู่ใน `availability_service` เพราะผู้สมัครที่ Safety เช็กมี Offer `ACCEPTED` ของตัวเองเสมอ ก่อนเช็กกติกา Solver ล็อกแถว `STAFF` ของผู้สมัคร (`FOR NO KEY UPDATE` เรียงตาม `id`) จนรอบนั้น Commit ที่ `WAITING_RESPONSE` เคสที่วางแผนพร้อมกันจะรอแล้วเห็น Offer ของเคสแรก จึงไม่เลือกคนเดียวกัน ใส่ `rank` ใหม่ 1, 2, 3 ต่อกัน `solver_status = FEASIBLE`, `solver_version = "stub"` ถ้าไม่เหลือใครเลย โยน `NoCandidatesError` โดยไม่เขียน Plan เคสเป็น `FAILED` ตาม D11 (ข้อ 5 ยังไม่มี Transition ของกรณีนี้) | CANDIDATE_PLANS, CANDIDATE_ITEMS |
 | Outreach | สร้าง Outreach ให้อันดับ 1 สถานะ `SENT` ไม่ส่ง LINE จริง | CANDIDATE_OUTREACH |
 | Response | LINE Simulator ส่ง `ACCEPT` → `ACCEPTED` | CANDIDATE_OUTREACH |
@@ -518,6 +518,18 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 
 * เป็น List ที่ชั้นบนสุด มีเฉพาะแถวที่ `case_id` ตรงกับเคส เรียงด้วย `id` จากน้อยไปมาก (Seam 9) เคสที่ยังไม่มี Audit คืน `[]`
 * `actor_name` ของ Actor ที่เป็นพนักงานคือ `str(staff.id)` เช่น `"105"`
+
+**LINE Sim — `GET /demo/line-sim/offers?staff_id=201`**
+
+* ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
+* `staff_id` เป็น Query ที่ต้องส่ง เป็นจำนวนเต็มบวกไม่เกิน PostgreSQL bigint; ไม่ส่งหรือไม่ถูกต้อง → `422`
+* เป็นการอ่านของ Demo: เลือก Staff คนอื่นได้ผ่าน Query; `POST /respond` ยังใช้ตัวตนจาก Header เท่านั้น
+* คืน JSON List ของ Outreach ที่ Item อ้าง Staff คนนั้น เรียง `id` จากน้อยไปมาก; ไม่มี Offer หรือไม่มี Staff ID นั้นคืน `[]`
+* คืนทุก Status รวมประวัติ: `id`, `case_id`, `candidate_item_id`, `staff_id`, `proposed_shift_id`,
+  `status`, `case_status`, `channel`, `sent_at`, `response_at`; เวลาที่มีค่าใช้ `+07:00`, เวลาที่ยังไม่มีเป็น `null`
+* Offer ที่ตอบได้ต้องเป็น `SENT` บนเคส `WAITING_RESPONSE`; การอ่านไม่เปลี่ยน Status ของ Offer หรือเคส
+  `PENDING` ยังหมายถึงคิวรอส่งใน Wave ภายหลัง ไม่ใช่ส่งแล้วรอคำตอบ และ Route นี้ไม่ได้เพิ่ม Batch Outreach
+* Route / `outreach_service.list_offers()` ไม่เขียน DB, Audit, Commit, Explicit Flush หรือ Row Lock
 
 **Seam 6 — `GET /approvals?pending=true`**
 
@@ -744,4 +756,6 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ขั้นที่ 4 Seam 8 (คน 3 รับงานกลับ): สร้าง Roster จาก Request ที่อนุมัติหนึ่งแถวพอดี ตรวจ Plan / Shift ของ Item; Handler เขียน `ASSIGNMENT_CREATED`, `CASE_RESOLVED` และให้ Orchestrator เปลี่ยนสถานะ / Commit; เพิ่ม Test Contract และ D11 Rollback | คน 3 |
 | 2026-10-10 | ตามรีวิว Seam 8: เช็ก Availability ซ้ำก่อนสร้าง Roster ด้วยกติกาเดียวกับ Safety; เปลี่ยนเป็น `FAILED` เมื่อผู้สมัครไม่พร้อมโดยไม่สร้าง Roster ใหม่และเก็บผลอนุมัติไว้ เพิ่ม Regression Tests | คน 3 |
 | 2026-10-10 | Gap Snapshot: `STAFFING_GAP` เพิ่ม `patient_count` และ `patients_per_nurse` (NOT NULL) พร้อม CHECK `ck_staffing_gap_patients_per_nurse_valid` กติกาเดียวกับ Policy; Migration `c4d7e19a52f3` ไม่ Backfill และหยุดถ้ามีแถวเก่า; ข้อ 3 และข้อ 8 ระบุว่าผู้เขียนแถว Gap ต้องใส่ค่าที่ใช้คำนวณจริง; Guard ของ Migration รันใน SQL จึงใช้กับ `alembic upgrade --sql` ได้ | คน 1 |
+| 2026-10-10 | ขั้นที่ 4 Gap: Handler `assess_staffing` ตัวจริงแทน Stub บันทึก `STAFFING_GAP` (+ Role, Skill) พร้อม Snapshot ผ่าน `gap_service.record_gap()` และเขียน `GAP_ASSESSED`; ข้อ 8 ระบุรูปแบบ `role_gaps` / `skill_gaps` ใน payload และ `NoGapError` เมื่อเวรไม่ขาดคน | คน 1 |
+| 2026-10-10 | ขั้นที่ 4 LINE Sim Read: เพิ่ม `GET /demo/line-sim/offers?staff_id=` และ `outreach_service.list_offers()` คืนประวัติ Offer ของ Staff ที่เลือกพร้อม Case Status และเวลา `+07:00`; ใช้ Demo Auth และไม่เขียนข้อมูล เพิ่ม Integration Tests | คน 3 |
 | 2026-10-10 | ขั้นที่ 4 อ่าน Roster: เพิ่ม `GET /roster?shift_id=` และ `roster_service.get_shift_roster()`; ข้อ 9.3 ระบุรูปแบบคำตอบ `{shift, assignments}` ลำดับ `401` → `422` → `404` คืนทุกสถานะเรียงด้วย `id` และไม่นับ Coverage; `ShiftNotFoundError` ย้ายไป `app/domain/errors.py`; ข้อ 12 เพิ่มการตั้ง `COMPLETED`, สิทธิ์อ่านตาม Ward, ธงไม่พร้อม และ `?staff_id=` | คน 3 |
