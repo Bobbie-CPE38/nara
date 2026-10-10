@@ -35,3 +35,12 @@ def test_transition_contract(current: CaseStatus, next_status: CaseStatus) -> No
 
 def test_every_case_status_has_an_explicit_transition_entry() -> None:
     assert set(ALLOWED_TRANSITIONS) == set(CaseStatus)
+
+
+def test_terminal_statuses_are_resolved_unresolved_and_failed() -> None:
+    """The contract test above reads this set, so a wrong member would change both sides."""
+    assert set(TERMINAL_CASE_STATUSES) == {
+        CaseStatus.RESOLVED,
+        CaseStatus.UNRESOLVED,
+        CaseStatus.FAILED,
+    }

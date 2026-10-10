@@ -18,7 +18,7 @@ COPY_ENV := [ -f .env ] || cp .env.example .env
 endif
 
 # These targets are command names, not files that make should look for.
-.PHONY: help up down reset wipe test test-backend test-frontend lint lint-backend lint-frontend build logs ps env
+.PHONY: help up down reset wipe test test-backend test-e2e test-frontend lint lint-backend lint-frontend build logs ps env
 
 # The first target is the default, so plain `make` shows this list.
 help:
@@ -29,6 +29,7 @@ help:
 	@echo   wipe           Stop, DELETE database/Redis/node_modules volumes, start fresh
 	@echo   test           Run backend and frontend tests (stack must be running: make up)
 	@echo   test-backend   Run backend tests only (pytest)
+	@echo   test-e2e       Run backend Golden Path E2E tests only (test database)
 	@echo   test-frontend  Run frontend tests only (vitest)
 	@echo   lint           Run all linters/type checks (stack must be running)
 	@echo   lint-backend   Run ruff and mypy on the backend
@@ -61,6 +62,9 @@ test: test-backend test-frontend
 
 test-backend:
 	$(COMPOSE) exec -T backend pytest
+
+test-e2e:
+	$(COMPOSE) exec -T backend pytest tests/e2e -q
 
 test-frontend:
 	$(COMPOSE) exec -T frontend npm test
