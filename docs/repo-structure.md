@@ -377,18 +377,22 @@ nara/
 │   │   ├── fixtures/
 │   │   │   └── case.ts
 │   │   └── unit/
-│   │       ├── app/
-│   │       │   └── cases/
-│   │       │       └── page.test.tsx
-│   │       ├── components/
-│   │       │   └── case/
-│   │       │       └── CaseView.test.tsx
 │   │       ├── lib/
 │   │       │   ├── api.test.ts
 │   │       │   ├── cases.test.ts
+│   │       │   ├── demo.test.ts
 │   │       │   └── format.test.ts
-│   │       └── hooks/
-│   │           └── usePolling.test.ts
+│   │       ├── hooks/
+│   │       │   └── usePolling.test.ts
+│   │       ├── components/
+│   │       │   └── case/
+│   │       │       └── CaseView.test.tsx
+│   │       └── app/
+│   │           ├── demoControl.test.ts
+│   │           ├── approvals.test.ts
+│   │           ├── lineSimRoster.test.tsx
+│   │           └── cases/
+│   │               └── page.test.tsx
 │   │
 │   └── src/
 │       ├── app/
@@ -436,10 +440,15 @@ nara/
 │       ├── lib/
 │       │   ├── api.ts
 │       │   ├── cases.ts
-│       │   ├── constants.ts
+│       │   ├── demo.ts
 │       │   ├── format.ts
-│       │   └── types/
-│       │       └── case.ts
+│       │   ├── types/
+│       │   │   ├── event.ts
+│       │   │   ├── approval.ts
+│       │   │   ├── case.ts
+│       │   │   ├── outreach.ts
+│       │   │   └── roster.ts
+│       │   └── constants.ts
 │       │
 │       └── hooks/
 │           └── usePolling.ts
@@ -459,11 +468,12 @@ nara/
 
 Frontend tests live in `frontend/tests/`, separate from application code, following
 the backend convention. Vitest runs the API tests with mocked network responses;
-the polling hook and component tests use React Testing Library and jsdom with fake timers.
-These unit tests do not require a running backend or database.
+the polling hook, page and component tests use React Testing Library and jsdom. Page tests
+cover identity selection, response errors, stale requests and roster rows.
 
-API types live in `frontend/src/lib/types/`, one file per domain that mirrors the backend
-schema file of the same name (`types/case.ts` ↔ `backend/app/schemas/case.py`).
+API response types live in `frontend/src/lib/types/`, one file per backend schema
+(`event.ts`, `approval.ts`, ...), so pages built in parallel do not edit the same file.
+These unit tests do not require a running backend or database.
 
 Run once: `docker compose exec frontend npm test`.
 Watch changes: `docker compose exec frontend npm run test:watch`.
