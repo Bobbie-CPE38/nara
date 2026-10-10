@@ -186,12 +186,28 @@ Navigation ของ `demo/control` และ `approvals` เปิดใช้�
 
 ## ขั้นที่ 6: Test และ CI (วันที่ 5)
 
-| Test | คน | ตรวจอะไร |
-|---|---|---|
-| `tests/e2e/test_workforce_recovery.py` | 3 | Golden Path ครบ, Roster ของ 201 เป็น `REPLACEMENT`, Audit ครบตาม `GOLDEN_PATH_AUDIT_ACTIONS` ตามลำดับ |
-| `tests/integration/test_event_ignored.py` | 1 | Event ที่ไม่มี Gap (203 ลาเวร 2) → `IGNORED` ไม่มีเคส |
-| `tests/integration/test_orchestrator.py` | 1 | Exception กลางทาง → Rollback, `FAILED` + `WORKFLOW_FAILED` (D11) |
-| `tests/unit/workflow/test_transitions.py` | 1 | Transition ของ Golden Path ผ่าน, คู่ที่ไม่อยู่ในตารางโยน Error, State สิ้นสุดไปต่อไม่ได้, ทุก State ที่ไม่ใช่สิ้นสุดไป `FAILED` ได้ |
+| Test | คน | ตรวจอะไร | สถานะ |
+|---|---|---|---|
+| `tests/e2e/test_workforce_recovery.py` | 3 | Golden Path ครบ, Roster ของ 201 เป็น `REPLACEMENT`, Audit ครบตาม `GOLDEN_PATH_AUDIT_ACTIONS` ตามลำดับ | ยังไม่มี |
+| `tests/integration/test_event_ignored.py` | 1 | Event ที่ไม่มี Gap (203 ลาเวร 2) → `IGNORED` ไม่มีเคส | มีแล้ว (ขั้นที่ 4) |
+| `tests/integration/test_orchestrator.py` | 1 | Exception กลางทาง → Rollback, `FAILED` + `WORKFLOW_FAILED` (D11) | มีแล้ว (ขั้นที่ 3) |
+| `tests/unit/workflow/test_transitions.py` | 1 | Transition ของ Golden Path ผ่าน, คู่ที่ไม่อยู่ในตารางโยน Error, State สิ้นสุดไปต่อไม่ได้, ทุก State ที่ไม่ใช่สิ้นสุดไป `FAILED` ได้ | มีแล้ว (ขั้นที่ 3) |
+
+สามไฟล์ที่มีแล้วตรวจเทียบกับคอลัมน์ "ตรวจอะไร" (2026-10-10) โดยใส่บั๊กทีละจุดในโค้ดที่แต่ละไฟล์ตรวจ แล้วดูว่า Test แดงหรือไม่
+บั๊ก 10 แบบแรก (Transition 5 แบบ, D11 3 แบบ, Event ที่ไม่มี Gap 2 แบบ) Test แดงทุกแบบ รีวิวพบอีก 2 แบบที่ Test ยังเขียว จึงเพิ่ม 2 กรณี
+
+* `test_transitions.py`: Test เดิมอ่าน `TERMINAL_CASE_STATUSES` จากค่าคงที่ตัวเดียวกับ `transitions.py` ถ้า Set นี้ผิด (เช่น มี `MANUAL_HANDOFF`)
+  ทั้งสองฝั่งเปลี่ยนตามกันและไม่มีอะไรแดง เพิ่ม Test ที่ตรึงว่า State สิ้นสุดคือ `RESOLVED`, `UNRESOLVED`, `FAILED` เท่านั้น
+* `test_orchestrator.py`: Test D11 ตัวแรกตรวจเพิ่มว่ารอบที่ล้มเหลวถูก Commit หนึ่งครั้ง (เดิมถ้าข้าม `db.commit()` หลังบันทึก `FAILED`
+  มีแต่ Test ของไฟล์อื่นที่แดง)
+
+งาน CI ที่เหลือ (คน 2)
+
+| งาน | ทำไม |
+|---|---|
+| เพิ่ม `next build` ใน Job Frontend ของ `.github/workflows/ci.yml` | CI ตอนนี้รันแค่ `tsc` และ `vitest` หน้าที่ Build ไม่ผ่านจึง Merge ได้ |
+| ตั้ง Branch Protection ที่ `staging` และ `main` ให้ CI ต้องเขียวก่อน Merge | กติกา "PR ที่ทำให้แดงห้าม Merge" ข้างล่างยังเป็นแค่ข้อตกลง ต้องใช้สิทธิ์ Admin ของ Repo |
+| ปิด Checklist ท้ายเอกสาร: ยืนยัน `make up` บนเครื่องของทั้งสามคน แล้วติ๊กข้อที่ผ่านจริง | Checklist ยังติ๊กไม่ครบ ทั้งที่หลายข้อผ่านแล้วตั้งแต่ขั้นที่ 4 และ 5 จึงยังบอกไม่ได้ว่า Skeleton เสร็จ |
 
 ```python
 def test_golden_path(client):
