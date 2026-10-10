@@ -376,9 +376,12 @@ nara/
 │   ├── tests/
 │   │   └── unit/
 │   │       ├── lib/
-│   │       │   └── api.test.ts
-│   │       └── hooks/
-│   │           └── usePolling.test.ts
+│   │       │   ├── api.test.ts
+│   │       │   └── demo.test.ts
+│   │       ├── hooks/
+│   │       │   └── usePolling.test.ts
+│   │       └── app/
+│   │           └── lineSimRoster.test.tsx
 │   │
 │   └── src/
 │       ├── app/
@@ -421,7 +424,11 @@ nara/
 │       │
 │       ├── lib/
 │       │   ├── api.ts
-│       │   ├── types.ts
+│       │   ├── demo.ts
+│       │   ├── format.ts
+│       │   ├── types/
+│       │   │   ├── outreach.ts
+│       │   │   └── roster.ts
 │       │   └── constants.ts
 │       │
 │       └── hooks/
@@ -442,7 +449,8 @@ nara/
 
 Frontend tests live in `frontend/tests/`, separate from application code, following
 the backend convention. Vitest runs the API tests with mocked network responses;
-the polling hook tests use React Testing Library and jsdom with fake timers.
+the polling hook and page tests use React Testing Library and jsdom. Page tests
+cover identity selection, response errors, stale requests and roster rows.
 These unit tests do not require a running backend or database.
 
 Run once: `docker compose exec frontend npm test`.
