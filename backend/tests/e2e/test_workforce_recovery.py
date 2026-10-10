@@ -96,7 +96,7 @@ def test_golden_path_recovers_workforce(client: TestClient) -> None:
     accepted = client.post(
         "/demo/line-sim/respond",
         headers={"X-Demo-User": "201"},
-        json={"response": "ACCEPT"},
+        json={"outreach_id": offer["id"], "response": "ACCEPT"},
     )
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["outreach_id"] == offer["id"]

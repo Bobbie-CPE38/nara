@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_db
 from app.api.exception_handlers import register_exception_handlers
 from app.api.routes import line_sim
+from app.core.constants import MAX_BIGINT
 from app.db.base import Base
 from app.db.models import (
     AuditLog,
@@ -160,7 +161,9 @@ def _assert_unchanged(db: Session, offer: CandidateOutreach) -> None:
 def test_accept_response_and_audit_contract(
     client: TestClient, production_seeded: Session, offer: CandidateOutreach
 ) -> None:
-    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "ACCEPT"}
+    )
     assert response.status_code == 200
     assert response.json() == {
         "outreach_id": offer.id,
@@ -200,6 +203,7 @@ def test_service_delegates_status_and_commit_to_resume(
             db,
             staff_id=201,
             actor_id=actor_service.user_id(db, 201),
+            outreach_id=offer.id,
             response=CandidateResponse.ACCEPT,
         )
     resume.assert_called_once_with(db, offer.case_id, CaseStatus.SAFETY_VALIDATION)
@@ -215,7 +219,9 @@ def test_other_staff_offers_and_answered_offers_do_not_make_selection_ambiguous(
     answered = _make_offer(production_seeded)
     answered.status = OutreachStatus.ACCEPTED
     production_seeded.commit()
-    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "ACCEPT"}
+    )
     assert response.status_code == 200
     assert response.json()["outreach_id"] == offer.id
 
@@ -232,7 +238,9 @@ def test_sent_offer_on_another_case_does_not_block_the_waiting_offer(
     stale_case.status = status
     production_seeded.commit()
 
-    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "ACCEPT"}
+    )
 
     assert response.status_code == 200
     assert response.json()["outreach_id"] == offer.id
@@ -259,7 +267,9 @@ def test_only_offer_on_a_finished_case_is_conflict_without_writes(
     case.status = status
     production_seeded.commit()
 
-    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "ACCEPT"}
+    )
 
     assert response.status_code == 409
     assert response.json() == {"detail": "No open offer for this staff member"}
@@ -274,7 +284,9 @@ def test_only_offer_on_a_finished_case_is_conflict_without_writes(
 def test_other_staff_cannot_answer_offer(
     client: TestClient, production_seeded: Session, offer: CandidateOutreach, answer: str
 ) -> None:
-    response = client.post(URL, headers={"X-Demo-User": "105"}, json={"response": answer})
+    response = client.post(
+        URL, headers={"X-Demo-User": "105"}, json={"outreach_id": offer.id, "response": answer}
+    )
     assert response.status_code == 409
     assert response.json() == {"detail": "No open offer for this staff member"}
     _assert_unchanged(production_seeded, offer)
@@ -283,7 +295,9 @@ def test_other_staff_cannot_answer_offer(
 def test_reject_is_422_without_writes(
     client: TestClient, production_seeded: Session, offer: CandidateOutreach
 ) -> None:
-    response = client.post(URL, headers=HEADERS, json={"response": "REJECT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "REJECT"}
+    )
     assert response.status_code == 422
     _assert_unchanged(production_seeded, offer)
 
@@ -295,7 +309,9 @@ def test_reject_works_without_new_starlette_status_constant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delattr(line_sim.status, "HTTP_422_UNPROCESSABLE_CONTENT", raising=False)
-    response = client.post(URL, headers=HEADERS, json={"response": "REJECT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "REJECT"}
+    )
     assert response.status_code == 422
     _assert_unchanged(production_seeded, offer)
 
@@ -312,7 +328,9 @@ def test_real_outreach_then_accept_writes_each_offer_audit_once(
     orchestrator.advance(db, case.id)
     assert case.status is CaseStatus.WAITING_RESPONSE
     sent = db.scalars(select(CandidateOutreach)).one()
-    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": sent.id, "response": "ACCEPT"}
+    )
     assert response.status_code == 200
     assert response.json()["outreach_id"] == sent.id
     assert response.json()["case_status"] == "WAITING_APPROVAL"
@@ -327,7 +345,7 @@ def test_multiple_open_offers_are_conflict_before_answer_check(
 ) -> None:
     other = _make_offer(production_seeded)
     production_seeded.commit()
-    response = client.post(URL, headers=HEADERS, json={"response": answer})
+    response = client.post(URL, headers=HEADERS, json={"outreach_id": offer.id, "response": answer})
     assert response.status_code == 409
     assert response.json() == {"detail": "Expected exactly one open offer for this staff member"}
     _assert_unchanged(production_seeded, offer)
@@ -338,8 +356,13 @@ def test_multiple_open_offers_are_conflict_before_answer_check(
 def test_repeated_answer_is_409_without_second_audit(
     client: TestClient, production_seeded: Session, offer: CandidateOutreach, answer: str
 ) -> None:
-    assert client.post(URL, headers=HEADERS, json={"response": "ACCEPT"}).status_code == 200
-    response = client.post(URL, headers=HEADERS, json={"response": answer})
+    assert (
+        client.post(
+            URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "ACCEPT"}
+        ).status_code
+        == 200
+    )
+    response = client.post(URL, headers=HEADERS, json={"outreach_id": offer.id, "response": answer})
     assert response.status_code == 409
     actions = list(production_seeded.scalars(select(AuditLog.action)))
     assert actions.count(AuditAction.OFFER_ACCEPTED) == 1
@@ -353,7 +376,9 @@ def test_only_sent_offers_can_be_answered(
 ) -> None:
     offer.status = status
     production_seeded.commit()
-    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "ACCEPT"}
+    )
     assert response.status_code == 409
     production_seeded.expire_all()
     assert offer.status is status
@@ -368,14 +393,25 @@ def test_authentication_is_required(
     offer: CandidateOutreach,
     headers: dict[str, str],
 ) -> None:
-    assert client.post(URL, headers=headers, json={"response": "ACCEPT"}).status_code == 401
+    assert (
+        client.post(
+            URL, headers=headers, json={"outreach_id": offer.id, "response": "ACCEPT"}
+        ).status_code
+        == 401
+    )
     _assert_unchanged(production_seeded, offer)
 
 
 @pytest.mark.parametrize(
-    "body", [{}, {"response": "MAYBE"}, {"response": "ACCEPT", "outreach_id": 1}]
+    "body",
+    [
+        {},
+        {"response": "ACCEPT"},
+        {"outreach_id": 1, "response": "MAYBE"},
+        {"outreach_id": 1, "response": "ACCEPT", "staff_id": 201},
+    ],
 )
-def test_body_only_accepts_a_response(
+def test_body_requires_offer_id_and_response_without_extra_fields(
     client: TestClient,
     production_seeded: Session,
     offer: CandidateOutreach,
@@ -383,6 +419,70 @@ def test_body_only_accepts_a_response(
 ) -> None:
     assert client.post(URL, headers=HEADERS, json=body).status_code == 422
     _assert_unchanged(production_seeded, offer)
+
+
+@pytest.mark.parametrize("outreach_id", [None, 0, -1, MAX_BIGINT + 1, True, False, 1.0, "1"])
+def test_offer_id_must_be_a_positive_bigint_integer(
+    client: TestClient,
+    production_seeded: Session,
+    offer: CandidateOutreach,
+    outreach_id: object,
+) -> None:
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": outreach_id, "response": "ACCEPT"}
+    )
+    assert response.status_code == 422
+    _assert_unchanged(production_seeded, offer)
+
+
+@pytest.mark.parametrize("answer", ["ACCEPT", "REJECT"])
+def test_stale_offer_id_does_not_answer_the_new_open_offer(
+    client: TestClient, production_seeded: Session, offer: CandidateOutreach, answer: str
+) -> None:
+    # The browser saw A; another action closed A and opened B before its POST.
+    old_case = production_seeded.get(StaffingCase, offer.case_id)
+    assert old_case is not None
+    old_case.status = CaseStatus.FAILED
+    offer.status = OutreachStatus.CANCELLED
+    new_offer = _make_offer(production_seeded)
+    production_seeded.commit()
+
+    with patch.object(orchestrator, "resume", wraps=orchestrator.resume) as resume:
+        response = client.post(
+            URL, headers=HEADERS, json={"outreach_id": offer.id, "response": answer}
+        )
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "The open offer has changed; refresh offers before responding"
+    }
+    resume.assert_not_called()
+    _assert_unchanged(production_seeded, new_offer)
+    assert offer.status is OutreachStatus.CANCELLED
+    assert offer.response_at is None
+    assert old_case.status is CaseStatus.FAILED
+
+
+def test_unknown_offer_id_is_conflict_without_writes(
+    client: TestClient, production_seeded: Session, offer: CandidateOutreach
+) -> None:
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": MAX_BIGINT, "response": "ACCEPT"}
+    )
+    assert response.status_code == 409
+    _assert_unchanged(production_seeded, offer)
+
+
+def test_another_staff_offer_id_cannot_replace_the_authenticated_users_offer(
+    client: TestClient, production_seeded: Session, offer: CandidateOutreach
+) -> None:
+    other = _make_offer(production_seeded, staff_id=105)
+    production_seeded.commit()
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": other.id, "response": "ACCEPT"}
+    )
+    assert response.status_code == 409
+    _assert_unchanged(production_seeded, offer)
+    _assert_unchanged(production_seeded, other)
 
 
 def test_invalid_case_transition_rolls_back_answer_and_audit(
@@ -398,7 +498,9 @@ def test_invalid_case_transition_rolls_back_answer_and_audit(
         raise InvalidTransitionError("case changed after offer selection")
 
     monkeypatch.setattr(orchestrator, "resume", conflict)
-    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "ACCEPT"}
+    )
     assert response.status_code == 409
     _assert_unchanged(production_seeded, offer)
 
@@ -413,7 +515,9 @@ def test_handler_failure_returns_200_failed_and_preserves_answer(
         raise RuntimeError("safety failed")
 
     monkeypatch.setitem(orchestrator.HANDLERS, CaseStatus.SAFETY_VALIDATION, fail)
-    response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+    response = client.post(
+        URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "ACCEPT"}
+    )
     assert response.status_code == 200
     assert response.json()["case_status"] == "FAILED"
     production_seeded.expire_all()
@@ -434,7 +538,9 @@ def test_unrecordable_workflow_error_returns_500_and_rolls_back(
     with patch.object(
         actor_service, "component_id", side_effect=ActorNotFoundError("missing actor")
     ):
-        response = client.post(URL, headers=HEADERS, json={"response": "ACCEPT"})
+        response = client.post(
+            URL, headers=HEADERS, json={"outreach_id": offer.id, "response": "ACCEPT"}
+        )
     assert response.status_code == 500
     _assert_unchanged(production_seeded, offer)
 
@@ -464,7 +570,11 @@ def test_simultaneous_accepts_record_one_answer(committed_offer: int) -> None:
             with TestClient(_app()) as client:
                 barrier.wait()
                 responses.append(
-                    client.post(URL, headers=HEADERS, json={"response": "ACCEPT"}).status_code
+                    client.post(
+                        URL,
+                        headers=HEADERS,
+                        json={"outreach_id": committed_offer, "response": "ACCEPT"},
+                    ).status_code
                 )
         except Exception as error:
             errors.append(error)

@@ -176,7 +176,8 @@ Calculator รับ `int` หรือ `Decimal` ที่มากกว่า
 LINE Sim ใช้ Staff ที่เลือกเป็น `X-Demo-User`; Roster อ่านด้วยตัวตน 900 และแสดงทุก Assignment รวม `CANCELLED`
 ปุ่ม Reject อธิบาย `422` ตามข้อ 9.2 ของ Workflow; Type ของ API แยกตาม Feature ใน `lib/types/outreach.ts` และ `lib/types/roster.ts`
 Test ของหน้าอยู่ใน `frontend/tests/unit/app/lineSimRoster.test.tsx` และ Navigation กลางอยู่ใน `src/app/layout.tsx`
-Refresh หลังตอบ Offer เก็บตารางเดิมไว้; ถ้า `outreach_id` ที่ตอบกลับไม่ตรงกับแถวที่กด แสดงคำเตือนและอ่านรายการใหม่
+LINE Sim ส่ง `outreach_id` ของแถวที่กดพร้อมคำตอบ; Backend เทียบหลังล็อก ถ้า Offer เปลี่ยนตอบ `409` ก่อนเขียนข้อมูล แล้วหน้าเว็บอ่านรายการใหม่
+Refresh หลังตอบ Offer เก็บตารางเดิมไว้; การตรวจ ID ในคำตอบยังคงไว้เพื่อจับคำตอบที่ไม่ตรง Contract
 แถวที่ตอบแล้วปิดปุ่มจน Poll เห็นข้อมูลเปลี่ยน; ข้อความผลลัพธ์หายเมื่อข้อมูล Offer / Case ไม่ตรงแล้ว และปิดการเปลี่ยน Staff ระหว่าง POST
 ข้อความ 409 หายเมื่อมี Offer ใหม่เปิด; Poll มี Timeout 10 วินาที (ปรับด้วย `timeoutMs`) แล้ว Abort และ Retry โดยเก็บข้อมูลเดิมไว้
 เวลาทุกหน้าใช้ `lib/format.ts`; Dropdown แสดงเฉพาะ ID ไม่คัดลอกชื่อจาก Seed
@@ -222,8 +223,10 @@ def test_golden_path(client):
     case_id = r.json()["case_id"]
     assert case(client, case_id)["status"] == "WAITING_RESPONSE"
 
+    offer_id = client.get("/demo/line-sim/offers?staff_id=201",
+                          headers={"X-Demo-User": "201"}).json()[0]["id"]
     client.post("/demo/line-sim/respond", headers={"X-Demo-User": "201"},
-                json={"response": "ACCEPT"})
+                json={"outreach_id": offer_id, "response": "ACCEPT"})
     assert case(client, case_id)["status"] == "WAITING_APPROVAL"
 
     approval_id = client.get("/approvals?pending=true",

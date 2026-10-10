@@ -3,7 +3,7 @@
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.dependencies import DbSession, DemoUser
 from app.core.constants import MAX_BIGINT
@@ -23,9 +23,10 @@ def offers(
 
 
 class ResponseRequest(BaseModel):
-    """The header identifies the responder; the body only contains the answer."""
+    """The header identifies the responder; outreach_id identifies the offer they saw."""
 
     model_config = ConfigDict(extra="forbid")
+    outreach_id: int = Field(strict=True, ge=1, le=MAX_BIGINT)
     response: CandidateResponse
 
 
@@ -43,6 +44,7 @@ def respond(body: ResponseRequest, db: DbSession, user: DemoUser) -> ResponseRes
             db,
             staff_id=user.staff.id,
             actor_id=user.actor_id,
+            outreach_id=body.outreach_id,
             response=body.response,
         )
     except outreach_service.OpenOfferConflictError as error:

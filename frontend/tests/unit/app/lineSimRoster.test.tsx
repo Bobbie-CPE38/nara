@@ -151,7 +151,7 @@ describe("LINE simulator", () => {
       expect.objectContaining({
         method: "POST",
         demoUser: 201,
-        json: { response: "ACCEPT" },
+        json: { outreach_id: offer.id, response: "ACCEPT" },
       }),
     );
     expect(
@@ -192,6 +192,29 @@ describe("LINE simulator", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
     await screen.findByText("ACCEPTED");
     expect(screen.getByRole("alert").textContent).toContain("No open offer");
+  });
+  it("sends the clicked offer ID and refreshes a replacement offer after a conflict", async () => {
+    let conflicted = false;
+    replies((path) => {
+      if (path.endsWith("/respond")) {
+        conflicted = true;
+        throw new ApiError(409, {
+          detail: "The open offer has changed; refresh offers before responding",
+        });
+      }
+      return conflicted ? [{ ...offer, id: 8, case_id: 9 }] : [offer];
+    });
+    render(<LineSimulatorPage />);
+    await screen.findByText("SENT");
+    fireEvent.click(screen.getByRole("button", { name: "Accept offer 1" }));
+    expect(await screen.findByRole("button", { name: "Accept offer 8" })).toBeTruthy();
+    const mutations = request.mock.calls.filter(([path]) => path.endsWith("/respond"));
+    expect(mutations).toHaveLength(1);
+    expect(mutations[0][1]).toEqual(expect.objectContaining({
+      demoUser: 201,
+      json: { outreach_id: 1, response: "ACCEPT" },
+    }));
+    expect(screen.queryByText("ACCEPTED")).toBeNull();
   });
   it("clears a 409 explanation when the offer ID is reused with a new sent time", async () => {
     vi.useFakeTimers();

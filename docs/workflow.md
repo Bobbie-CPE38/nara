@@ -256,7 +256,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 |---|---|---|---|
 | 1 | Plan ล่าสุด | คน 2 → คน 3 | `CANDIDATE_PLANS` ที่ `case_id = case.id` เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error |
 | 2 | Plan → Outreach | คน 3 | `CANDIDATE_ITEMS` ที่ `rank = 1` ใน Plan นั้น หนึ่งแถวพอดี |
-| 3 | Respond | คน 3 | ทำตามลำดับ: (1) ผู้ตอบคือ `user.staff.id` จาก `X-Demo-User` Body ไม่มี Outreach ID (2) `CANDIDATE_OUTREACH` ที่ `status = SENT` บนเคสที่ `status = WAITING_RESPONSE` และ Join ไปที่ Item ซึ่ง `staff_id = user.staff.id` หนึ่งแถวพอดี ไม่เจอ → `409` (ตอบไปแล้วหรือไม่มี Offer) เจอหลายแถว → Error เพราะ Skeleton ส่ง Offer เดียว (3) `REJECT` → `422` ไม่เขียน DB (ข้อ 9.2) (4) `ACCEPT` → `status = ACCEPTED`, `response_at = clock.now()` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` |
+| 3 | Respond | คน 3 | ทำตามลำดับ: (1) ผู้ตอบคือ `user.staff.id` จาก `X-Demo-User` Body ต้องส่ง `outreach_id` ของ Offer ที่เห็น (2) `CANDIDATE_OUTREACH` ที่ `status = SENT` บนเคสที่ `status = WAITING_RESPONSE` และ Join ไปที่ Item ซึ่ง `staff_id = user.staff.id` หนึ่งแถวพอดี ไม่เจอ → `409` (ตอบไปแล้วหรือไม่มี Offer) เจอหลายแถว → Error เพราะ Skeleton ส่ง Offer เดียว (3) ล็อก Offer แล้วเทียบ `outreach_id` ไม่ตรง → `409` ไม่เขียน DB (4) `REJECT` → `422` ไม่เขียน DB (ข้อ 9.2) (5) `ACCEPT` → `status = ACCEPTED`, `response_at = clock.now()` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` |
 | 4 | Outreach → Safety | คน 3 → คน 2 | โหลดผ่าน `outreach_service.get_accepted_outreach(db, case_id)` ต้องมี `CANDIDATE_OUTREACH` ของเคสที่ `status = ACCEPTED` หนึ่งแถวพอดี ไม่เจอ → `NoResultFound`, หลายแถว → `MultipleResultsFound` ให้ Handler ปล่อย Error ไปยัง D11 |
 | 5 | Safety → Approval Request | คน 2 | `case_id` = เคสนั้น `candidate_item_id` = Item ของ Outreach ที่ตอบรับ โหลด Plan จาก `item.plan_id` แล้วตรวจ `plan.case_id == case.id` (FK สองตัวไม่ได้รับประกันข้อนี้) ตั้ง `approval_mode = MANUAL`, `required_approver_role` = `id` ของ Role ชื่อ `HEAD_NURSE` (ค้นด้วยชื่อ), `is_pending = true`, `requested_at = clock.now()` |
 | 6 | รายการรออนุมัติ | คน 3 | `GET /approvals?pending=true` คืนแถวที่ `is_pending = true` เรียงด้วย `id` จากน้อยไปมาก ใน Skeleton เคสหนึ่งมีได้ไม่เกินหนึ่งแถว |
@@ -406,15 +406,18 @@ Handler นี้เป็นตาข่ายชั้นสุดท้าย
 
 ข้อ 5 ยังไม่มี Transition ของการปฏิเสธและการไม่อนุมัติ จนกว่าจะเพิ่ม ให้ทำดังนี้ โดยการตรวจที่มาก่อนใน Seam 3 และ 7 ยังทำตามเดิม
 
-* `POST /demo/line-sim/respond`: ไม่มี Offer ที่เปิดอยู่ → `409` ถ้ามี Offer และคำตอบคือ `REJECT` → `422` ไม่เขียนอะไรลง DB
+* `POST /demo/line-sim/respond`: ไม่มี Offer ที่เปิดอยู่ / มีหลาย Offer / `outreach_id` ไม่ตรง → `409` ถ้ามี Offer ที่ตรงและคำตอบคือ `REJECT` → `422` ไม่เขียนอะไรลง DB
 * `POST /approvals/{id}/decision`: `404` / `403` / `409` ตาม Seam 7 ถ้าผ่านทั้งหมดและ `approved = false` → `422` ไม่เขียนอะไรลง DB
 
 Seam 3 ใช้ `outreach_service.record_response()` โดย Route ส่ง `user.staff.id` และ
-`user.actor_id` จาก Dependency Body รับแค่ `{"response": "ACCEPT"}` หรือ `{"response": "REJECT"}`
-ไม่รับ `outreach_id` / `staff_id` หรือฟิลด์อื่น Service ค้น Offer ที่ `SENT` ของผู้ตอบผ่าน
+`user.actor_id` จาก Dependency Body ต้องส่ง `{"outreach_id": <id>, "response": "ACCEPT"}` หรือ `REJECT`
+`outreach_id` ต้องเป็น JSON Integer บวกในช่วง PostgreSQL bigint; ไม่รับ Boolean, Float, String หรือฟิลด์อื่น เช่น `staff_id`
+ไม่ส่ง ID หรือส่งค่าผิดรูปแบบตอบ `422` Service ค้น Offer ที่ `SENT` ของผู้ตอบผ่าน
 `CANDIDATE_ITEMS.staff_id` และเฉพาะเคสที่ `STAFFING_CASES.status = WAITING_RESPONSE`
 Offer ที่ยังเป็น `SENT` บนเคสสถานะอื่นไม่นับและไม่ขวางการตอบ Offer ของเคสที่กำลังรอคำตอบ
-Service ล็อกเฉพาะแถว Outreach ตามลำดับ `id` ก่อนตรวจคำตอบ
+Service ล็อกเฉพาะแถว Outreach ตามลำดับ `id` แล้วเทียบ ID กับ `outreach_id` ที่ผู้ตอบส่ง ก่อนตรวจคำตอบ
+ถ้า Offer A ที่หน้าเว็บเห็นปิดไปและมี Offer B เปิดแทน ตอบ `409` โดยไม่เปลี่ยน B / Case, ไม่เรียก `resume()` และไม่เขียน Audit
+ID ใน Body ไม่ใช่สิทธิ์ในการตอบ; ผู้ตอบยังต้องเป็น Staff เจ้าของ Offer ตาม Header เสมอ
 ลำดับการล็อกคือ **Outreach ก่อน Case** (`resume()` ล็อก Case): งาน Timeout ในอนาคตต้องใช้ลำดับเดียวกันเพื่อไม่ให้ Deadlock
 ไม่เจอหรือเจอหลายแถวตอบ `409` โดยไม่เขียนอะไร การ `ACCEPT` ตั้ง `response_at = clock.now()`
 เขียน `OFFER_ACCEPTED` ด้วย Actor ของผู้ตอบ แล้วเรียก `resume(..., SAFETY_VALIDATION)`
@@ -689,7 +692,7 @@ Skeleton เก็บทั้งสองตาม Schema เดิม แต�
 [Demo Control]  POST /events   (X-Demo-User: 105, STAFF_UNAVAILABLE, shift 1)
    Event PROCESSED → OPEN → ASSESSING → OPTIMIZING → OUTREACH → WAITING_RESPONSE   (หยุด)
 
-[LINE Sim]      POST /demo/line-sim/respond   (X-Demo-User: 201, ACCEPT)
+[LINE Sim]      POST /demo/line-sim/respond   (X-Demo-User: 201, outreach_id จาก GET offers, ACCEPT)
    → SAFETY_VALIDATION → WAITING_APPROVAL                                          (หยุด)
 
 [Approvals]     POST /approvals/{id}/decision   (X-Demo-User: 900, approved = true)
@@ -759,3 +762,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ขั้นที่ 4 Gap: Handler `assess_staffing` ตัวจริงแทน Stub บันทึก `STAFFING_GAP` (+ Role, Skill) พร้อม Snapshot ผ่าน `gap_service.record_gap()` และเขียน `GAP_ASSESSED`; ข้อ 8 ระบุรูปแบบ `role_gaps` / `skill_gaps` ใน payload และ `NoGapError` เมื่อเวรไม่ขาดคน | คน 1 |
 | 2026-10-10 | ขั้นที่ 4 LINE Sim Read: เพิ่ม `GET /demo/line-sim/offers?staff_id=` และ `outreach_service.list_offers()` คืนประวัติ Offer ของ Staff ที่เลือกพร้อม Case Status และเวลา `+07:00`; ใช้ Demo Auth และไม่เขียนข้อมูล เพิ่ม Integration Tests | คน 3 |
 | 2026-10-10 | ขั้นที่ 4 อ่าน Roster: เพิ่ม `GET /roster?shift_id=` และ `roster_service.get_shift_roster()`; ข้อ 9.3 ระบุรูปแบบคำตอบ `{shift, assignments}` ลำดับ `401` → `422` → `404` คืนทุกสถานะเรียงด้วย `id` และไม่นับ Coverage; `ShiftNotFoundError` ย้ายไป `app/domain/errors.py`; ข้อ 12 เพิ่มการตั้ง `COMPLETED`, สิทธิ์อ่านตาม Ward, ธงไม่พร้อม และ `?staff_id=` | คน 3 |
+| 2026-10-10 | Issue #26: LINE Sim ต้องส่ง `outreach_id` ของ Offer ที่เห็น; Service เทียบ ID หลังล็อกและก่อนเขียนข้อมูล ตอบ `409` เมื่อ Offer เปลี่ยน Frontend ส่ง ID และ Refresh หลัง Conflict; เพิ่ม Test Stale Offer, สิทธิ์ผู้ตอบ, Validation และคง Race / E2E | คน 3 |
