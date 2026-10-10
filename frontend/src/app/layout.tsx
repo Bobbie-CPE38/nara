@@ -22,9 +22,12 @@ export default function RootLayout({
           <Link href="/" className="text-blue-700 underline">
             Home
           </Link>
-          {/* Enable these links when PR #24's routes merge. */}
-          <span className="text-slate-500">Demo control (coming soon)</span>
-          <span className="text-slate-500">Approvals (coming soon)</span>
+          <Link href="/demo/control" className="text-blue-700 underline">
+            Demo control
+          </Link>
+          <Link href="/approvals" className="text-blue-700 underline">
+            Approvals
+          </Link>
           <Link href="/demo/line-sim" className="text-blue-700 underline">
             LINE simulator
           </Link>

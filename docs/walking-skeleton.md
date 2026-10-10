@@ -165,10 +165,12 @@ Calculator รับ `int` หรือ `Decimal` ที่มากกว่า
 | `demo/control` | ปุ่ม Reset, ปุ่ม "105 แจ้งลาเวร 1", ปุ่ม "203 แจ้งลาเวร 2" (กรณีไม่มี Gap) | 1 |
 | `cases/[id]` | สถานะ, Gap, ผู้สมัครพร้อมอันดับ, Timeline จาก Audit (Poll 2 วินาที) | 1 + 2 |
 | `demo/line-sim` | เลือก Staff ดู Offer ปุ่มรับ/ปฏิเสธ | 3 |
-| `approvals` | รายการรออนุมัติ ปุ่มอนุมัติ/ไม่อนุมัติ (ใช้ตัวตน 900) | 3 |
+| `approvals` | รายการรออนุมัติ ปุ่มอนุมัติ/ไม่อนุมัติ (ใช้ตัวตน 900) | 1 |
 | `roster` | คนในเวร 1 พร้อมสถานะ | 3 |
 
 ตารางธรรมดาก็พอ ยังไม่ต้องออกแบบหน้าตา
+
+ข้อความบนหน้าเว็บเป็นภาษาอังกฤษ Type ของคำตอบ API อยู่ใน `frontend/src/lib/types/` แยกไฟล์ตาม Schema ของ Backend
 
 คน 3: `demo/line-sim` และ `roster` มีหน้า Client แล้ว ใช้ `apiRequest` และ `usePolling` ทุก 2 วินาที
 LINE Sim ใช้ Staff ที่เลือกเป็น `X-Demo-User`; Roster อ่านด้วยตัวตน 900 และแสดงทุก Assignment รวม `CANCELLED`
@@ -178,7 +180,7 @@ Refresh หลังตอบ Offer เก็บตารางเดิมไ�
 แถวที่ตอบแล้วปิดปุ่มจน Poll เห็นข้อมูลเปลี่ยน; ข้อความผลลัพธ์หายเมื่อข้อมูล Offer / Case ไม่ตรงแล้ว และปิดการเปลี่ยน Staff ระหว่าง POST
 ข้อความ 409 หายเมื่อมี Offer ใหม่เปิด; Poll มี Timeout 10 วินาที (ปรับด้วย `timeoutMs`) แล้ว Abort และ Retry โดยเก็บข้อมูลเดิมไว้
 เวลาทุกหน้าใช้ `lib/format.ts`; Dropdown แสดงเฉพาะ ID ไม่คัดลอกชื่อจาก Seed
-Navigation ของ `demo/control`, `approvals` และ Link ของ Case เปิดใช้หลังหน้าใน PR #24 / #25 Merge แล้ว ระหว่างนี้แสดงเป็นข้อความเพื่อไม่ยิง 404
+Navigation ของ `demo/control` และ `approvals` เปิดใช้แล้ว (PR #24) Link ของ Case ในหน้า LINE Sim เปิดใช้หลังหน้าใน PR #25 Merge ระหว่างนี้แสดงเป็นข้อความเพื่อไม่ยิง 404
 
 ---
 
