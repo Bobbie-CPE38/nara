@@ -1,13 +1,25 @@
-"""LINE simulator: the authenticated candidate answers their open offer."""
+"""LINE simulator: view a selected staff member's offers and answer as the demo user."""
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 
 from app.api.dependencies import DbSession, DemoUser
+from app.core.constants import MAX_BIGINT
 from app.domain.enums import CandidateResponse, CaseStatus, OutreachStatus
+from app.schemas.outreach import OfferView
 from app.services import outreach_service
 
 router = APIRouter(prefix="/demo/line-sim", tags=["line-sim"])
+
+
+@router.get("/offers")
+def offers(
+    staff_id: Annotated[int, Query(gt=0, le=MAX_BIGINT)], db: DbSession, user: DemoUser
+) -> list[OfferView]:
+    """Read offer history for the simulator's selected staff member."""
+    return outreach_service.list_offers(db, staff_id=staff_id)
 
 
 class ResponseRequest(BaseModel):
