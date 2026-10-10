@@ -241,6 +241,8 @@ def test_golden_path(client):
 
 GitHub บังคับกติกานี้ด้วย Branch Protection ของ `staging` และ `main` (ตั้งเมื่อ 2026-10-10) ทุกการแก้ไขต้องเข้าผ่าน PR
 และ Check `Backend (ruff, mypy, pytest)` กับ `Frontend (typecheck, vitest, build)` ต้องเขียวก่อน Merge รวมถึงเจ้าของ Repo ด้วย จึง Push ตรงเข้าสอง Branch นี้ไม่ได้
+`staging` เปิด "Require branches to be up to date before merging" ด้วย ทุก PR ต้องมี `staging` ล่าสุดและ CI เขียวอีกรอบก่อน Merge กัน PR สองตัวที่เขียวแยกกันแต่รวมแล้วพัง
+`main` ไม่เปิดข้อนี้ เพราะรับเฉพาะ PR จาก `staging` ซึ่งผ่าน CI แบบรวมกันมาแล้ว และถ้าเปิด ทุกครั้งหลัง Merge เข้า `main` ต้องเปิด PR พา Merge Commit กลับเข้า `staging` ก่อนจึงจะ Merge รอบถัดไปได้
 ชื่อ Check คือชื่อ Job ใน `.github/workflows/ci.yml` ถ้าเปลี่ยนชื่อ Job ต้องแก้ Rule ของทั้งสอง Branch ให้ตรงกัน ไม่เช่นนั้นทุก PR จะรอ Check ที่ไม่มีวันรายงานผล
 Branch ที่แตกก่อน PR #29 ต้อง Merge `staging` เข้ามาหนึ่งครั้ง เพื่อให้รายงาน Check ชื่อใหม่ของ Frontend
 
