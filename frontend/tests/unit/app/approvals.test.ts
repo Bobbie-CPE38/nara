@@ -46,7 +46,7 @@ describe("approvals page", () => {
     const link = await screen.findByRole("link", { name: "7" });
     expect(link.getAttribute("href")).toBe("/cases/7");
     expect(screen.getByText("201")).toBeTruthy();
-    expect(screen.getByText("09/10/2026, 21:00:00")).toBeTruthy();
+    expect(screen.getByText("2026-10-09 21:00:00")).toBeTruthy();
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/approvals\?pending=true$/);
     expect(request.headers.get("X-Demo-User")).toBe("900");

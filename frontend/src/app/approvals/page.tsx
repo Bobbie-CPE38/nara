@@ -4,20 +4,17 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
+import { DEMO_APPROVER_ID } from "@/lib/demo";
+import { formatDateTime } from "@/lib/format";
 import type { ApprovalDecisionResult, PendingApproval } from "@/lib/types/approval";
 
 // The head nurse of the Golden Case (docs/workflow.md, section 10)
-const APPROVER_ID = 900;
-const api = createDemoApi(APPROVER_ID);
+const api = createDemoApi(DEMO_APPROVER_ID);
 
 type Outcome =
   | { kind: "ok" | "error"; message: string }
   // HTTP 200 with case_status FAILED: the decision was saved, the execution was not (D11)
   | { kind: "failed"; approvalId: number; caseId: number };
-
-function formatTime(value: string) {
-  return new Date(value).toLocaleString("en-GB", { timeZone: "Asia/Bangkok" });
-}
 
 export default function Approvals() {
   const load = useCallback(
@@ -79,7 +76,7 @@ export default function Approvals() {
   return (
     <main className="mx-auto max-w-3xl p-8">
       <h1 className="text-2xl font-semibold">Pending approvals</h1>
-      <p className="mt-1 text-sm">Acting as staff {APPROVER_ID}</p>
+      <p className="mt-1 text-sm">Acting as staff {DEMO_APPROVER_ID}</p>
 
       {error && <p className="mt-4 text-red-700">{error.message}</p>}
       {outcome?.kind === "ok" && <p className="mt-4 text-green-700">{outcome.message}</p>}
@@ -123,7 +120,7 @@ export default function Approvals() {
                 </td>
                 <td>{row.staff_id}</td>
                 <td>{row.proposed_shift_id}</td>
-                <td>{formatTime(row.requested_at)}</td>
+                <td>{formatDateTime(row.requested_at)}</td>
                 <td className="flex gap-2">
                   <button
                     type="button"

@@ -376,12 +376,14 @@ nara/
 │   ├── tests/
 │   │   └── unit/
 │   │       ├── lib/
-│   │       │   └── api.test.ts
+│   │       │   ├── api.test.ts
+│   │       │   └── demo.test.ts
 │   │       ├── hooks/
 │   │       │   └── usePolling.test.ts
 │   │       └── app/
 │   │           ├── demoControl.test.ts
-│   │           └── approvals.test.ts
+│   │           ├── approvals.test.ts
+│   │           └── lineSimRoster.test.tsx
 │   │
 │   └── src/
 │       ├── app/
@@ -424,11 +426,14 @@ nara/
 │       │
 │       ├── lib/
 │       │   ├── api.ts
-│       │   ├── constants.ts
-│       │   │
-│       │   └── types/
-│       │       ├── event.ts
-│       │       └── approval.ts
+│       │   ├── demo.ts
+│       │   ├── format.ts
+│       │   ├── types/
+│       │   │   ├── event.ts
+│       │   │   ├── approval.ts
+│       │   │   ├── outreach.ts
+│       │   │   └── roster.ts
+│       │   └── constants.ts
 │       │
 │       └── hooks/
 │           └── usePolling.ts
@@ -448,9 +453,8 @@ nara/
 
 Frontend tests live in `frontend/tests/`, separate from application code, following
 the backend convention. Vitest runs the API tests with mocked network responses;
-the polling hook tests use React Testing Library and jsdom with fake timers.
-Page tests under `tests/unit/app/` render the page with React Testing Library and
-jsdom against a stubbed `fetch`.
+the polling hook and page tests use React Testing Library and jsdom. Page tests
+cover identity selection, response errors, stale requests and roster rows.
 
 API response types live in `frontend/src/lib/types/`, one file per backend schema
 (`event.ts`, `approval.ts`, ...), so pages built in parallel do not edit the same file.
