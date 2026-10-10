@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
 import type { ApprovalDecisionResult, PendingApproval } from "@/lib/types/approval";
@@ -10,7 +10,10 @@ import type { ApprovalDecisionResult, PendingApproval } from "@/lib/types/approv
 const APPROVER_ID = 900;
 const api = createDemoApi(APPROVER_ID);
 
-type Outcome = { ok: boolean; message: string };
+type Outcome =
+  | { kind: "ok" | "error"; message: string }
+  // HTTP 200 with case_status FAILED: the decision was saved, the execution was not (D11)
+  | { kind: "failed"; approvalId: number; caseId: number };
 
 function formatTime(value: string) {
   return new Date(value).toLocaleString("en-GB", { timeZone: "Asia/Bangkok" });
@@ -24,9 +27,19 @@ export default function Approvals() {
   );
   const { data, error, isLoading } = usePolling(load);
   const [busy, setBusy] = useState(false);
-  // Hidden until the next poll drops them from the list
+  // Hidden until a fresh list no longer holds them
   const [decidedIds, setDecidedIds] = useState<number[]>([]);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+
+  useEffect(() => {
+    if (!data) return;
+    // Forget an ID once the list confirms it is gone: a demo reset restarts the
+    // sequence, so a new request can carry the ID of one decided earlier
+    setDecidedIds((ids) => {
+      const stillListed = ids.filter((id) => data.some((row) => row.id === id));
+      return stillListed.length === ids.length ? ids : stillListed;
+    });
+  }, [data]);
 
   async function decide(approvalId: number, approved: boolean) {
     setBusy(true);
@@ -37,15 +50,19 @@ export default function Approvals() {
         { method: "POST", json: { approved } },
       );
       setDecidedIds((ids) => [...ids, approvalId]);
-      setOutcome({
-        ok: true,
-        message: `Approval ${result.approval_id} ${
-          result.is_approved ? "approved" : "rejected"
-        }. Case ${result.case_id}: ${result.case_status}`,
-      });
+      setOutcome(
+        result.case_status === "FAILED"
+          ? { kind: "failed", approvalId: result.approval_id, caseId: result.case_id }
+          : {
+              kind: "ok",
+              message: `Approval ${result.approval_id} ${
+                result.is_approved ? "approved" : "rejected"
+              }. Case ${result.case_id}: ${result.case_status}`,
+            },
+      );
     } catch (cause) {
       setOutcome({
-        ok: false,
+        kind: "error",
         message:
           cause instanceof ApiError
             ? `Approval ${approvalId}: ${cause.message} (HTTP ${cause.status})`
@@ -65,9 +82,20 @@ export default function Approvals() {
       <p className="mt-1 text-sm">Acting as staff {APPROVER_ID}</p>
 
       {error && <p className="mt-4 text-red-700">{error.message}</p>}
-      {outcome && (
-        <p className={`mt-4 ${outcome.ok ? "text-green-700" : "text-red-700"}`}>
+      {outcome?.kind === "ok" && <p className="mt-4 text-green-700">{outcome.message}</p>}
+      {outcome?.kind === "error" && (
+        <p role="alert" className="mt-4 text-red-700">
           {outcome.message}
+        </p>
+      )}
+      {outcome?.kind === "failed" && (
+        <p role="alert" className="mt-4 text-red-700">
+          Approval {outcome.approvalId} was saved, but case {outcome.caseId} failed during
+          execution. Check the{" "}
+          <Link className="underline" href={`/cases/${outcome.caseId}`}>
+            case timeline
+          </Link>
+          .
         </p>
       )}
       {isLoading && <p className="mt-4">Loading…</p>}

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Approvals from "../../../src/app/approvals/page";
@@ -8,6 +8,7 @@ import Approvals from "../../../src/app/approvals/page";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const PENDING = {
@@ -93,6 +94,59 @@ describe("approvals page", () => {
         false,
       ),
     );
+  });
+
+  it("shows a new request that reuses a decided ID after a demo reset", async () => {
+    vi.useFakeTimers();
+    let list: unknown[] = [PENDING];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (_url: string, request: RequestInit) =>
+        new Response(
+          JSON.stringify(
+            request.method === "POST"
+              ? { approval_id: 4, is_approved: true, case_id: 7, case_status: "RESOLVED" }
+              : list,
+          ),
+        ),
+      ),
+    );
+    const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+    render(createElement(Approvals));
+    await tick(0);
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await tick(0);
+    expect(screen.queryByRole("table")).toBeNull();
+
+    // The next poll confirms the decided request is gone
+    list = [];
+    await tick(2000);
+    expect(screen.getByText("No pending approvals.")).toBeTruthy();
+
+    // The demo was reset, so the sequence restarted and the new request has ID 4 again
+    list = [{ ...PENDING, case_id: 9 }];
+    await tick(2000);
+    expect(screen.getByRole("link", { name: "9" }).getAttribute("href")).toBe("/cases/9");
+    expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+  });
+
+  it("reports a failed execution in red with a link to the case, and drops the row", async () => {
+    stubFetch([PENDING], {
+      body: { approval_id: 4, is_approved: true, case_id: 7, case_status: "FAILED" },
+    });
+    render(createElement(Approvals));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Approval 4 was saved, but case 7 failed during execution. Check the case timeline.",
+    );
+    expect(alert.className).toContain("text-red-700");
+    expect(screen.queryByText(/approved\. Case/)).toBeNull();
+    const link = screen.getByRole("link", { name: "case timeline" });
+    expect(link.getAttribute("href")).toBe("/cases/7");
+    // The decision was saved, so the request leaves the list
+    expect(screen.queryByRole("table")).toBeNull();
   });
 
   it("shows a failed read", async () => {
