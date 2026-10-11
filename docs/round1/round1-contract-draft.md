@@ -15,7 +15,7 @@
 | 2 | Hard Rules ของจริง, Solver อ่าน Gap และจัดอันดับด้วย Soft Constraint, กติกาเติม Target ของ Wave, Safety ตรวจรายคน | มีแค่ 3 ข้อใน `availability_service` Solver คืนผู้สมัครตายตัว Safety ไม่ผ่านคือ `FAILED` |
 | 3 | ส่ง Offer เป็น Wave, Reject, ผู้สมัครถือหลาย Offer, อนุมัติและจัดเวรรายคน | ส่ง Offer ให้อันดับ 1 คนเดียว `REJECT` และไม่อนุมัติตอบ `422` |
 
-การแบ่งงานในตารางนี้และในข้อ 10 เป็นข้อเสนอ ทีมปรับได้
+การแบ่งงานในตารางนี้และเจ้าของ PR ในข้อ 10 กำหนดแล้ว
 
 ของกลางที่ตกลงในร่างนี้
 
@@ -47,12 +47,13 @@
 * Hard Rules ชุดแรก ใช้ทั้งตอน Solver คัดคน ตอนเลือกคนของ Wave และตอน Safety
 * Solver อ่าน Gap และจัดอันดับด้วยน้ำหนักจาก `SOFT_CONSTRAINT_POLICY` (ข้อ 8.3)
 * ใช้ `STAFF_WORKING_TIME_SNAPSHOT` ในรอบ 1 (Q54)
+* Timeout ของ Offer ดึงมาจากรอบ 2 (ข้อ 2.7, Q56) การอนุมัติไม่มี Timeout
 
 ### 1.2 ไม่อยู่ในรอบ 1 (เขียนไว้กันหลุดขอบเขต)
 
 | เรื่อง | อยู่รอบไหน | ผลต่อรอบ 1 |
 |---|---|---|
-| Timeout ของผู้สมัครและผู้อนุมัติ | 2, 4 | เคสรอได้ไม่จำกัดเวลา Event ใหม่ของเวรเดียวกันจึงรอได้นาน (ข้อ 2.5) |
+| Timeout ของผู้อนุมัติ | 4 | การอนุมัติไม่มี Timeout หรือ Deadline เคสที่รออนุมัติรอได้ไม่จำกัดเวลา ส่วน Timeout ของ Offer ดึงมารอบ 1 แล้ว (ข้อ 2.7) |
 | OR-Tools | 2, 3 | รอบ 1 จัดอันดับด้วยน้ำหนักจาก `SOFT_CONSTRAINT_POLICY` แล้ว (Q47) แต่ยังไม่ใช้ OR-Tools |
 | การจัดการเคสหลัง `MANUAL_HANDOFF`, Escalation | 3 | รอบ 1 แค่หยุดที่สถานะนี้พร้อมเหตุผล |
 | `NO_SHOW` (อนุมัติและจัดเวรแล้วแต่ไม่มา) | ยังไม่กำหนด | รอบ 1 ไม่ตรวจซ้ำตอนจัดเวร (Q38) |
@@ -67,7 +68,7 @@
 
 ### 2.1 ตาราง Transition
 
-เคสไม่ได้เดินตามผู้สมัครคนใดคนหนึ่งแล้ว สถานะเคสคำนวณจาก Gap ที่เหลือและ Offer ที่ค้าง (ข้อ 2.6 ก) เพิ่ม 6 เส้น และเลิกใช้ 2 เส้น
+เคสไม่ได้เดินตามผู้สมัครคนใดคนหนึ่งแล้ว สถานะเคสคำนวณจาก Gap ที่เหลือและ Offer ที่ค้าง (ข้อ 2.6 ก) เพิ่ม 7 เส้น และเลิกใช้ 2 เส้น
 
 | # | จาก | ไป | เกิดเมื่อ |
 |---|---|---|---|
@@ -75,18 +76,34 @@
 | T2 | `WAITING_RESPONSE` | `WAITING_APPROVAL` | คนที่เข้าเวรแล้วรวมกับคนที่รออนุมัติ ปิด Gap ได้ครบ |
 | T3 | `WAITING_APPROVAL` | `WAITING_RESPONSE` | มีคนหลุด (ไม่อนุมัติ) Gap กลับมาไม่ครบ และเคสยังมี Offer ค้าง |
 | T4 | `WAITING_APPROVAL` | `OUTREACH` | มีคนหลุด Gap กลับมาไม่ครบ และเคสไม่มี Offer ค้าง |
-| T5 | `OUTREACH` | `MANUAL_HANDOFF` | `contact_candidate` ไม่เหลือผู้สมัครที่ส่ง Offer ได้ |
+| T5 | `OUTREACH` | `MANUAL_HANDOFF` | `contact_candidate` ไม่เหลือผู้สมัครที่ส่ง Offer ได้ และไม่มีคนรออนุมัติที่เติม Gap ได้ |
 | T6 | `OPTIMIZING` | `MANUAL_HANDOFF` | Solver ไม่ได้ผู้สมัครเลย (ตอนนี้โยน `NoCandidatesError`) |
+| T7 | `OUTREACH` | `WAITING_APPROVAL` | `contact_candidate` ไม่เหลือผู้สมัครที่ส่ง Offer ได้ แต่ยังมีคนรออนุมัติที่เติม Gap ได้ |
 
 เส้นเดิมที่ยังใช้: `OPEN → ASSESSING → OPTIMIZING → OUTREACH → WAITING_RESPONSE`, `WAITING_APPROVAL → EXECUTING → RESOLVED` และทุกสถานะ `→ FAILED`
 
-เส้นเดิมที่เลิกใช้: `WAITING_RESPONSE → SAFETY_VALIDATION` และ `SAFETY_VALIDATION → WAITING_APPROVAL` เพราะ Safety ตรวจรายคนตอนตอบรับ เคสไม่หยุดที่สถานะนี้ (Q31) ค่า `SAFETY_VALIDATION` คงไว้ใน Enum ข้อเสนอ: ลบสองเส้นนี้ออกจาก `ALLOWED_TRANSITIONS` ใน PR 0
+เส้นเดิมที่เลิกใช้: `WAITING_RESPONSE → SAFETY_VALIDATION` และ `SAFETY_VALIDATION → WAITING_APPROVAL` เพราะ Safety ตรวจรายคนตอนตอบรับ เคสไม่หยุดที่สถานะนี้ (Q31) ค่า `SAFETY_VALIDATION` คงไว้ใน Enum ตกลงแล้ว: ลบสองเส้นนี้ออกจาก `ALLOWED_TRANSITIONS` ใน PR 0
 
 คำที่ใช้ในตาราง
 
 * **Gap ถูกปิด** = Gap ของจำนวนคน, Role และ Skill เป็น 0 ทุกตัว เมื่อนับคนกลุ่มที่ระบุ (Q46)
 * **Offer ค้าง** = Offer ของเคสที่ยัง `SENT` ไม่นับ Offer ที่ผู้สมัครกดรับไม่ได้เพราะรับของเคสอื่นค้างอยู่ (Q29)
 * **คนหลุด** = Safety ไม่ผ่าน หรือผู้อนุมัติไม่อนุมัติ Offer ของเขาเป็น `CANCELLED` (Q1, Q7)
+
+ลำดับการตัดสินเมื่อยังมี Gap (กัน `MANUAL_HANDOFF` เร็วเกินไป)
+
+```text
+ยังมี Gap
+→ มีผู้สมัครรออนุมัติที่เติม Gap ได้ไหม
+    → มี:   รออนุมัติ ไม่ Handoff เพียงเพราะรายชื่อหมด
+    → ไม่มี: ตรวจ Offer ที่ยังรอตอบ และผู้สมัครที่ยังติดต่อได้
+        → มี:   ดำเนินการต่อ
+        → ไม่มี: MANUAL_HANDOFF
+```
+
+* เคสไม่ไป `MANUAL_HANDOFF` ตอนที่ยังมีคนรออนุมัติที่เติม Gap ได้ เพราะยังมีทางแก้ผ่าน Workflow ปกติ รอจนผู้อนุมัติตัดสิน การอนุมัติไม่มี Timeout (ข้อ 2.7)
+* ระหว่างรอ ถ้ายังมีผู้สมัครที่ติดต่อได้ เคสส่ง Wave ต่อได้ตามปกติ การรออนุมัติไม่หยุดการหาคน
+* หลังตัดสินครบแล้ว Gap ยังเหลือ และไม่มีอะไรให้ทำต่อ เคสจึงไป `MANUAL_HANDOFF` ผ่าน T4 แล้ว T5
 
 เส้นที่ไม่ต้องมี
 
@@ -102,12 +119,16 @@
 
 ### 2.3 ผลต่อ Orchestrator (ไฟล์ของคน 1)
 
-* **ฟังก์ชันคำนวณสถานะเคส** ตัวใหม่ รับเคสแล้วคืนสถานะที่ควรเป็นจากตารางข้อ 2.6 ก ทุกเหตุการณ์รายคน (ตอบรับ, ปฏิเสธ, ผล Safety, ผลการอนุมัติ) เรียกฟังก์ชันนี้แทนการส่ง `next_status` เอง ถ้าสถานะไม่เปลี่ยนก็ไม่เขียนอะไร ชื่อและ Signature ตกลงใน PR ของงานนี้ และต้องแจ้งทีมก่อน เพราะคน 2 กับคน 3 เรียกใช้
+* **ฟังก์ชันคำนวณสถานะเคส** ตัวใหม่ แยกเป็นสองชั้นแบบเดียวกับ `gap_calculator`
+  * ชั้นตัดสิน (Pure Function ไม่อ่าน DB): `domain/workflow/case_status.py` มี `decide_status(facts: CaseFacts) -> CaseStatus` โดย `CaseFacts` เป็น Dataclass แบบ Frozen มี 4 ค่า: `gap_closed_by_assigned`, `gap_closed_with_pending`, `has_open_offer`, `has_helpful_pending_approval` คืนได้ 4 สถานะ: `EXECUTING`, `WAITING_APPROVAL`, `WAITING_RESPONSE`, `OUTREACH`
+  * ชั้นลงมือ: `orchestrator.recompute(db: Session, case_id: int) -> CaseStatus` ล็อกเคสแบบเดียวกับ `resume()` โหลดข้อมูลมาสร้าง `CaseFacts` ถ้าสถานะที่ได้เท่าเดิมไม่เขียนอะไร ถ้าต่างจึงเปลี่ยนสถานะผ่าน `assert_transition()` เขียน `CASE_STATUS_CHANGED` แล้วเดินต่อถ้าสถานะใหม่ไม่ใช่จุดรอ Commit เหมือน `resume()`
+  * ผู้เรียก: `outreach_service` (หลังตอบรับ, ปฏิเสธ, Offer หมดเวลา) และ `approval_service` (หลังตัดสิน) เรียก `recompute()` แทนการส่ง `next_status` เอง
+  * `MANUAL_HANDOFF` กับ T7 ไม่ได้มาจาก `decide_status()` Handler `contact_candidate` เป็นคนตัดสินตอนเคสอยู่ `OUTREACH` เพราะต้องตรวจ Hard Rules ของผู้สมัครก่อนจึงรู้ว่าเหลือใคร
 * **Safety ไม่เป็นขั้นของเคสแล้ว** `validate_safety` ถูกเรียกใน Transaction ของการตอบรับ ไม่ใช่ Handler ที่ Orchestrator เรียกตามสถานะ
 * **การจัดเวรรายคน** อยู่ใน Transaction ของการอนุมัติ Handler ของ `EXECUTING` เหลืองานปิดเคส: ยกเลิก Offer ที่เหลือ แล้วเขียน `CASE_RESOLVED` (Q45)
 * T5 กับ T6: Handler คืน `MANUAL_HANDOFF` พร้อม `wait = False` รอบถัดไปของลูปเห็นว่าอยู่ใน `AUTOMATION_STOPPED_STATUSES` แล้วหยุดเอง ต้องเพิ่ม Test ยืนยัน
 * `_MAX_STEPS`: เส้น T1 กับ T4 เข้า `OUTREACH` ซึ่งจบที่ `WAITING_RESPONSE` หรือ `MANUAL_HANDOFF` เสมอ จึงไม่วนไม่จบ ต้องเพิ่ม Test
-* **ยังต้องตกลงใน PR 4:** เคสไป `MANUAL_HANDOFF` ตอนที่ยังมีคำขออนุมัติค้างอยู่ได้ (ตัวอย่าง: ต้องใช้ 2 คน คนแรกรออนุมัติ ที่เหลือปฏิเสธหมด) ข้อเสนอ: คำขอที่ค้างยังตัดสินได้ อนุมัติแล้วได้เข้าเวร เคสคงอยู่ที่ `MANUAL_HANDOFF` (ตรงกับ 24.5)
+* คำขออนุมัติที่ค้างกัน `MANUAL_HANDOFF` ไว้ (ข้อ 2.1 ลำดับการตัดสิน และ T7) `contact_candidate` ต้องเช็กคนรออนุมัติก่อนคืน `MANUAL_HANDOFF`
 
 ### 2.4 คำถามของข้อนี้ที่ตอบแล้ว
 
@@ -313,7 +334,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 
 * แก้ `merge_window_seconds` ของเวรขณะ Window เปิดอยู่ เวลาปิดเลื่อนตาม เพราะไม่ได้เก็บเวลาปิดไว้
 * ถ้า PART B พังกับเวรไหน Event ของเวรนั้นค้าง `RECEIVED` และ Job ลองใหม่ทุกรอบ
-* ระหว่างที่เคสของเวรยังเดินอยู่ Event ใหม่ของเวรนั้นไม่ถูกทำอะไร รอบ 1 ไม่มี Timeout เคสจึงเดินได้นาน คนที่แจ้งลาช่วงนั้นยังเป็น `ASSIGNED` ใน Roster (Q41) และการขาดคนเพิ่มยังไม่ถูกหาคนแทนจนกว่าเคสแรกจบ
+* ระหว่างที่เคสของเวรยังเดินอยู่ Event ใหม่ของเวรนั้นไม่ถูกทำอะไร Offer มี Timeout (ข้อ 2.7) แต่การอนุมัติไม่มี เคสที่ค้างรออนุมัติจึงเดินได้นาน คนที่แจ้งลาช่วงนั้นยังเป็น `ASSIGNED` ใน Roster (Q41) และการขาดคนเพิ่มยังไม่ถูกหาคนแทนจนกว่าเคสแรกจบ
 * ตอน Window = 0 ถ้าเวรมีเคสเดินอยู่ `POST /events` ตอบ `RECEIVED` ไม่ได้เคสทันที Test ที่ให้สองคนลาเวรเดียวกันแล้วคาดสองเคสทันทีต้องแก้
 * ตอน Window = 0 กับ Clock ที่หยุดนิ่งของ Demo Event คนละชุดของเวรเดียวกันได้ `processed_at` เท่ากันได้ ยอมรับ เพราะตอน Window = 0 หนึ่ง Event คือหนึ่งชุดอยู่แล้ว
 * `docs/database-schema.md` มีคอลัมน์ที่เปลี่ยนทั้งห้าตัวแล้ว (หัวข้อ 7, 8, 12, 30) รวม CHECK ของ `processed_at`
@@ -367,7 +388,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 | # | คำตอบ |
 |---|---|
 | 24.1 | อนุมัติกดต่อคน หนึ่ง `APPROVAL_REQUEST` ต่อผู้สมัคร |
-| 24.3 | คนที่ตอบช้ากด Accept ต่อได้จนกว่า Wave นั้นจะ Timeout (รอบ 1 ยังไม่มี Timeout จึงกดได้จนกว่า Offer จะถูกยกเลิก) |
+| 24.3 | คนที่ตอบช้ากด Accept ต่อได้จนกว่า Offer ของเขาจะ Timeout หรือถูกยกเลิก (ข้อ 2.7) |
 | 24.4 | จัดเวรทีละคนเมื่อได้รับอนุมัติ ไม่รอครบ |
 | 24.5 | ได้คนไม่ครบและไม่เหลือผู้สมัคร: คนที่จัดเวรแล้วอยู่ต่อ เคสไป `MANUAL_HANDOFF` |
 | Q25 | ขนาด Wave คิดแยกตาม Gap แต่ละแบบแล้วบวกกัน (Q46 ข้อ 8.3) ไม่มีจุดให้ผู้ใช้เลือก |
@@ -402,11 +423,12 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 |---|---|---|
 | `id` | bigint PK | Policy ID |
 | `maximum_concurrent_offers_per_staff` | integer NOT NULL, CHECK > 0 | จำนวน Offer ที่ยังเปิดได้พร้อมกันต่อคน |
+| `offer_timeout_seconds` | integer NOT NULL, CHECK > 0 | อายุของ Offer เป็นวินาที Seed = 300 (ข้อ 2.7) |
 | `version` | text NOT NULL | รุ่นของ Policy |
 | `effective_from` | timestamptz NOT NULL | เวลาเริ่มใช้ |
 | `created_at` | timestamptz NOT NULL | เวลาสร้าง |
 
-**ง. ยังต้องตอบ**
+**ง. คำตอบของคำถามที่ตามมา**
 
 * **Q27** ตอบแล้ว: จัดเวรรายคนทันทีที่ได้รับอนุมัติ ไม่รอครบ ตรงกับ 24.4 และ 24.5
   * ผลต่อตารางสถานะเคสข้อ ก: แถว "อนุมัติแล้ว ≥ จำนวนที่ต้องการ → `EXECUTING` แล้ว `RESOLVED`" ต้องอ่านว่า "ได้เข้าเวรแล้ว ≥ จำนวนที่ต้องการ" เพราะการจัดเวรเกิดไปแล้วทีละคน
@@ -425,6 +447,27 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 
 **จ. ส่วนอื่นของร่าง** เขียนใหม่ตามข้อนี้ครบแล้ว
 
+### 2.7 Timeout ของ Offer (ดึงมาจากรอบ 2)
+
+ตกลงแล้ว (Q56): Offer มี Timeout ในรอบ 1 ส่วนการอนุมัติ**ไม่มี** Timeout หรือ Deadline เคสที่รออนุมัติรอจนผู้อนุมัติตัดสิน
+
+ค่าที่มีอยู่แล้วคือ `OutreachStatus.TIMEOUT` และ Audit Action `OFFER_TIMEOUT` ต้องเพิ่มคอลัมน์สองตัวตามตาราง ตกลงแล้วทั้งตาราง
+
+| หัวข้อ | กติกา |
+|---|---|
+| ค่าระยะเวลา | คอลัมน์ `OUTREACH_POLICY.offer_timeout_seconds` (integer, NOT NULL, CHECK > 0) Seed = 300 วินาที |
+| เวลาหมดอายุของแต่ละ Offer | คอลัมน์ใหม่ `CANDIDATE_OUTREACH.expires_at` ตั้งตอนส่ง = `sent_at` + ค่าใน Policy ไม่เปลี่ยนทีหลัง Offer ใน Wave เดียวกันจึงหมดพร้อมกัน |
+| หมดเวลาแล้วยังไม่ตอบ | Offer ที่ยัง `SENT` เป็น `TIMEOUT` เขียน `OFFER_TIMEOUT` หนึ่งแถวต่อ Offer แล้วคำนวณสถานะเคสใหม่ (ไม่มี Offer ค้างแล้ว เคสจึงไป `OUTREACH` ส่ง Wave ถัดไป หรือจบตามข้อ 2.1) |
+| ผู้สมัครที่ Timeout | นับว่าเคสนี้ติดต่อไปแล้ว ไม่ส่งซ้ำในเคสเดียวกัน (ข้อ 3.2 ขั้นที่ 4) และ Offer นั้นเลิกนับในเพดานของเขา |
+| Offer ที่กดรับไม่ได้เพราะรับของเคสอื่นค้างอยู่ (Q29) | หมดเวลาตามปกติ ไม่หยุดนาฬิกา |
+| Offer ที่ตอบรับแล้ว (รวมสำรอง) | ไม่มี Timeout เพราะตอบแล้ว |
+| กดตอบหลังหมดเวลา | `409` |
+| ใครสั่ง | Service ของ Job ตัวเดียวกับ Merge Gap (ข้อ 2.5) ทุกรอบให้ Backend ปิด Offer ที่หมดเวลา ปุ่มเลื่อน Clock ของ Demo ทำงานเดียวกัน |
+
+* เจ้าของ: คน 3 เพราะเป็นงาน Outreach การต่อเข้ากับ Service ของ Job ทำร่วมกับคน 1 (PR O ข้อ 10)
+* ผลต่อ Demo: Clock ของ Demo เป็นตัวเดียวทั้งระบบ เลื่อน Clock เกิน 300 วินาที Offer ที่ยัง `SENT` และส่งไว้ก่อนหน้านั้นจะ `TIMEOUT` ทุกแถว ไม่ว่าเป็นของเคสไหน เรื่องนี้เป็นคนละส่วนกับการปิด Window ซึ่งยังเป็นไปตาม Q43 (Window ปิดเมื่อครบ `merge_window_seconds` และเคสก่อนหน้าของเวรจบแล้ว) Scenario และการสาธิตที่เลื่อน Clock เพื่อปิด Window จึงต้องรู้ว่า Offer ที่ค้างอยู่จะหมดเวลาไปพร้อมกัน
+
+
 ---
 
 ## 3. กติกาเลือกผู้สมัครของ Wave (แทน Seam 2 เดิม)
@@ -439,11 +482,11 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 2. **คิด Target** ของ Skill, Role และจำนวนคนจาก Gap ที่เหลือ: `ceil(gap * 11 / 10)` (ข้อ 8.3)
 3. **อ่านผู้สมัคร** จาก Plan ของเคส เรียงตาม `rank` (Plan เดิม ไม่รัน Solver ใหม่ Q3, Q37)
 4. **ข้ามคนที่ใช้ไม่ได้** และจดเหตุผล
-   * เคสนี้ติดต่อไปแล้ว: Offer เป็น `REJECTED`, `CANCELLED` หรือยัง `SENT` / `ACCEPTED` อยู่ คนกลุ่มนี้ไม่อยู่ใน `skipped` เพราะผลของเขาอยู่ในประวัติ Offer แล้ว
+   * เคสนี้ติดต่อไปแล้ว: Offer เป็น `REJECTED`, `CANCELLED`, `TIMEOUT` หรือยัง `SENT` / `ACCEPTED` อยู่ คนกลุ่มนี้ไม่อยู่ใน `skipped` เพราะผลของเขาอยู่ในประวัติ Offer แล้ว
    * ไม่ผ่าน Hard Rules ณ ตอนนี้ (ตัวตรวจเดียวกับ Solver และ Safety ข้อ 7) รหัสเหตุผล = รหัสของกฎ
    * ถือ Offer ครบเพดานแล้ว รหัส `OFFER_LIMIT_REACHED` (ข้อ 3.3)
 5. **เติม Target** ตามลำดับในข้อ 8.3 จนทุก Target เป็น 0 หรือไม่เหลือผู้สมัคร
-6. เลือกได้อย่างน้อยหนึ่งคน → ส่ง Offer ทุกคนพร้อมกัน เคสไป `WAITING_RESPONSE` เลือกไม่ได้เลย → `MANUAL_HANDOFF` (T5)
+6. เลือกได้อย่างน้อยหนึ่งคน → ส่ง Offer ทุกคนพร้อมกัน เคสไป `WAITING_RESPONSE` เลือกไม่ได้เลย → ถ้ามีคนรออนุมัติที่เติม Gap ได้ เคสไป `WAITING_APPROVAL` (T7) ไม่มี → `MANUAL_HANDOFF` (T5)
 
 ### 3.3 เพดาน Offer ต่อคน (แทนกฎ "Offer ค้าง" เดิม)
 
@@ -455,7 +498,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 | นับอะไร | Offer ของผู้สมัครที่เป็น `SENT` หรือ `ACCEPTED` บนเคสที่ยังเดินอยู่ |
 | รหัสตอนข้ามคน | `OFFER_LIMIT_REACHED` |
 | อยู่ที่ไหน | ฟังก์ชัน Public ในชั้น Service (ที่เดิมตกลงไว้คือ `availability_service`) รับ `db` กับ List ของ `staff_id` คืน Set ของคนที่เต็มเพดาน ไม่อยู่ใน `domain/constraints/` เพราะต้อง Query `CANDIDATE_OUTREACH` |
-| ใครทำ | คน 2 ใน PR 1c: ตาราง `OUTREACH_POLICY`, Seed, ฟังก์ชันนี้ และลบ `_staff_with_open_offers()` ออกจาก `optimization_service` |
+| ใครทำ | คน 3 ใน PR 1c (งาน Outreach เป็นของคน 3): ตาราง `OUTREACH_POLICY`, Seed และฟังก์ชันนี้ ส่วนการเปลี่ยน Solver ให้เรียกฟังก์ชันนี้และลบ `_staff_with_open_offers()` ออกจาก `optimization_service` เป็นของคน 2 ใน PR 2a เพราะเป็นไฟล์ของ Solver |
 | ใครเรียก | Solver (ตอนสร้าง Plan) และ `contact_candidate` (ขั้นที่ 4 ของข้อ 3.2) |
 | Safety ไม่เรียก | ผู้สมัครที่กำลังถูกตรวจมี Offer `ACCEPTED` ของเคสตัวเองอยู่ กติกานี้จึงไม่อยู่ในรายการรหัสของข้อ 7.2 |
 
@@ -500,6 +543,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 | | `CANDIDATE_OUTREACH` (ของคนที่ไม่ได้รับอนุมัติ) | `status = CANCELLED` | `outreach_service` (Q8) |
 | | สำรองคนแรก (ถ้ามี) | เข้า Safety ต่อ เขียนแบบเดียวกับแถว "ตอบรับ" | `safety_service` |
 | Gap ถูกปิด (เคสผ่าน `EXECUTING`) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` และของสำรอง | `status = CANCELLED` | Handler ของ `EXECUTING` ผ่าน `outreach_service` |
+| Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และเลย `expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 2.7) | `outreach_service` เรียกจาก Job |
 | ไม่เหลือผู้สมัคร (T5, T6) | ไม่มีแถวใหม่นอกจาก Audit | | Handler |
 
 ### 4.3 ลำดับ Lock
@@ -512,7 +556,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 * **Safety ไม่ผ่าน:** ตั้ง Offer ของผู้ตอบเป็น `CANCELLED` ใน Transaction ของการตอบรับ ซึ่งถือ Lock ของแถวนั้นอยู่แล้ว
 * **เลือกคนของ Wave:** ล็อกแถว `STAFF` ของทั้ง Plan เรียงตาม `id` (ข้อ 3.3) ตรงลำดับเดิม
 * **ปิด Window (ข้อ 2.5):** ล็อก `SHIFT` ก่อน แล้วจึงแก้ Roster ตรงลำดับเดิม
-* ทุกข้อในหัวข้อนี้เป็นการวิเคราะห์ ยังไม่มี Test พิสูจน์ ต้องมี Test สอง Connection อย่างน้อยสามกรณี: สองคนตอบรับเคสเดียวกันพร้อมกัน, คนเดียวตอบรับสองเคสพร้อมกัน, ตอบรับกับอนุมัติคนสุดท้ายพร้อมกัน (ข้อ 13)
+* ลำดับ Lock ในหัวข้อนี้ตกลงแล้ว แต่ยังเป็นการวิเคราะห์ ไม่มี Test พิสูจน์ ต้องมี Test สอง Connection อย่างน้อยสามกรณี: สองคนตอบรับเคสเดียวกันพร้อมกัน, คนเดียวตอบรับสองเคสพร้อมกัน, ตอบรับกับอนุมัติคนสุดท้ายพร้อมกัน (ข้อ 13)
 
 ---
 
@@ -573,7 +617,7 @@ Action เดิมที่ payload เปลี่ยนเพราะ Wave
 * ต4: `EVENT_IGNORED` เกิดเมื่อไม่ผ่าน Threshold (Q32) ไม่มีกิ่ง "ผ่าน Threshold แต่เวรไม่ขาด" เพราะผ่าน Threshold แปลว่ามี Gap อย่างน้อยหนึ่งแบบ
 * payload ของ `CASE_OPENED` ตอนนี้มี `event_id` ตัวเดียว เปลี่ยนเป็น `event_ids` (List) ตาม Q36
 * ทุกกรณี: `EVENT_RECEIVED` กับ `UNAVAILABILITY_CREATED` มี `event_id` ไม่มี `case_id` (Q33) ขึ้น Timeline ของเคสผ่าน `event_id` เรียงตาม `id` ของ Audit
-* ตารางนี้เขียนด้วย `STAFF_UNAVAILABLE` Event อีกสามชนิดเขียนแถว Audit อะไรยังไม่ตกลง (Q40)
+* ตารางนี้เขียนด้วย `STAFF_UNAVAILABLE` Event อีกสามชนิดเขียน Action ของตัวเองแทน `UNAVAILABILITY_CREATED` ในตำแหน่งเดียวกัน: `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` (ข้อ 2.5 Q40)
 * `UNAVAILABILITY_CREATED` อยู่คอลัมน์ขวาทุกกรณี เพราะ Update table ทำตอน Window ปิด (Q41) ผลคือใน ต3 ลำดับตาม `id` เป็น `EVENT_RECEIVED` ทุกตัวก่อน แล้วจึง `UNAVAILABILITY_CREATED` ทุกตัว ไม่สลับเป็นคู่
 * ต3: Event ที่ไม่ผ่าน Threshold แต่อยู่ Window เดียวกับตัวที่ผ่าน เป็น `PROCESSED` และ Link เข้าเคส ไม่มี `EVENT_IGNORED` (Q42)
 * ไม่มีกรณี Event เข้าเคสเดิม: Event ของเวรที่มีเคสเดินอยู่รอเป็น `RECEIVED` จนเคสนั้นจบ แล้วเดินตาม ต3 หรือ ต4 (Q43)
@@ -603,6 +647,10 @@ Offer ของ 202 ยัง `SENT` จนเคส `RESOLVED` แล้วเ�
 **ง. ทุกคนปฏิเสธ**
 `SOLVER_EXECUTED`, `OFFER_SENT` (201), `OFFER_SENT` (202), `OFFER_REJECTED` (201), `OFFER_REJECTED` (202), `OFFER_SENT` (203, Wave 2), `OFFER_REJECTED` (203), `MANUAL_HANDOFF` (`NO_CANDIDATE_LEFT`)
 Wave 2 มี Target เท่า Wave แรก แต่เหลือผู้สมัครคนเดียว
+
+**จ2. Offer หมดเวลาทั้ง Wave แล้ว 203 รับ, อนุมัติ**
+`SOLVER_EXECUTED`, `OFFER_SENT` (201), `OFFER_SENT` (202), `OFFER_TIMEOUT` (201), `OFFER_TIMEOUT` (202), `OFFER_SENT` (203, Wave 2), `OFFER_ACCEPTED` (203), `SAFETY_PASSED` (203), `APPROVAL_REQUESTED` (203), `APPROVAL_APPROVED` (203), `ASSIGNMENT_CREATED` (203), `CASE_RESOLVED`
+Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 2.7 เคสไม่มี Offer ค้างจึงส่ง Wave 2
 
 **จ. Solver ไม่ได้ใครเลย**
 `SOLVER_EXECUTED`, `MANUAL_HANDOFF` (`NO_FEASIBLE_PLAN`) มี `SOLVER_EXECUTED` ก่อนตาม Q12
@@ -636,10 +684,10 @@ Wave 2 มี Target เท่า Wave แรก แต่เหลือผู�
 | Route | ตอนนี้ | รอบ 1 |
 |---|---|---|
 | `POST /events` เวรที่ `merge_window_seconds = 0` | `201` `{event_id, event_status, case_id, case_status}` | ไม่เปลี่ยน: `PROCESSED` พร้อมเคส หรือ `IGNORED` ไม่มีเคส |
-| `POST /events` กับ `event_type` อีกสามชนิด | `422` (`EventNotSupportedError`) | รับ Body ต่อชนิดยังไม่ตกลง (Q40) |
+| `POST /events` กับ `event_type` อีกสามชนิด | `422` (`EventNotSupportedError`) | รับได้ Body และการตรวจของแต่ละชนิดอยู่ในข้อ 2.5 (Q40) |
 | `POST /events` เวรที่ `merge_window_seconds > 0` | (ไม่มี) | `201` `{event_id, event_status: "RECEIVED", case_id: null, case_status: null}` เคสยังไม่เกิดจนกว่า Window ปิด |
 | `POST /demo/clock/advance` (ใหม่) | (ไม่มี) | รับ `{seconds}` เลื่อน Clock ของ Demo แล้วปิด Window ที่ถึงเวลา ตอบเวลาใหม่กับรายการเวรที่ปิด Window |
-| Route อ่าน Event (ใหม่) | (ไม่มี) | ตอบ `event_status` กับ `case_id` ของ Event ให้ผู้แจ้งดูว่า Event ของตัวเองกลายเป็นเคสไหน (Q36) ข้อเสนอชื่อ: `GET /events/{event_id}` |
+| `GET /events/{event_id}` (ใหม่) | (ไม่มี) | ตอบ `{event_id, event_status, case_id, case_status}` รูปเดียวกับคำตอบของ `POST /events` ให้ผู้แจ้งดูว่า Event ของตัวเองกลายเป็นเคสไหน (Q36) |
 | `POST /demo/line-sim/respond` กับ `REJECT` | `422` ไม่เขียน DB | `200` `{outreach_id, outreach_status: "REJECTED", case_id, case_status}` |
 | `POST /approvals/{id}/decision` กับ `approved = false` | `422` ไม่เขียน DB | `200` `{approval_id, is_approved: false, case_id, case_status}` |
 | `GET /cases/{id}/audit` | แถวที่ `case_id` เป็นเคสนี้ | รวมแถวที่ `event_id` เป็น Event ของเคสนี้ด้วย เรียงตาม `id` (Q33) |
@@ -657,7 +705,7 @@ Wave 2 มี Target เท่า Wave แรก แต่เหลือผู�
 * รูปแบบ Body ของคำตอบไม่เปลี่ยน มีแค่ค่าใหม่ จึงไม่ต้องแก้ Type ฝั่ง Frontend
 * `case_status` ในคำตอบเป็นค่าที่คำนวณจากตารางสถานะเคส (ข้อ 2.6 ก): `WAITING_RESPONSE`, `WAITING_APPROVAL`, `RESOLVED`, `MANUAL_HANDOFF` หรือ `FAILED` (D11)
 * `respond` รับคำตอบได้ตราบที่ Offer ยัง `SENT` ไม่ว่าเคสอยู่สถานะไหน (24.3) แทนกติกาเดิมที่เคสต้องอยู่ `WAITING_RESPONSE`
-* Offer ที่ถูก `CANCELLED` แล้ว กดตอบได้ `409` ตามการตรวจเดิม
+* Offer ที่ถูก `CANCELLED` หรือ `TIMEOUT` แล้ว กดตอบได้ `409` ตามการตรวจเดิม
 * Offer ที่ยัง `SENT` แต่กดรับไม่ได้ เพราะผู้ตอบรับ Offer ของเคสอื่นค้างอยู่ (ข้อ 2.6 ค): ตอบ `409` (Q39) ข้อความต้องต่างจาก `409` ของ Offer ที่ถูกยกเลิก เพื่อให้หน้า `line-sim` บอกเหตุผลได้
 * `decision` ตัดสินทีละคน เคสหนึ่งมีคำขออนุมัติค้างได้หลายแถวพร้อมกัน (24.1)
 * การตรวจที่มาก่อนยังเหมือนเดิม: respond ตรวจ `outreach_id` (PR #30), decision ตรวจ `404 → 403 → 409`
@@ -743,7 +791,7 @@ Wave 2 มี Target เท่า Wave แรก แต่เหลือผู�
 | เวรที่นับ | Roster ของผู้สมัครที่สถานะอยู่ใน `COMMITTED_ROSTER_STATUSES` รวมกับเวรของเคส |
 | ไม่ผ่านเมื่อ | ผลรวมมากกว่าค่าใน Policy (เท่ากันถือว่าผ่าน) |
 | แหล่งข้อมูล | ชั่วโมงตามตารางเวรจาก Roster ส่วน OT และเวรติดกันอ่านจาก `STAFF_WORKING_TIME_SNAPSHOT` ซึ่งย้ายมาใช้ในรอบ 1 (Q54) กติกาว่า Snapshot ถูกเขียนเมื่อไหร่และโดยใคร ยังต้องให้คน 2 กำหนด |
-| `validation_snapshot` | เก็บผลรวมที่คำนวณได้และค่าเพดาน เช่น `{"weekly_hours": 56, "weekly_limit": 52}` |
+| `validation_snapshot` | เก็บผลรวมที่คำนวณได้และค่าเพดานใต้ Key `details` เช่น `{"weekly_hours": 56, "weekly_limit": 52}` (รูปเต็มอยู่ข้อ 7.4) |
 
 ข้อจำกัดที่รู้
 
@@ -787,13 +835,13 @@ Wave 2 มี Target เท่า Wave แรก แต่เหลือผู�
 
 จุดที่คำตอบของคน 2 ไม่ตรงกับคำตอบก่อนหน้า ตัดสินแล้ว
 
-* **Q51 `preserve_source_ward_minimum`:** เทียบกับ `max(minimum_staff, required_staff)` ตาม Q15 ชื่อรหัส `SOURCE_WARD_MINIMUM_VIOLATION` และรอบ 1 เขียนกฎกับ Unit Test คงตาม Q15 (คำตอบ Q51 ระบุแค่ค่าที่เทียบ สองอย่างหลังผู้เขียนร่างคงตามคำตอบเดิม)
+* **Q51 `preserve_source_ward_minimum`:** ตาม Q15 ทั้งหมด: เทียบกับ `max(minimum_staff, required_staff)`, รหัส `SOURCE_WARD_MINIMUM_VIOLATION`, รอบ 1 เขียนกฎกับ Unit Test
 * **Q52 `HAS_OPEN_OFFER`:** เลิกใช้ ใช้เพดานของ `OUTREACH_POLICY` และรหัส `OFFER_LIMIT_REACHED` ตาม Q30 (ข้อ 3.3)
 * **Q55 `ROLE_MISMATCH` / `SKILL_MISMATCH`:** ประเมินตาม Coverage ที่ผู้สมัครถูกเลือกมาเติม ไม่บังคับให้ทุกคนปิดทุก Gap ของเคส
   * ผู้สมัครที่ถูกเลือกมาเติมจำนวนคน ไม่มี Skill ที่เคสขาดก็ผ่านได้
   * กลุ่มคนที่ได้เข้าเวรรวมกันต้องครอบคลุมจำนวนคน, Role และ Skill ครบก่อนเคสจะ `RESOLVED`
   * Solver, การเลือกคนของ Wave, Safety และการตรวจก่อน `RESOLVED` ใช้ความหมายเดียวกัน เพื่อไม่ตัดผู้สมัครที่ Solver เลือกมาเติมจำนวนคนอย่างถูกต้อง
-  * ผลที่ตามมา: ต้องมีที่เก็บว่าผู้สมัครแต่ละคนถูกเลือกมาเติม Target ไหน ให้ Safety อ่านได้ (เช่น คอลัมน์หรือ JSON ใน `CANDIDATE_ITEMS`) ยังไม่ได้กำหนด ให้คน 2 เสนอใน PR 2a
+  * ที่เก็บ: ตารางใหม่ `CANDIDATE_ITEM_TARGET` เป็นตารางลูกของ `CANDIDATE_ITEMS` (ข้อ 8.3) Solver เขียนตอนสร้าง Plan Safety อ่านตอนตรวจ
   * ความหมายของ `require_matching_role` / `require_matching_skill` ในตารางข้างบน ("ต้องมี Role / Skill ที่เคสขาด") จึงใช้กับผู้สมัครที่ถูกเลือกมาเติม Role / Skill นั้นเท่านั้น
 
 ### 7.3 ต้องตกลง: Interface
@@ -814,7 +862,7 @@ Wave 2 มี Target เท่า Wave แรก แต่เหลือผู�
 |---|---|
 | `SAFETY_VALIDATION.is_passed` | `false` เมื่อมีรหัสไม่ผ่านอย่างน้อยหนึ่งข้อ |
 | `failure_reason` | รหัสที่ไม่ผ่าน คั่นด้วย `,` เรียงตามลำดับในตาราง 7.2 ไม่ใช่ข้อความอิสระ |
-| `validation_snapshot` | ข้อมูลที่ใช้ตัดสิน เช่น `{"checked_rules": [...], "failed_rules": [...], "policy_id": 1, "shift_id": 1, "staff_id": 201}` รายละเอียดให้คน 2 เสนอ ข้อชั่วโมงเก็บผลรวมกับเพดานด้วย (ข้อ 7.2 Q14) |
+| `validation_snapshot` | รูปที่ตกลง: `{"staff_id": 201, "shift_id": 1, "policy_id": 1, "checked_rules": ["STAFF_NOT_ACTIVE", "SHIFT_CONFLICT"], "failed_rules": ["SHIFT_CONFLICT"]}` `checked_rules` คือกฎที่ตรวจจริง (ธงที่ปิดไม่อยู่ในนี้) `failed_rules` ว่าง = ผ่าน ผลรวมกับเพดานของข้อชั่วโมง (Q14) ใส่เพิ่มใต้ Key `details` เช่น `{"weekly_hours": 56, "weekly_limit": 52}` เมื่อมีการตรวจข้อนั้น |
 | `hard_constraint_policy_id` | Policy ที่ใช้ตรวจจริง |
 
 กรณีที่ยังเป็น `FAILED` (D11) ไม่ใช่ Safety ไม่ผ่าน: ข้อมูลผิดรูป เช่น `ProposedShiftMismatchError`, Item ไม่ได้อยู่ในเคสนี้, Offer ที่ส่งมาตรวจไม่ใช่ `ACCEPTED` พวกนี้คือระบบผิด ไม่ใช่ผู้สมัครไม่เหมาะ
@@ -865,7 +913,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 * `current_valid_staff` = จำนวนคนในเวรที่นับตอนนี้ (Roster ที่ `ASSIGNED`) ไม่เปลี่ยนวิธีนับ
 * Golden Case ไม่เปลี่ยนผล: เวร 1 มี `required_staff = 5`, `minimum_staff = 4` เป้าหมายยังเป็น 5 และค่า Seed ตรงกับสูตรอยู่แล้ว (ผู้ป่วย 10 คน หาร 2 = 5, เวร 2 ผู้ป่วย 2 คน หาร 2 = 1)
 
-สิ่งที่ตามมาและยังต้องตกลง
+สิ่งที่ตามมา
 
 * **ข้อมูลไม่ตรงกันได้:** `PATIENT_SURGE` เปลี่ยน `patient_count` ใน PART A แต่ `required_staff` ถูกเขียนใหม่เฉพาะเมื่อผ่าน Threshold ใน PART B ถ้าไม่ผ่าน สองค่านี้จะไม่ตรงกันจนกว่าจะมีชุด Event ที่ผ่าน เป็นไปตามที่ออกแบบ (ไม่ผ่าน Threshold = ไม่แตะ Requirement)
 * **คอลัมน์ของ `STAFFING_GAP`** ตอบแล้ว
@@ -930,10 +978,100 @@ Solver ต้องรู้ว่าต้องหาคนแบบไหน 
 
 กติกาที่ตามมา
 
-* **Q53** รอบ 1 ใช้ครบทั้ง 5 ค่าใน Enum รวม `MIN_CONSECUTIVE_SHIFT` และใช้คอลัมน์ `*_weight` คำนวณคะแนน
+* **Q53** รอบ 1 ใช้ครบทั้ง 5 ค่าใน Enum รวม `MIN_CONSECUTIVE_SHIFT` และใช้คอลัมน์ `*_weight` คำนวณคะแนน ลำดับข้างบนเป็นป้ายแนะนำการตั้ง Weight
 * **Q54** ข้อมูล OT, ชั่วโมงสะสม และเวรติดกัน อ่านจาก `STAFF_WORKING_TIME_SNAPSHOT` (`overtime_hours`, `hours_this_week`, `consecutive_shifts`, `consecutive_night_shifts`) ซึ่งย้ายมาใช้ในรอบ 1
 * `CANDIDATE_SOURCE` ไม่มีผลในรอบ 1 เพราะผู้สมัครทุกคนมาจากหอเดียวกัน
-* ยังต้องให้คน 2 กำหนดใน PR 2a: สูตรรวมคะแนนจาก Weight ให้ได้ลำดับตามข้อ 2 ถึง 6, ค่า Seed ของ `SOFT_CONSTRAINT_POLICY`, และ Snapshot ถูกเขียนเมื่อไหร่โดยใคร (ตอนนี้ตารางมีอยู่แต่ไม่มีโค้ดเขียน)
+
+สูตรคะแนน (ค่าน้อยกว่าดีกว่า)
+
+```text
+plan_penalty =
+    candidate_count_weight    × candidate_count_cost
+  + consecutive_shift_weight  × consecutive_shift_cost
+  + workload_imbalance_weight × workload_imbalance_cost
+  + projected_overtime_weight × projected_overtime_cost
+  + roster_change_weight      × roster_change_cost
+  + candidate_source_weight   × candidate_source_cost
+```
+
+| Cost | ความหมาย |
+|---|---|
+| `candidate_count_cost` | จำนวนผู้สมัครไม่ซ้ำที่เลือก โดยต้องครอบคลุม Target รวมสำรองก่อน |
+| `consecutive_shift_cost` | ภาระเวรต่อเนื่องที่เพิ่มขึ้นจากการเลือกกลุ่มนี้ |
+| `workload_imbalance_cost` | ความไม่สมดุลของชั่วโมงงานหลังจัดเวร |
+| `projected_overtime_cost` | OT ที่คาดว่าจะเพิ่มจาก Assignment |
+| `roster_change_cost` | จำนวน Assignment เดิมที่ต้องย้ายหรือเปลี่ยน |
+| `candidate_source_cost` | ต้นทุนจากแหล่งที่มาของผู้สมัครในกลุ่ม: Same Ward ต่ำสุด, Float Pool, Cross-Ward สูงสุด ตามลำดับใน `candidate_source_priority` |
+
+* `roster_change_cost` เป็น 0 เสมอในรอบ 1 เพราะรอบ 1 เพิ่มเวรอย่างเดียว ไม่ย้ายเวรเดิม
+* พจน์ของ `CANDIDATE_SOURCE` ใช้คอลัมน์ใหม่ `SOFT_CONSTRAINT_POLICY.candidate_source_weight` (numeric, NOT NULL) เพิ่มใน PR 2a ตกลงแล้ว ส่วน `candidate_source_priority` ยังใช้บอกลำดับของแหล่งที่มา
+* ลำดับความสำคัญ 2 ถึง 6 เป็นป้ายแนะนำว่าควรตั้ง Weight ตัวไหนมากกว่า ไม่ใช่ข้อบังคับว่าต้องเรียงมากไปน้อยเสมอ ปรับค่าได้
+
+ค่า Seed ของ `SOFT_CONSTRAINT_POLICY` (กำหนดแล้ว)
+
+| คอลัมน์ | ค่า Seed | หน่วยของ Cost ที่คูณ |
+|---|---|---|
+| `candidate_count_weight` | 1000 | จำนวนคนในกลุ่มที่เลือก |
+| `candidate_source_weight` | 200 | ผลรวมของลำดับแหล่งที่มาของแต่ละคน: Same Ward = 0, Float Pool = 1, Cross-Ward = 2 |
+| `workload_imbalance_weight` | 1 | ผลรวมชั่วโมงของสัปดาห์ (`hours_this_week`) ของแต่ละคน |
+| `consecutive_shift_weight` | 5 | ผลรวมจำนวนเวรติดกันของแต่ละคนหลังรวมเวรของเคส |
+| `projected_overtime_weight` | 2 | ผลรวมชั่วโมง OT ที่เพิ่มของแต่ละคน |
+| `roster_change_weight` | 300 | จำนวน Assignment เดิมที่ต้องย้าย (รอบ 1 เป็น 0 เสมอ) |
+| `candidate_source_priority` | `["SAME_WARD", "FLOAT_POOL", "CROSS_WARD"]` | ลำดับที่ใช้คิด `candidate_source_cost` และ `source_priority` |
+| `optimization_priority` | `["MIN_CANDIDATE_COUNT", "CANDIDATE_SOURCE", "WEEKLY_WORKLOAD_FAIRNESS", "MIN_CONSECUTIVE_SHIFT", "MIN_PROJECTED_OVERTIME"]` | ป้ายลำดับ ไม่เข้าสูตร |
+
+* เหตุผลของค่า: เพิ่มคนหนึ่งคนมีต้นทุน 1000 มากกว่าทุกพจน์อื่นของคนเดียวรวมกัน (คนที่หนักสุดที่ Hard Rules ยังยอมคือ 52 ชั่วโมง, 7 เวรติดกัน, OT 12 ชั่วโมง = 111) กลุ่มที่ใช้คนน้อยกว่าจึงชนะเสมอ ถัดมาแหล่งที่มา (ขั้นละ 200) มากกว่าผลต่างของภาระงานในกรณีปกติ
+* ตรวจด้วยโค้ดกับตัวอย่าง 6 คู่แล้ว ได้ลำดับตามที่ตั้งใจทุกคู่: คนเดียวที่เหนื่อยที่สุดชนะสองคนที่ว่าง, Same Ward ที่เหนื่อยที่สุดชนะ Float Pool ที่ว่าง, Float Pool ชนะ Cross-Ward, 24 ชั่วโมงชนะ 40 ชั่วโมง, เวรติดกันมากกว่า 2 เวรชนะทำงานมากกว่า 16 ชั่วโมง, OT 4 ชั่วโมงชนะเวรติดกันมากกว่า 2 เวร
+* ค่าเดิมใน Seed เป็น 1 ทุกตัว (ตัวแทนชั่วคราว) เปลี่ยนใน PR 2a พร้อมคอลัมน์ `candidate_source_weight`
+* ค่าเหล่านี้ขึ้นกับหน่วยของ Cost ในตาราง ถ้าคน 2 นิยาม Cost ด้วยหน่วยอื่นต้องปรับ Weight ตาม
+
+
+จากคะแนนของ Plan ไปเป็น `rank` รายคน
+
+```text
+Solver ใช้สูตร plan_penalty เลือกกลุ่มผู้สมัคร
+→ ได้ Candidate Plan
+→ คำนวณ ranking_key ของแต่ละคนใน Plan
+→ เรียง แล้วบันทึก rank = 1, 2, 3, ...
+```
+
+`ranking_key` เป็นค่าชั่วคราวที่ Python สร้างเพื่อเรียงผู้สมัคร ไม่เก็บลง DB
+
+```text
+ranking_key = (
+    source_priority,         # Same Ward → Float Pool → Cross-Ward
+    hours_this_week,         # น้อยก่อน
+    consecutive_shift_cost,
+    projected_overtime,
+    staff_id,                # ตัดสินเมื่อทุกค่าเท่ากัน
+)
+```
+
+| ค่าใน Key | แหล่งข้อมูล |
+|---|---|
+| `source_priority` | `CANDIDATE_ITEMS.source` เทียบลำดับใน `SOFT_CONSTRAINT_POLICY.candidate_source_priority` |
+| `hours_this_week` | `STAFF_WORKING_TIME_SNAPSHOT.hours_this_week` |
+| `consecutive_shift_cost` | คำนวณจาก Snapshot และเวรที่เสนอ |
+| `projected_overtime` | OT ที่เพิ่มหากรับเวร |
+| `staff_id` | ID ของผู้สมัคร |
+
+ใครเขียน `STAFF_WORKING_TIME_SNAPSHOT`
+
+```text
+optimization_service
+→ working_time_service โหลดข้อมูลและคำนวณ
+→ บันทึก STAFF_WORKING_TIME_SNAPSHOT
+→ เตรียม Input ให้ Solver
+→ บันทึก Plan
+```
+
+* `working_time_service` (ไฟล์ใหม่) เป็นผู้เขียนเพียงจุดเดียว
+* ใช้เวลาอ้างอิงเดียวกันสำหรับผู้สมัครทุกคนในรอบ Optimize นั้น
+* ไม่ Commit เอง ผู้เรียกคุม Transaction
+* เพิ่มคอลัมน์ `working_time_snapshot_id` ใน `CANDIDATE_ITEMS` เพื่อระบุว่าใช้ Snapshot แถวไหน (Migration ใหม่ใน PR 2a)
+* นิยามวัน / สัปดาห์ และข้อมูลคำนวณประกอบ เก็บใน `CANDIDATE_PLANS.input_snapshot`
+* Safety อ่านข้อมูลใหม่ทุกครั้ง ไม่ใช้ Snapshot เก่าเป็นหลักฐานว่าผู้สมัครยังผ่านกฎ
+* คำตอบเขียนว่า Execute ต้องอ่านข้อมูลใหม่ด้วย แต่ Q38 ตอบไว้ว่า Execute ไม่ตรวจซ้ำตอนจัดเวร ร่างนี้ยึด Q38: Execute ไม่ตรวจ จึงไม่มีการอ่าน
 
 
 #### ลำดับการเติม Target ของ Wave (คำตอบของคน 2)
@@ -953,8 +1091,8 @@ Solver ต้องรู้ว่าต้องหาคนแบบไหน 
 เลือกใครก่อนในแต่ละ Target
 
 1. คนที่ปิด Target ที่ยังเหลือได้มากที่สุด (`MIN_CANDIDATE_COUNT`)
-2. ตามลำดับ Soft Constraint ที่เหลือ (แหล่งที่มา, ภาระงานสัปดาห์, เวรติดกัน, OT)
-3. ถ้ายังเท่ากัน เรียงตาม `staff_id`
+2. ตาม `ranking_key` (แหล่งที่มา, ชั่วโมงของสัปดาห์, เวรติดกัน, OT)
+3. ถ้ายังเท่ากัน เรียงตาม `staff_id` (ตัวสุดท้ายของ `ranking_key`)
 
 หยุดเมื่อทุก Target เป็น 0 หรือไม่เหลือผู้สมัคร
 
@@ -969,6 +1107,26 @@ Solver ต้องรู้ว่าต้องหาคนแบบไหน 
 
 ได้ Wave เป็น A, B, C รวม 3 คน D ไม่ถูกเลือกเพราะทุก Target ครบแล้ว (จำลองกติกาด้วยโค้ดแล้ว ได้ผลตรงกับตารางนี้)
 
+#### ตาราง `CANDIDATE_ITEM_TARGET` (Q55)
+
+ตารางลูกของ `CANDIDATE_ITEMS` เก็บว่าผู้สมัครแต่ละคนถูกเลือกมาเติม Target ไหน คนหนึ่งคนมีได้หลายแถว (Migration ใหม่ใน PR 2a)
+
+| Field | Type | Null | Key / ความหมาย |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `candidate_item_id` | bigint | NOT NULL | FK `CANDIDATE_ITEMS.id` |
+| `target_type` | text | NOT NULL | `HEADCOUNT`, `ROLE`, `SKILL` |
+| `role_id` | bigint | NULL | FK `ROLE.id` ใช้เมื่อ Target เป็น `ROLE` |
+| `skill_id` | bigint | NULL | FK `SKILL.id` ใช้เมื่อ Target เป็น `SKILL` |
+| `selection_type` | text | NOT NULL | `PRIMARY` หรือ `RESERVE` |
+
+* ตัวอย่าง: A (RN, ICU) ถูกเลือกมาเติม ICU ได้สามแถว คือ `SKILL` (ICU), `ROLE` (RN), `HEADCOUNT` ส่วน C (RN) ได้สองแถว คือ `ROLE` (RN), `HEADCOUNT` Safety ของ C จึงไม่ตรวจ ICU
+* ของกลางที่ต้องเพิ่ม: Enum สองตัวสำหรับ `target_type` และ `selection_type`
+* ข้อเสนอ: CHECK ให้ `role_id` มีค่าเฉพาะเมื่อ `target_type = ROLE` และ `skill_id` มีค่าเฉพาะเมื่อ `target_type = SKILL`
+* คำว่า "สำรอง" มีสองความหมาย ต้องไม่ปนกัน: `selection_type = RESERVE` คือคนส่วนเกิน 10% ที่ Solver เลือกเผื่อไว้ตอนคิด Target ส่วนสำรองของ Q28 คือคนที่ตอบรับหลัง Gap ถูกปิดครบแล้ว
+* ข้อจำกัดที่รู้: ค่านี้ถูกเขียนตอนสร้าง Plan ถ้าคนที่ถูกเลือกมาเติม Skill ปฏิเสธ คนที่เหลือยังถูกนับตาม Target เดิมของตัวเอง การตรวจว่ากลุ่มครอบคลุมครบก่อน `RESOLVED` เป็นตัวกันสุดท้าย
+
+
 ### 8.4 คำถามอื่นของ Coverage
 
 * **Q11** Gap มากกว่า 1 (เช่น 104 กับ 105 ลาเวรเดียวกัน ตอนนี้ได้สองเคสแยกกัน) และการส่ง Offer รอบ 1 จะส่งทีละคนหรือส่งเป็น Wave
@@ -979,7 +1137,7 @@ Solver ต้องรู้ว่าต้องหาคนแบบไหน 
   * การรวม Event ของเวรเดียวกันทำในรอบ 1 แล้ว ด้วย Merge Gap (ข้อ 2.5) ไม่ใช่งานรอบ 4
 * **Q19** ตรวจ Coverage ซ้ำก่อน `RESOLVED` ไหม คำตอบ: ไม่ตรวจ หลังสร้าง Roster ของคนมาแทน ถ้าเวรยังขาด (เพราะมีคนลาเพิ่มระหว่างทาง) เคสนี้ยัง `RESOLVED` ได้ เพราะเคสนี้ปิดการขาดของ Event ตัวเองแล้ว การขาดใหม่มีเคสของมันเอง
 * **Q20** `GET /cases/{id}` คืนค่าที่ใช้คำนวณ Gap ด้วยไหม คำตอบ: เพิ่ม ตอนนี้หน้าเว็บแสดงแค่ "Short by 1" โดยไม่บอกว่าจากกี่คน
-  * ค่าที่คืน: `effective_minimum` และ `headcount_gap` จากแถว Gap เท่านั้น สองค่านี้จดไว้ตอนคิด จึงถูกเสมอ ชื่อ Field ตกลงตอนทำ PR
+  * ค่าที่คืน: `effective_minimum` และ `headcount_gap` จากแถว Gap เท่านั้น สองค่านี้จดไว้ตอนคิด จึงถูกเสมอ ชื่อ Field: เพิ่ม `effective_minimum: int` ใน `GapView` ข้าง `headcount_gap` ที่มีอยู่ (`gap.effective_minimum`, `gap.headcount_gap`) และใน `CaseDetail` เปลี่ยน `event_id: int` เป็น `event_ids: list[int]` เรียงตาม `id` (Q36)
   * ไม่คืน `required_staff` กับ `minimum_staff` เพราะ Requirement ถูก UPDATE ในแถวเดิม ค่าที่อ่านได้อาจไม่ใช่ค่าตอนคิด (ข้อ 8.2)
   * `patient_count` กับ `patients_per_nurse` ไม่คืน เพราะคอลัมน์ถูกลบจาก `STAFFING_GAP` แล้ว (ข้อ 8.2)
   * จำนวนคนในเวรตอนคิดไม่มีคอลัมน์เก็บ (ไม่อยู่ในรายการคอลัมน์ที่ตกลง) ถ้าหน้าเว็บจะแสดง ให้คิดจาก `effective_minimum - headcount_gap` ซึ่งถูกเฉพาะเมื่อเวรขาดคน เคสเปิดเฉพาะเมื่อมี Gap จึงใช้ได้กับทุกเคส
@@ -991,7 +1149,7 @@ Solver ต้องรู้ว่าต้องหาคนแบบไหน 
 
 ### 9.1 Scenario ที่ต้องมี
 
-ตอนนี้มีแค่ `seed/scenarios/golden_case.py` เจ้าของในตารางเป็นข้อเสนอ
+ตอนนี้มีแค่ `seed/scenarios/golden_case.py` เจ้าของในตารางกำหนดแล้ว
 
 | ไฟล์ | เจ้าของ | สถานการณ์ | ข้อมูลที่ต้องเพิ่มจาก Golden Case |
 |---|---|---|---|
@@ -1022,7 +1180,7 @@ Solver ต้องรู้ว่าต้องหาคนแบบไหน 
 
 * ทุกกรณีใน 5.3 มี Integration Test ที่ตรวจลำดับ Audit ตรงตามนั้น และตรวจสถานะสุดท้ายของเคส
 * กรณีที่จบ `RESOLVED` ตรวจ Roster ด้วย: คนที่ได้ `REPLACEMENT` ต้องเป็นคนที่ได้รับอนุมัติ และ Gap ของเวรต้องเป็น 0 ทุกตัว
-* `test_transitions.py`: ตารางที่ยอมรับต้องเพิ่ม T1 ถึง T6 และเอาสองเส้นของ `SAFETY_VALIDATION` ออก (ข้อ 2.1) ไฟล์ของคน 1 แก้ใน PR 0
+* `test_transitions.py`: ตารางที่ยอมรับต้องเพิ่ม T1 ถึง T7 และเอาสองเส้นของ `SAFETY_VALIDATION` ออก (ข้อ 2.1) ไฟล์ของคน 1 แก้ใน PR 0
 * `tests/e2e/test_workforce_recovery.py` ต้องเขียวตลอด ลำดับ Golden Path เปลี่ยนเพราะ Wave (ข้อ 5.3) แก้ E2E พร้อม `GOLDEN_PATH_AUDIT_ACTIONS` ใน PR 2b ไม่แยก PR
 * Merge Gap: Test เดิมของการรับ Event ต้องเขียวเมื่อเวรใช้ Window = 0 เพิ่ม Test ว่าปิด Window สองรอบติดกันแล้วรอบสองแตะเฉพาะ Event ใหม่ และ Test ว่า PART B พังกลางทางแล้ว Event ทุกตัวยัง `RECEIVED` (ข้อ 2.5)
 * Test ที่ให้สองคนลาเวรเดียวกันแล้วคาดสองเคสทันที ต้องแก้ เพราะ Event ตัวที่สองรอจนเคสแรกจบ (Q43)
@@ -1038,20 +1196,21 @@ Solver ต้องรู้ว่าต้องหาคนแบบไหน 
 
 ## 10. ลำดับ PR
 
-Branch Protection เปิดแล้ว ทุก PR ต้องมี `staging` ล่าสุดและ CI เขียว เจ้าของและการแบ่ง PR เป็นข้อเสนอ
+Branch Protection เปิดแล้ว ทุก PR ต้องมี `staging` ล่าสุดและ CI เขียว เจ้าของและการแบ่ง PR กำหนดแล้วตามตาราง
 
 | ลำดับ | PR | ใครทำ | มีอะไร | ต้องเข้าก่อน |
 |---|---|---|---|---|
-| 0 | Contract | คน 1 | ย้ายร่างนี้เข้า `workflow.md`, `transitions.py` + `test_transitions.py` (T1 ถึง T6, เอาสองเส้นของ `SAFETY_VALIDATION` ออก), `enums.py` (`AuditAction` 3 ค่า, `EntityType` 2 ค่า) ยังไม่เปลี่ยนพฤติกรรม | ทุกตัวข้างล่าง |
+| 0 | Contract | คน 1 | ย้ายร่างนี้เข้า `workflow.md`, `transitions.py` + `test_transitions.py` (T1 ถึง T7, เอาสองเส้นของ `SAFETY_VALIDATION` ออก), `enums.py` (`AuditAction` 3 ค่า, `EntityType` 2 ค่า) ยังไม่เปลี่ยนพฤติกรรม | ทุกตัวข้างล่าง |
 | 1a | Hard Rules: ตัวตรวจ + รหัส | คน 2 | `domain/constraints/` + Unit Test ยังไม่ต่อกับ Workflow | 2a, 2b, 3 |
 | 1b | Coverage ตาม Q18 | คน 1 | `calculate_gap()` Signature ใหม่, ฟังก์ชันสูตร `ceil`, Migration ของ `STAFFING_GAP` (เพิ่ม `effective_minimum`, ลบ `patient_count` กับ `patients_per_nurse`), ฟังก์ชันอ่าน Gap ให้ Solver (ข้อ 8.3) | M, 2a |
-| 1c | เพดาน Offer ต่อคน | คน 2 | ตาราง `OUTREACH_POLICY` + Seed, ฟังก์ชันเพดาน, ลบกฎ Offer ค้างเดิมออกจาก `optimization_service` (ข้อ 3.3) | 2a, 2b |
+| 1c | เพดาน Offer ต่อคน | คน 3 | ตาราง `OUTREACH_POLICY` + Seed, ฟังก์ชันเพดาน (ข้อ 3.3) ยังไม่มีใครเรียก | 2a, 2b |
 | M | Merge Gap | คน 1 | Migration (`SHIFT.merge_window_seconds`, `STAFFING_EVENTS.processed_at` และ `case_id`, ลบ `STAFFING_CASES.event_id`, `AUDIT_LOG.event_id`), แยกการรับ Event กับการปิด Window, Threshold, Event สี่ชนิด, หนึ่ง Window หนึ่งเคส, Timeline ผ่าน `event_id`, Service ของ Job + Route ภายใน, Route เลื่อน Clock และ Route อ่าน Event, หน้า `demo/control` ทุกคนต้อง `make reset` หลัง merge | หลัง 0 และ 1b ก่อน 2b (Q48) |
 | S | สถานะเคสคำนวณจาก Gap | คน 1 | ฟังก์ชันคำนวณสถานะเคสใน Orchestrator (ข้อ 2.3), `stub_handlers` ใหม่ ยังไม่มีใครเรียกจนกว่า 2b | 2b, 3, 4 |
-| 2a | Solver | คน 2 | Solver ใช้ Hard Rules + Gap, จัดอันดับด้วย Soft Constraint, กติกาเติม Target, ที่เก็บว่าใครเติม Target ไหน (Q55), `STAFF_WORKING_TIME_SNAPSHOT`, T6, Scenario `no_feasible_solution` | 2b |
+| 2a | Solver | คน 2 | Solver ใช้ Hard Rules + Gap, จัดอันดับด้วย Soft Constraint, กติกาเติม Target, ตาราง `CANDIDATE_ITEM_TARGET` (Q55), คอลัมน์ Weight ของ `CANDIDATE_SOURCE`, `ranking_key`, `working_time_service` + `STAFF_WORKING_TIME_SNAPSHOT` + `CANDIDATE_ITEMS.working_time_snapshot_id`, เปลี่ยนไปเรียกฟังก์ชันเพดาน Offer และลบกฎ Offer ค้างเดิม, T6, Scenario `no_feasible_solution` | 2b |
 | 2b | Wave + ตอบ Offer | คน 3 | `contact_candidate` (ข้อ 3.2), `outreach_service` (ส่งหลายคน, Reject, ตอบรับหลายคน, สำรอง, หลาย Offer ต่อคน, `409`), หน้า `line-sim`, Scenario `candidate_reject`, `GOLDEN_PATH_AUDIT_ACTIONS` + E2E | 3, 4 |
 | 3 | Safety รายคน | คน 2 | `safety_service` ตรวจตอนตอบรับและบันทึกผลไม่ผ่าน, ลบ `assert_available()`, Scenario `safety_failure` | 4 |
 | 4 | อนุมัติและจัดเวรรายคน | คน 3 | `approval_service` (ไม่อนุมัติ, `reason`, เลื่อนสำรอง), จัดเวรใน Transaction ของการอนุมัติ, ยกเลิก Offer ที่ขัดกับเวรใหม่, Handler ของ `EXECUTING` ปิดเคส, Scenario `head_nurse_reject` | 5 |
+| O | Timeout ของ Offer | คน 3 | คอลัมน์ `OUTREACH_POLICY.offer_timeout_seconds` (Seed 300) และ `CANDIDATE_OUTREACH.expires_at`, การปิด Offer ที่หมดเวลา, ต่อเข้ากับ Service ของ Job (ข้อ 2.7) | หลัง M, 1c และ 2b |
 | 5 | หน้า `approvals` | คน 1 | Reject ใช้งานจริง + `reason`, หลายแถวต่อเคส | |
 | 6 | หน้า `cases/[id]` | คน 2 | สถานะรายคน, เหตุผลที่ข้าม, `event_ids`, `effective_minimum` | หลัง 2b, 3, 4 |
 
@@ -1078,13 +1237,15 @@ Branch Protection เปิดแล้ว ทุก PR ต้องมี `stag
 | ข้อ 8 | เปลี่ยนชื่อจาก "Stub ของแต่ละขั้น" และอัปเดตทุกแถว | เจ้าของแต่ละแถว ใน PR ของตัวเอง |
 | ข้อ 9 | คำตอบของ API ที่เปลี่ยนและ Route ใหม่ (ข้อ 6.1) ลบส่วน `422` | PR 0 |
 | ข้อ 12 | ย้ายเรื่องที่ทำแล้วออก | PR สุดท้ายของรอบ |
-| `domain/workflow/transitions.py`, `test_transitions.py` | T1 ถึง T6 เอาสองเส้นของ `SAFETY_VALIDATION` ออก | PR 0 |
+| `domain/workflow/transitions.py`, `test_transitions.py` | T1 ถึง T7 เอาสองเส้นของ `SAFETY_VALIDATION` ออก | PR 0 |
 | `domain/enums.py` | `AuditAction` เพิ่ม `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` `EntityType` เพิ่ม `SHIFT`, `STAFFING_REQUIREMENTS` | PR 0 |
 | `domain/enums.py` `GOLDEN_PATH_AUDIT_ACTIONS` | `OFFER_SENT` สองแถว | PR 2b |
 | `audit_service.log()` | รับ `event_id` เพิ่ม | PR M แจ้งทีมก่อน |
 | `gap_calculator` (Signature + Docstring), Migration ของ `STAFFING_GAP` | รับ `required_staff` / `minimum_staff`, เพิ่ม `effective_minimum`, ลบ `patient_count` และ `patients_per_nurse` | PR 1b แจ้งทีมก่อน และแจ้งให้ Reset หลัง merge |
 | Migration ของ `SHIFT`, `STAFFING_EVENTS`, `STAFFING_CASES`, `AUDIT_LOG` | คอลัมน์ของ Merge Gap (ข้อ 2.5) กระทบ Case API, หน้า `cases/[id]`, Seed และ Test ที่สร้างเคส | PR M แจ้งทีมก่อน และแจ้งให้ Reset หลัง merge |
-| Migration ของ `OUTREACH_POLICY` | ตารางใหม่ (ข้อ 2.6 ค) | PR 1c |
+| Migration ของ `OUTREACH_POLICY` | ตารางใหม่ (ข้อ 2.6 ค) | PR 1c (คน 3) |
+| Migration ของ `CANDIDATE_ITEMS`, `CANDIDATE_ITEM_TARGET`, `SOFT_CONSTRAINT_POLICY`, `working_time_service` (ไฟล์ใหม่) | คอลัมน์ `working_time_snapshot_id`, ตารางใหม่ `CANDIDATE_ITEM_TARGET`, คอลัมน์ Weight ของ `CANDIDATE_SOURCE` และผู้เขียน Snapshot จุดเดียว (ข้อ 8.3) | PR 2a |
+| Migration ของ `OUTREACH_POLICY`, `CANDIDATE_OUTREACH` | Timeout ของ Offer (ข้อ 2.7) | PR O |
 | `docker-compose.yml`, ไฟล์ env ตัวอย่าง | Service ของ Job และ Secret ของ Route ภายใน (ค่า Secret จริงไม่ Commit) | PR M |
 | `availability_service` | ลบ `assert_available()` และ Exception ที่เกี่ยว (Q17) เพิ่มฟังก์ชันเพดาน Offer (ข้อ 3.3) | PR 3, PR 1c |
 | `tests/integration/conftest.py` `stub_handlers` | เส้น Golden Path ใหม่ที่ไม่ผ่าน `SAFETY_VALIDATION` | PR S |
@@ -1157,18 +1318,9 @@ Branch Protection เปิดแล้ว ทุก PR ต้องมี `stag
 | Q54 | `MIN_PROJECTED_OVERTIME` วัดจากอะไรในรอบ 1 | ตอบแล้ว: ย้าย Working Time Snapshot มารอบ 1 (ข้อ 8.3) | 2 |
 | Q55 | `ROLE_MISMATCH` / `SKILL_MISMATCH` ไม่ผ่านเมื่อไหร่ | ตอบแล้ว: ประเมินตาม Coverage ที่ผู้สมัครถูกเลือกมาเติม กลุ่มที่ได้เข้าเวรต้องครอบคลุมครบก่อน `RESOLVED` (ข้อ 7.2) | 2 |
 
-รายละเอียดที่ยังต้องกำหนดตอนทำ PR (ไม่ขวางการเปิด PR 0)
+รายละเอียดที่เคยค้างไว้กำหนดครบแล้ว: ค่า Seed ของ Weight (ข้อ 8.3), รูปของ `validation_snapshot` (ข้อ 7.4), ฟังก์ชันคำนวณสถานะเคส (ข้อ 2.3), ชื่อ Field ใน Case API (ข้อ 8.4), เจ้าของ PR และ Scenario (ข้อ 9.1, 10), Timeout ของ Offer (ข้อ 2.7)
 
-| เรื่อง | อยู่ที่ | ใคร |
-|---|---|---|
-| สูตรรวมคะแนนจาก Weight, ค่า Seed ของ `SOFT_CONSTRAINT_POLICY`, ใครเขียน `STAFF_WORKING_TIME_SNAPSHOT` และเมื่อไหร่ | ข้อ 8.3 | คน 2 |
-| ที่เก็บว่าผู้สมัครถูกเลือกมาเติม Target ไหน | ข้อ 7.2 (Q55) | คน 2 |
-| รูปของ `validation_snapshot` | ข้อ 7.4 | คน 2 |
-| ชื่อและ Signature ของฟังก์ชันคำนวณสถานะเคส | ข้อ 2.3 | คน 1 |
-| คำขออนุมัติที่ค้างตอนเคสไป `MANUAL_HANDOFF` | ข้อ 2.3 | คน 3, คน 1 |
-| ลบสองเส้นของ `SAFETY_VALIDATION` ออกจาก `ALLOWED_TRANSITIONS` | ข้อ 2.1 | คน 1 |
-| ชื่อ Field ของ Gap ใน Case API | ข้อ 8.4 (Q20) | คน 1, คน 2 |
-| เจ้าของของแต่ละ PR และ Scenario | ข้อ 9.1, 10 | ทุกคน |
+สิ่งเดียวที่ยังขึ้นกับคน 2: นิยามหน่วยของ Cost แต่ละตัวในสูตร `plan_penalty` ถ้าต่างจากตารางในข้อ 8.3 ต้องปรับค่า Seed ของ Weight ตาม
 
 ---
 

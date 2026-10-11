@@ -280,6 +280,22 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `rank` | integer | NOT NULL |  |  |
 | `source` | text | NOT NULL |  | `CandidateSource` |
 | `proposed_shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
+| `working_time_snapshot_id` | bigint | NULL | FK STAFF_WORKING_TIME_SNAPSHOT.id | Snapshot ที่ Solver ใช้ตอนจัดอันดับผู้สมัครคนนี้ **(รอบ 1 ยังไม่มีใน DB)** |
+
+
+### 16.1 CANDIDATE_ITEM_TARGET **(รอบ 1 ยังไม่มีใน DB)**
+
+
+ตารางลูกของ `CANDIDATE_ITEMS` เก็บว่าผู้สมัครถูกเลือกมาเติม Target ไหน คนหนึ่งคนมีได้หลายแถว
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `candidate_item_id` | bigint | NOT NULL | FK CANDIDATE_ITEMS.id |  |
+| `target_type` | text | NOT NULL |  | `HEADCOUNT`, `ROLE`, `SKILL` |
+| `role_id` | bigint | NULL | FK ROLE.id | ใช้เมื่อ Target เป็น `ROLE` |
+| `skill_id` | bigint | NULL | FK SKILL.id | ใช้เมื่อ Target เป็น `SKILL` |
+| `selection_type` | text | NOT NULL |  | `PRIMARY` หรือ `RESERVE` |
 
 
 ### 17. CONTACTS
@@ -305,6 +321,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `channel` | text | NOT NULL |  | `Channel` |
 | `sent_at` | timestamptz | NULL |  |  |
 | `response_at` | timestamptz | NULL |  |  |
+| `expires_at` | timestamptz | NULL |  | เวลาหมดอายุของ Offer ตั้งตอนส่ง = `sent_at` + `OUTREACH_POLICY.offer_timeout_seconds` เลยเวลานี้แล้วยัง `SENT` จะเป็น `TIMEOUT` **(รอบ 1 ยังไม่มีใน DB)** |
 | `status` | text | NOT NULL |  | `OutreachStatus` |
 
 
