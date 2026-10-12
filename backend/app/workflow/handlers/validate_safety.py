@@ -6,9 +6,11 @@ from app.services import actor_service, audit_service, safety_service
 from app.workflow.handlers.base import HandlerResult
 
 
-def handle(db: Session, case: StaffingCase) -> HandlerResult:
+def handle(db: Session, case: StaffingCase, *, outreach_id: int | None = None) -> HandlerResult:
     """Stub safety: pass the accepted candidate, then wait for a manual approval."""
-    validation, approval, candidate = safety_service.validate_accepted_candidate(db, case)
+    validation, approval, candidate = safety_service.validate_accepted_candidate(
+        db, case, outreach_id=outreach_id
+    )
     audit_service.log(
         db,
         case_id=case.id,

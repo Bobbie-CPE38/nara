@@ -45,6 +45,7 @@ def fill_targets(
     role_gaps: Mapping[int, int],
     skill_gaps: Mapping[int, int],
     candidates: Sequence[GapFiller],
+    already_selected: Sequence[GapFiller] = (),
 ) -> dict[int, tuple[TargetCredit, ...]]:
     """Choose people until every target is zero or nobody is left.
 
@@ -82,6 +83,14 @@ def fill_targets(
 
     def open_keys(person: GapFiller) -> list[_Key]:
         return [key for key in keys_of(person) if remaining.get(key, 0) > 0]
+
+    # First-wave replacements fill only vacancies, without applying 1.1 twice.
+    if set(staff_ids) & {person.staff_id for person in already_selected}:
+        raise ValueError("A selected candidate is also listed for replacement")
+    for person in already_selected:
+        for key in open_keys(person):
+            credited[key] += 1
+            remaining[key] -= 1
 
     def best_first(person: GapFiller) -> tuple[int, int]:
         return (len(open_keys(person)), -preference[person.staff_id])

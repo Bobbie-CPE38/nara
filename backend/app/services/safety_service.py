@@ -31,13 +31,14 @@ from app.core.constants import HEAD_NURSE_ROLE
 from app.db.models import (
     ApprovalRequest,
     CandidateItem,
+    CandidateOutreach,
     CandidatePlan,
     Role,
     SafetyValidation,
     Shift,
     StaffingCase,
 )
-from app.domain.enums import ApprovalMode
+from app.domain.enums import ApprovalMode, OutreachStatus
 from app.services import availability_service, outreach_service, policy_service
 
 
@@ -51,10 +52,21 @@ class SafetyResult(NamedTuple):
     candidate: CandidateItem
 
 
-def validate_accepted_candidate(db: Session, case: StaffingCase) -> SafetyResult:
+def validate_accepted_candidate(
+    db: Session, case: StaffingCase, *, outreach_id: int | None = None
+) -> SafetyResult:
     """Pass the case's accepted candidate and open a pending MANUAL approval; flush only."""
     # Seam 4: exactly one accepted offer for this case.
-    outreach = outreach_service.get_accepted_outreach(db, case.id)
+    # PR 2b supplies the individual offer. PR 3 replaces the Skeleton rules.
+    if outreach_id is None:
+        outreach = outreach_service.get_accepted_outreach(db, case.id)
+    else:
+        selected_outreach = db.get(CandidateOutreach, outreach_id)
+        if selected_outreach is None or selected_outreach.case_id != case.id:
+            raise ValueError("The accepted offer does not belong to this case")
+        outreach = selected_outreach
+        if outreach.status is not OutreachStatus.ACCEPTED:
+            raise ValueError("Safety requires an ACCEPTED offer")
 
     # Seam 5: the two foreign keys do not prove the item was planned for this case
     item = db.get(CandidateItem, outreach.candidate_item_id)
