@@ -1,7 +1,9 @@
 # ร่าง Contract รอบ 1 หลัง Skeleton
 
-> Contract รอบ 1 คำถาม Q1 ถึง Q56 ตอบครบแล้ว รอทีมรีวิว
-> รีวิวผ่านแล้วย้ายเนื้อหาเข้า `docs/workflow.md` ใน PR เดียว (PR 0) ก่อนแตก branch งาน
+> Contract รอบ 1 คำถาม Q1 ถึง Q56 ตอบครบแล้ว ทีมรีวิวผ่านแล้ว (PR #32)
+> PR 0 ย้ายกติกาของข้อ 2, 3, 4, 5, 6.1 และ 8.2 เข้า `docs/workflow.md` แล้ว (ข้อ 3, 4, 5, 6, 7 และ 9 ของไฟล์นั้น โดยข้อ 8.2 อยู่ที่ข้อ 3.6) ถ้าสองไฟล์ไม่ตรงกันในเรื่องพวกนั้น ให้ยึด `docs/workflow.md`
+> เรื่องที่ยังอยู่ที่ไฟล์นี้ที่เดียว: หน้าเว็บที่ต้องแก้ตาม (ข้อ 6.2), Hard Rules (ข้อ 7), Seam จาก Gap ไป Solver กับสูตรจัดอันดับและ Target ของ Wave (ข้อ 8.3, 8.4), Scenario และ Test (ข้อ 9), ลำดับ PR (ข้อ 10), ไฟล์กลาง (ข้อ 11), คำถามและคำตอบ (ข้อ 12)
+> เลขข้อในไฟล์นี้ไม่ถูกเปลี่ยน ข้อความที่อ้าง "ข้อ 2.5" หรือ "ข้อ 4.3" จึงยังชี้ที่เดิม
 
 ---
 
@@ -1308,7 +1310,7 @@ PR 2b, 3 และ 4 เข้า Branch รวมหนึ่ง Branch ที�
 | S | สถานะเคสคำนวณจาก Gap | คน 1 | ฟังก์ชันคำนวณสถานะเคสใน Orchestrator (ข้อ 2.3), `stub_handlers` ใหม่ ยังไม่มีใครเรียกจนกว่า 2b | 2b, 3, 4 |
 | 2a | Solver | คน 2 | Solver ใช้ Hard Rules + Gap, เลือกกลุ่มด้วยน้ำหนัก และเรียง `rank` ด้วย `ranking_key`, กติกาเติม Target, ตาราง `CANDIDATE_ITEM_TARGET` (Q55), คอลัมน์ Weight ของ `CANDIDATE_SOURCE`, `ranking_key`, `working_time_service` + `STAFF_WORKING_TIME_SNAPSHOT` + `CANDIDATE_ITEMS.working_time_snapshot_id`, เปลี่ยนไปเรียกฟังก์ชันเพดาน Offer และลบกฎ Offer ค้างเดิม, T6, Scenario `no_feasible_solution` | 2b |
 | 2b | Wave + ตอบ Offer | คน 3 | `contact_candidate` (ข้อ 3.2 รวมการเขียน `CANDIDATE_ITEM_TARGET` ให้ทุกคนที่มันเลือกเอง การรอ Offer ที่ถูกพัก และการยกเลิก Offer ตอนเคสเข้า `MANUAL_HANDOFF`), `outreach_service` (ส่งหลายคน, Reject, ตอบรับหลายคน, สำรอง, หลาย Offer ต่อคน, `409`), หน้า `line-sim` (ยังไม่แสดงเส้นตาย), Scenario `candidate_reject`, `GOLDEN_PATH_AUDIT_ACTIONS` + E2E, เรียก `recompute()` ให้เคสอื่นที่ได้รับผลกระทบหลังตอบรับ (ข้อ 2.3) | เข้า Branch รวม ก่อน 3, 4 |
-| 3 | Safety รายคน | คน 2 | `safety_service` ตรวจตอนตอบรับและบันทึกผลไม่ผ่าน, ลบ `assert_available()` และ `unavailable_staff()`, ลบสองเส้นของ `SAFETY_VALIDATION` ออกจาก `transitions.py` + `test_transitions.py` และ Handler ของสถานะนี้ใน Orchestrator, Scenario `safety_failure` | เข้า Branch รวม หลัง 2b ก่อน 4 |
+| 3 | Safety รายคน | คน 2 | `safety_service` ตรวจตอนตอบรับและบันทึกผลไม่ผ่าน, ย้ายการสร้าง `APPROVAL_REQUEST` และการเขียน `APPROVAL_REQUESTED` ไปเป็นฟังก์ชันใน `approval_service` ที่ `safety_service` เรียกเมื่อ Safety ผ่าน (ไฟล์ของคน 3 แจ้งก่อนแก้), ลบ `assert_available()` และ `unavailable_staff()` พร้อมบรรทัดที่เรียก `assert_available()` ใน `roster_service` เพราะ PR 3 เข้าก่อน PR 4 ที่ย้ายการสร้าง Roster (ไฟล์ของคน 3 แจ้งก่อนแก้), ลบสองเส้นของ `SAFETY_VALIDATION` ออกจาก `transitions.py` + `test_transitions.py` และ Handler ของสถานะนี้ใน Orchestrator, Scenario `safety_failure` | เข้า Branch รวม หลัง 2b ก่อน 4 |
 | 4 | อนุมัติและจัดเวรรายคน | คน 3 | `approval_service` (ไม่อนุมัติ, `reason`, เลื่อนสำรอง), จัดเวรใน Transaction ของการอนุมัติ, ยกเลิก Offer ที่ขัดกับเวรใหม่, Handler ของ `EXECUTING` ปิดเคส, เรียก `recompute()` ให้เคสอื่นที่ได้รับผลกระทบหลังตัดสิน (ข้อ 2.3), `409` กับเคสที่หยุดแล้ว, Scenario `head_nurse_reject` | เข้า Branch รวม หลัง 3 แล้ว merge Branch รวมเข้า `staging` ก่อน O, 5, 6 |
 | O | Timeout ของ Offer | คน 3 | คอลัมน์ `OUTREACH_POLICY.offer_timeout_seconds` (Seed 300) และ `CANDIDATE_OUTREACH.expires_at`, การปิด Offer ที่หมดเวลา, แสดงเส้นตายของ Offer ในหน้า `line-sim`, ต่อเข้ากับ Service ของ Job (ข้อ 2.7), Job เก็บตกเคสที่ไม่มี Offer ค้าง (ข้อ 2.3) | หลัง M, 1c และ Branch รวมเข้า `staging` |
 | 5 | หน้า `approvals` | คน 1 | Reject ใช้งานจริง + `reason`, หลายแถวต่อเคส | หลัง Branch รวมเข้า `staging` |

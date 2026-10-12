@@ -1,6 +1,6 @@
 # รอบ 1 ใครทำอะไร
 
-สรุปจากข้อ 10 ของ `round1-contract-draft.md` ถ้าไฟล์นี้กับร่างไม่ตรงกัน ให้ยึดร่าง
+สรุปจากข้อ 10 ของ `round1-contract-draft.md` ถ้าไฟล์นี้กับร่างไม่ตรงกัน ให้ยึดร่าง ส่วนกติกาของข้อ 2, 3, 4, 5, 6.1 และ 8.2 ย้ายเข้า `docs/workflow.md` แล้วใน PR 0
 
 ## แต่ละข้อของร่างเกี่ยวกับใคร
 
@@ -42,7 +42,7 @@
 | :-- | :-- |
 | **1a** Hard Rules | ตัวตรวจและรหัสใน `domain/constraints/` + Unit Test |
 | **2a** Solver | ใช้ Hard Rules กับ Gap, สูตร `plan_penalty`, `ranking_key`, `CANDIDATE_ITEM_TARGET`, `working_time_service`, เรียกฟังก์ชันเพดาน Offer, กรณี Solver ไม่ได้ใคร |
-| **3** Safety รายคน | ตรวจตอนตอบรับ บันทึกผลไม่ผ่าน ลบ `assert_available()` กับ `unavailable_staff()` และลบสองเส้นของ `SAFETY_VALIDATION` |
+| **3** Safety รายคน | ตรวจตอนตอบรับ บันทึกผลไม่ผ่าน ย้ายการสร้าง `APPROVAL_REQUEST` ไปเป็นฟังก์ชันใน `approval_service` ลบ `assert_available()` กับ `unavailable_staff()` รวมบรรทัดที่เรียกใน `roster_service` ของคน 3 และลบสองเส้นของ `SAFETY_VALIDATION` |
 | **6** หน้า `cases/[id]` | สถานะรายคน, เหตุผลที่ข้าม, `event_ids`, `effective_minimum` |
 
 ### คน 3 (4 PR)
@@ -58,7 +58,7 @@
 
 ## ลำดับที่ต้องเกิด
 
-1. ทีมรีวิว PR เอกสารของ branch `docs/round1-contract`
+1. ทีมรีวิว PR เอกสารของ branch `docs/round1-contract` (เสร็จแล้ว PR #32)
 2. คน 1 เปิด PR 0 ต้องเข้าก่อนทุกตัว
 3. PR 1a, 1b, 1c ทำขนานกันได้
 4. PR M (หลัง 0 และ 1b) และ PR S ต้องเข้าก่อน 2b

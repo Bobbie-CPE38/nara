@@ -220,6 +220,8 @@ class EntityType(StrEnum):
     ROSTER_ASSIGNMENT = "ROSTER_ASSIGNMENT"
     STRUCTURED_HANDOVER = "STRUCTURED_HANDOVER"
     STAFF_UNAVAILABILITY = "STAFF_UNAVAILABILITY"
+    SHIFT = "SHIFT"
+    STAFFING_REQUIREMENTS = "STAFFING_REQUIREMENTS"
 
 
 class AuditAction(StrEnum):
@@ -249,6 +251,10 @@ class AuditAction(StrEnum):
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
     UNAVAILABILITY_UPDATED = "UNAVAILABILITY_UPDATED"
+    # Event side effects written when a merge window closes
+    ASSIGNMENT_CANCELLED = "ASSIGNMENT_CANCELLED"
+    PATIENT_COUNT_UPDATED = "PATIENT_COUNT_UPDATED"
+    REQUIREMENT_UPDATED = "REQUIREMENT_UPDATED"
 
 
 # Actions the golden-path E2E test expects to find, in order of first appearance.

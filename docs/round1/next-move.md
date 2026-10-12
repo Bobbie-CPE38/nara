@@ -52,7 +52,7 @@
 
 ## ขั้นถัดไป
 
-1. ทีมรีวิว PR เอกสารของ branch `docs/round1-contract`
+1. ทีมรีวิว PR เอกสารของ branch `docs/round1-contract` (เสร็จแล้ว PR #32)
 2. คน 1 เปิด PR 0: ย้าย Contract เข้า `workflow.md` พร้อม `transitions.py` และ `enums.py`
 3. แตก branch งานตามลำดับ PR ในข้อ 10 ของร่าง
 4. ก่อนจบรอบ 1 จัดงานของรอบ 2 ขึ้นไปใหม่ เพราะงานหลายตัวถูกดึงมารอบ 1 แล้ว
