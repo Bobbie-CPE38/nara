@@ -7,8 +7,8 @@
 > Migration ถัดจากนั้น เรียงตามลำดับ:
 > * `a73d9e2c4b10` เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` (Backfill Policy เดิม = 2 สำหรับ Demo)
 > * `b82e4f6a901c` ย่อชื่อ CHECK ของคอลัมน์นั้นเป็น `ck_hard_constraint_policy_patients_per_nurse_valid` (กติกาเดิม)
-> * `d5e8f20b63a4` แทน Snapshot สองคอลัมน์นั้นด้วย `STAFFING_GAP.effective_minimum` (รอบ 1 PR 1b ไม่ Backfill ให้ `make reset`)
 > * `c4d7e19a52f3` เพิ่ม Snapshot `patient_count` และ `patients_per_nurse` ใน `STAFFING_GAP` พร้อม CHECK (ไม่ Backfill, ดูข้อ 24)
+> * `d5e8f20b63a4` แทน Snapshot สองคอลัมน์นั้นด้วย `STAFFING_GAP.effective_minimum` (รอบ 1 PR 1b ไม่ Backfill ให้ `make reset`)
 
 
 ## สรุปการตัดสินใจ
@@ -162,8 +162,8 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
-| `required_staff` | integer | NOT NULL |  | จำนวนเป้าหมายที่บันทึกใน Requirement; Skeleton ยังไม่ใช้เป็นเป้าหมาย Headcount Gap (ใช้สูตร Patient Count / Ratio แทน) |
-| `minimum_staff` | integer | NOT NULL |  | จำนวนขั้นต่ำที่เก็บไว้สำหรับกฎความปลอดภัยในอนาคต เช่น เวรต้นทาง; ยังไม่ใช้ใน Gap Calculator ของ Skeleton |
+| `required_staff` | integer | NOT NULL |  | จำนวนคนที่ต้องการตามภาระงาน = `ceil(patient_count / maximum_patients_per_nurse)` เป็น Input ของ Headcount Gap ตั้งแต่รอบ 1 PR 1b ค่า Seed ตรงกับสูตร และ PART B ของ Merge Gap (PR M) จะ UPDATE ในแถวเดิมเมื่อจำนวนผู้ป่วยเปลี่ยน (`workflow.md` ข้อ 3.6) |
+| `minimum_staff` | integer | NOT NULL |  | จำนวนคนขั้นต่ำคงที่ของเวร เป็น Input ของ Headcount Gap ตั้งแต่รอบ 1 PR 1b: เป้าหมาย = `max(required_staff, minimum_staff)` เมื่อ `HARD_CONSTRAINT_POLICY.preserve_minimum_staffing` เปิด และ `required_staff` อย่างเดียวเมื่อปิด |
 | `created_at` | timestamptz | NOT NULL |  |  |
 
 

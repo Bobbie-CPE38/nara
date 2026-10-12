@@ -293,7 +293,7 @@ def test_effective_minimum_uses_the_floor_only_when_the_flag_is_on(
 def test_minimum_staff_above_required_staff_opens_a_headcount_gap(
     preserve: bool, target: int, gap: int
 ) -> None:
-    """Two patients need one nurse at ratio 2, but the shift must never drop below four."""
+    """The workload needs two nurses, but the shift must never drop below four."""
     member = RosterMember(1, 1, RosterStatus.ASSIGNED, RN, frozenset())
     result = calculate_gap(
         shift_id=1,

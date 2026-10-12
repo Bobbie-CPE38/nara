@@ -169,7 +169,10 @@ def test_target_migration_stops_when_gap_rows_exist(seeded: Session) -> None:
             {"case_id": case_id, "requirement_id": requirement_id, "computed_at": DEMO_NOW},
         )
         # The savepoint keeps the outer test transaction usable after the refusal
-        with pytest.raises(DBAPIError, match="make reset"), connection.begin_nested():
+        with (
+            pytest.raises(DBAPIError, match="effective_minimum cannot be known"),
+            connection.begin_nested(),
+        ):
             migration.upgrade()
 
     # It stopped before changing anything
@@ -186,7 +189,7 @@ def test_target_downgrade_stops_when_gap_rows_exist(seeded: Session) -> None:
 
     with (
         Operations.context(MigrationContext.configure(connection)),
-        pytest.raises(DBAPIError, match="make reset"),
+        pytest.raises(DBAPIError, match="patients_per_nurse cannot be known"),
         connection.begin_nested(),
     ):
         migration.downgrade()

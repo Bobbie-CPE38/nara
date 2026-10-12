@@ -134,7 +134,7 @@ def test_handler_stores_the_gap_with_the_inputs_it_was_computed_from(
 
     (gap,) = _gaps(db, case)
     assert gap.staffing_requirement_id == requirement.id
-    # ceil(10 patients / 2 per nurse) = 5 needed, 4 left after 105
+    # Target max(required_staff 5, minimum_staff 4) = 5, 4 left after 105
     assert gap.headcount_gap == 1
     assert gap.effective_minimum == 5
     assert gap.computed_at == DEMO_NOW

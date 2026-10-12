@@ -25,15 +25,26 @@ EXISTING_ROWS_MESSAGE = (
     "staffing_gap already has rows, and their effective_minimum cannot be known. "
     "Run make reset to empty the database, then migrate again."
 )
-REFUSE_EXISTING_ROWS = f"""
+DOWNGRADE_EXISTING_ROWS_MESSAGE = (
+    "staffing_gap already has rows, and their patient_count and patients_per_nurse "
+    "cannot be known. Run make reset to empty the database, then migrate again."
+)
+
+
+def _refuse_existing_rows(message: str) -> str:
+    return f"""
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM staffing_gap) THEN
-        RAISE EXCEPTION '{EXISTING_ROWS_MESSAGE}';
+        RAISE EXCEPTION '{message}';
     END IF;
 END
 $$
 """
+
+
+REFUSE_EXISTING_ROWS = _refuse_existing_rows(EXISTING_ROWS_MESSAGE)
+REFUSE_EXISTING_ROWS_ON_DOWNGRADE = _refuse_existing_rows(DOWNGRADE_EXISTING_ROWS_MESSAGE)
 
 
 def upgrade() -> None:
@@ -47,7 +58,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(REFUSE_EXISTING_ROWS)
+    op.execute(REFUSE_EXISTING_ROWS_ON_DOWNGRADE)
     op.drop_column("staffing_gap", "effective_minimum")
     op.add_column("staffing_gap", sa.Column("patient_count", sa.Integer(), nullable=False))
     op.add_column("staffing_gap", sa.Column("patients_per_nurse", sa.Numeric(), nullable=False))
