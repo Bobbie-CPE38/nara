@@ -63,6 +63,7 @@ def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
         12,
         52,
     )
+    assert hard.maximum_consecutive_shifts == 7
 
 
 def test_roster_supports_the_gap_and_no_gap_demo_paths(seeded: Session) -> None:
