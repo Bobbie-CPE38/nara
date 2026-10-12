@@ -17,6 +17,25 @@ async function flush() {
 }
 
 describe("usePolling", () => {
+  it("refresh resolves only after its queued fresh read finishes", async () => {
+    let finishOlder!: (value: string) => void;
+    let finishFresh!: (value: string) => void;
+    const load = vi.fn<(signal: AbortSignal) => Promise<string>>()
+      .mockResolvedValueOnce("initial")
+      .mockImplementationOnce(() => new Promise((resolve) => { finishOlder = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFresh = resolve; }));
+    const { result } = renderHook(() => usePolling(load));
+    await flush();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    let finished = false;
+    act(() => { void result.current.refresh().then(() => { finished = true; }); });
+    await act(async () => { finishOlder("older"); });
+    expect(finished).toBe(false);
+    await act(async () => { finishFresh("fresh"); });
+    expect(finished).toBe(true);
+    expect(result.current.data).toBe("fresh");
+  });
+
   it("aborts a stalled read, retains data and runs the queued refresh", async () => {
     let finishLate!: (value: string) => void;
     const load = vi
@@ -35,7 +54,7 @@ describe("usePolling", () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
     const signal = load.mock.calls[1][0];
-    act(() => result.current.refresh());
+    act(() => { void result.current.refresh(); });
     expect(result.current.data).toBe("initial");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
@@ -79,7 +98,7 @@ describe("usePolling", () => {
       );
     const { result } = renderHook(() => usePolling(load));
     await flush();
-    act(() => result.current.refresh());
+    act(() => { void result.current.refresh(); });
     expect(result.current.data).toBe("old");
     expect(result.current.isLoading).toBe(false);
     await act(async () => finish("new"));
@@ -106,7 +125,7 @@ describe("usePolling", () => {
     expect(load).toHaveBeenCalledTimes(1);
     await act(async () => finish("first"));
     expect(load).toHaveBeenCalledTimes(2);
-    act(() => result.current.refresh());
+    act(() => { void result.current.refresh(); });
     unmount();
     await act(async () => finish("late"));
     await vi.advanceTimersByTimeAsync(10000);
@@ -117,7 +136,7 @@ describe("usePolling", () => {
   it("does not refresh while disabled", () => {
     const load = vi.fn();
     const { result } = renderHook(() => usePolling(load, { enabled: false }));
-    act(() => result.current.refresh());
+    act(() => { void result.current.refresh(); });
     expect(load).not.toHaveBeenCalled();
   });
   it("loads immediately and observes the golden-path states every two seconds", async () => {
@@ -357,7 +376,7 @@ describe("usePolling", () => {
     );
     await flush();
     expect(vi.getTimerCount()).toBe(0);
-    act(() => result.current.refresh());
+    act(() => { void result.current.refresh(); });
     expect(result.current.data).toBe("RESOLVED");
     await flush();
     expect(load).toHaveBeenCalledTimes(2);
@@ -382,7 +401,7 @@ describe("usePolling", () => {
     const { result } = renderHook(() =>
       usePolling(load, { stopOnData: (status) => status === "RESOLVED" }),
     );
-    act(() => result.current.refresh());
+    act(() => { void result.current.refresh(); });
     expect(load).toHaveBeenCalledTimes(1);
     await act(async () => finish("RESOLVED"));
     expect(load).toHaveBeenCalledTimes(2);

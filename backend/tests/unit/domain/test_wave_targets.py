@@ -116,3 +116,17 @@ def test_a_duplicate_candidate_raises() -> None:
         fill_targets(
             headcount_gap=1, role_gaps={}, skill_gaps={}, candidates=[person(1), person(1)]
         )
+
+
+def test_first_wave_replacement_fills_only_the_remaining_target() -> None:
+    from app.domain.workflow.case_status import GapFiller
+
+    selected = fill_targets(
+        headcount_gap=3,
+        role_gaps={1: 3},
+        skill_gaps={},
+        already_selected=[GapFiller(i, 1, frozenset()) for i in (201, 202, 203)],
+        candidates=[GapFiller(i, 1, frozenset()) for i in (204, 205)],
+    )
+    # ceil(3 * 1.1) is four, so three kept candidates leave only one vacancy.
+    assert list(selected) == [204]

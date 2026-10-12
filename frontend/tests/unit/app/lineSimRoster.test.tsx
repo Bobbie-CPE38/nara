@@ -41,6 +41,15 @@ const offer: Offer = {
   channel: "LINE",
   sent_at: "2026-10-09T21:00:00+07:00",
   response_at: null,
+  ward_id: 1,
+  ward_name: "ICU",
+  shift_start_at: "2026-10-09T23:00:00+07:00",
+  shift_end_at: "2026-10-10T07:00:00+07:00",
+  can_accept: true,
+  can_reject: true,
+  blocked_reason: null,
+  cancellation_reason: null,
+  is_reserve: false,
 };
 const roster: ShiftRoster = {
   shift: {
@@ -99,6 +108,39 @@ function replies(handler: (path: string) => unknown) {
 }
 
 describe("LINE simulator", () => {
+  it("allows choosing one of several offers by its own ID", async () => {
+    const second = { ...offer, id: 2, case_id: 8, ward_name: "Ward 2" };
+    replies((path) => path.endsWith("/respond")
+      ? { outreach_id: 2, outreach_status: "ACCEPTED", case_id: 8, case_status: "WAITING_APPROVAL" }
+      : [offer, second]);
+    render(<LineSimulatorPage />);
+    const button = await screen.findByRole("button", { name: "Accept offer 2" });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(button);
+    expect(request).toHaveBeenCalledWith("/demo/line-sim/respond", expect.objectContaining({
+      json: { outreach_id: 2, response: "ACCEPT" }, demoUser: 201,
+    }));
+  });
+  it("disables only Accept for a paused offer and explains why", async () => {
+    replies(() => [{ ...offer, can_accept: false, blocked_reason: "AWAITING_OTHER_CASE" }]);
+    render(<LineSimulatorPage />);
+    const accept = await screen.findByRole("button", { name: "Accept offer 1" });
+    expect((accept as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Reject offer 1" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/Accept is paused/)).toBeTruthy();
+  });
+  it("allows reserves to respond while the case waits for approval", async () => {
+    replies(() => [{ ...offer, case_status: "WAITING_APPROVAL" }]);
+    render(<LineSimulatorPage />);
+    expect(((await screen.findByRole("button", { name: "Accept offer 1" })) as HTMLButtonElement).disabled).toBe(false);
+  });
+  it("shows the recorded cancellation reason", async () => {
+    replies(() => [{ ...offer, status: "CANCELLED", can_accept: false, can_reject: false,
+      cancellation_reason: "CASE_RESOLVED" }]);
+    render(<LineSimulatorPage />);
+    expect(await screen.findByText("Cancelled: CASE_RESOLVED")).toBeTruthy();
+  });
+
   it("loads and switches staff with the matching demo identity", async () => {
     replies((path) => (path.includes("staff_id=201") ? [offer] : []));
     render(<LineSimulatorPage />);
@@ -162,7 +204,7 @@ describe("LINE simulator", () => {
       ).disabled,
     ).toBe(true);
   });
-  it("explains unsupported rejection without changing the offer", async () => {
+  it("shows a rejected request error without claiming Reject is unsupported", async () => {
     replies((path) => {
       if (path.endsWith("/respond"))
         throw new ApiError(422, { detail: "Unsupported" });
@@ -172,7 +214,7 @@ describe("LINE simulator", () => {
     await screen.findByText("SENT");
     fireEvent.click(screen.getByRole("button", { name: "Reject offer 1" }));
     await screen.findByText(
-      "Rejection is not supported in this demo yet. The offer remains unchanged.",
+      "Unsupported",
     );
     expect(screen.getByText("SENT")).toBeTruthy();
   });
@@ -318,9 +360,8 @@ describe("LINE simulator", () => {
   it.each([
     { offers: [{ ...offer, status: "ACCEPTED" }] },
     { offers: [{ ...offer, case_status: "FAILED" }] },
-    { offers: [offer, { ...offer, id: 2 }] },
   ])(
-    "disables history, stopped cases and ambiguous offers: $offers",
+    "disables history and stopped cases: $offers",
     async ({ offers }) => {
       replies(() => offers);
       render(<LineSimulatorPage />);

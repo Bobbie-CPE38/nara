@@ -304,6 +304,7 @@ GOLDEN_PATH_AUDIT_ACTIONS: tuple[AuditAction, ...] = (
     AuditAction.GAP_ASSESSED,
     AuditAction.SOLVER_EXECUTED,
     AuditAction.OFFER_SENT,
+    AuditAction.OFFER_SENT,
     AuditAction.OFFER_ACCEPTED,
     AuditAction.SAFETY_PASSED,
     AuditAction.APPROVAL_REQUESTED,

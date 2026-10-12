@@ -17,6 +17,10 @@ function offerSnapshot(offer: Offer) {
     offer.case_status,
     offer.sent_at,
     offer.response_at,
+    offer.can_accept,
+    offer.can_reject,
+    offer.blocked_reason,
+    offer.is_reserve,
   ]);
 }
 
@@ -72,19 +76,21 @@ function StaffOffers({
   const openOffers =
     data?.filter(
       (offer) =>
-        offer.status === "SENT" && offer.case_status === "WAITING_RESPONSE",
+        offer.status === "SENT" && offer.can_reject && !["FAILED", "RESOLVED", "UNRESOLVED", "MANUAL_HANDOFF"].includes(offer.case_status),
     ) ?? [];
 
   async function respond(offerId: number, response: "ACCEPT" | "REJECT") {
     // A ref also prevents a second click before React paints the pending state.
-    const selected = openOffers.length === 1 ? openOffers[0] : undefined;
+    const selected = openOffers.find((offer) => offer.id === offerId);
     if (
       actionController.current ||
-      selected?.id !== offerId ||
+      !selected ||
+      (response === "ACCEPT" && !selected.can_accept) ||
       error ||
       offerSnapshot(selected) === answeredSnapshot
     )
       return;
+    const previousOpenSnapshots = new Set(openOffers.map(offerSnapshot));
     const controller = new AbortController();
     actionController.current = controller;
     setPending(true);
@@ -130,7 +136,7 @@ function StaffOffers({
           message: `Offer ${result.outreach_id}: ${result.outreach_status}. Case ${result.case_id}: ${result.case_status}.`,
         });
       }
-      refresh();
+      await refresh();
     } catch (cause) {
       if (controller.signal.aborted) return;
       setFeedback({
@@ -143,24 +149,17 @@ function StaffOffers({
                 !offers.some(
                   (other) =>
                     other.status === "SENT" &&
-                    other.case_status === "WAITING_RESPONSE" &&
-                    (other.id !== selected.id ||
-                      other.sent_at !== selected.sent_at),
+                    other.can_accept &&
+                    other.id !== selected.id &&
+                    !previousOpenSnapshots.has(offerSnapshot(other)),
                 )
               : offerSnapshot(offer) === offerSnapshot(selected),
           ),
-        message:
-          cause instanceof ApiError &&
-          cause.status === 422 &&
-          response === "REJECT"
-            ? "Rejection is not supported in this demo yet. The offer remains unchanged."
-            : cause instanceof Error
-              ? cause.message
-              : "Could not send your response.",
+        message: cause instanceof Error ? cause.message : "Could not send your response.",
       });
       if (cause instanceof ApiError && cause.status === 409) {
         setAnsweredSnapshot(offerSnapshot(selected));
-        refresh();
+        await refresh();
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -190,12 +189,6 @@ function StaffOffers({
         </p>
       )}
       {data?.length === 0 && <p>No offers for this staff member.</p>}
-      {openOffers.length > 1 && (
-        <p role="alert">
-          More than one open offer was found. Check the case timelines before
-          responding.
-        </p>
-      )}
       {data && data.length > 0 && (
         <div className="overflow-x-auto rounded border border-slate-300">
           <table className="w-full text-left text-sm">
@@ -207,7 +200,7 @@ function StaffOffers({
                 {[
                   "Offer",
                   "Case",
-                  "Shift",
+                  "Ward / Shift",
                   "Offer status",
                   "Case status",
                   "Sent (Bangkok)",
@@ -223,8 +216,7 @@ function StaffOffers({
             <tbody>
               {data.map((offer) => {
                 const canRespond =
-                  openOffers.length === 1 &&
-                  openOffers[0].id === offer.id &&
+                  openOffers.some((open) => open.id === offer.id) &&
                   offerSnapshot(offer) !== answeredSnapshot &&
                   !pending &&
                   !error;
@@ -232,7 +224,10 @@ function StaffOffers({
                   <tr key={offer.id} className="border-t border-slate-200">
                     <td className="p-3">{offer.id}</td>
                     <td className="p-3">{offer.case_id}</td>
-                    <td className="p-3">{offer.proposed_shift_id}</td>
+                    <td className="p-3">
+                      {offer.ward_name} · Shift {offer.proposed_shift_id}
+                      <div>{formatDemoTime(offer.shift_start_at)} – {formatDemoTime(offer.shift_end_at)}</div>
+                    </td>
                     <td className="p-3">{offer.status}</td>
                     <td className="p-3">{offer.case_status}</td>
                     <td className="whitespace-nowrap p-3">
@@ -245,7 +240,7 @@ function StaffOffers({
                       <div className="flex gap-2">
                         <button
                           aria-label={`Accept offer ${offer.id}`}
-                          disabled={!canRespond}
+                          disabled={!canRespond || !offer.can_accept}
                           onClick={() => void respond(offer.id, "ACCEPT")}
                           className="rounded bg-blue-700 px-3 py-2 text-white disabled:opacity-40"
                         >
@@ -260,6 +255,11 @@ function StaffOffers({
                           Reject
                         </button>
                       </div>
+                      {offer.blocked_reason === "AWAITING_OTHER_CASE" && (
+                        <p>Accept is paused while another case reviews your acceptance. You may still reject this offer.</p>
+                      )}
+                      {offer.cancellation_reason && <p>Cancelled: {offer.cancellation_reason}</p>}
+                      {offer.is_reserve ? <p>Accepted as a reserve. Do not come to the shift unless selected and approved.</p> : offer.status === "ACCEPTED" && <p>Acceptance is not a confirmed assignment. Wait for head-nurse approval.</p>}
                     </td>
                   </tr>
                 );
@@ -269,8 +269,7 @@ function StaffOffers({
         </div>
       )}
       <p className="text-sm text-slate-600">
-        Only a SENT offer on a WAITING_RESPONSE case can be answered. Rejection
-        is not supported in this demo yet.
+        Choose an offer to accept or reject. Accepting pauses acceptance of your other offers until the outcome is known.
       </p>
     </section>
   );

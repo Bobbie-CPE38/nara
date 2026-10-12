@@ -202,6 +202,7 @@ nara/
 │   │   │   ├── hard_rule_service.py
 │   │   │   ├── case_facts_service.py
 │   │   │   ├── candidate_service.py
+│   │   │   ├── wave_service.py
 │   │   │   ├── optimization_service.py
 │   │   │   ├── outreach_service.py
 │   │   │   ├── safety_service.py

@@ -11,8 +11,7 @@ create_plan() is the round 1 Solver:
        * nothing to fill: the case is short of a role or a skill only and the
          person has none of them (SKILL_MISMATCH when a skill is short, else
          ROLE_MISMATCH);
-       * the offer cap (availability_service.staff_at_offer_limit) or, until
-         PR 2b, any open offer (_staff_with_open_offers): OFFER_LIMIT_REACHED.
+       * the offer cap (availability_service.staff_at_offer_limit): OFFER_LIMIT_REACHED.
   3. Capture a working-time snapshot of everyone left (working_time_service).
   4. optimization.solver.solve(): the cheapest group that covers the wave targets
      is the first wave, and rank lists that group first.
@@ -41,14 +40,13 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Any, NamedTuple
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.db.models import (
     CandidateItem,
     CandidateItemTarget,
-    CandidateOutreach,
     CandidatePlan,
     Shift,
     SoftConstraintPolicy,
@@ -60,9 +58,7 @@ from app.domain.constraints.context import local_day, projected_consecutive_shif
 from app.domain.constraints.penalties import SoftWeights, candidate_penalty
 from app.domain.constraints.soft_metrics import SoftMetrics
 from app.domain.enums import (
-    AUTOMATION_STOPPED_STATUSES,
     CandidateSource,
-    OutreachStatus,
     SolverStatus,
 )
 from app.domain.staffing.wave_targets import TargetCredit, wave_target
@@ -114,8 +110,6 @@ def create_plan(db: Session, case: StaffingCase) -> PlanResult:
     hard_rule_service.lock_staff(db, pool)
     checks = hard_rule_service.check_staff(db, shift=shift, staff_ids=pool)
     at_limit = set(availability_service.staff_at_offer_limit(db, pool))
-    # Interim until PR 2b (see _staff_with_open_offers)
-    at_limit |= _staff_with_open_offers(db, pool)
 
     eligible: list[int] = []
     skipped: list[SkippedCandidate] = []
@@ -230,35 +224,6 @@ def record_item_targets(db: Session, item: CandidateItem, credits: Iterable[Targ
         for credit in credits
     )
     db.flush()
-
-
-def _staff_with_open_offers(db: Session, staff_ids: list[int]) -> set[int]:
-    """Interim rule: staff with a SENT offer, or an ACCEPTED one in a running case.
-
-    The Skeleton answer route (outreach_service.record_response) needs exactly
-    one SENT offer per responder, so a second offer would leave the person unable
-    to answer either. PR 2b removes this function together with that limit; the
-    offer cap alone applies from then on (workflow.md section 6.7).
-    """
-    if not staff_ids:
-        return set()
-    return set(
-        db.scalars(
-            select(CandidateItem.staff_id)
-            .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
-            .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
-            .where(
-                CandidateItem.staff_id.in_(staff_ids),
-                or_(
-                    CandidateOutreach.status == OutreachStatus.SENT,
-                    and_(
-                        CandidateOutreach.status == OutreachStatus.ACCEPTED,
-                        StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
-                    ),
-                ),
-            )
-        )
-    )
 
 
 def _skip_reason(check: CandidateCheck, case_gap: CaseGap, *, at_limit: bool) -> str | None:

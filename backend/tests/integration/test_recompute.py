@@ -549,3 +549,15 @@ def test_wait_point_can_be_both_ends_of_one_round_through_t4_and_t7(
         ("WAITING_APPROVAL", "OUTREACH"),
         ("OUTREACH", "WAITING_APPROVAL"),
     ]
+
+
+def test_preparation_cannot_change_case_status(seeded: Session) -> None:
+    case, _ = short_case(seeded)
+
+    def invalid_prepare(db: Session, case: StaffingCase) -> None:
+        case.status = CaseStatus.RESOLVED
+
+    result = orchestrator.recompute(seeded, case.id, prepare=invalid_prepare)
+    assert result == CaseStatus.FAILED
+    assert _status_changes(seeded, case) == [("WAITING_RESPONSE", "FAILED")]
+    assert _audit(seeded, case)[-1].payload["error_type"] == "WorkflowError"

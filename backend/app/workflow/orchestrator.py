@@ -118,7 +118,12 @@ def resume(db: Session, case_id: int, next_status: CaseStatus) -> None:
     _run_round(db, case)
 
 
-def recompute(db: Session, case_id: int) -> CaseStatus:
+def recompute(
+    db: Session,
+    case_id: int,
+    *,
+    prepare: Callable[[Session, StaffingCase], None] | None = None,
+) -> CaseStatus:
     """Move a waiting case to the status its gap and offers call for, then commit.
 
     Called after anything that can change the answer: a candidate accepted,
@@ -156,7 +161,17 @@ def recompute(db: Session, case_id: int) -> CaseStatus:
         raise InvalidTransitionError(
             f"Case {case.id} is {case.status.value}, not at a wait point: cannot recompute"
         )
-    _run_round(db, case, before=_apply_computed_status)
+
+    def before(db: Session, case: StaffingCase) -> None:
+        if prepare is not None:
+            previous = case.status
+            prepare(db, case)
+            if case.status != previous:
+                raise WorkflowError("Preparation callback changed case.status itself")
+        db.flush()
+        _apply_computed_status(db, case)
+
+    _run_round(db, case, before=before)
     return case.status
 
 

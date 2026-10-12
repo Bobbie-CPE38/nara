@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export type PollingOptions<T = unknown> = {
   intervalMs?: number;
   enabled?: boolean;
-  /** Abort stalled reads and retry; refresh cannot wait longer than this. */
+  /** Bound each read; a queued refresh waits for the current read and its own read. */
   timeoutMs?: number;
   /** Return true to end polling after this result, e.g. a final case status. The data stays. */
   stopOnData?: (data: T) => boolean;
@@ -27,7 +27,7 @@ export function usePolling<T>(
   const [data, setData] = useState<T | undefined>();
   const [error, setError] = useState<Error | null>(null);
   const [isLoading, setIsLoading] = useState(enabled);
-  const refreshRef = useRef<() => void>(() => {});
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
   const refresh = useCallback(() => refreshRef.current(), []);
   // Read through a ref so an inline callback does not restart polling.
   const stopRef = useRef({ stopOnData, stopOnError });
@@ -47,17 +47,20 @@ export function usePolling<T>(
     setData(undefined);
     setError(null);
     setIsLoading(enabled);
-    refreshRef.current = () => {};
+    refreshRef.current = async () => {};
     if (!enabled) return;
 
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     let inFlight = false;
     let refreshQueued = false;
+    const queuedResolvers: Array<() => void> = [];
+    let activeResolvers: Array<() => void> = [];
     let requestController: AbortController | undefined;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 
     async function poll() {
+      activeResolvers = queuedResolvers.splice(0);
       inFlight = true;
       refreshQueued = false;
       const request = new AbortController();
@@ -90,6 +93,7 @@ export function usePolling<T>(
       } finally {
         clearTimeout(timeout);
         inFlight = false;
+        activeResolvers.splice(0).forEach((resolve) => resolve());
         if (!controller.signal.aborted) {
           setIsLoading(false);
           // A refresh during a request waits for it, then runs once more,
@@ -100,18 +104,20 @@ export function usePolling<T>(
       }
     }
 
-    refreshRef.current = () => {
+    refreshRef.current = () => new Promise<void>((resolve) => {
+      queuedResolvers.push(resolve);
       clearTimeout(timer);
       if (inFlight) refreshQueued = true;
       else void poll();
-    };
+    });
     void poll();
     return () => {
       controller.abort();
+      [...queuedResolvers.splice(0), ...activeResolvers.splice(0)].forEach((resolve) => resolve());
       requestController?.abort();
       clearTimeout(deadlineTimer);
       clearTimeout(timer);
-      refreshRef.current = () => {};
+      refreshRef.current = async () => {};
     };
   }, [load, intervalMs, enabled, timeoutMs]);
 

@@ -1,93 +1,354 @@
-"""Offers and answers for the Golden Path; the orchestrator owns the transaction."""
+"""Wave offers, individual responses and reserves (workflow.md 6.6–6.11).
 
-from sqlalchemy import select
+No case-status writes. The orchestrator commits the answer and its workflow;
+foreign-case notifications run after that commit in separate transactions.
+"""
+
+import logging
+from collections.abc import Sequence
+
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.db.models import CandidateItem, CandidateOutreach, CandidatePlan, StaffingCase
+from app.db.models import (
+    ApprovalRequest,
+    AuditLog,
+    CandidateItem,
+    CandidateOutreach,
+    CandidatePlan,
+    SafetyValidation,
+    Shift,
+    StaffingCase,
+    Ward,
+)
 from app.domain.enums import (
+    AUTOMATION_STOPPED_STATUSES,
     AuditAction,
     CandidateResponse,
-    CaseStatus,
     Channel,
     EntityType,
     OutreachStatus,
 )
 from app.integrations.line import mock as line_mock
 from app.schemas.outreach import OfferView
-from app.services import audit_service
+from app.services import audit_service, case_facts_service, hard_rule_service
+from app.services.wave_service import plan_items
+
+logger = logging.getLogger(__name__)
 
 
 class OpenOfferConflictError(ValueError):
-    """The responder has no unique open offer, or it differs from the expected ID."""
-
-
-class UnsupportedResponseError(ValueError):
-    """Rejection has no workflow transition in the walking skeleton yet."""
+    """The selected offer is not answerable by this staff member."""
 
 
 def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
-    """Read the selected staff member's offer history by ID, without writing.
-
-    Include all statuses and case status so the simulator can distinguish
-    history from SENT offers on WAITING_RESPONSE cases. Selection is a demo
-    read; record_response() still identifies the responder from X-Demo-User.
-    No explicit flush, commit, audit or row lock.
-    """
-    rows = db.execute(
-        select(
-            CandidateOutreach.id,
-            CandidateOutreach.case_id,
-            CandidateOutreach.candidate_item_id,
-            CandidateItem.staff_id,
-            CandidateItem.proposed_shift_id,
-            CandidateOutreach.status,
-            StaffingCase.status.label("case_status"),
-            CandidateOutreach.channel,
-            CandidateOutreach.sent_at,
-            CandidateOutreach.response_at,
+    """Read history with per-offer actions and ward/shift context; no writes."""
+    with db.no_autoflush:
+        rows = (
+            db.execute(
+                select(
+                    CandidateOutreach.id,
+                    CandidateOutreach.case_id,
+                    CandidateOutreach.candidate_item_id,
+                    CandidateItem.staff_id,
+                    CandidateItem.proposed_shift_id,
+                    CandidateOutreach.status,
+                    StaffingCase.status.label("case_status"),
+                    CandidateOutreach.channel,
+                    CandidateOutreach.sent_at,
+                    CandidateOutreach.response_at,
+                    Shift.ward_id,
+                    Ward.name.label("ward_name"),
+                    Shift.start_at.label("shift_start_at"),
+                    Shift.end_at.label("shift_end_at"),
+                )
+                .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+                .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
+                .join(Shift, Shift.id == CandidateItem.proposed_shift_id)
+                .join(Ward, Ward.id == Shift.ward_id)
+                .where(CandidateItem.staff_id == staff_id)
+                .order_by(CandidateOutreach.id)
+            )
+            .mappings()
+            .all()
         )
-        .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
-        .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
-        .where(CandidateItem.staff_id == staff_id)
-        .order_by(CandidateOutreach.id)
-    ).mappings()
-    return [OfferView.model_validate(row) for row in rows]
+        result = []
+        for row in rows:
+            live = row["status"] is OutreachStatus.SENT and (
+                row["case_status"] not in AUTOMATION_STOPPED_STATUSES
+            )
+            paused = live and bool(
+                case_facts_service.staff_waiting_on_another_case(db, row["case_id"], {staff_id})
+            )
+            blocked = (
+                "AWAITING_OTHER_CASE"
+                if paused
+                else ("CASE_STOPPED" if row["case_status"] in AUTOMATION_STOPPED_STATUSES else None)
+            )
+            reason = (
+                _cancellation_reason(db, row["id"], row["case_id"])
+                if (row["status"] is OutreachStatus.CANCELLED)
+                else None
+            )
+            reserve = (
+                row["status"] == OutreachStatus.ACCEPTED
+                and row["case_status"] not in AUTOMATION_STOPPED_STATUSES
+                and not db.scalar(
+                    select(
+                        exists().where(
+                            ApprovalRequest.candidate_item_id == row["candidate_item_id"]
+                        )
+                    )
+                )
+                and not db.scalar(
+                    select(
+                        exists().where(
+                            SafetyValidation.candidate_item_id == row["candidate_item_id"]
+                        )
+                    )
+                )
+            )
+            result.append(
+                OfferView.model_validate(
+                    dict(row)
+                    | {
+                        "can_accept": live and not paused,
+                        "can_reject": live,
+                        "blocked_reason": blocked,
+                        "cancellation_reason": reason,
+                        "is_reserve": reserve,
+                    }
+                )
+            )
+        return result
 
 
-def send_offer(db: Session, case: StaffingCase) -> tuple[CandidateOutreach, int]:
-    """Send exactly one rank-1 candidate from the latest plan, without committing.
+def _cancellation_reason(db: Session, outreach_id: int, case_id: int) -> str:
+    rows = db.scalars(
+        select(AuditLog)
+        .where((AuditLog.case_id == case_id) | (AuditLog.action == AuditAction.ASSIGNMENT_CREATED))
+        .order_by(AuditLog.id.desc())
+    )
+    for row in rows:
+        payload = row.payload
+        if outreach_id in payload.get("cancelled_outreach_ids", []):
+            return {
+                AuditAction.CASE_RESOLVED: "CASE_RESOLVED",
+                AuditAction.MANUAL_HANDOFF: "MANUAL_HANDOFF",
+                AuditAction.ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
+            }.get(row.action, "CANCELLED")
+        if payload.get("outreach_id") == outreach_id:
+            if row.action == AuditAction.SAFETY_FAILED:
+                return ", ".join(payload.get("failed_rules", [])) or "SAFETY_FAILED"
+            if row.action == AuditAction.APPROVAL_REJECTED:
+                return payload.get("reason") or "APPROVAL_REJECTED"
+    return "CANCELLED"
 
-    Returns the outreach and recipient staff ID; writes no audit row. The
-    contact handler owns OFFER_SENT. Missing plans, missing rank-1 items, and
-    duplicate rank-1 items raise. The handler lets these errors reach the
-    orchestrator's D11 failure handling.
-    Flush first because plans may have been created earlier in this round and
-    production sessions have autoflush disabled.
+
+def send_offer(
+    db: Session, case: StaffingCase, items: Sequence[CandidateItem]
+) -> list[CandidateOutreach]:
+    """Write one SENT row per selected Item with one clock read; audit is the handler's."""
+    if len({item.staff_id for item in items}) != len(items):
+        raise ValueError("A Wave cannot contact the same staff member twice")
+    if any(item.proposed_shift_id != case.shift_id for item in items):
+        raise ValueError("A Wave item proposes a different shift")
+    plan_ids = set(
+        db.scalars(
+            select(CandidatePlan.id).where(
+                CandidatePlan.id.in_([item.plan_id for item in items]),
+                CandidatePlan.case_id == case.id,
+            )
+        )
+    )
+    if any(item.plan_id not in plan_ids for item in items):
+        raise ValueError("A Wave item belongs to a different case")
+    now = clock.now()
+    offers = [
+        CandidateOutreach(
+            case_id=case.id,
+            candidate_item_id=item.id,
+            channel=Channel.LINE,
+            status=OutreachStatus.SENT,
+            sent_at=now,
+        )
+        for item in items
+    ]
+    db.add_all(offers)
+    db.flush()
+    for item, outreach in zip(items, offers, strict=True):
+        line_mock.send_offer(staff_id=item.staff_id, outreach_id=outreach.id)
+    return offers
+
+
+def cancel_offer(db: Session, outreach: CandidateOutreach) -> None:
+    """Shared cancellation write for Safety, Approval and case completion (Q8).
+
+    The caller holds offer locks, owns its audit and transaction, and chooses
+    which rows to cancel. Keep response_at: cancellation is not a new response.
+    """
+    if outreach.status in {OutreachStatus.SENT, OutreachStatus.ACCEPTED}:
+        outreach.status = OutreachStatus.CANCELLED
+
+
+def lock_case_for_outreach(db: Session, case_id: int) -> StaffingCase:
+    """Offer rows → case → whole-plan Staff, in the agreed global order.
+
+    Must be called before making response/foreign-case recompute writes. Lock
+    every offer in one query, including the selected row on replay, then refresh
+    cached state after waiting. NO KEY UPDATE permits FK audit inserts.
     """
     db.flush()
-    plan = db.scalar(
-        select(CandidatePlan)
-        .where(CandidatePlan.case_id == case.id)
-        .order_by(CandidatePlan.id.desc())
-        .limit(1)
+    list(
+        db.scalars(
+            select(CandidateOutreach)
+            .where(CandidateOutreach.case_id == case_id)
+            .order_by(CandidateOutreach.id)
+            .with_for_update(key_share=True, of=CandidateOutreach)
+            .execution_options(populate_existing=True)
+        )
     )
-    if plan is None:
-        raise LookupError(f"No candidate plan for case {case.id}")
-    item = db.scalars(
-        select(CandidateItem).where(CandidateItem.plan_id == plan.id, CandidateItem.rank == 1)
-    ).one()
-    outreach = CandidateOutreach(
+    case = db.scalar(
+        select(StaffingCase)
+        .where(StaffingCase.id == case_id)
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
+    if case is None:
+        raise LookupError(f"No case {case_id}")
+    if case.status not in AUTOMATION_STOPPED_STATUSES:
+        items = plan_items(db, case_id)
+        hard_rule_service.lock_staff(db, [item.staff_id for item in items])
+    return case
+
+
+def promote_reserves(db: Session, case: StaffingCase) -> None:
+    """Process accepted reserves oldest first until assigned+pending cover the gap.
+
+    PR 3 replaces the temporary individual Skeleton Safety adapter below. PR 4
+    calls this helper after a rejection. Caller already holds all case/Staff locks.
+    """
+    from app.workflow.handlers import validate_safety
+
+    processed = exists().where(
+        SafetyValidation.candidate_item_id == CandidateOutreach.candidate_item_id
+    )
+    requested = exists().where(
+        ApprovalRequest.candidate_item_id == CandidateOutreach.candidate_item_id
+    )
+    while not case_facts_service.load_case_facts(db, case).gap_closed_with_pending:
+        db.flush()
+        outreach = db.scalar(
+            select(CandidateOutreach)
+            .where(
+                CandidateOutreach.case_id == case.id,
+                CandidateOutreach.status == OutreachStatus.ACCEPTED,
+                ~processed,
+                ~requested,
+            )
+            .order_by(CandidateOutreach.response_at, CandidateOutreach.id)
+            .limit(1)
+        )
+        if outreach is None:
+            break
+        validate_safety.handle(db, case, outreach_id=outreach.id)
+        db.flush()
+        # A stub or broken Safety implementation must not keep selecting the
+        # same reserve forever inside the HTTP request.
+        if (
+            outreach.status == OutreachStatus.ACCEPTED
+            and not db.scalar(
+                select(
+                    exists().where(SafetyValidation.candidate_item_id == outreach.candidate_item_id)
+                )
+            )
+            and not db.scalar(
+                select(
+                    exists().where(ApprovalRequest.candidate_item_id == outreach.candidate_item_id)
+                )
+            )
+        ):
+            raise RuntimeError("Safety did not record an outcome for the accepted offer")
+
+
+def recompute_affected_cases(db: Session, *, staff_id: int, own_case_id: int) -> None:
+    """Post-commit notifications; each foreign case starts with its own locks."""
+    from app.workflow import orchestrator
+
+    case_ids = list(
+        db.scalars(
+            select(CandidateOutreach.case_id)
+            .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+            .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
+            .where(
+                CandidateItem.staff_id == staff_id,
+                CandidateOutreach.case_id != own_case_id,
+                CandidateOutreach.status == OutreachStatus.SENT,
+                StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
+            )
+            .distinct()
+            .order_by(CandidateOutreach.case_id)
+        )
+    )
+    # End the read transaction before each independent foreign-case round.
+    db.rollback()
+    for case_id in case_ids:
+        try:
+            lock_case_for_outreach(db, case_id)
+            orchestrator.recompute(db, case_id)
+        except Exception:
+            db.rollback()
+            logger.exception("Foreign case %s needs recompute retry", case_id)
+            # PR O's sweep recovers missed notifications after a committed answer.
+
+
+def record_response(
+    db: Session, *, staff_id: int, actor_id: int, outreach_id: int, response: CandidateResponse
+) -> tuple[CandidateOutreach, StaffingCase]:
+    """Answer the authenticated user's selected offer, even if other offers are open."""
+    from app.workflow import orchestrator
+
+    if not isinstance(response, CandidateResponse):
+        raise TypeError("response must be a CandidateResponse")
+    outreach = db.scalar(
+        select(CandidateOutreach)
+        .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+        .where(CandidateOutreach.id == outreach_id, CandidateItem.staff_id == staff_id)
+    )
+    if outreach is None:
+        raise OpenOfferConflictError("The selected offer is not available for this staff member")
+    case = lock_case_for_outreach(db, outreach.case_id)
+    if case.status in AUTOMATION_STOPPED_STATUSES:
+        raise OpenOfferConflictError("This case has stopped; the offer cannot be answered")
+    if outreach.status is not OutreachStatus.SENT:
+        raise OpenOfferConflictError("The selected offer is no longer SENT; refresh offers")
+    if response is CandidateResponse.ACCEPT and case_facts_service.staff_waiting_on_another_case(
+        db, case.id, {staff_id}
+    ):
+        raise OpenOfferConflictError(
+            "You are waiting for the outcome of an accepted offer on another case"
+        )
+    outreach.status = (
+        OutreachStatus.ACCEPTED if response is CandidateResponse.ACCEPT else OutreachStatus.REJECTED
+    )
+    outreach.response_at = clock.now()
+    audit_service.log(
+        db,
         case_id=case.id,
-        candidate_item_id=item.id,
-        channel=Channel.LINE,
-        status=OutreachStatus.SENT,
-        sent_at=clock.now(),
+        actor_id=actor_id,
+        action=AuditAction.OFFER_ACCEPTED
+        if response is CandidateResponse.ACCEPT
+        else AuditAction.OFFER_REJECTED,
+        entity_type=EntityType.CANDIDATE_OUTREACH,
+        entity_id=outreach.id,
+        payload={"outreach_id": outreach.id, "staff_id": staff_id},
     )
-    db.add(outreach)
-    db.flush()
-    line_mock.send_offer(staff_id=item.staff_id, outreach_id=outreach.id)
-    return outreach, item.staff_id
+    orchestrator.recompute(db, case.id, prepare=promote_reserves)
+    # Save IDs: rollback between independent notifications expires ORM objects.
+    case_id = case.id
+    recompute_affected_cases(db, staff_id=staff_id, own_case_id=case_id)
+    return outreach, case
 
 
 def get_accepted_outreach(db: Session, case_id: int) -> CandidateOutreach:
@@ -105,65 +366,3 @@ def get_accepted_outreach(db: Session, case_id: int) -> CandidateOutreach:
             CandidateOutreach.status == OutreachStatus.ACCEPTED,
         )
     ).one()
-
-
-def record_response(
-    db: Session, *, staff_id: int, actor_id: int, outreach_id: int, response: CandidateResponse
-) -> tuple[CandidateOutreach, StaffingCase]:
-    """Record ACCEPT and resume; leave commits and case status to the orchestrator.
-
-    The caller supplies the authenticated staff ID and their actor ID. Exactly
-    one SENT offer on a WAITING_RESPONSE case is required before checking
-    that its ID matches outreach_id and whether the answer is supported.
-    A mismatch raises before any answer, audit or workflow change. The ID never
-    replaces staff authentication. Offers on other cases are ignored.
-    Lock only outreach rows, in ID order, and refresh cached ORM state: a second
-    request waits, then sees that the first request already answered the offer.
-    Errors must propagate so the request session closes and rolls back, including
-    any answer/audit flushed before an InvalidTransitionError from resume().
-    """
-    # Imported here because the orchestrator imports contact_candidate, which
-    # uses this same service to send offers.
-    from app.workflow import orchestrator
-
-    if not isinstance(response, CandidateResponse):
-        raise TypeError("response must be a CandidateResponse")
-    offers = list(
-        db.scalars(
-            select(CandidateOutreach)
-            .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
-            .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
-            .where(
-                CandidateOutreach.status == OutreachStatus.SENT,
-                CandidateItem.staff_id == staff_id,
-                StaffingCase.status == CaseStatus.WAITING_RESPONSE,
-            )
-            .order_by(CandidateOutreach.id)
-            .with_for_update(of=CandidateOutreach)
-            .execution_options(populate_existing=True)
-        )
-    )
-    if not offers:
-        raise OpenOfferConflictError("No open offer for this staff member")
-    if len(offers) != 1:
-        raise OpenOfferConflictError("Expected exactly one open offer for this staff member")
-    outreach = offers[0]
-    if outreach.id != outreach_id:
-        raise OpenOfferConflictError("The open offer has changed; refresh offers before responding")
-    if response is CandidateResponse.REJECT:
-        raise UnsupportedResponseError("REJECT is not supported in the walking skeleton")
-    outreach.status = OutreachStatus.ACCEPTED
-    outreach.response_at = clock.now()
-    audit_service.log(
-        db,
-        case_id=outreach.case_id,
-        actor_id=actor_id,
-        action=AuditAction.OFFER_ACCEPTED,
-        entity_type=EntityType.CANDIDATE_OUTREACH,
-        entity_id=outreach.id,
-        payload={"outreach_id": outreach.id, "staff_id": staff_id},
-    )
-    orchestrator.resume(db, outreach.case_id, CaseStatus.SAFETY_VALIDATION)
-    case = db.get(StaffingCase, outreach.case_id)
-    assert case is not None  # resume() already raises when the case is missing.
-    return outreach, case

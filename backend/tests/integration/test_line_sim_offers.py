@@ -136,6 +136,15 @@ def test_offer_contract_and_demo_staff_selection(
             "channel": "LINE",
             "sent_at": DEMO_NOW.isoformat(),
             "response_at": None,
+            "ward_id": 1,
+            "ward_name": "ICU",
+            "shift_start_at": (DEMO_NOW + timedelta(hours=2)).isoformat(),
+            "shift_end_at": (DEMO_NOW + timedelta(hours=10)).isoformat(),
+            "can_accept": True,
+            "can_reject": True,
+            "blocked_reason": None,
+            "cancellation_reason": None,
+            "is_reserve": False,
         }
     ]
 
@@ -231,7 +240,7 @@ def test_real_workflow_offer_is_visible_before_and_after_acceptance(
     assert offer["case_id"] == event.json()["case_id"]
     assert offer["status"] == "SENT"
     assert offer["case_status"] == "WAITING_RESPONSE"
-    assert client.get(URL, params={"staff_id": 202}, headers=HEADERS).json() == []
+    assert len(client.get(URL, params={"staff_id": 202}, headers=HEADERS).json()) == 1
 
     answer = client.post(
         "/demo/line-sim/respond",

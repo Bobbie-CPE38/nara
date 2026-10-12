@@ -53,6 +53,28 @@ from app.services import gap_service
 _ON_ROSTER_STATUSES = (RosterStatus.ASSIGNED, RosterStatus.COMPLETED)
 
 
+def get_case_fillers(
+    db: Session, case_id: int, *, include_reserves: bool = False
+) -> list[GapFiller]:
+    """People already credited to this case; Wave also counts accepted reserves."""
+    with db.no_autoflush:
+        staff_ids = _assigned_staff_ids(db, case_id) | _pending_staff_ids(db, case_id)
+        if include_reserves:
+            staff_ids.update(
+                db.scalars(
+                    select(CandidateItem.staff_id)
+                    .join(
+                        CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id
+                    )
+                    .where(
+                        CandidateOutreach.case_id == case_id,
+                        CandidateOutreach.status == OutreachStatus.ACCEPTED,
+                    )
+                )
+            )
+        return list(_fillers(db, staff_ids).values())
+
+
 def load_case_facts(db: Session, case: StaffingCase) -> CaseFacts:
     """Read the gap, the assigned and pending candidates and the offers of one case.
 
