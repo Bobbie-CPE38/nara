@@ -49,6 +49,7 @@ const offer: Offer = {
   can_reject: true,
   blocked_reason: null,
   cancellation_reason: null,
+  is_assigned: false,
   is_reserve: false,
 };
 const roster: ShiftRoster = {
@@ -169,6 +170,13 @@ describe("LINE simulator", () => {
       expect(screen.queryByText(/Wait for head-nurse approval/)).toBeNull();
     },
   );
+  it("shows a confirmed assignment before the multi-person case has finished", async () => {
+    replies(() => [{ ...offer, status: "ACCEPTED", case_status: "WAITING_APPROVAL",
+      is_assigned: true, can_accept: false, can_reject: false }]);
+    render(<LineSimulatorPage />);
+    await screen.findByText("Assignment confirmed for this shift.");
+    expect(screen.queryByText(/Wait for head-nurse approval/)).toBeNull();
+  });
   it("shows the approval message for a live non-reserve acceptance", async () => {
     replies(() => [{ ...offer, status: "ACCEPTED", case_status: "WAITING_APPROVAL",
       can_accept: false, can_reject: false }]);

@@ -1,401 +1,148 @@
-"""Seam 8: approved item to replacement, audit ownership, and D11 rollback."""
+"""Per-candidate roster creation and finalization of already staffed cases."""
 
-from datetime import timedelta
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import (
-    ApprovalRequest,
-    AuditLog,
-    CandidateItem,
-    CandidatePlan,
-    Role,
-    RosterAssignment,
-    Shift,
-    Staff,
-    StaffingCase,
-    StaffingEvent,
-    StaffUnavailability,
-)
+from app.db.models import AuditLog, RosterAssignment, Staff
 from app.domain.enums import (
-    ActorName,
-    ApprovalMode,
     AssignmentType,
     AuditAction,
-    AvailabilityReason,
     CandidateSource,
     CaseStatus,
-    EntityType,
-    EventStatus,
-    EventType,
+    OutreachStatus,
     RosterStatus,
-    SolverStatus,
     StaffStatus,
 )
-from app.domain.workflow.transitions import InvalidTransitionError
-from app.services import actor_service, audit_service, roster_service
+from app.services import roster_service
 from app.workflow import orchestrator
 from app.workflow.handlers import execute_assignment
-from tests.integration.conftest import DEMO_NOW
+from tests.integration.case_rows import approval, assign, make_case, make_plan, offer, short_case
 
 
-@pytest.fixture
-def case(production_seeded: Session) -> StaffingCase:
-    db = production_seeded
-    event = StaffingEvent(
-        event_type=EventType.STAFF_UNAVAILABLE,
-        shift_id=1,
-        staff_id=105,
-        occurred_at=DEMO_NOW,
-        status=EventStatus.PROCESSED,
-        processed_at=DEMO_NOW,
-    )
-    db.add(event)
-    db.flush()
-    row = StaffingCase(
-        shift_id=1,
-        status=CaseStatus.WAITING_APPROVAL,
-        required_replacement_time=DEMO_NOW + timedelta(hours=2),
-    )
-    db.add(row)
-    db.flush()
-    event.case_id = row.id
-    db.flush()
-    return row
-
-
-def _item(db: Session, case: StaffingCase, *, staff_id: int = 201, rank: int = 1) -> CandidateItem:
-    plan = CandidatePlan(
-        case_id=case.id,
-        solver_status=SolverStatus.FEASIBLE,
-        generated_at=DEMO_NOW,
-        execution_time_ms=0,
-        solver_version="stub",
-        hard_constraint_policy_id=1,
-        soft_constraint_policy_id=1,
-        input_snapshot={},
-    )
-    db.add(plan)
-    db.flush()
-    item = CandidateItem(
-        plan_id=plan.id,
-        staff_id=staff_id,
-        rank=rank,
-        source=CandidateSource.SAME_WARD,
-        proposed_shift_id=case.shift_id,
-    )
-    db.add(item)
-    db.flush()
-    return item
-
-
-def _approval(db: Session, case: StaffingCase, item: CandidateItem) -> ApprovalRequest:
-    approval = ApprovalRequest(
-        case_id=case.id,
-        candidate_item_id=item.id,
-        required_approver_role=db.scalars(select(Role.id).where(Role.name == "HEAD_NURSE")).one(),
-        approval_mode=ApprovalMode.MANUAL,
-        is_pending=False,
-        is_approved=True,
-        approver_id=900,
-        reason=None,
-        requested_at=DEMO_NOW,
-        decided_at=DEMO_NOW,
-    )
-    db.add(approval)
-    db.flush()
-    return approval
-
-
-@pytest.fixture
-def approved(production_seeded: Session, case: StaffingCase) -> ApprovalRequest:
-    return _approval(production_seeded, case, _item(production_seeded, case))
-
-
-def _replacements(db: Session) -> list[RosterAssignment]:
+def replacements(db: Session) -> list[RosterAssignment]:
     return list(
         db.scalars(
-            select(RosterAssignment).where(
-                RosterAssignment.assignment_type == AssignmentType.REPLACEMENT
-            )
+            select(RosterAssignment)
+            .where(RosterAssignment.assignment_type == AssignmentType.REPLACEMENT)
+            .order_by(RosterAssignment.id)
         )
-    )
-
-
-def _audits(db: Session, case: StaffingCase) -> list[AuditLog]:
-    return list(
-        db.scalars(select(AuditLog).where(AuditLog.case_id == case.id).order_by(AuditLog.id))
     )
 
 
 @pytest.mark.parametrize("source", list(CandidateSource))
-def test_handler_creates_replacement_and_audits_without_commit_or_status_change(
-    production_seeded: Session,
-    case: StaffingCase,
-    approved: ApprovalRequest,
-    source: CandidateSource,
+def test_replacement_uses_selected_approval_not_another_approved_item(
+    production_seeded: Session, source: CandidateSource
 ) -> None:
     db = production_seeded
-    item = db.get(CandidateItem, approved.candidate_item_id)
-    assert item is not None
-    item.source = source  # Unflushed: production autoflush is disabled.
-    case.status = CaseStatus.EXECUTING
-    with patch.object(db, "commit", wraps=db.commit) as commit:
-        result = execute_assignment.handle(db, case)
-    commit.assert_not_called()
-    assert case.status is CaseStatus.EXECUTING
-    assert result.next_status is CaseStatus.RESOLVED
-    assert result.wait is False
-    (assignment,) = _replacements(db)
-    assert (assignment.staff_id, assignment.shift_id) == (item.staff_id, item.proposed_shift_id)
-    assert assignment.status is RosterStatus.ASSIGNED
-    assert assignment.candidate_source is source
-    assert assignment.created_at == assignment.updated_at == DEMO_NOW
-    rows = _audits(db, case)
-    assert [row.action for row in rows] == [
-        AuditAction.ASSIGNMENT_CREATED,
-        AuditAction.CASE_RESOLVED,
-    ]
-    actor_id = actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR)
-    assert all(row.actor_id == actor_id and row.created_at == DEMO_NOW for row in rows)
-    assert rows[0].entity_type is EntityType.ROSTER_ASSIGNMENT
-    assert rows[0].entity_id == assignment.id
-    assert rows[0].payload == {
-        "assignment_id": assignment.id,
-        "staff_id": 201,
-        "assignment_type": "REPLACEMENT",
-    }
-    assert rows[1].entity_type is EntityType.STAFFING_CASES
-    assert rows[1].entity_id == case.id
-    assert rows[1].payload == {"assignment_ids": [assignment.id]}
-    db.rollback()
-    assert _replacements(db) == []
+    case, items = short_case(db, 104, 105, status=CaseStatus.WAITING_APPROVAL)
+    approval(db, case, items[202], approved=True)
+    chosen = approval(db, case, items[201], approved=True)
+    items[201].source = source
+    make_plan(db, case, (203,))  # A newer plan is not the selected request.
+    with patch.object(db, "commit", side_effect=AssertionError("service committed")):
+        row = roster_service.create_replacement(db, case, approval=chosen)
+    assert row.staff_id == 201
+    assert row.shift_id == case.shift_id
+    assert row.status == RosterStatus.ASSIGNED
+    assert row.assignment_type == AssignmentType.REPLACEMENT
+    assert row.candidate_source == source
     assert db.scalar(select(AuditLog.id)) is None
 
 
-def test_service_uses_approved_item_not_latest_plan_or_rank_one(
-    production_seeded: Session,
-    case: StaffingCase,
-    approved: ApprovalRequest,
+@pytest.mark.parametrize("approved", [None, False])
+def test_unapproved_request_cannot_create_assignment(
+    production_seeded: Session, approved: bool | None
 ) -> None:
     db = production_seeded
-    item = db.get(CandidateItem, approved.candidate_item_id)
-    assert item is not None
-    item.rank = 2
-    _item(db, case, staff_id=202)
-    other = ApprovalRequest(
-        case_id=case.id,
-        candidate_item_id=item.id,
-        required_approver_role=approved.required_approver_role,
-        approval_mode=ApprovalMode.MANUAL,
-        is_pending=True,
-        is_approved=None,
-        requested_at=DEMO_NOW,
-    )
-    db.add(other)
-    with patch.object(db, "commit", wraps=db.commit) as commit:
-        assignment = roster_service.create_replacement(db, case)
-    commit.assert_not_called()
-    assert assignment.staff_id == 201
-    assert db.scalar(select(AuditLog.id)) is None
-    assert case.status is CaseStatus.WAITING_APPROVAL
+    case, items = short_case(db)
+    request = approval(db, case, items[201], approved=approved)
+    with pytest.raises(ValueError, match="decided, approved"):
+        roster_service.create_replacement(db, case, approval=request)
+    assert replacements(db) == []
 
 
-@pytest.mark.parametrize(
-    "pending,approved_value", [(True, True), (True, None), (False, False), (False, None)]
-)
-def test_unapproved_requests_raise_before_assignment(
-    production_seeded: Session,
-    case: StaffingCase,
-    approved: ApprovalRequest,
-    pending: bool,
-    approved_value: bool | None,
-) -> None:
-    approved.is_pending = pending
-    approved.is_approved = approved_value
-    with pytest.raises(NoResultFound):
-        roster_service.create_replacement(production_seeded, case)
-    assert _replacements(production_seeded) == []
-    assert _audits(production_seeded, case) == []
-
-
-def test_no_request_raises(production_seeded: Session, case: StaffingCase) -> None:
-    with pytest.raises(NoResultFound):
-        roster_service.create_replacement(production_seeded, case)
-    assert _replacements(production_seeded) == []
-
-
-def test_duplicate_approved_requests_raise(
-    production_seeded: Session,
-    case: StaffingCase,
-    approved: ApprovalRequest,
-) -> None:
-    item = production_seeded.get(CandidateItem, approved.candidate_item_id)
-    assert item is not None
-    _approval(production_seeded, case, item)
-    with pytest.raises(MultipleResultsFound):
-        roster_service.create_replacement(production_seeded, case)
-    assert _replacements(production_seeded) == []
-
-
-def test_approved_request_of_other_case_is_not_used(
-    production_seeded: Session,
-    case: StaffingCase,
-    approved: ApprovalRequest,
-) -> None:
-    other = StaffingCase(
-        shift_id=case.shift_id,
-        status=CaseStatus.EXECUTING,
-        required_replacement_time=DEMO_NOW,
-    )
-    production_seeded.add(other)
-    production_seeded.flush()
-    with pytest.raises(NoResultFound):
-        roster_service.create_replacement(production_seeded, other)
-    assert _replacements(production_seeded) == []
-
-
-@pytest.mark.parametrize("mismatch", ["plan_case", "shift"])
-def test_inconsistent_item_references_fail_without_assignment(
-    production_seeded: Session,
-    case: StaffingCase,
-    approved: ApprovalRequest,
-    mismatch: str,
+@pytest.mark.parametrize("mismatch", ["request_case", "plan_case", "shift"])
+def test_reference_mismatch_cannot_create_assignment(
+    production_seeded: Session, mismatch: str
 ) -> None:
     db = production_seeded
-    item = db.get(CandidateItem, approved.candidate_item_id)
-    assert item is not None
-    if mismatch == "shift":
-        item.proposed_shift_id = 2
+    case, items = short_case(db)
+    request = approval(db, case, items[201], approved=True)
+    other = make_case(db)
+    if mismatch == "request_case":
+        request.case_id = other.id
+    elif mismatch == "plan_case":
+        items[201].plan_id = make_plan(db, other, (201,))[201].plan_id
     else:
-        other = StaffingCase(
-            shift_id=case.shift_id,
-            status=CaseStatus.EXECUTING,
-            required_replacement_time=DEMO_NOW,
-        )
-        db.add(other)
-        db.flush()
-        other_item = _item(db, other)
-        approved.candidate_item_id = other_item.id
+        items[201].proposed_shift_id = 2
     with pytest.raises(ValueError):
-        roster_service.create_replacement(db, case)
-    assert _replacements(db) == []
-    assert _audits(db, case) == []
+        roster_service.create_replacement(db, case, approval=request)
+    assert replacements(db) == []
 
 
-def test_resume_commits_assignment_and_resolution_once(
+def test_execution_does_not_recheck_safety(production_seeded: Session) -> None:
+    db = production_seeded
+    case, items = short_case(db)
+    request = approval(db, case, items[201], approved=True)
+    staff = db.get(Staff, 201)
+    assert staff is not None
+    staff.status = StaffStatus.INACTIVE  # Changed after the recorded Safety pass (Q38).
+    with patch(
+        "app.services.hard_rule_service.check_items", side_effect=AssertionError("rechecked")
+    ):
+        row = roster_service.create_replacement(db, case, approval=request)
+    assert row.staff_id == 201
+
+
+def test_finalization_keeps_assignment_history_and_cancels_sent_and_reserves(
     production_seeded: Session,
-    case: StaffingCase,
-    approved: ApprovalRequest,
 ) -> None:
     db = production_seeded
-    # Simulate seam 7 changing an approval in a session with autoflush=False.
-    approved.is_pending = True
-    approved.is_approved = None
-    db.flush()
-    approved.is_pending = False
-    approved.is_approved = True
+    case, items = short_case(db, status=CaseStatus.EXECUTING)
+    assign(db, case, items[201])
+    assigned = offer(db, case, items[201], OutreachStatus.ACCEPTED)
+    sent = offer(db, case, items[202])
+    reserve = offer(db, case, items[203], OutreachStatus.ACCEPTED)
+    before = len(replacements(db))
+    with patch.object(db, "commit", side_effect=AssertionError("handler committed")):
+        result = execute_assignment.handle(db, case)
+    assert result.next_status == CaseStatus.RESOLVED
+    assert case.status == CaseStatus.EXECUTING  # Only the orchestrator writes status.
+    assert len(replacements(db)) == before
+    assert assigned.status == OutreachStatus.ACCEPTED
+    assert sent.status == reserve.status == OutreachStatus.CANCELLED
+    audit = db.scalars(select(AuditLog)).one()
+    assert audit.action == AuditAction.CASE_RESOLVED
+    assert audit.payload == {
+        "assignment_ids": [replacements(db)[0].id],
+        "cancelled_outreach_ids": [sent.id, reserve.id],
+    }
+
+
+def test_finalization_requires_actual_assigned_gap_coverage(production_seeded: Session) -> None:
+    db = production_seeded
+    case, items = short_case(db, 104, 105, status=CaseStatus.EXECUTING)
+    assign(db, case, items[201])
+    with pytest.raises(ValueError, match="do not close"):
+        execute_assignment.handle(db, case)
+    assert db.scalar(select(AuditLog.id)) is None
+    assert len(replacements(db)) == 1
+
+
+def test_finalization_round_commits_once_and_replay_creates_nothing(
+    production_seeded: Session,
+) -> None:
+    db = production_seeded
+    case, items = short_case(db, status=CaseStatus.WAITING_APPROVAL)
+    assign(db, case, items[201])
+    offer(db, case, items[202])
     with patch.object(db, "commit", wraps=db.commit) as commit:
-        orchestrator.resume(db, case.id, CaseStatus.EXECUTING)
+        assert orchestrator.recompute(db, case.id) == CaseStatus.RESOLVED
     assert commit.call_count == 1
-    assert case.status is CaseStatus.RESOLVED
-    assert len(_replacements(db)) == 1
-    assert [row.action for row in _audits(db, case)] == [
-        AuditAction.CASE_STATUS_CHANGED,
-        AuditAction.ASSIGNMENT_CREATED,
-        AuditAction.CASE_RESOLVED,
-        AuditAction.CASE_STATUS_CHANGED,
-    ]
-    with pytest.raises(InvalidTransitionError):
-        orchestrator.resume(db, case.id, CaseStatus.EXECUTING)
-    assert len(_replacements(db)) == 1
-
-
-@pytest.mark.parametrize("failure", ["missing_approval", "assignment_audit", "resolution_audit"])
-def test_d11_rolls_back_assignment_and_execution_audits_but_keeps_approval(
-    production_seeded: Session,
-    case: StaffingCase,
-    approved: ApprovalRequest,
-    monkeypatch: pytest.MonkeyPatch,
-    failure: str,
-) -> None:
-    db = production_seeded
-    if failure == "missing_approval":
-        approved.is_approved = False
-    else:
-        action = (
-            AuditAction.ASSIGNMENT_CREATED
-            if failure == "assignment_audit"
-            else AuditAction.CASE_RESOLVED
-        )
-        real_log = audit_service.log
-
-        def fail_log(*args: object, **kwargs: object) -> None:
-            if kwargs.get("action") is action:
-                raise RuntimeError("execution audit failed")
-            real_log(*args, **kwargs)
-
-        monkeypatch.setattr(audit_service, "log", fail_log)
-    orchestrator.resume(db, case.id, CaseStatus.EXECUTING)
-    assert case.status is CaseStatus.FAILED
-    assert approved.is_approved is (failure != "missing_approval")
-    assert approved.is_pending is False
-    assert _replacements(db) == []
-    assert [row.action for row in _audits(db, case)] == [
-        AuditAction.CASE_STATUS_CHANGED,
-        AuditAction.CASE_STATUS_CHANGED,
-        AuditAction.WORKFLOW_FAILED,
-    ]
-
-
-@pytest.mark.parametrize("change", ["inactive", "assigned", "pending_assignment", "unavailable"])
-def test_execution_does_not_recheck_availability(
-    production_seeded: Session,
-    case: StaffingCase,
-    approved: ApprovalRequest,
-    change: str,
-) -> None:
-    """Q38: Safety checked the candidate when they accepted; approval rosters them as they are."""
-    db = production_seeded
-    if change == "inactive":
-        staff = db.get(Staff, 201)
-        assert staff is not None
-        staff.status = StaffStatus.INACTIVE
-    elif change in {"assigned", "pending_assignment"}:
-        db.add(
-            RosterAssignment(
-                staff_id=201,
-                shift_id=case.shift_id,
-                status=(
-                    RosterStatus.ASSIGNED if change == "assigned" else RosterStatus.PENDING_APPROVAL
-                ),
-                assignment_type=AssignmentType.REGULAR,
-                candidate_source=None,
-            )
-        )
-    else:
-        shift = db.get(Shift, case.shift_id)
-        assert shift is not None
-        db.add(
-            StaffUnavailability(
-                staff_id=201,
-                start_at=shift.start_at,
-                end_at=shift.end_at,
-                reason=AvailabilityReason.UNPLANNED_LEAVE,
-            )
-        )
-    db.flush()
-    orchestrator.resume(db, case.id, CaseStatus.EXECUTING)
-
-    assert case.status is CaseStatus.RESOLVED
-    assert len(_replacements(db)) == 1
-    assert [row.action for row in _audits(db, case)] == [
-        AuditAction.CASE_STATUS_CHANGED,
-        AuditAction.ASSIGNMENT_CREATED,
-        AuditAction.CASE_RESOLVED,
-        AuditAction.CASE_STATUS_CHANGED,
-    ]
+    before = db.scalar(select(func.count()).select_from(AuditLog))
+    orchestrator.recompute(db, case.id)
+    assert db.scalar(select(func.count()).select_from(AuditLog)) == before
+    assert len(replacements(db)) == 1

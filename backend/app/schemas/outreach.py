@@ -25,4 +25,5 @@ class OfferView(BaseModel):
     can_reject: bool
     blocked_reason: str | None
     cancellation_reason: str | None
+    is_assigned: bool
     is_reserve: bool

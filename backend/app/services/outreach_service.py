@@ -5,7 +5,7 @@ foreign-case notifications run after that commit in separate transactions.
 """
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    RosterAssignment,
     SafetyValidation,
     Shift,
     StaffingCase,
@@ -24,11 +25,13 @@ from app.db.models import (
 )
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
+    AssignmentType,
     AuditAction,
     CandidateResponse,
     Channel,
     EntityType,
     OutreachStatus,
+    RosterStatus,
 )
 from app.integrations.line import mock as line_mock
 from app.schemas.outreach import OfferView
@@ -45,9 +48,28 @@ class OpenOfferConflictError(ValueError):
 def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
     """Read history with per-offer actions and ward/shift context; no writes."""
     with db.no_autoflush:
+        assigned = (
+            select(ApprovalRequest.id)
+            .join(
+                RosterAssignment,
+                (RosterAssignment.staff_id == CandidateItem.staff_id)
+                & (RosterAssignment.shift_id == CandidateItem.proposed_shift_id),
+            )
+            .where(
+                ApprovalRequest.candidate_item_id == CandidateItem.id,
+                ApprovalRequest.case_id == StaffingCase.id,
+                ApprovalRequest.is_pending.is_(False),
+                ApprovalRequest.is_approved.is_(True),
+                RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
+                RosterAssignment.status.in_([RosterStatus.ASSIGNED, RosterStatus.COMPLETED]),
+            )
+            .correlate(CandidateItem, StaffingCase)
+            .exists()
+        )
         rows = (
             db.execute(
                 select(
+                    assigned.label("is_assigned"),
                     CandidateOutreach.id,
                     CandidateOutreach.case_id,
                     CandidateOutreach.candidate_item_id,
@@ -296,7 +318,13 @@ def promote_reserves(db: Session, case: StaffingCase) -> None:
             raise RuntimeError("Safety did not record an outcome for the accepted offer")
 
 
-def recompute_affected_cases(db: Session, *, staff_id: int, own_case_id: int) -> None:
+def recompute_affected_cases(
+    db: Session,
+    *,
+    staff_id: int,
+    own_case_id: int,
+    additional_case_ids: Collection[int] = (),
+) -> None:
     """Post-commit notifications; each foreign case starts with its own locks."""
     from app.workflow import orchestrator
 
@@ -315,6 +343,8 @@ def recompute_affected_cases(db: Session, *, staff_id: int, own_case_id: int) ->
             .order_by(CandidateOutreach.case_id)
         )
     )
+    # Approval supplies cases of offers it just cancelled, which are no longer SENT.
+    case_ids = sorted((set(case_ids) | set(additional_case_ids)) - {own_case_id})
     # End the read transaction before each independent foreign-case round.
     db.rollback()
     for case_id in case_ids:
