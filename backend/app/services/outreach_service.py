@@ -248,10 +248,12 @@ def lock_case_for_outreach(db: Session, case_id: int) -> StaffingCase:
 def promote_reserves(db: Session, case: StaffingCase) -> None:
     """Process accepted reserves oldest first until assigned+pending cover the gap.
 
-    PR 3 replaces the temporary individual Skeleton Safety adapter below. PR 4
-    calls this helper after a rejection. Caller already holds all case/Staff locks.
+    Each one goes through safety_service: passed opens an approval request, failed
+    cancels the offer. PR 4 calls this helper after a rejection. Caller already
+    holds all case/Staff locks.
     """
-    from app.workflow.handlers import validate_safety
+    # Imported here: safety_service imports this module
+    from app.services import safety_service
 
     processed = exists().where(
         SafetyValidation.candidate_item_id == CandidateOutreach.candidate_item_id
@@ -274,7 +276,7 @@ def promote_reserves(db: Session, case: StaffingCase) -> None:
         )
         if outreach is None:
             break
-        validate_safety.handle(db, case, outreach_id=outreach.id)
+        safety_service.validate_accepted_candidate(db, case, outreach_id=outreach.id)
         db.flush()
         # A stub or broken Safety implementation must not keep selecting the
         # same reserve forever inside the HTTP request.
@@ -373,20 +375,3 @@ def record_response(
     case_id = case.id
     recompute_affected_cases(db, staff_id=staff_id, own_case_id=case_id)
     return outreach, case
-
-
-def get_accepted_outreach(db: Session, case_id: int) -> CandidateOutreach:
-    """Return exactly one ACCEPTED outreach for the case (seam 4).
-
-    Missing or multiple accepted offers raise NoResultFound / MultipleResultsFound
-    for the safety handler to let D11 handle. Flush pending answers first because
-    production sessions disable autoflush. Does not create rows, commit, audit,
-    or acquire row locks. A flush error requires rollback before continuing.
-    """
-    db.flush()
-    return db.scalars(
-        select(CandidateOutreach).where(
-            CandidateOutreach.case_id == case_id,
-            CandidateOutreach.status == OutreachStatus.ACCEPTED,
-        )
-    ).one()

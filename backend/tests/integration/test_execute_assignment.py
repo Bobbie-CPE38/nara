@@ -352,22 +352,14 @@ def test_d11_rolls_back_assignment_and_execution_audits_but_keeps_approval(
     ]
 
 
-@pytest.mark.parametrize(
-    "change,error_type",
-    [
-        ("inactive", "StaffNotActiveError"),
-        ("assigned", "StaffAlreadyOnShiftError"),
-        ("pending_assignment", "StaffAlreadyOnShiftError"),
-        ("unavailable", "StaffUnavailableError"),
-    ],
-)
-def test_changed_availability_fails_execution_without_a_new_assignment(
+@pytest.mark.parametrize("change", ["inactive", "assigned", "pending_assignment", "unavailable"])
+def test_execution_does_not_recheck_availability(
     production_seeded: Session,
     case: StaffingCase,
     approved: ApprovalRequest,
     change: str,
-    error_type: str,
 ) -> None:
+    """Q38: Safety checked the candidate when they accepted; approval rosters them as they are."""
     db = production_seeded
     if change == "inactive":
         staff = db.get(Staff, 201)
@@ -397,20 +389,13 @@ def test_changed_availability_fails_execution_without_a_new_assignment(
             )
         )
     db.flush()
-    original_ids = set(db.scalars(select(RosterAssignment.id)))
-
     orchestrator.resume(db, case.id, CaseStatus.EXECUTING)
 
-    assert case.status is CaseStatus.FAILED
-    assert approved.is_approved is True
-    assert approved.is_pending is False
-    assert set(db.scalars(select(RosterAssignment.id))) == original_ids
-    assert _replacements(db) == []
-    rows = _audits(db, case)
-    assert [row.action for row in rows] == [
+    assert case.status is CaseStatus.RESOLVED
+    assert len(_replacements(db)) == 1
+    assert [row.action for row in _audits(db, case)] == [
         AuditAction.CASE_STATUS_CHANGED,
+        AuditAction.ASSIGNMENT_CREATED,
+        AuditAction.CASE_RESOLVED,
         AuditAction.CASE_STATUS_CHANGED,
-        AuditAction.WORKFLOW_FAILED,
     ]
-    assert rows[-1].payload["failed_at"] == "EXECUTING"
-    assert rows[-1].payload["error_type"] == error_type

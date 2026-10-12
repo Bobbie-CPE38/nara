@@ -21,9 +21,7 @@ Base: `feat/round1-case-flow`. This branch is reviewed separately and enters the
 
 ## PR 3 (person 2)
 
-The temporary Safety bridge adds `outreach_id` to `safety_service.validate_accepted_candidate()` and `validate_safety.handle()`. It still uses the existing three Skeleton availability rules and existing approval-request creation. PR 3 replaces this implementation with the shared Hard Rules, records failed validations, calls cancel_offer, moves approval creation/audit to approval_service, and removes the SAFETY_VALIDATION case handler/edges and stub fixture entry as planned.
-
-Reserve promotion currently calls `validate_safety.handle(db, case, outreach_id=...)` directly, without changing case status. If PR 3 moves this individual entry point into safety_service, it must update the promotion call in that same PR. A processed reserve must have a validation, an approval request or a cancelled offer; leaving it unchanged is treated as a system error instead of looping forever.
+Done. Safety runs through `safety_service.validate_accepted_candidate(db, case, outreach_id=...)`, called only by `promote_reserves()`. It uses the shared Hard Rules, records failures, cancels the failed candidate's offer with `cancel_offer()` and opens the request with `approval_service.create_request()`. The `SAFETY_VALIDATION` handler, its two edges and `get_accepted_outreach()` are gone.
 
 ## PR 4 (person 3)
 
