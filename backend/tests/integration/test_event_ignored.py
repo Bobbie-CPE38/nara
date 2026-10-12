@@ -1,7 +1,9 @@
-"""An event that leaves no gap is IGNORED and opens no case (workflow.md D5, section 10.4).
+"""An event that does not pass the threshold is IGNORED and opens no case
+(workflow.md D5, sections 3.3 and 10.4).
 
 203 reports leave for the day shift. 202 is still assigned and the shift needs
-one RN for its 2 patients, so the shift stays covered.
+one RN for its 2 patients, so the ratio holds and no role is short. The shift
+has merge_window_seconds = 0, so its window closes in the same request.
 """
 
 from collections.abc import Iterator
@@ -52,6 +54,7 @@ def test_event_without_a_gap_is_ignored_and_opens_no_case(
     event = seeded.get(StaffingEvent, body["event_id"])
     assert event is not None
     assert event.status is EventStatus.IGNORED
+    assert (event.case_id, event.processed_at) == (None, event.occurred_at)
     assert seeded.scalar(select(func.count()).select_from(StaffingCase)) == 0
 
 
@@ -83,6 +86,7 @@ def test_ignored_event_writes_three_audit_rows_without_a_case(
         AuditAction.EVENT_IGNORED,
     ]
     assert all(row.case_id is None for row in rows)
+    assert all(row.event_id == body["event_id"] for row in rows)
     ignored = rows[-1]
     orchestrator_actor = seeded.scalar(
         select(Actor.id).where(Actor.name == ActorName.WORKFLOW_ORCHESTRATOR.value)
@@ -90,7 +94,11 @@ def test_ignored_event_writes_three_audit_rows_without_a_case(
     assert ignored.actor_id == orchestrator_actor
     assert ignored.entity_type is EntityType.STAFFING_EVENTS
     assert ignored.entity_id == body["event_id"]
-    assert ignored.payload == {"event_id": body["event_id"], "shift_id": DAY_SHIFT}
+    assert ignored.payload == {
+        "event_id": body["event_id"],
+        "shift_id": DAY_SHIFT,
+        "reason": "THRESHOLD_NOT_PASSED",
+    }
 
 
 def test_ignored_event_is_committed_once(client: TestClient, seeded: Session) -> None:

@@ -39,6 +39,19 @@ class EventStatus(StrEnum):
     IGNORED = "IGNORED"  # no gap, no case was opened
 
 
+class EventIgnoredReason(StrEnum):
+    """Why an event opened no case: `reason` in the EVENT_IGNORED payload (workflow.md 3.7)."""
+
+    # No event of the window passed the threshold
+    THRESHOLD_NOT_PASSED = "THRESHOLD_NOT_PASSED"
+    # An event passed, but the shift is covered again after the last event
+    NO_GAP = "NO_GAP"
+    # Only this event: its person has no ASSIGNED roster row left to cancel
+    NO_ASSIGNED_ROSTER = "NO_ASSIGNED_ROSTER"
+    # Only this event: a role or skill it changes is not in the requirement
+    REQUIREMENT_ITEM_NOT_FOUND = "REQUIREMENT_ITEM_NOT_FOUND"
+
+
 # --------------------------------------------------------------------------- #
 # Case
 # --------------------------------------------------------------------------- #

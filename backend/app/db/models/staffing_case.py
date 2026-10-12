@@ -12,7 +12,6 @@ class StaffingCase(Base):
     __tablename__ = "staffing_cases"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    event_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("staffing_events.id"))
     shift_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("shift.id"))
     # Only the orchestrator changes this (docs/workflow.md)
     status: Mapped[CaseStatus] = mapped_column(StrEnumText(CaseStatus))

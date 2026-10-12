@@ -62,6 +62,7 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "shift_type": (StrEnumText, NOT_NULL),
         "is_active": (Boolean, NOT_NULL),
         "deactivated_at": (DateTime, NULL),
+        "merge_window_seconds": (Integer, NOT_NULL),
     },
     "staffing_events": {
         "id": (BigInteger, NOT_NULL),
@@ -71,6 +72,8 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "staff_id": (BigInteger, NULL),
         "payload": (JSONB, NOT_NULL),
         "status": (StrEnumText, NOT_NULL),
+        "processed_at": (DateTime, NULL),
+        "case_id": (BigInteger, NULL),
     },
     "staffing_requirements": {
         "id": (BigInteger, NOT_NULL),
@@ -91,7 +94,6 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
     },
     "staffing_cases": {
         "id": (BigInteger, NOT_NULL),
-        "event_id": (BigInteger, NOT_NULL),
         "shift_id": (BigInteger, NOT_NULL),
         "status": (StrEnumText, NOT_NULL),
         "required_replacement_time": (DateTime, NOT_NULL),
@@ -153,7 +155,11 @@ EXPECTED_FOREIGN_KEYS: dict[str, dict[str, str]] = {
     "actors": {"staff_id": "staff.id"},
     "staff_skill": {"staff_id": "staff.id", "skill_id": "skill.id"},
     "shift": {"ward_id": "ward.id"},
-    "staffing_events": {"shift_id": "shift.id", "staff_id": "staff.id"},
+    "staffing_events": {
+        "shift_id": "shift.id",
+        "staff_id": "staff.id",
+        "case_id": "staffing_cases.id",
+    },
     "staffing_requirements": {"shift_id": "shift.id"},
     "staffing_requirement_role": {
         "staffing_requirement_id": "staffing_requirements.id",
@@ -163,7 +169,7 @@ EXPECTED_FOREIGN_KEYS: dict[str, dict[str, str]] = {
         "staffing_requirement_id": "staffing_requirements.id",
         "skill_id": "skill.id",
     },
-    "staffing_cases": {"event_id": "staffing_events.id", "shift_id": "shift.id"},
+    "staffing_cases": {"shift_id": "shift.id"},
     "staff_unavailability": {"staff_id": "staff.id"},
     "roster_assignment": {"staff_id": "staff.id", "shift_id": "shift.id"},
     "staffing_gap": {

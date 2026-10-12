@@ -62,16 +62,18 @@ def case(seeded: Session) -> StaffingCase:
         occurred_at=DEMO_NOW,
         staff_id=105,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     seeded.add(event)
     seeded.flush()
     row = StaffingCase(
-        event_id=event.id,
         shift_id=NIGHT_SHIFT,
         status=CaseStatus.WAITING_RESPONSE,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     seeded.add(row)
+    seeded.flush()
+    event.case_id = row.id
     seeded.flush()
     return row
 
@@ -80,6 +82,11 @@ def _actor(db: Session, name: ActorName) -> int:
     actor_id = db.scalar(select(Actor.id).where(Actor.name == name.value))
     assert actor_id is not None
     return actor_id
+
+
+def _event_id(db: Session, case: StaffingCase) -> int:
+    """The one event the `case` fixture linked to the case."""
+    return db.scalars(select(StaffingEvent.id).where(StaffingEvent.case_id == case.id)).one()
 
 
 def _log(db: Session, case: StaffingCase, action: AuditAction, actor: ActorName) -> None:
@@ -184,7 +191,7 @@ def _add_outreach(
 # GET /cases/{id}
 # --------------------------------------------------------------------------- #
 def test_case_detail_has_the_status_key_the_e2e_test_reads(
-    client: TestClient, case: StaffingCase
+    client: TestClient, seeded: Session, case: StaffingCase
 ) -> None:
     response = client.get(f"/cases/{case.id}")
 
@@ -195,7 +202,7 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
     assert set(body) == {
         "id",
         "status",
-        "event_id",
+        "event_ids",
         "shift_id",
         "required_replacement_time",
         "created_at",
@@ -203,7 +210,11 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
         "gap",
         "candidates",
     }
-    assert (body["id"], body["event_id"], body["shift_id"]) == (case.id, case.event_id, NIGHT_SHIFT)
+    assert (body["id"], body["event_ids"], body["shift_id"]) == (
+        case.id,
+        [_event_id(seeded, case)],
+        NIGHT_SHIFT,
+    )
 
 
 def test_case_before_assessment_has_no_gap_and_no_candidates(
@@ -388,7 +399,6 @@ def test_timeline_leaves_out_rows_of_other_cases_and_rows_without_a_case(
     client: TestClient, seeded: Session, case: StaffingCase
 ) -> None:
     other = StaffingCase(
-        event_id=case.event_id,
         shift_id=NIGHT_SHIFT,
         status=CaseStatus.OPEN,
         required_replacement_time=DEMO_NOW,
@@ -403,13 +413,104 @@ def test_timeline_leaves_out_rows_of_other_cases_and_rows_without_a_case(
         actor_id=_actor(seeded, ActorName.WORKFLOW_ORCHESTRATOR),
         action=AuditAction.EVENT_IGNORED,
         entity_type=EntityType.STAFFING_EVENTS,
-        entity_id=case.event_id,
+        entity_id=_event_id(seeded, case),
         payload={},
     )
 
     body = client.get(f"/cases/{case.id}/audit").json()
 
     assert [entry["entity_id"] for entry in body] == [case.id]
+
+
+def _event(db: Session, *, case: StaffingCase | None, staff_id: int = 104) -> StaffingEvent:
+    row = StaffingEvent(
+        event_type=EventType.STAFF_UNAVAILABLE,
+        shift_id=NIGHT_SHIFT,
+        occurred_at=DEMO_NOW,
+        staff_id=staff_id,
+        status=EventStatus.IGNORED if case is None else EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
+        case_id=None if case is None else case.id,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _log_event(db: Session, event_id: int, action: AuditAction) -> None:
+    audit_service.log(
+        db,
+        case_id=None,
+        event_id=event_id,
+        actor_id=_actor(db, ActorName.WORKFLOW_ORCHESTRATOR),
+        action=action,
+        entity_type=EntityType.STAFFING_EVENTS,
+        entity_id=event_id,
+        payload={},
+    )
+
+
+def test_case_lists_every_event_merged_into_it_by_id(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    """One merge window can put several events into one case (Q36)."""
+    first = _event_id(seeded, case)
+    second = _event(seeded, case=case)
+    _event(seeded, case=None, staff_id=103)
+
+    body = client.get(f"/cases/{case.id}").json()
+
+    assert body["event_ids"] == [first, second.id]
+    assert "event_id" not in body
+
+
+def test_timeline_includes_the_rows_of_the_events_of_the_case(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    """Rows about an event have event_id and no case_id (section 3.7, Q33).
+
+    They were written before the case existed, so by id they come before CASE_OPENED.
+    """
+    first = _event_id(seeded, case)
+    second = _event(seeded, case=case)
+    _log_event(seeded, first, AuditAction.EVENT_RECEIVED)
+    _log_event(seeded, second.id, AuditAction.EVENT_RECEIVED)
+    _log_event(seeded, first, AuditAction.UNAVAILABILITY_CREATED)
+    _log_event(seeded, second.id, AuditAction.UNAVAILABILITY_CREATED)
+    _log(seeded, case, AuditAction.CASE_OPENED, ActorName.WORKFLOW_ORCHESTRATOR)
+
+    body = client.get(f"/cases/{case.id}/audit").json()
+
+    assert [entry["action"] for entry in body] == [
+        "EVENT_RECEIVED",
+        "EVENT_RECEIVED",
+        "UNAVAILABILITY_CREATED",
+        "UNAVAILABILITY_CREATED",
+        "CASE_OPENED",
+    ]
+    assert [entry["entity_id"] for entry in body[:4]] == [first, second.id, first, second.id]
+
+
+def test_timeline_leaves_out_events_that_are_not_part_of_the_case(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    """An IGNORED event of the same shift, and an event of another case."""
+    other = StaffingCase(
+        shift_id=NIGHT_SHIFT,
+        status=CaseStatus.OPEN,
+        required_replacement_time=DEMO_NOW,
+    )
+    seeded.add(other)
+    seeded.flush()
+    ignored = _event(seeded, case=None, staff_id=103)
+    of_other = _event(seeded, case=other)
+    _log_event(seeded, ignored.id, AuditAction.EVENT_IGNORED)
+    _log_event(seeded, of_other.id, AuditAction.EVENT_RECEIVED)
+    _log_event(seeded, _event_id(seeded, case), AuditAction.EVENT_RECEIVED)
+
+    body = client.get(f"/cases/{case.id}/audit").json()
+
+    assert [entry["entity_id"] for entry in body] == [_event_id(seeded, case)]
 
 
 def test_case_without_audit_rows_has_an_empty_timeline(

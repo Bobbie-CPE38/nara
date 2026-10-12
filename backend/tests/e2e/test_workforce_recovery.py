@@ -71,7 +71,7 @@ def test_golden_path_recovers_workforce(client: TestClient) -> None:
     assert isinstance(case_id, int)
     case = _case(client, case_id)
     assert case.status is CaseStatus.WAITING_RESPONSE
-    assert case.event_id == opened["event_id"]
+    assert case.event_ids == [opened["event_id"]]
     assert case.shift_id == 1
     assert case.gap is not None
     assert case.gap.headcount_gap == 1

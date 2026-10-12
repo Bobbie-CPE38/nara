@@ -55,7 +55,7 @@ def cancel_roster(db: Session, staff_id: int, shift_id: int = NIGHT_SHIFT) -> No
 
 
 def leave(db: Session, staff_id: int, shift_id: int = NIGHT_SHIFT) -> None:
-    """What event intake does for a leave: cancel the roster row and record the absence.
+    """What closing the merge window does for a leave: cancel the roster row and record the absence.
 
     Without the unavailability row the person is still a free RN of the ward and
     the Solver would offer them the shift they just left.
@@ -87,16 +87,18 @@ def make_case(
         occurred_at=DEMO_NOW,
         staff_id=105,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=shift_id,
         status=status,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     return case
 

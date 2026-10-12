@@ -1,7 +1,7 @@
 """Add the Solver's target rows, the snapshot link and the source weight (round 1 PR 2a).
 
 Revision ID: f3a7c1d9e5b2
-Revises: d91a6c8e203f
+Revises: f2a6b9c4d7e1
 
 Round 1 contract, section 8.3.
   * candidate_item_target: the targets a candidate was selected to fill (Q55).
@@ -16,7 +16,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "f3a7c1d9e5b2"
-down_revision = "d91a6c8e203f"
+down_revision = "f2a6b9c4d7e1"
 branch_labels = None
 depends_on = None
 

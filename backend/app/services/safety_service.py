@@ -27,6 +27,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock
+from app.core.constants import HEAD_NURSE_ROLE
 from app.db.models import (
     ApprovalRequest,
     CandidateItem,
@@ -38,9 +39,6 @@ from app.db.models import (
 )
 from app.domain.enums import ApprovalMode
 from app.services import availability_service, outreach_service, policy_service
-
-# No RoleName enum exists; the seed names role 2 this way (docs/workflow.md 10.2)
-HEAD_NURSE_ROLE = "HEAD_NURSE"
 
 
 class ProposedShiftMismatchError(ValueError):

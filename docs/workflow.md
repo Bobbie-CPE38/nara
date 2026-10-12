@@ -12,11 +12,11 @@ PR 0 ของรอบ 1 ย้ายกติกาที่ทีมรีว
 
 | ข้อ | เรื่อง | โค้ดตรงกับข้อนี้เมื่อ PR ไหนเข้า |
 |---|---|---|
-| 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | เป้าหมายจำนวนคนตรงแล้ว (PR 1b) ที่เหลือ: M |
+| 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | ตรงแล้ว (PR 1b และ PR M) ยกเว้นข้อ 3.8 บรรทัดสุดท้าย: รอบของ Job ยังปิดแค่ Window การปิด Offer ที่หมดเวลาและการเก็บตกเคสที่ค้างมากับ PR O |
 | 4, 5 | สถานะเคส, Transition, ฟังก์ชันคำนวณสถานะเคส | ตาราง Transition มี T1 ถึง T7 แล้วใน PR 0 `decide_status()` และ `orchestrator.recompute()` มีแล้วใน PR S แต่ยังไม่มีผู้เรียก Handler `optimize` ใช้ T6 แล้ว (PR 2a) ผู้เรียก `recompute()` และ Handler ที่ใช้เส้นใหม่ที่เหลือ: 2b, 3, 4 |
 | 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c เพิ่มตาราง Policy, Seed และฟังก์ชันเพดานแล้ว; 2a ให้ Solver เรียกฟังก์ชันเพดาน เขียน `CANDIDATE_ITEM_TARGET` และเพิ่ม Seam 12 ถึง 14 แล้ว; ส่วนที่เหลือ: 2b, 3, 4, O |
-| 7 | Audit | `SOLVER_EXECUTED` และ `MANUAL_HANDOFF` ของ T6 ตรงแล้ว (PR 2a) ที่เหลือ: M, 2b, 3, 4, O |
-| 9 | API | `gap.effective_minimum` ตรงแล้ว (PR 1b) ที่เหลือ: M, 2b, 4, O (กติกา `expires_at` ของการตอบ Offer) |
+| 7 | Audit | แถวของ Event และ `AUDIT_LOG.event_id` ตรงแล้ว (PR M) `SOLVER_EXECUTED` และ `MANUAL_HANDOFF` ของ T6 ตรงแล้ว (PR 2a) ที่เหลือ: 2b, 3, 4, O |
+| 9 | API | `gap.effective_minimum` ตรงแล้ว (PR 1b) Route ของ Event, `event_ids`, Timeline ผ่าน `event_id`, Route เลื่อน Clock และ Route ของ Job ตรงแล้ว (PR M) ที่เหลือ: 2b, 4, O (กติกา `expires_at` ของการตอบ Offer) |
 
 เรื่องที่ยังอยู่ในร่างรอบ 1 ไม่ได้ย้ายเข้าไฟล์นี้ เลข Q ที่อ้างในไฟล์นี้คือคำถามในร่างรอบ 1 ข้อ 12
 
@@ -216,6 +216,17 @@ Body ที่เพิ่ม การตรวจตอนรับ และ 
 * "Head Nurse" ตรวจด้วย Role เดียวกับผู้อนุมัติใน `approval_service` (`403` แบบเดียวกัน)
 * `REQUIREMENT_CHANGED` แก้ได้แค่จำนวนของ Role / Skill ไม่แก้ `minimum_staff` และ `required_staff` (ตัวหลังมาจากสูตร)
 * แถว Audit ทั้งสามใส่ `event_id` แบบเดียวกับ `UNAVAILABILITY_CREATED` (Q33)
+* `reason` ของ `ASSIGNMENT_CANCELLED` เป็นข้อความที่ Head Nurse พิมพ์ ยาวได้ไม่เกิน 500 ตัวอักษร (`MAX_EVENT_REASON_LENGTH`) เกินตอบ `422` ข้อความนี้ถูกเก็บใน payload ของ Event และของ Audit ข้อห้ามในข้อ 6.3 คือเหตุผลการลาของพนักงาน ซึ่งเป็นข้อมูลส่วนตัว ส่วนข้อความนี้เป็นเหตุผลของการตัดสินใจด้านการจัดเวร แบบเดียวกับ `reason` ของการอนุมัติ (ข้อ 7.2) จึงเก็บได้ ผู้กรอกต้องไม่ใส่เหตุผลการลาหรือข้อมูลผู้ป่วยลงไป
+* Body รับเฉพาะ Field ของชนิดนั้น ส่ง Field ของชนิดอื่นมาด้วยตอบ `422` เช่น `patient_count` กับ `STAFF_UNAVAILABLE` และ Role / Skill ตัวเดียวกันซ้ำสองรายการใน `REQUIREMENT_CHANGED` ก็ตอบ `422`
+* `STAFFING_EVENTS.staff_id` คือคนที่ Event พูดถึง: คนที่ลา (`STAFF_UNAVAILABLE`) หรือคนที่ถูกยกเลิก (`ASSIGNMENT_CANCELLED`) อีกสองชนิดเป็น NULL ตาม CHECK ของตาราง ผู้แจ้งของสามชนิดที่ Head Nurse แจ้งจึงเก็บใน payload ที่ Key `reported_by` (Staff ID) PART B ใช้ค่านี้เป็น Actor ของแถว Audit เพราะตอน Window ปิดไม่มี Request ของผู้แจ้งแล้ว
+* รูปของ payload ที่ PART A เก็บ
+
+  | ชนิด | payload |
+  |---|---|
+  | `STAFF_UNAVAILABLE` | `{}` หรือ `{end_at}` เมื่อแจ้งเวลากลับ (ข้อความ ISO ที่มี `+07:00`) |
+  | `ASSIGNMENT_CANCELLED` | `{reason, reported_by}` `reason` ตัดช่องว่างหัวท้ายแล้ว |
+  | `PATIENT_SURGE` | `{patient_count, reported_by}` |
+  | `REQUIREMENT_CHANGED` | `{roles: [{role_id, required_count}], skills: [{skill_id, required_count}], reported_by}` เรียงตาม ID รายการที่ไม่ได้ส่งเป็น List ว่าง |
 
 ### 3.5 Request และการตรวจตอนรับ Event
 
@@ -227,8 +238,15 @@ Body ที่เพิ่ม การตรวจตอนรับ และ 
   |---|---|
   | `event_type` เป็นหนึ่งในสี่ชนิด | `422` |
   | `shift_id` อยู่ในช่วง `bigint` (1 ถึง 9223372036854775807) | `422` |
+  | Field ของชนิดนั้นครบและถูกรูปแบบ ไม่มี Field ของชนิดอื่น (ตรวจจาก Body อย่างเดียว) | `422` |
   | มี Shift ID นั้น | `404` |
-  | การตรวจของชนิดนั้น | ตามคอลัมน์ "ตรวจตอนรับ" ของตารางในข้อ 3.4 |
+  | เวรมีแถว `STAFFING_REQUIREMENTS` (ทุกชนิด) | `409` |
+  | ผู้แจ้งเป็น Head Nurse (เฉพาะสามชนิดที่ Head Nurse แจ้ง) | `403` |
+  | การตรวจที่ต้องอ่าน DB ของชนิดนั้น | ตามคอลัมน์ "ตรวจตอนรับ" ของตารางในข้อ 3.4: `422` (`end_at` ไม่หลังเวลาเริ่มเวร, id ไม่อยู่ใน Requirement ของเวร) และ `409` (ไม่มี Roster `ASSIGNED`) |
+
+  `404` มาก่อน `403`: คนที่ไม่ใช่ Head Nurse ส่งเวรที่ไม่มีอยู่ได้ `404`
+
+  เหตุผลของ `409`: PART B ต้องใช้ Requirement ตรวจ Threshold และคิด Gap ถ้าเวรไม่มี Requirement การปิด Window จะพังทุกรอบ Event ค้าง `RECEIVED` และ Event ตัวถัดไปของเวรนั้นต่อคิวตามไม่มีวันถูกปิด จึงปฏิเสธตั้งแต่ตอนรับ Seed ให้ทุกเวรมี Requirement กรณีนี้จึงเกิดกับข้อมูลที่ตั้งค่าไม่ครบเท่านั้น
 
 * การตรวจว่าผู้แจ้งมี Roster `ASSIGNED` ในเวรนั้นทำตอนรับ Event แต่ไม่กันการแจ้งซ้ำใน Window เดียวกัน เพราะ Roster ยังไม่ถูกยกเลิกจนกว่า Window ปิด (Q41) Event ที่ซ้ำถูกจับใน PART B: ตัวที่สองไม่มี Roster ให้ยกเลิก จึงเป็น `IGNORED` เฉพาะตัวนั้น (Q44)
 * PART A และ PART B ล็อกแถว `SHIFT` ตัวเดียวกันด้วย `SELECT ... FOR NO KEY UPDATE` และถือ Lock จน Commit PART B ล็อก `SHIFT` ก่อนแล้วจึงแก้ Roster (ข้อ 6.11)
@@ -255,7 +273,7 @@ Body ที่เพิ่ม การตรวจตอนรับ และ 
 | `effective_minimum` | เป้าหมายจำนวนคน = `max(required_staff, minimum_staff)` เมื่อ `preserve_minimum_staffing` เปิด และ `required_staff` เมื่อปิด |
 | `headcount_gap` | `max(effective_minimum - current_valid_staff, 0)` |
 | `calculate_gap()` | รับ `required_staff` และ `minimum_staff` แทน `patient_count` และ `patients_per_nurse` |
-| สูตร `ceil` | `gap_calculator.required_staff_for()` ใช้ตอนเขียน `required_staff` (PART B ของ PR M) ค่า Seed เขียนเป็นตัวเลขตรง ๆ และมี Test ตรวจว่าตรงกับสูตร |
+| สูตร `ceil` | `gap_calculator.required_staff_for()` ใช้ตอนเขียน `required_staff` (PART B) ค่า Seed เขียนเป็นตัวเลขตรง ๆ และมี Test ตรวจว่าตรงกับสูตร |
 | Snapshot ใน `STAFFING_GAP` | เก็บ `effective_minimum` คอลัมน์เดียว ลบ `patient_count` กับ `patients_per_nurse` `required_staff` และ `minimum_staff` อ่านผ่าน `staffing_requirement_id` ไม่เก็บซ้ำ |
 
 ```text
@@ -273,7 +291,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 * Golden Case ไม่เปลี่ยนผล: เวร 1 มี `required_staff = 5`, `minimum_staff = 4` เป้าหมายยังเป็น 5 และค่า Seed ตรงกับสูตรอยู่แล้ว (ผู้ป่วย 10 คน หาร 2 = 5, เวร 2 ผู้ป่วย 2 คน หาร 2 = 1)
 * Ratio ที่ใช้คือ `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` ค่าเดียวทั้งโรงพยาบาล โหลดด้วย `policy_service.get_hard_constraint_policy(db)` ซึ่งเลือก Policy `id=1` ตาม Seed ไม่มีค่า Default / Fallback ใน Calculator และไม่มีคอลัมน์ Ratio ใน WARD ค่านี้ไม่ใช่ `APPROVAL_POLICY.ratio` (ตัวคูณสำหรับ Auto-approval)
 * ตรวจ Role / Skill ตาม Requirement แยกจาก Headcount ขาดอย่างใดอย่างหนึ่งก็ถือว่ามี Gap แม้จำนวนคนจะเพียงพอแล้วก็ตาม
-* จนกว่า PR M เข้า ยังไม่มีโค้ดไหนเขียน `required_staff` ใหม่ ค่าจึงเป็นค่าจาก Seed ตลอด และการแก้ `SHIFT.patient_count` อย่างเดียวไม่เปลี่ยน Gap
+* โค้ดที่เขียน `required_staff` ใหม่มีที่เดียวคือ PART B (`merge_window_service`) และเขียนเฉพาะ Window ที่มี Event ผ่าน Threshold การแก้ `SHIFT.patient_count` อย่างเดียวจึงไม่เปลี่ยน Gap
 * ตรวจ Gap ด้วย `gap_service.assess_shift(db, shift)` ซึ่งโหลด Requirement ผ่าน `requirement_service.get_current_requirement()` (Seam 10) การปิด Window และขั้น `ASSESSING` ต้องเรียกฟังก์ชันเดียวกันนี้
 * `effective_minimum` คือค่าที่ส่งเข้าสูตร `headcount_gap` จริง `record_gap()` เขียนค่าที่ใช้คิด ไม่คิดใหม่ตอนบันทึก
 * `required_staff` ถูก UPDATE ในแถวเดิม ค่าที่อ่านผ่าน `staffing_requirement_id` จึงเป็นค่าปัจจุบัน ไม่ใช่ค่าตอนคิด Gap ค่าเดียวในแถว Gap ที่บอกเป้าหมายตอนคิดคือ `effective_minimum` ห้ามเอา `required_staff` / `minimum_staff` ของ Requirement มาแสดงคู่กับ Gap เก่าว่าเป็นค่าที่ใช้คิด (Q20)
@@ -286,23 +304,54 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 * แถว Audit ที่เป็นเรื่องของ Event ใส่ `AUDIT_LOG.event_id` อย่างเดียว ไม่ใส่ `case_id` ทุกกรณี รวมถึงเวรที่ Window = 0 ใส่ตั้งแต่ตอนเขียน ไม่มีการแก้แถว Audit ทีหลัง (Q33) แถวกลุ่มนี้คือ `EVENT_RECEIVED`, `EVENT_IGNORED` และ Action ของขั้น Update table (`UNAVAILABILITY_CREATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED`)
 * Timeline ของเคส = แถวที่ `case_id` เป็นเคสนี้ รวมกับแถวที่ `event_id` เป็น Event ของเคสนี้ (หาจาก `STAFFING_EVENTS.case_id`) เรียงตาม `id` แถวของ Event ทุกแถวขึ้นก่อน `CASE_OPENED` เพราะเคสถูกสร้างหลังวนครบทุก Event
 * Event ที่ `IGNORED` ไม่มีเคส แต่ยังค้น Audit ของมันได้จาก `event_id`
-* `EVENT_IGNORED` ใช้ Actor `workflow_orchestrator` เหมือน `CASE_OPENED` (เป็นการตัดสินของระบบ) `entity_type = STAFFING_EVENTS` payload มี `event_id`, `shift_id` และเหตุผลที่ไม่เปิดเคส
+* `EVENT_IGNORED` ใช้ Actor `workflow_orchestrator` เหมือน `CASE_OPENED` (เป็นการตัดสินของระบบ) `entity_type = STAFFING_EVENTS` payload มี `event_id`, `shift_id` และ `reason` ซึ่งเป็นรหัสจาก `EventIgnoredReason` (`domain/enums.py`)
+
+  | `reason` | ความหมาย | ใครได้ |
+  |---|---|---|
+  | `THRESHOLD_NOT_PASSED` | ไม่มี Event ไหนใน Window ผ่าน Threshold (กรณี ต4) | ทุก Event ของ Window |
+  | `NO_GAP` | มี Event ที่ผ่าน แต่ Gap จากข้อมูลสุดท้ายเป็น 0 ทุกตัว (กรณี ต5) | ทุก Event ของ Window |
+  | `NO_ASSIGNED_ROSTER` | คนของ Event นี้ไม่มี Roster `ASSIGNED` ให้ยกเลิกแล้ว เช่น แจ้งซ้ำใน Window เดียว (Q44) | เฉพาะ Event ตัวนั้น |
+  | `REQUIREMENT_ITEM_NOT_FOUND` | Role / Skill ที่ Event นี้แก้ไม่อยู่ใน Requirement ปัจจุบันของเวร (Q44) | เฉพาะ Event ตัวนั้น |
+
+* แถว `EVENT_IGNORED` ของ Event ที่ Update table ไม่ได้ (สองรหัสหลัง) ถูกเขียนตอนถึงคิวของ Event ตัวนั้น แทนที่แถว Action ของมัน ส่วนสองรหัสแรกเขียนหลังวนครบทุก Event
+* `audit_service.log()` ไม่รับแถวที่มีทั้ง `case_id` และ `event_id` (โยน `ValueError`)
 * ลำดับของแต่ละกรณีอยู่ข้อ 7.3
 
 ### 3.8 Job ปิด Window และการเลื่อน Clock
 
-* Job เป็น Service แยกใน `docker-compose.yml` ทำหน้าที่จับรอบอย่างเดียว ทุก 30 วินาทีเรียก Route ภายใน `POST /internal/merge-windows/close-due` ของ Backend Route นี้กันด้วย Secret ใน Header ค่าอ่านจาก env ไม่ Commit ลง Repo (Q35)
+* Job เป็น Service แยกใน `docker-compose.yml` ทำหน้าที่จับรอบอย่างเดียว ทุก 30 วินาทีเรียก Route ภายใน `POST /internal/merge-windows/close-due` ของ Backend Route นี้กันด้วย Secret ใน Header `X-Internal-Secret` ค่าอ่านจาก env `INTERNAL_JOB_SECRET` ไม่ Commit ลง Repo (Q35)
+  * Header ไม่มีหรือไม่ตรง ตอบ `401` ถ้า Backend ไม่ได้ตั้ง `INTERNAL_JOB_SECRET` Route ตอบ `503` ทุกคำขอ ไม่มีค่าไหนเปิดได้ (ไม่ตั้ง = ปิด ไม่ใช่เปิด)
+  * ค่าต้องยาวอย่างน้อย 8 ตัวอักษร `docker-compose.yml` และ `.env.example` ใส่ค่า `local-dev-only` ไว้สำหรับเครื่องพัฒนาเท่านั้น แบบเดียวกับรหัสผ่านของ PostgreSQL ที่อื่นต้องตั้งค่าเอง
+  * Service ชื่อ `job` รัน `python -m app.jobs.ticker` ใช้แค่ Standard Library ไม่ติดตั้งอะไรและไม่ต่อ DB ปรับรอบได้ด้วย env `JOB_INTERVAL_SECONDS` ซึ่งต้องเป็นตัวเลขตั้งแต่ 1 ขึ้นไป ค่าอื่นทำให้ Service หยุดพร้อมข้อความ การเรียกที่ล้มเหลวทุกแบบ รวม Backend รีสตาร์ตกลางคำขอ ไม่ทำให้ Service ล้ม รอบถัดไปเรียกใหม่
 * Backend เป็นคนตัดสินว่าเวรไหนถึงเวลาปิด ด้วยนาฬิกาของ Backend เอง เพราะเวลาของ Demo ที่ถูกหยุดไว้อยู่ในหน่วยความจำของ Process ของ Backend (`core/clock.py`) Service แยกเห็นแต่เวลาจริง
 * `POST /demo/clock/advance` เลื่อน Clock ของ Demo แล้วเรียกฟังก์ชันปิด Window ตัวเดียวกับ Job เพราะเลื่อนนาฬิกาอย่างเดียว Job ไม่รันเอง
-* รอบเดียวกันของ Job ยังปิด Offer ที่หมดเวลา (ข้อ 6.9) และเก็บตกเคสที่ค้าง (ข้อ 5.3)
+* ทั้ง Route ของ Job และ Route เลื่อน Clock เรียก `job_service.run_due_work(db)` ตัวเดียวกัน ซึ่งปิด Window ที่ถึงเวลาทีละเวร หนึ่ง Transaction ต่อเวร เวรที่ปิดไม่สำเร็จถูก Rollback และข้ามไป เวรอื่นไม่ได้รับผล
+* รอบเดียวกันของ Job ยังปิด Offer ที่หมดเวลา (ข้อ 6.9) และเก็บตกเคสที่ค้าง (ข้อ 5.3) สองอย่างนี้ยังไม่มีในโค้ด PR O เพิ่มเข้า `run_due_work()`
 
 ### 3.9 ข้อจำกัดที่รู้
 
 * แก้ `merge_window_seconds` ของเวรขณะ Window เปิดอยู่ เวลาปิดเลื่อนตาม เพราะไม่ได้เก็บเวลาปิดไว้
-* ถ้า PART B พังกับเวรไหน Event ของเวรนั้นค้าง `RECEIVED` และ Job ลองใหม่ทุกรอบ
+* ถ้า PART B พังกับเวรไหน Event ของเวรนั้นค้าง `RECEIVED` และ Job ลองใหม่ทุกรอบ รอบ 1 ไม่มีการเลิกลองเอง: Window นั้นยังเปิดอยู่ Event ใหม่ของเวรนั้นเข้าคิวต่อ และ Backend เขียน Log ระดับ Error ทุกรอบจนกว่าจะมีคนแก้ต้นเหตุ เหตุผลที่ไม่ตั้ง Event เป็น `IGNORED` เอง: การลาหรือการเพิ่มผู้ป่วยที่แจ้งมาจะหายไปเงียบ ๆ ทั้งที่เวรอาจขาดคนจริง ต้นเหตุที่รู้ตอนนี้คือเวรไม่มี Requirement ซึ่งถูกปฏิเสธตั้งแต่ตอนรับแล้ว (ข้อ 3.5)
 * ระหว่างที่เคสของเวรยังเดินอยู่ Event ใหม่ของเวรนั้นไม่ถูกทำอะไร Offer มี Timeout (ข้อ 6.9) แต่การอนุมัติไม่มี เคสที่ค้างรออนุมัติจึงเดินได้นาน คนที่แจ้งลาช่วงนั้นยังเป็น `ASSIGNED` ใน Roster (Q41) และการขาดคนเพิ่มยังไม่ถูกหาคนแทนจนกว่าเคสแรกจบ
 * ตอน Window = 0 ถ้าเวรมีเคสเดินอยู่ `POST /events` ตอบ `RECEIVED` ไม่ได้เคสทันที Test ที่ให้สองคนลาเวรเดียวกันแล้วคาดสองเคสทันทีต้องแก้
 * ตอน Window = 0 กับ Clock ที่หยุดนิ่งของ Demo Event คนละชุดของเวรเดียวกันได้ `processed_at` เท่ากันได้ ยอมรับ เพราะตอน Window = 0 หนึ่ง Event คือหนึ่งชุดอยู่แล้ว
+* Event ที่รอเคสก่อนหน้าจบ ถูกปิดพร้อมกับการปิด Window ครั้งถัดไปของเวรนั้น ไม่ว่าใครเป็นคนเรียก: Job, การเลื่อน Clock หรือ `POST /events` ตัวถัดไปของเวรที่ Window = 0 Event ที่รออยู่กับ Event ใหม่จึงอยู่ Window เดียวกันและได้เคสเดียวกัน
+* `required_staff` ที่ PART B เขียนไม่มีแถว Audit ของตัวเอง ค่าใหม่ดูได้จาก `effective_minimum` ของ Gap และจาก `PATIENT_COUNT_UPDATED` ของ Event ที่เปลี่ยนจำนวนผู้ป่วย
+* `ASSIGNMENT_CANCELLED` ไม่ตรวจว่า `staff_id` เป็นพนักงานที่มีอยู่แยกจากการตรวจ Roster: คนที่ไม่มีอยู่ไม่มี Roster `ASSIGNED` จึงได้ `409` เหมือนคนที่ไม่ได้อยู่เวรนั้น
+
+### 3.10 โค้ดอยู่ที่ไหน
+
+| ส่วน | ไฟล์ |
+|---|---|
+| PART A รับ Event และอ่านสถานะ Event | `services/event_service.py` (`receive_event()`, `get_event()`) |
+| PART B ปิด Window | `services/merge_window_service.py` (`lock_shift()`, `find_due_shift_ids()`, `close_window()`, `close_locked_window()`, `close_due_windows()`) |
+| Threshold | `domain/staffing/threshold.py` (`check_threshold()` เป็น Pure Function คืนว่าผ่านเพราะ Ratio, Role ไหน หรือ Skill ไหน) |
+| งานที่ถึงเวลา | `services/job_service.py` (`run_due_work()`) |
+| ตัวจับรอบ | `jobs/ticker.py` |
+| Scenario สำหรับ Test | `seed/scenarios/merge_gap.py` (เวร 1 ตั้ง Window 600 วินาที), `seed/scenarios/threshold.py` (เวร 3 ที่คนเกินความต้องการ) |
+
+* `close_locked_window()` คือ PART B ของเวรที่ผู้เรียกล็อกไว้แล้ว Commit เองเมื่อปิด Window ได้ และคืน `None` โดยไม่เขียนอะไรเมื่อยังไม่ถึงเวลา PART A ของเวรที่ Window = 0 เรียกตัวนี้ต่อใน Transaction เดียวกัน
+* `SHIFT.merge_window_seconds` ไม่มีค่า Default ใน DB ส่วน Model ใส่ `0` ให้เมื่อโค้ดสร้าง `Shift` โดยไม่ระบุ (0 = ไม่รอ เหมือน Skeleton) Seed ระบุค่าเองทุกเวร
 
 ---
 
@@ -513,7 +562,7 @@ def recompute(db: Session, case_id: int) -> CaseStatus       # รอบ 1 (PR S
 HANDLERS: dict[CaseStatus, Handler]      # State อัตโนมัติ → Handler ที่รันใน State นั้น
 ```
 
-* `advance()` ใช้หลังสร้างเคส (`event_service`) เดินจาก State ปัจจุบัน ถ้าเคสอยู่ที่จุดรอหรือ State ที่หยุดแล้วจะไม่ทำอะไร
+* `advance()` ใช้หลังสร้างเคส (`merge_window_service` ตอน Window ปิด) เดินจาก State ปัจจุบัน ถ้าเคสอยู่ที่จุดรอหรือ State ที่หยุดแล้วจะไม่ทำอะไร
 * `resume()` ใช้ออกจากจุดรอ: ตรวจ Transition, เปลี่ยน State, บันทึก `CASE_STATUS_CHANGED` แล้วเดินต่อเหมือน `advance()`
   ถ้าเคสไม่ได้อยู่ที่จุดรอหรือ Transition ไม่ถูกต้อง จะโยน `InvalidTransitionError` โดยไม่แตะเคสและ**ไม่**ทำให้เคสเป็น `FAILED`
   (เกิดเมื่อสองคำขอของเคสเดียวกันมาพร้อมกัน เช่น กด `ACCEPT` หรือกดอนุมัติสองครั้งติดกัน) Route ควรตอบ `409`
@@ -541,9 +590,9 @@ HANDLERS: dict[CaseStatus, Handler]      # State อัตโนมัติ →
 
 ```python
 # services/audit_service.py
-def log(db: Session, *, case_id: int | None, actor_id: int,
-        action: AuditAction, entity_type: EntityType, entity_id: int | None,
-        payload: dict) -> None
+def log(db: Session, *, case_id: int | None, event_id: int | None = None,
+        actor_id: int, action: AuditAction, entity_type: EntityType,
+        entity_id: int | None, payload: dict) -> None
 ```
 
 ```python
@@ -555,7 +604,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 * `component_id()` รับเฉพาะ `ActorName` และทั้งสองฟังก์ชันโยน `ActorNotFoundError` เมื่อไม่มี Actor (Seed ไม่ครบ) ไม่คืน `None`
 * `actor_service` และ `get_demo_user` อ่านด้วย SELECT และ `SessionLocal` ปิด autoflush แถว `ACTORS` / `STAFF` ที่เพิ่งเพิ่มใน Session เดียวกันต้อง `db.flush()` ก่อนจึงจะหาเจอ
 * `log()` **ห้าม Commit เอง**
-* `log()` รับ `event_id` เพิ่มใน PR M สำหรับแถว Audit ที่เป็นเรื่องของ Event (ข้อ 3.7)
+* `log()` รับ `event_id` สำหรับแถว Audit ที่เป็นเรื่องของ Event (ข้อ 3.7) ไม่ส่งมา = `NULL` ผู้เรียกเดิมจึงไม่ต้องแก้ แถวหนึ่งมีได้แค่ `case_id` หรือ `event_id` อย่างใดอย่างหนึ่ง ส่งทั้งสองโยน `ValueError`
 * `action` และ `entity_type` ต้องเป็น Enum ห้ามพิมพ์ข้อความเอง
 * `payload` ห้ามมีข้อมูลผู้ป่วยรายบุคคล เหตุผลการลาแบบข้อความอิสระ หรือ `password_hash`
 * Composite Key (เช่น `STAFF_SKILL`) ยังไม่ต้อง Audit ใน Skeleton จึงยังไม่ต้องตัดสินรูปแบบ `entity_id`
@@ -748,12 +797,12 @@ Offer มี Timeout ส่วนการอนุมัติ**ไม่มี
 | Action | ใครเขียน | Actor | entity_type | payload ขั้นต่ำ |
 |---|---|---|---|---|
 | `EVENT_RECEIVED` | `event_service` ตอนรับ Event (PART A) | user (ผู้แจ้ง) | STAFFING_EVENTS | `event_type`, `shift_id`, `staff_id` |
-| `UNAVAILABILITY_CREATED` | `event_service` ตอน Window ปิด (PART B) | user (คนที่ลา) | STAFF_UNAVAILABILITY | `unavailability_id`, `staff_id`, `reason`, `start_at`, `end_at` |
-| `ASSIGNMENT_CANCELLED` | `event_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง) | ROSTER_ASSIGNMENT | Roster ที่ถูกยกเลิก, `staff_id`, `reason` |
-| `PATIENT_COUNT_UPDATED` | `event_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง) | SHIFT | ค่าเก่าและค่าใหม่ของ `patient_count` |
-| `REQUIREMENT_UPDATED` | `event_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง) | STAFFING_REQUIREMENTS | ค่าเก่าและค่าใหม่ของแต่ละ Role / Skill ที่แก้ |
-| `EVENT_IGNORED` | `event_service` ตอน Window ปิด (PART B) | `workflow_orchestrator` | STAFFING_EVENTS | `event_id`, `shift_id`, เหตุผลที่ไม่เปิดเคส |
-| `CASE_OPENED` | `event_service` ตอน Window ปิด (PART B) | `workflow_orchestrator` | STAFFING_CASES | `event_id` (Event ตัวแรกที่ผ่าน Threshold), `shift_id`, `headcount_gap` |
+| `UNAVAILABILITY_CREATED` | `merge_window_service` ตอน Window ปิด (PART B) | user (คนที่ลา) | STAFF_UNAVAILABILITY | `unavailability_id`, `staff_id`, `reason`, `start_at`, `end_at` |
+| `ASSIGNMENT_CANCELLED` | `merge_window_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง จาก `reported_by` ใน payload ของ Event) | ROSTER_ASSIGNMENT | `assignment_id` (Roster ที่ถูกยกเลิก), `staff_id`, `reason` |
+| `PATIENT_COUNT_UPDATED` | `merge_window_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง) | SHIFT | `shift_id`, `old_patient_count`, `new_patient_count` |
+| `REQUIREMENT_UPDATED` | `merge_window_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง) | STAFFING_REQUIREMENTS | `requirement_id`, `roles`: List ของ `{role_id, old_required_count, new_required_count}`, `skills`: List ของ `{skill_id, old_required_count, new_required_count}` เรียงตาม ID |
+| `EVENT_IGNORED` | `merge_window_service` ตอน Window ปิด (PART B) | `workflow_orchestrator` | STAFFING_EVENTS | `event_id`, `shift_id`, `reason` (รหัสในข้อ 3.7) |
+| `CASE_OPENED` | `merge_window_service` ตอน Window ปิด (PART B) | `workflow_orchestrator` | STAFFING_CASES | `event_id` (Event ตัวแรกที่ผ่าน Threshold), `shift_id`, `headcount_gap` |
 | `CASE_STATUS_CHANGED` | Orchestrator | `workflow_orchestrator` | STAFFING_CASES | `from`, `to` |
 | `GAP_ASSESSED` | `assess_staffing` | `staffing_gap_assessment_agent` | STAFFING_GAP | `gap_id`, `headcount_gap`, `role_gaps`, `skill_gaps` |
 | `SOLVER_EXECUTED` | `optimize` | `constraint_fair_scheduling_agent` | CANDIDATE_PLANS | `plan_id`, `solver_status`, `candidate_count` |
@@ -771,8 +820,10 @@ Offer มี Timeout ส่วนการอนุมัติ**ไม่มี
 | `MANUAL_HANDOFF` | Handler ที่หยุดเคส (`contact_candidate` หรือ `optimize`) | Actor ของ Handler นั้น | STAFFING_CASES | `reason` (รหัส), `stopped_at` (State ที่หยุด), `cancelled_outreach_ids` (Offer ที่ยัง `SENT` ซึ่งถูกยกเลิกตอนเคสหยุด ว่างได้), `skipped` (List ของ `{staff_id, reason}` ของคนที่ถูกข้ามในการเลือกครั้งสุดท้าย ข้อ 6.7 ว่างได้) |
 | `WORKFLOW_FAILED` | Orchestrator (D11) | `workflow_orchestrator` | STAFFING_CASES | `from`, `failed_at`, `error_type` |
 
-* `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` เพิ่มใน `AuditAction` แล้ว และ `SHIFT`, `STAFFING_REQUIREMENTS` เพิ่มใน `EntityType` แล้ว (PR 0) ยังไม่มีโค้ดเขียนแถวพวกนี้จนกว่า PR M
-* ช่องที่ร่างรอบ 1 ยังไม่ได้กำหนด เจ้าของ PR กำหนดแล้วเขียนลงตารางนี้ใน PR ของตัวเอง: Actor และชื่อ Key ใน payload ของ Action สามตัวของ Event ชนิดใหม่ (PR M) ชื่อ Key ของเหตุผลใน `EVENT_IGNORED` (PR M) และ Actor ของ `OFFER_TIMEOUT` (PR O) ค่าในตารางของช่องพวกนี้เป็นค่าตั้งต้น
+* `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` เพิ่มใน `AuditAction` แล้ว และ `SHIFT`, `STAFFING_REQUIREMENTS` เพิ่มใน `EntityType` แล้ว (PR 0) และ PART B เขียนแถวพวกนี้ตั้งแต่ PR M
+* ช่องที่ร่างรอบ 1 ยังไม่ได้กำหนด เจ้าของ PR กำหนดแล้วเขียนลงตารางนี้ใน PR ของตัวเอง: Actor ของ `OFFER_TIMEOUT` (PR O) ยังเป็นค่าตั้งต้น ส่วน Actor และชื่อ Key ใน payload ของ Action สามตัวของ Event ชนิดใหม่ และ Key `reason` ของ `EVENT_IGNORED` กำหนดแล้วใน PR M ตามตารางข้างบน
+* `EVENT_RECEIVED`: `staff_id` ใน payload คือคนที่ Event พูดถึง (`STAFFING_EVENTS.staff_id`) จึงเป็น `null` สำหรับ `PATIENT_SURGE` และ `REQUIREMENT_CHANGED` ผู้แจ้งดูจาก Actor ของแถว
+* หกแถวแรกของตารางเป็นแถวของ Event: มี `event_id` และ `case_id = NULL` เสมอ ส่วน `CASE_OPENED` เป็นแถวของเคส: มี `case_id` และ `event_id = NULL` โดยบอก Event ไว้ใน payload
 
 รหัส `reason` ของ `MANUAL_HANDOFF`: `NO_CANDIDATE_LEFT` (T5), `NO_FEASIBLE_PLAN` (T6)
 
@@ -884,7 +935,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 
 | ขั้น | Stub ทำอะไร | ตารางที่เขียน |
 |---|---|---|
-| Event | ของจริงตั้งแต่ Skeleton ไม่ใช่ Stub: หนึ่ง Event เปิดหนึ่งเคสทันทีใน Request เดียว ไม่มี Window และรับเฉพาะ `STAFF_UNAVAILABLE` รายละเอียดอยู่ข้อ 8.1 PR M เปลี่ยนเป็นข้อ 3 | STAFFING_EVENTS, STAFF_UNAVAILABILITY, ROSTER_ASSIGNMENT, STAFFING_CASES |
+| Event | ของจริง ไม่ใช่ Stub และตรงกับข้อ 3 ตั้งแต่ PR M: รับ Event สี่ชนิดเป็น `RECEIVED` (PART A) แล้วปิด Window ทีละเวร ตรวจ Threshold และเปิดได้หนึ่งเคสต่อ Window (PART B) เวรของ Golden Case ตั้ง Window = 0 จึงยังเดินรวดเดียวใน Request เดียวเหมือน Skeleton | STAFFING_EVENTS, STAFF_UNAVAILABILITY, ROSTER_ASSIGNMENT, SHIFT, STAFFING_REQUIREMENTS (+ ROLE, SKILL), STAFFING_CASES |
 | Gap | ของจริงตั้งแต่ PR 1b ไม่ใช่ Stub: `gap_service.assess_shift()` โหลด Requirement ปัจจุบันของเวร (Seam 10) และ Hard Policy `id=1` แล้วส่ง `required_staff`, `minimum_staff` และธง `preserve_minimum_staffing` ให้ `gap_calculator.calculate_gap()` ซึ่งคิด `effective_minimum` และ `headcount_gap` ตามข้อ 3.6 และเทียบ Role / Skill กับ Requirement ใช้ `result.has_gap` Handler `assess_staffing` เรียก `assess_shift()` ตัวเดียวกับการรับ Event แล้วบันทึกด้วย `gap_service.record_gap()`: `STAFFING_GAP` หนึ่งแถว (`effective_minimum` = ค่าที่ใช้คิดจริง, `computed_at = clock.now()`) และแถว Role / Skill ของทุกรายการใน Requirement รวมรายการที่ไม่ขาด จากนั้นเขียน `GAP_ASSESSED` โดย `role_gaps` / `skill_gaps` ใน payload เป็น List เรียงตาม ID ของ `{role_id หรือ skill_id, required_count, current_count, gap_count}` (ไม่ใช้ ID เป็น Key เพราะ JSON จะเปลี่ยนเป็นข้อความ) ถ้า `result.has_gap` เป็น False โยน `NoGapError` โดยไม่เขียนแถว เคสเป็น `FAILED` ตาม D11 (ข้อ 5 ไม่มี Transition ของกรณีนี้ และการรับ Event เปิดเคสเฉพาะเมื่อมี Gap ภายใต้ Lock ของเวรเดียวกัน จึงไม่เกิดใน Golden Path) | STAFFING_GAP (+ ROLE, SKILL) |
 | Solver | ของจริงตั้งแต่ PR 2a ไม่ใช่ Stub: `optimization_service.create_plan()` ทำตามร่างรอบ 1 ข้อ 8.3 (1) Pool = พนักงานทุกคนที่ `home_ward_id` ตรงกับหอของเวรของเคส รอบ 1 จึงเป็น `SAME_WARD` ทุกคน (2) ล็อกแถว `STAFF` ของทั้ง Pool (`FOR NO KEY UPDATE` เรียงตาม `id`) จนรอบนั้น Commit (3) ตัดคนออกพร้อมรหัสเหตุผลหนึ่งรหัสต่อคน ใช้เหตุผลแรกตามลำดับนี้: ไม่ผ่าน Hard Rules (`hard_rule_service.check_staff()` รหัส = ข้อแรกที่ไม่ผ่านตามลำดับตารางในร่างรอบ 1 ข้อ 7.2), ปิด Gap ไม่ได้สักอย่าง (เกิดเมื่อ `headcount_gap = 0`: รหัส `SKILL_MISMATCH` ถ้าเคสขาด Skill ไม่งั้น `ROLE_MISMATCH`), เต็มเพดาน Offer (`availability_service.staff_at_offer_limit()` รหัส `OFFER_LIMIT_REACHED` ข้อ 6.7) (4) `working_time_service.capture()` เขียน `STAFF_WORKING_TIME_SNAPSHOT` ของคนที่เหลือ (Seam 14) (5) `optimization/solver.py` คิด Target = `ceil(gap * 11 / 10)` แล้วเลือกกลุ่มของ Wave แรกที่ปิด Target ครบและ `plan_penalty` ต่ำสุด คะแนนเท่ากันเลือกกลุ่มที่คนน้อยกว่า แล้ว `staff_id` น้อยกว่า Target ที่ผู้สมัครมีไม่พอถูกลดลงเท่าจำนวนคนที่ตรง (6) บันทึก Plan ที่มีทุกคนที่เหลือ ไม่ใช่เฉพาะกลุ่มของ Wave แรก `rank` = กลุ่มของ Wave แรกเรียงตาม `ranking_key` แล้วตามด้วยคนที่เหลือเรียงตาม `ranking_key` ไม่ข้ามเลข พร้อม `working_time_snapshot_id` ของแต่ละคน และแถว `CANDIDATE_ITEM_TARGET` ของกลุ่ม Wave แรก (Seam 13) `solver_status = FEASIBLE`, `solver_version = "weighted-v1"`, `objective_score` = `plan_penalty` ของกลุ่ม `input_snapshot` เก็บ `captured_at`, วันและต้นสัปดาห์ที่ใช้, Target, ค่าที่ใช้คิดของแต่ละคน และคนที่ถูกตัดพร้อมรหัส ถ้าไม่เหลือใครเลย: บันทึก Plan `INFEASIBLE` ไม่มี Item, Handler เขียน `SOLVER_EXECUTED` และ `MANUAL_HANDOFF` (`NO_FEASIBLE_PLAN`) แล้วเคสไป `MANUAL_HANDOFF` (T6) ไม่เป็น `FAILED` เคสที่ไม่มีแถว Gap ยังเป็น `FAILED` ตาม D11 (`GapNotFoundError`) กฎ Offer ค้างเดิม (กฎข้อที่ 4) ยังอยู่ชั่วคราวจนถึง PR 2b: คนที่มี Offer `SENT` ในเคสใดก็ได้ หรือ `ACCEPTED` ในเคสที่ยังเดินอยู่ ถูกตัดด้วยรหัส `OFFER_LIMIT_REACHED` เหมือนคนที่เต็มเพดาน คนที่มีแถว Roster `CANCELLED` บนเวรของเคสไม่ผ่าน `UNAVAILABLE` จึงไม่ถูกเสนอเวรเดิมอีก การค้นหากลุ่มข้ามผู้สมัครที่ปิด Target ชุดเดียวกับคนที่ถูกข้ามไปแล้ว และตัดกิ่งที่ต้นทุนขั้นต่ำสู้กลุ่มที่ดีที่สุดไม่ได้ ผลลัพธ์เท่ากับการลองทุกกลุ่ม | CANDIDATE_PLANS, CANDIDATE_ITEMS, CANDIDATE_ITEM_TARGET, STAFF_WORKING_TIME_SNAPSHOT |
 | Outreach | สร้าง Outreach ให้ Item ที่ `rank = 1` ของ Plan ล่าสุด หนึ่งแถวพอดี สถานะ `SENT` ไม่ส่ง LINE จริง PR 2b เปลี่ยนเป็นส่งทั้ง Wave (ข้อ 6.6) | CANDIDATE_OUTREACH |
@@ -895,62 +946,6 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 
 `CANDIDATE_PLANS` และ `SAFETY_VALIDATION` อ้าง Policy แบบ NOT NULL จึงต้อง Seed `HARD_CONSTRAINT_POLICY` และ `SOFT_CONSTRAINT_POLICY` อย่างละ 1 แถว Solver ใช้ค่าของทั้งสอง Policy แล้วตั้งแต่ PR 2a
 
-### 8.1 การรับ Event ของ Skeleton (จนกว่า PR M เข้า)
-
-นี่คือสิ่งที่ `event_service.receive_event()` ทำตอนนี้ ข้อ 3 คือกติกาของรอบ 1 ที่ PR M จะทำให้เป็นจริง เลขข้อที่อ้างในหัวข้อนี้ (ข้อ 6.2, ข้อ 12, Seam 10) ยังชี้ที่เดิม
-
-```
-POST /events
-  1. บันทึก STAFFING_EVENTS (status = RECEIVED)                → Audit EVENT_RECEIVED
-  2. ถ้าเป็น STAFF_UNAVAILABLE ที่ผูกกับเวร:
-       - สร้าง STAFF_UNAVAILABILITY (reason = UNPLANNED_LEAVE,
-         start_at = SHIFT.start_at, end_at = เวลากลับที่แจ้ง หรือ SHIFT.end_at ถ้าไม่ได้แจ้ง)
-       - ROSTER_ASSIGNMENT ของคนนั้นในเวรนั้น → CANCELLED
-  3. ตรวจ Coverage เบื้องต้น ด้วย gap_calculator ตัวเดียวกับขั้น ASSESSING
-       - ไม่มี Gap: Event → IGNORED                            → Audit EVENT_IGNORED (case_id = NULL)
-       - มี Gap:   Event → PROCESSED, สร้าง STAFFING_CASES (OPEN) → Audit CASE_OPENED
-                   แล้วเรียก orchestrator.advance(case_id)
-```
-
-* `required_replacement_time` = `SHIFT.start_at`
-* Request: `POST /events` พร้อม `X-Demo-User` และ Body `{event_type, shift_id, end_at?}` ผู้แจ้งคือ `user.staff.id`
-  `end_at` คือเวลากลับที่แจ้ง ต้องมี Timezone และอยู่หลัง `SHIFT.start_at` ไม่ส่งมา = ถึง `SHIFT.end_at`
-* Skeleton รับเฉพาะ `STAFF_UNAVAILABLE` Event type อื่นยังไม่มีกติการับ (ข้อ 12)
-* ตรวจทุกข้อ**ก่อนเขียนแถวแรก** คำขอที่ถูกปฏิเสธจึงไม่ทิ้งอะไรไว้ใน DB ตามลำดับนี้
-
-  | ตรวจ | ไม่ผ่านตอบ |
-  |---|---|
-  | `event_type` เป็น `STAFF_UNAVAILABLE` | `422` |
-  | `shift_id` อยู่ในช่วง `bigint` (1 ถึง 9223372036854775807) | `422` |
-  | มี Shift ID นั้น | `404` |
-  | `end_at` อยู่หลัง `SHIFT.start_at` (ถ้าส่งมา) | `422` |
-  | ผู้แจ้งมี Roster `ASSIGNED` ในเวรนั้นหนึ่งแถวพอดี | ไม่มี → `409`, มีหลายแถว → Error |
-
-  `409` ครอบคลุมทั้งคนที่ไม่ได้อยู่เวรนั้นและการแจ้งลาซ้ำ (แถว Roster ถูก `CANCELLED` ไปแล้วจากครั้งแรก)
-* การรับ Event ทำ**ทีละคำขอต่อเวร**: ล็อกแถว `SHIFT` ก่อน แล้วจึงล็อกแถว Roster ของผู้แจ้ง (ลำดับนี้เสมอ) ด้วย `SELECT ... FOR NO KEY UPDATE`
-  และถือ Lock จน Commit
-  * คนละคนแจ้งลาเวรเดียวกันพร้อมกัน: ถ้าไม่ล็อกเวร แต่ละคำขอจะยกเลิก Roster ของตัวเอง แต่ยังเห็นอีกคนเป็น `ASSIGNED`
-    (ยังไม่ Commit) ทั้งสอง Event จึงเป็น `IGNORED` ทั้งที่เวรขาดคนแล้ว เมื่อล็อกเวร คำขอที่สองจะเห็นผลของคำขอแรกก่อนตรวจ Gap
-  * คนเดียวกันแจ้งลาเวรเดียวกันซ้ำพร้อมกัน: คำขอที่สองเห็นแถว Roster ถูก `CANCELLED` แล้วได้ `409` ไม่เกิด Event หรือเคสซ้ำ
-  * Lock นี้คุมเฉพาะการรับ Event ขั้นอื่นที่เขียน Roster (เช่น `execute_assignment`) ยังไม่ได้ล็อกเวร
-    Lock ต่อ Shift ทั้งระบบเป็นงานหลัง Skeleton (`core/locks.py`)
-* แถว Audit ของ Event (`EVENT_RECEIVED`, `UNAVAILABILITY_CREATED`) เขียน**หลัง**สร้างเคส เพื่อให้มี `case_id` ของเคสนั้น
-  และขึ้นใน Timeline ของเคสตามลำดับของ `GOLDEN_PATH_AUDIT_ACTIONS` Event ที่ `IGNORED` ทั้งสามแถวมี `case_id = NULL`
-* `EVENT_IGNORED` ใช้ Actor `workflow_orchestrator` เหมือน `CASE_OPENED` (เป็นการตัดสินของระบบ) `entity_type = STAFFING_EVENTS`
-  payload `event_id`, `shift_id`
-* Event ที่ `IGNORED` ไม่มีรอบของ Orchestrator `event_service` จึง Commit เอง Event ที่เปิดเคส Orchestrator Commit ให้ (ข้อ 6.2)
-* ตรวจ Gap ด้วย `gap_service.assess_shift(db, shift)` ซึ่งโหลด Requirement ผ่าน `requirement_service.get_current_requirement()`
-  (Seam 10) ขั้น `ASSESSING` ต้องเรียกฟังก์ชันเดียวกันนี้
-* ขั้นตอน 1–3 อยู่ใน Transaction เดียว ถ้าพังกลางทาง Event ไม่ถูกบันทึกเลย
-* `STAFF.status` ของคนที่ลาไม่เปลี่ยน (ยังเป็น `ACTIVE`)
-* เป้าหมายจำนวนคนและ Snapshot ของ Gap เป็นไปตามข้อ 3.6 แล้วตั้งแต่ PR 1b: `effective_minimum` จาก `required_staff`, `minimum_staff` และธง `preserve_minimum_staffing` ไม่ได้คิดจาก `SHIFT.patient_count` ตรง ๆ อีก
-* ตรวจ Role / Skill ตาม Requirement แยกจาก Headcount; ขาดอย่างใดอย่างหนึ่งก็ถือว่ามี Gap
-  แม้จำนวนคนจะเพียงพอตาม Ratio แล้วก็ตาม
-* Skeleton ตรึง Hard Policy `id=1` ตลอด Demo ไม่แก้ค่าระหว่างที่มีเคสทำงาน; การเลือกเวอร์ชันตาม
-  `effective_from` และ Ratio แยก Ward เป็นงานภายหลัง
-* `STAFFING_GAP` ยังไม่มี FK ไป Hard Policy (ต่างจาก `CANDIDATE_PLANS` / `SAFETY_VALIDATION`); การอ้างเวอร์ชันของ Policy โดยตรงเป็นงานภายหลัง
-* `PLANNED_LEAVE` (ลาที่ไม่ชนเวรที่มี Roster) ไม่สร้าง Event และ `NO_SHOW` (ระบบสร้างเองจาก `ATTENDANCE`) อยู่นอก Skeleton ดูข้อ 12
-
 ---
 
 ## 9. API
@@ -958,7 +953,7 @@ POST /events
 | Method | Path | ใช้ทำอะไร | เจ้าของ |
 |---|---|---|---|
 | POST | `/events` | รับ Event ตามข้อ 3 | คน 1 |
-| GET | `/events/{event_id}` | สถานะของ Event และเคสของมัน (รอบ 1, PR M) | คน 1 |
+| GET | `/events/{event_id}` | สถานะของ Event และเคสของมัน | คน 1 |
 | GET | `/cases/{id}` | สถานะเคส + Gap + Candidate | คน 1 |
 | GET | `/cases/{id}/audit` | Timeline ของเคส | คน 1 |
 | GET | `/demo/line-sim/offers?staff_id=` | Offer ที่ผู้สมัครได้รับ | คน 3 |
@@ -967,8 +962,8 @@ POST /events
 | POST | `/approvals/{id}/decision` | อนุมัติ / ไม่อนุมัติ | คน 3 |
 | GET | `/roster?shift_id=` | ตารางเวรของเวรนั้น | คน 3 |
 | POST | `/demo/reset` | ล้าง DB โหลด Golden Case ตั้ง Clock ใหม่ | คน 1 |
-| POST | `/demo/clock/advance` | เลื่อน Clock ของ Demo แล้วปิด Window และ Offer ที่ถึงเวลา (รอบ 1, PR M) | คน 1 |
-| POST | `/internal/merge-windows/close-due` | Route ภายในที่ Service ของ Job เรียก (รอบ 1, PR M) | คน 1 |
+| POST | `/demo/clock/advance` | เลื่อน Clock ของ Demo แล้วปิด Window ที่ถึงเวลา (การปิด Offer ที่หมดเวลามากับ PR O) | คน 1 |
+| POST | `/internal/merge-windows/close-due` | Route ภายในที่ Service ของ Job เรียก กันด้วย `X-Internal-Secret` ไม่ใช้ `X-Demo-User` | คน 1 |
 
 ทุก Request ที่ต้องรู้ตัวผู้ใช้ส่ง Header `X-Demo-User: <staff_id>` (D9)
 
@@ -1008,7 +1003,8 @@ Router ทุกตัวของขั้นที่ 4 มีไฟล์แ�
 | `api/routes/approvals.py` | `/approvals` |
 | `api/routes/roster.py` | `/roster` |
 | `api/routes/line_sim.py` | `/demo/line-sim` |
-| `api/routes/demo.py` | `/demo` (มีแค่ `/demo/reset`) |
+| `api/routes/demo.py` | `/demo` (`/demo/reset` และ `/demo/clock/advance`) |
+| `api/routes/internal.py` | `/internal` (เพิ่มและลงทะเบียนใน PR M สำหรับ Route ที่ Service ของ Job เรียก) |
 
 Error สองตัวนี้ถูกแปลงเป็น HTTP ให้ที่เดียวใน `api/exception_handlers.py` Route ไม่ต้อง `try/except` เอง
 
@@ -1023,7 +1019,7 @@ Handler นี้เป็นตาข่ายชั้นสุดท้าย
 
 ### 9.2 คำตอบที่เปลี่ยนในรอบ 1
 
-คอลัมน์ "ตอนนี้" คือพฤติกรรมของ Skeleton
+คอลัมน์ "ตอนนี้" คือพฤติกรรมของ Skeleton แถวของ `/events`, `/demo/clock/advance`, `/internal/...` และ `/cases/{id}` เป็นไปตามคอลัมน์ "รอบ 1" แล้วตั้งแต่ PR M
 
 | Route | ตอนนี้ | รอบ 1 |
 |---|---|---|
@@ -1093,6 +1089,31 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 แล้วเขียนรูปแบบสุดท้ายลงข้อนี้ใน PR ของ Route ตัวเอง Frontend ทำตามข้อนี้
 
 **เมื่อ Conflict ในข้อ 9:** หลาย PR จะเติมรูปแบบของ `GET` ที่นี่ ให้เก็บไว้ทั้งสองฝั่ง
+
+**`GET /events/{event_id}`** (คน 1) ไม่ต้องมี `X-Demo-User` ไม่มี Event ID นั้น → `404` ID นอกช่วง `bigint` (1 ถึง 9223372036854775807) → `422`
+
+```json
+{"event_id": 2, "event_status": "RECEIVED", "case_id": null, "case_status": null}
+```
+
+* รูปเดียวกับคำตอบของ `POST /events` จึงใช้ชื่อ Field แบบมี Prefix ทั้งที่เป็น `GET`
+* `case_status` คือสถานะปัจจุบันของเคส ไม่ใช่สถานะตอน Window ปิด
+
+**`POST /demo/clock/advance`** (คน 1) ไม่ต้องมี `X-Demo-User` Body `{"seconds": 600}` เป็นจำนวนเต็ม 1 ถึง 604800 (หนึ่งสัปดาห์) ค่าอื่น → `422` และ Clock ไม่ขยับ Clock ยังไม่ถูกหยุด (ยังไม่เคย Reset ตั้งแต่ Backend เริ่ม) → `409`
+
+```json
+{
+  "clock": "2026-10-09T21:10:00+07:00",
+  "closed_windows": [
+    {"shift_id": 1, "event_ids": [1, 2], "case_id": 1, "case_status": "WAITING_RESPONSE"}
+  ]
+}
+```
+
+* `closed_windows` มีหนึ่งรายการต่อเวรที่ปิด Window ในคำขอนี้ เรียงตาม `shift_id` Window ที่ไม่เปิดเคสมี `case_id` และ `case_status` เป็น `null` (Event ของมันเป็น `IGNORED`)
+* `event_ids` คือ Event ทุกตัวของ Window นั้น รวมตัวที่ `IGNORED` ตาม Q44 ซึ่งไม่ได้ Link เข้าเคส
+
+**`POST /internal/merge-windows/close-due`** (คน 1) Header `X-Internal-Secret` ไม่มี Body ตอบ `{"closed_windows": [...]}` รูปเดียวกับข้างบน `401` เมื่อ Secret ไม่มีหรือไม่ตรง `503` เมื่อ Backend ไม่ได้ตั้ง `INTERNAL_JOB_SECRET` (ข้อ 3.8)
 
 **`GET /cases/{id}`** (คน 1) ไม่ต้องมี `X-Demo-User` ไม่มีเคส ID นั้น → `404` ID นอกช่วง `bigint` (1 ถึง 9223372036854775807) → `422`
 
@@ -1268,6 +1289,7 @@ Seed ใช้ชื่อภาษาอังกฤษตามตาราง
 **SHIFT**
 * 1 = ICU, `NIGHT`, `D 23:00` – `D+1 07:00`, `patient_count = 10`
 * 2 = ICU, `DAY`, `D+2 07:00` – `D+2 15:00`, `patient_count = 2` (ใช้กับ Test ข้อ 10.4 เท่านั้น)
+* ทั้งสองเวรตั้ง `merge_window_seconds = 0` Event จึงถูกตัดสินใน Request ที่แจ้ง (ข้อ 3.2) เวรที่มี Window อยู่ใน Scenario ของ Test เท่านั้น (ข้อ 3.10)
 
 **STAFFING_REQUIREMENTS**
 * 1 = shift 1, `required_staff = 5`, `minimum_staff = 4`, ROLE: RN = 5, SKILL: ICU = 2
@@ -1401,4 +1423,7 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-12 | รอบ 1 PR 1c ตามรีวิว: รวม `staging` หลัง PR 1b และ 1a; Migration `d91a6c8e203f` ต่อจาก `e1f5a8b3c6d2` ตามลำดับ 1b → 1a → 1c เหลือ Head เดียว; ตารางสถานะระบุว่า Policy และฟังก์ชันเพดานมีแล้ว; Schema ระบุ 31 ตารางและ Migration ครบ; ให้ `make reset` หลัง merge เพื่อโหลด Policy ของ Demo | คน 3 |
 | 2026-10-12 | รอบ 1 PR S: เพิ่ม `domain/workflow/case_status.py` (`CaseFacts`, `decide_status()`, `GapNeeds`, `GapFiller`, `gap_closed()`), `services/case_facts_service.py` (`load_case_facts()`, `has_open_offer()`, `staff_waiting_on_another_case()`) และ `orchestrator.recompute()`; ข้อ 5.3 ระบุว่าใครนับเป็นได้เข้าเวรแล้ว / รออนุมัติ, นิยามของ Offer ที่ถูกพักในโค้ด และความล้มเหลวใน `recompute()` เป็น `FAILED` ตาม D11; Test ว่า `MANUAL_HANDOFF` จาก Handler หยุดรอบเอง และ T1 / T4 เข้า `OUTREACH` แล้วไม่วน; ยังไม่มีผู้เรียก จึงยังไม่เปลี่ยนพฤติกรรม; Fixture `stub_handlers` ยังมี Stub ของ `SAFETY_VALIDATION` จนกว่า PR 3 ลบ Handler นั้น | คน 1 |
 | 2026-10-12 | รอบ 1 PR S ตามรีวิว: `CaseFacts` เพิ่ม `has_uncontacted_candidate`, `has_pending_approval`, `has_paused_offer` และ `decide_status()` เพิ่มกฎข้อ 5 ถึง 7 ให้เคสที่ไม่เหลือใครให้ติดต่อแต่ยังมีสิ่งที่ต้องรออยู่ที่จุดรอเดิมโดยไม่เขียนอะไร; เคสที่ได้คนครบตอนอยู่ `WAITING_RESPONSE` ผ่าน `WAITING_APPROVAL` ไป `EXECUTING` ไม่เป็น `FAILED`; "ได้เข้าเวรแล้ว" นับแถว Roster ที่ `COMPLETED` ด้วย; Offer ที่ถูกพักไม่นับ Offer ที่คำขออนุมัติตัดสินแล้วหรือ Safety ไม่ผ่าน โดยไม่พึ่งว่า Offer ถูกตั้งเป็น `CANCELLED`; ตัวอ่านปิด Autoflush เอง; ลบ `GapNeeds` และใช้ `gap_service.load_skill_sets()` ร่วมกัน; ข้อ 5.3 ระบุข้อจำกัดของการนับและเหตุที่ `recompute()` ยังรันกับ Handler ของ Skeleton ไม่ได้ | คน 1 |
+| 2026-10-12 | รอบ 1 PR M: Migration `f2a6b9c4d7e1` (`SHIFT.merge_window_seconds`, `STAFFING_EVENTS.processed_at` + `case_id`, `AUDIT_LOG.event_id`, ลบ `STAFFING_CASES.event_id`) ทุกคนต้อง `make reset`; `event_service.receive_event()` เหลือ PART A และรับ Event สี่ชนิด; เพิ่ม `merge_window_service` (PART B), `domain/staffing/threshold.py`, `job_service`, `jobs/ticker.py` และ Service `job` ใน `docker-compose.yml`; Route ใหม่ `GET /events/{event_id}`, `POST /demo/clock/advance`, `POST /internal/merge-windows/close-due`; `audit_service.log()` รับ `event_id`; Case API ตอบ `event_ids` และ Timeline รวมแถวของ Event; ข้อ 3.4, 3.5, 3.7, 3.8 เพิ่มสิ่งที่กำหนดใน PR นี้ (`reported_by`, ลำดับการตรวจ, รหัส `reason` ของ `EVENT_IGNORED`, ชื่อ Header และ env ของ Secret); เพิ่มข้อ 3.10; ข้อ 7.1 กำหนด Key ของ payload; ลบข้อ 8.1; ข้อ 9.3 เพิ่มรูปแบบคำตอบของ Route ใหม่ | คน 1 |
+| 2026-10-12 | รอบ 1 PR M ตามรีวิว: เพิ่ม CHECK `ck_staffing_events_processed_at_matches_status` ใน Migration `f2a6b9c4d7e1` และ Model; `POST /events` ตอบ `409` เมื่อเวรไม่มี `STAFFING_REQUIREMENTS` (ข้อ 3.5) เพราะ Window ของเวรนั้นปิดไม่ได้; `reason` ของ `ASSIGNMENT_CANCELLED` ยาวได้ไม่เกิน 500 ตัวอักษรและข้อ 3.4 ระบุว่าเป็นข้อความอิสระที่เก็บได้; ข้อ 3.9 ระบุว่า Window ที่ปิดไม่สำเร็จถูกลองใหม่ทุกรอบโดยไม่เลิกเอง; `jobs/ticker.py` ไม่ล้มเมื่อ Connection ถูกปิดกลางคำขอ และตรวจ `JOB_INTERVAL_SECONDS`; ชื่อ Role `HEAD_NURSE` ย้ายไป `core/constants.py` ที่เดียว | คน 1 |
 | 2026-10-12 | รอบ 1 PR 2a: Solver ตัวจริงแทน Stub Pool = พนักงานของหอของเวร คัดด้วย Hard Rules ผ่าน `hard_rule_service` (Seam 12), อ่าน Gap ของเคส (Seam 11), เลือกกลุ่มของ Wave แรกด้วย `plan_penalty` และเรียง `rank` ด้วย `ranking_key`; เพิ่มตาราง `CANDIDATE_ITEM_TARGET`, `CANDIDATE_ITEMS.working_time_snapshot_id` และ `SOFT_CONSTRAINT_POLICY.candidate_source_weight` (Migration `f3a7c1d9e5b2` Backfill = 200); `working_time_service` เขียน `STAFF_WORKING_TIME_SNAPSHOT` (Seam 14); `fill_targets()` กับ `record_item_targets()` ให้ PR 2b ใช้ (Seam 13); Solver เรียกเพดาน Offer และเก็บกฎ Offer ค้างเดิมไว้ชั่วคราวจนถึง PR 2b (ข้อ 8 แถว Response); แถว Roster `CANCELLED` บนเวรที่เสนอทำให้ไม่ผ่าน `UNAVAILABLE`; Solver ไม่ได้ใครเลยเป็น `MANUAL_HANDOFF` ผ่าน T6 แทน `FAILED`; Seed ของ Weight เป็นค่าของรอบ 1; เพิ่ม Scenario `no_feasible_solution` และ `soft_constraint`; ทุกคน `make reset` หลัง merge | คน 2 |
+| 2026-10-12 | รอบ 1 PR 2a: รวม `staging` หลัง PR M; Migration `f3a7c1d9e5b2` ต่อจาก `f2a6b9c4d7e1` เหลือ Head เดียว | คน 2 |

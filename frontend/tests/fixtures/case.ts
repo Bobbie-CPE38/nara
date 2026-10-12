@@ -8,7 +8,7 @@ export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
   return {
     id: 1,
     status: "WAITING_RESPONSE",
-    event_id: 1,
+    event_ids: [1],
     shift_id: 1,
     required_replacement_time: "2026-10-09T23:00:00+07:00",
     created_at: DEMO_TIME,
