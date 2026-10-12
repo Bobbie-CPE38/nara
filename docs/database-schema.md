@@ -10,6 +10,7 @@
 > * `c4d7e19a52f3` เพิ่ม Snapshot `patient_count` และ `patients_per_nurse` ใน `STAFFING_GAP` พร้อม CHECK (ไม่ Backfill, ดูข้อ 24)
 > * `d5e8f20b63a4` แทน Snapshot สองคอลัมน์นั้นด้วย `STAFFING_GAP.effective_minimum` (รอบ 1 PR 1b ไม่ Backfill ให้ `make reset`)
 > * `e1f5a8b3c6d2` (รอบ 1 PR 1a) เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_consecutive_shifts` พร้อม CHECK (Backfill Policy เดิม = 7) และ CHECK ของ `ATTENDANCE.overtime_minutes`
+> * `d91a6c8e203f` เพิ่ม `OUTREACH_POLICY` และ CHECK เพดาน Offer มากกว่า 0 (PR 1c; Migration สร้างตารางว่าง ต้อง `make reset` เพื่อโหลด Policy ของ Demo)
 
 
 ## สรุปการตัดสินใจ
@@ -17,7 +18,7 @@
 
 | เรื่อง | ตัดสินว่า |
 |---|---|
-| จำนวนตาราง | 30 ตาราง (29 เดิม + `ACTORS`) |
+| จำนวนตาราง | 31 ตาราง (29 เดิม + `ACTORS` + `OUTREACH_POLICY`) |
 | ชนิด ID | `bigint` ทุกตาราง (รวม FK ทุกตัว) |
 | เก็บ Enum | Python `StrEnum` → คอลัมน์ `text` ยังไม่ใส่ DB ENUM / CHECK |
 | `created_at` / `updated_at` | `timestamptz` ตั้งค่าจาก `core/clock.py` ไม่พึ่ง Default ของ DB |
@@ -412,16 +413,18 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | `created_at` | timestamptz | NOT NULL |  |  |
 
 
-### 23.1 OUTREACH_POLICY **(รอบ 1 ยังไม่มีใน DB)**
+### 23.1 OUTREACH_POLICY
 
 
 กติกาของ Offer ต่อผู้สมัคร ตารางและ `maximum_concurrent_offers_per_staff` เพิ่มใน PR 1c ส่วน `offer_timeout_seconds` เพิ่มใน PR O
+
+Model และ Migration `d91a6c8e203f` เพิ่มแล้วใน PR 1c Seed เป็น `id=1`, `version=demo-outreach-v1` และเพดาน 3 โหลดด้วย `policy_service.get_outreach_policy()` ตาม `id=1`; `effective_from` ยังไม่ได้ใช้เลือกเวอร์ชัน
 
 | Field | Type | Null | Key | Enum / หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `maximum_concurrent_offers_per_staff` | integer | NOT NULL | CHECK | จำนวน Offer ที่ยังเปิดได้พร้อมกันต่อคน นับ Offer ที่ `SENT` หรือ `ACCEPTED` บนเคสที่ยังเดินอยู่ CHECK `> 0` Seed = 3 |
-| `offer_timeout_seconds` | integer | NOT NULL | CHECK | อายุของ Offer เป็นวินาที ใช้ตั้ง `CANDIDATE_OUTREACH.expires_at` ตอนส่ง CHECK `> 0` Seed = 300 |
+| `offer_timeout_seconds` | integer | NOT NULL | CHECK | อายุของ Offer เป็นวินาที ใช้ตั้ง `CANDIDATE_OUTREACH.expires_at` ตอนส่ง CHECK `> 0` Seed = 300 **(ยังไม่มีใน DB เพิ่มใน PR O)** |
 | `version` | text | NOT NULL |  |  |
 | `effective_from` | timestamptz | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |

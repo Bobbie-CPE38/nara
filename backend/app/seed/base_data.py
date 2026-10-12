@@ -17,7 +17,13 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.db.models import Actor, ApprovalPolicy, HardConstraintPolicy, SoftConstraintPolicy
+from app.db.models import (
+    Actor,
+    ApprovalPolicy,
+    HardConstraintPolicy,
+    OutreachPolicy,
+    SoftConstraintPolicy,
+)
 from app.domain.enums import ActorName, ActorType, CandidateSource, OptimizationObjective
 from app.seed import sync_sequences
 
@@ -72,6 +78,13 @@ def seed(db: Session) -> None:
                 version="demo-stub-v1",
                 created_at=now,
             ),
+            OutreachPolicy(
+                id=1,
+                maximum_concurrent_offers_per_staff=3,
+                version="demo-outreach-v1",
+                effective_from=now,
+                created_at=now,
+            ),
         ]
     )
     sync_sequences(
@@ -80,5 +93,6 @@ def seed(db: Session) -> None:
             HardConstraintPolicy.__tablename__,
             SoftConstraintPolicy.__tablename__,
             ApprovalPolicy.__tablename__,
+            OutreachPolicy.__tablename__,
         ],
     )

@@ -79,6 +79,7 @@ nara/
 │   │   │       ├── attendance.py
 │   │   │       ├── staff_working_time_snapshot.py
 │   │   │       ├── approval_policy.py
+│   │   │       ├── outreach_policy.py
 │   │   │       ├── hard_constraint_policy.py
 │   │   │       ├── soft_constraint_policy.py
 │   │   │       ├── staffing_gap.py
@@ -347,6 +348,7 @@ nara/
 │       │   ├── test_assess_staffing.py
 │       │   ├── test_orchestrator.py
 │       │   ├── test_optimize.py
+│       │   ├── test_outreach_policy.py
 │       │   ├── test_execute_assignment.py
 │       │   ├── test_roster_route.py
 │       │   ├── test_outreach.py

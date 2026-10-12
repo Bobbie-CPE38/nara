@@ -14,7 +14,7 @@ PR 0 ของรอบ 1 ย้ายกติกาที่ทีมรีว
 |---|---|---|
 | 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | เป้าหมายจำนวนคนตรงแล้ว (PR 1b) ที่เหลือ: M |
 | 4, 5 | สถานะเคส, Transition, ฟังก์ชันคำนวณสถานะเคส | ตาราง Transition มี T1 ถึง T7 แล้วใน PR 0 ส่วนโค้ดที่ใช้เส้นใหม่: S, 2a, 2b, 3, 4 |
-| 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c, 2a, 2b, 3, 4, O |
+| 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c เพิ่มตาราง Policy, Seed และฟังก์ชันเพดานแล้ว; การเรียกใช้และส่วนที่เหลือ: 2a, 2b, 3, 4, O |
 | 7 | Audit | M, 2a, 2b, 3, 4, O |
 | 9 | API | `gap.effective_minimum` ตรงแล้ว (PR 1b) ที่เหลือ: M, 2b, 4, O (กติกา `expires_at` ของการตอบ Offer) |
 
@@ -619,10 +619,16 @@ Target ของ Wave, สูตรจัดอันดับ และลำ�
 | กติกาใหม่ | ผู้สมัครถือ Offer ได้พร้อมกันไม่เกิน `OUTREACH_POLICY.maximum_concurrent_offers_per_staff` (Seed = 3) |
 | นับอะไร | Offer ของผู้สมัครที่เป็น `SENT` หรือ `ACCEPTED` บนเคสที่ยังเดินอยู่ |
 | รหัสตอนข้ามคน | `OFFER_LIMIT_REACHED` |
-| อยู่ที่ไหน | ฟังก์ชัน Public ในชั้น Service (`availability_service`) รับ `db` กับ List ของ `staff_id` คืน Set ของคนที่เต็มเพดาน ไม่อยู่ใน `domain/constraints/` เพราะต้อง Query `CANDIDATE_OUTREACH` |
+| อยู่ที่ไหน | `availability_service.staff_at_offer_limit(db, staff_ids) -> set[int]` คืน Set ของคนที่เต็มเพดาน ไม่อยู่ใน `domain/constraints/` เพราะต้อง Query `CANDIDATE_OUTREACH` อ่านอย่างเดียว ไม่ Flush / Commit ผู้เรียกต้อง Flush ข้อมูลที่ต้องการนับก่อนเรียก |
 | ใครทำ | คน 3 ใน PR 1c (งาน Outreach เป็นของคน 3): ตาราง `OUTREACH_POLICY`, Seed และฟังก์ชันนี้ ส่วนการเปลี่ยน Solver ให้เรียกฟังก์ชันนี้และลบ `_staff_with_open_offers()` ออกจาก `optimization_service` เป็นของคน 2 ใน PR 2a เพราะเป็นไฟล์ของ Solver |
 | ใครเรียก | Solver (ตอนสร้าง Plan) และ `contact_candidate` (ขั้นที่ 4 ของข้อ 6.6) |
 | Safety ไม่เรียก | ผู้สมัครที่กำลังถูกตรวจมี Offer `ACCEPTED` ของเคสตัวเองอยู่ กติกานี้จึงไม่อยู่ในรายการรหัสของร่างรอบ 1 ข้อ 7.2 |
+
+PR 1c เพิ่ม Model, Migration, Seed และฟังก์ชันนี้แล้ว แต่ยังไม่มีผู้เรียกใน Workflow จนกว่า PR 2a / 2b จะเข้า โหลด Policy ด้วย `policy_service.get_outreach_policy(db)` เลือก `id=1` ตาม Seed ไม่ใช้ `effective_from` เลือกเวอร์ชัน และไม่ใช้ค่า Default เมื่อไม่มี Policy การเลือกเวอร์ชันเป็นงานภายหลัง
+
+Migration สร้างตารางว่าง ไม่สร้าง Policy ให้ฐานข้อมูลเดิม หลัง merge PR 1c ให้ `make reset` เพื่อโหลด Policy `id=1` ก่อนเริ่มใช้ฟังก์ชันใน PR 2a / 2b
+
+ฟังก์ชันนับแถว Offer ข้ามทุกเคสและทุก Plan ของผู้สมัคร แต่ไม่รวมเคสที่อยู่ใน `AUTOMATION_STOPPED_STATUSES` รวมสำรองที่ `ACCEPTED` ด้วย ผู้เรียกที่กำลังเลือกคนต้องล็อก Staff ตามข้อ 6.11 แล้วตรวจเพดานอีกครั้งใน Transaction เดียวกัน ฟังก์ชันอ่านนี้ไม่ได้จองสิทธิ์ส่ง Offer เอง
 
 กติกาอื่นของการส่ง Wave
 
@@ -1369,3 +1375,5 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-12 | รอบ 1 PR 1a: ตัวตรวจ Hard Rules 11 รหัสใน `domain/constraints/` (`codes.py`, `context.py`, `hard_rules.py`, `evaluator.py`) เป็น Pure Function คืนรหัสที่ไม่ผ่านทุกข้อเรียงตามตารางในร่างรอบ 1 ข้อ 7.2 พร้อม `checked_rules` และ `details` ตามข้อ 7.4 ยังไม่มีใครเรียก Solver, Safety และ `availability_service` ยังทำงานตามข้อ 8 จนกว่า PR 2a และ 3 เข้า; Migration `e1f5a8b3c6d2` เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_consecutive_shifts` (Seed และ Backfill = 7) และ CHECK ของ `ATTENDANCE.overtime_minutes` ทุกคน `make reset` หลัง merge | คน 2 |
 | 2026-10-12 | รอบ 1 PR 1a ตามรีวิว: ผู้สมัครที่ไม่ได้ถูกเลือกมาเติม Role ใด (เติมจำนวนคนหรือ Skill อย่างเดียว) ต้องมี Role ที่ Requirement ของเวรมี ผู้เรียกตัวตรวจส่ง Role ของ Requirement เป็น `target_role_ids` ไม่ส่ง Set ว่าง (ร่างรอบ 1 ข้อ 7.2 Q55 และ 8.3) Logic ของตัวตรวจไม่เปลี่ยน เพิ่ม Test ของกรณีนี้; ตารางสถานะของรอบ 1 ระบุว่าตัวตรวจมีแล้วแต่ยังไม่มีผู้เรียก | คน 2 |
 | 2026-10-12 | รอบ 1 PR 1a ตามรีวิวรอบสอง: รวม `staging` หลัง PR 1b เข้า; Migration `e1f5a8b3c6d2` เปลี่ยนไปต่อจาก `d5e8f20b63a4` จึงเหลือ Head เดียว; `SOURCE_WARD_MINIMUM_VIOLATION` คิดเป้าหมายของเวรต้นทางด้วย `gap_calculator.effective_minimum_for()` ตัวเดียวกับการคิด Gap แทนสูตรที่เขียนซ้ำ | คน 2 |
+| 2026-10-12 | รอบ 1 PR 1c: เพิ่ม `OUTREACH_POLICY`, Migration และ Seed เพดาน 3 Offer; เพิ่ม `get_outreach_policy()` กับ `staff_at_offer_limit()` นับ `SENT` / `ACCEPTED` บนเคสที่ยังเดินอยู่ข้ามทุก Plan; ยังไม่ต่อกับ Solver / Wave และยังไม่มี Timeout | คน 3 |
+| 2026-10-12 | รอบ 1 PR 1c ตามรีวิว: รวม `staging` หลัง PR 1b และ 1a; Migration `d91a6c8e203f` ต่อจาก `e1f5a8b3c6d2` ตามลำดับ 1b → 1a → 1c เหลือ Head เดียว; ตารางสถานะระบุว่า Policy และฟังก์ชันเพดานมีแล้ว; Schema ระบุ 31 ตารางและ Migration ครบ; ให้ `make reset` หลัง merge เพื่อโหลด Policy ของ Demo | คน 3 |
