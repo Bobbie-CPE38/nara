@@ -1,7 +1,7 @@
 """Add the consecutive-shift limit to hard policy and the overtime CHECK to attendance.
 
 Revision ID: e1f5a8b3c6d2
-Revises: c4d7e19a52f3
+Revises: d5e8f20b63a4
 
 Round 1 contract, section 7.2. Existing policies are backfilled with 7, the
 limit the team agreed on. The temporary default is removed so new policy
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "e1f5a8b3c6d2"
-down_revision = "c4d7e19a52f3"
+down_revision = "d5e8f20b63a4"
 branch_labels = None
 depends_on = None
 

@@ -25,6 +25,7 @@ from app.domain.constraints.context import (
     weekly_hours,
 )
 from app.domain.enums import StaffStatus
+from app.domain.staffing.gap_calculator import effective_minimum_for
 
 
 def staff_not_active(context: CandidateContext, policy: HardRulePolicy) -> bool:
@@ -95,16 +96,16 @@ def consecutive_shifts_exceeded(context: CandidateContext, policy: HardRulePolic
 def source_ward_minimum_violation(context: CandidateContext, policy: HardRulePolicy) -> bool:
     """The source shift must keep its target headcount after the candidate leaves.
 
-    The target is the one the gap calculation uses (workflow.md section 3.6), so
-    "enough staff" means the same thing on both shifts.
+    The target comes from effective_minimum_for(), the function the gap
+    calculation uses, so "enough staff" means the same thing on both shifts.
     """
     source = context.source_shift
     if source is None:
         return False
-    target = (
-        max(source.minimum_staff, source.required_staff)
-        if policy.preserve_minimum_staffing
-        else source.required_staff
+    target = effective_minimum_for(
+        required_staff=source.required_staff,
+        minimum_staff=source.minimum_staff,
+        preserve_minimum_staffing=policy.preserve_minimum_staffing,
     )
     return source.assigned_count - 1 < target
 
