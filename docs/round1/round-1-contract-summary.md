@@ -1,6 +1,6 @@
 # สรุป Contract รอบ 1
 
-ฉบับสั้นของ `round1-contract-draft.md` ถ้าไฟล์นี้กับร่างไม่ตรงกัน ให้ยึดร่าง
+ฉบับสั้นของ `round1-contract-draft.md` ถ้าไฟล์นี้กับร่างไม่ตรงกัน ให้ยึดร่าง และกติกาของข้อ 2 ถึง 6 ของร่างย้ายเข้า `docs/workflow.md` แล้วใน PR 0 เรื่องพวกนั้นให้ยึด `docs/workflow.md`
 
 ## โครงของร่าง
 
@@ -74,4 +74,3 @@
 - รายการ Test ที่จะแดงมาจากการอ่านโค้ด ยังไม่ได้รันจริง
 - ลำดับ Lock เป็นการวิเคราะห์ ยังไม่มี Test สอง Connection พิสูจน์
 - ตาราง Hard Rules ยังไม่ได้เทียบกับ Model `HardConstraintPolicy` ทีละคอลัมน์
-- `docs/database-schema.md` ยังไม่มีตาราง `OUTREACH_POLICY` และหัวข้อ Candidate Skip Reasons ยังใช้รหัสเก่า แก้ใน PR 0
