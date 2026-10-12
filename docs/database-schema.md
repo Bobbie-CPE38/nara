@@ -135,6 +135,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `shift_type` | text | NOT NULL |  | `ShiftType` |
 | `is_active` | boolean | NOT NULL |  |  |
 | `deactivated_at` | timestamptz | NULL |  |  |
+| `merge_window_seconds` | integer | NOT NULL |  | CHECK `>= 0` ความยาว Merge Window ของเวรนี้เป็นวินาที 0 = ไม่รอ **(รอบ 1 ยังไม่มีใน DB)** |
 
 
 ### 8. STAFFING_EVENTS
@@ -149,6 +150,8 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `staff_id` | bigint | NULL | FK STAFF.id | ต้องมีค่าเมื่อเป็น Event กลุ่มบุคลากร (CHECK ตาม `event_type`) **(ใหม่ v5)** |
 | `payload` | jsonb | NOT NULL |  | `{}` ถ้าไม่มีรายละเอียด **(ใหม่ v5)** |
 | `status` | text | NOT NULL |  | `EventStatus` **(ใหม่)** |
+| `processed_at` | timestamptz | NULL |  | เวลาที่ Merge Window ของ Event นี้ปิด ว่างเมื่อ `status = RECEIVED` ตั้งเมื่อเป็น `PROCESSED` หรือ `IGNORED` Event ที่ปิดพร้อมกันได้ค่าเดียวกัน CHECK: ว่างก็ต่อเมื่อ `status = RECEIVED` **(รอบ 1 ยังไม่มีใน DB)** |
+| `case_id` | bigint | NULL | FK STAFFING_CASES.id | เคสที่ Event นี้เป็นส่วนหนึ่ง ตั้งตอน Merge Window ปิดเมื่อเป็น `PROCESSED` ว่างเมื่อเป็น `RECEIVED` หรือ `IGNORED` เคสหนึ่งมีได้หลาย Event **(รอบ 1 ยังไม่มีใน DB)** |
 
 
 ### 9. STAFFING_REQUIREMENTS
@@ -189,7 +192,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | Field | Type | Null | Key | Enum / หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
-| `event_id` | bigint | NOT NULL | FK STAFFING_EVENTS.id |  |
+| `event_id` | bigint | NOT NULL | FK STAFFING_EVENTS.id | **(รอบ 1 จะลบ ใช้ `STAFFING_EVENTS.case_id` แทน เพราะเคสหนึ่งมีได้หลาย Event)** |
 | `shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
 | `status` | text | NOT NULL |  | `CaseStatus` (ไม่มี `IGNORED`) |
 | `required_replacement_time` | timestamptz | NOT NULL |  |  |
@@ -277,6 +280,22 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `rank` | integer | NOT NULL |  |  |
 | `source` | text | NOT NULL |  | `CandidateSource` |
 | `proposed_shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
+| `working_time_snapshot_id` | bigint | NULL | FK STAFF_WORKING_TIME_SNAPSHOT.id | Snapshot ที่ Solver ใช้ตอนจัดอันดับผู้สมัครคนนี้ **(รอบ 1 ยังไม่มีใน DB)** |
+
+
+### 16.1 CANDIDATE_ITEM_TARGET **(รอบ 1 ยังไม่มีใน DB)**
+
+
+ตารางลูกของ `CANDIDATE_ITEMS` เก็บว่าผู้สมัครถูกเลือกมาเติม Target ไหน คนหนึ่งคนมีได้หลายแถว
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `candidate_item_id` | bigint | NOT NULL | FK CANDIDATE_ITEMS.id |  |
+| `target_type` | text | NOT NULL |  | `HEADCOUNT`, `ROLE`, `SKILL` |
+| `role_id` | bigint | NULL | FK ROLE.id | ใช้เมื่อ Target เป็น `ROLE` |
+| `skill_id` | bigint | NULL | FK SKILL.id | ใช้เมื่อ Target เป็น `SKILL` |
+| `selection_type` | text | NOT NULL |  | `PRIMARY` หรือ `RESERVE` |
 
 
 ### 17. CONTACTS
@@ -302,6 +321,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `channel` | text | NOT NULL |  | `Channel` |
 | `sent_at` | timestamptz | NULL |  |  |
 | `response_at` | timestamptz | NULL |  |  |
+| `expires_at` | timestamptz | NULL |  | เวลาหมดอายุของ Offer ตั้งตอนส่ง = `sent_at` + `OUTREACH_POLICY.offer_timeout_seconds` เลยเวลานี้แล้วยัง `SENT` จะเป็น `TIMEOUT` **(รอบ 1 ยังไม่มีใน DB)** |
 | `status` | text | NOT NULL |  | `OutreachStatus` |
 
 
@@ -314,8 +334,8 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `staff_id` | bigint | NOT NULL | FK STAFF.id |  |
 | `check_in_at` | timestamptz | NOT NULL |  |  |
 | `check_out_at` | timestamptz | NULL |  |  |
-| `work_minutes` | integer | NULL |  |  |
-| `overtime_minutes` | integer | NULL |  |  |
+| `work_minutes` | integer | NULL |  | เวลาทำงานจริงทั้งหมด รวม OT |
+| `overtime_minutes` | integer | NULL | CHECK | ส่วนของ `work_minutes` ที่เป็น OT CHECK `0 <= overtime_minutes <= work_minutes` NULL = ข้อมูลยังไม่ครบ ไม่ใช่ 0 |
 | `synced_at` | timestamptz | NOT NULL |  |  |
 
 
@@ -354,9 +374,10 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `version` | text | NOT NULL |  |  |
-| `minimum_rest_hours` | numeric | NOT NULL |  |  |
+| `minimum_rest_hours` | numeric | NOT NULL |  | gap ขั้นต่ำของการจบ shift หนึ่งไปอีก shift หนึ่ง ใช้ปฏิเสธการจัดเวรที่พักไม่พอ |
 | `maximum_daily_hours` | numeric | NOT NULL |  |  |
 | `maximum_weekly_hours` | numeric | NOT NULL |  |  |
+| `maximum_consecutive_shifts` | integer | NOT NULL | CHECK | เพิ่มในรอบ 1: จำนวนเวรต่อเนื่องสูงสุดหลังรวมเวรที่เสนอ CHECK `>= 0` Seed = 7 พักไม่เกิน 24 ชั่วโมงนับว่าต่อเนื่อง |
 | `maximum_patients_per_nurse` | numeric | NOT NULL |  | จำนวนผู้ป่วยสูงสุดต่อพยาบาล ใช้ Ratio เดียวทั้งโรงพยาบาลใน Skeleton; Seed = 2; CHECK มากกว่า 0 และเป็นค่าจำกัด; ไม่มี Default หลัง Migration |
 | `prevent_shift_conflict` | boolean | NOT NULL |  |  |
 | `require_matching_role` | boolean | NOT NULL |  |  |
@@ -482,6 +503,7 @@ Migration `c4d7e19a52f3` ไม่ Backfill และหยุดถ้ามี
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `case_id` | bigint | NULL | FK STAFFING_CASES.id |  |
+| `event_id` | bigint | NULL | FK STAFFING_EVENTS.id | ตั้งในแถวที่เป็นเรื่องของ Event ตัวนั้น (`EVENT_RECEIVED`, `UNAVAILABILITY_CREATED`, `EVENT_IGNORED`) Timeline ของเคสรวมแถวของ Event ที่เป็นของเคสด้วย **(รอบ 1 ยังไม่มีใน DB)** |
 | `actor_id` | bigint | NOT NULL | FK ACTORS.id |  |
 | `entity_type` | text | NOT NULL |  | `EntityType` |
 | `entity_id` | bigint | NULL |  | NULL ได้สำหรับ composite key (ยังไม่ Audit ใน Skeleton) |
@@ -572,4 +594,161 @@ CHECK ทั้งสองข้อนี้ไม่ได้ล็อกค�
 
 
 
+# Candidate Skip Reasons
 
+## Purpose
+
+The `skipped` field records why candidates were skipped while Outreach selected the next person to contact.
+
+Reasons come from checks against the candidate’s current data at selection time. They must not be guessed from candidate rank or copied from an outdated Solver result.
+
+This is a proposed contract. Failure-code names and unresolved criteria must be confirmed by the team.
+
+## Selection Process
+
+1. Read candidates from the latest plan in rank order.
+2. Exclude candidates already contacted under that plan.
+3. Recheck each remaining candidate using the shared Hard Rules evaluator.
+4. Check whether the candidate has another blocking offer.
+5. Skip candidates who fail, recording their reasons.
+6. Send an offer to the first eligible candidate.
+7. If none remain, move the case to `MANUAL_HANDOFF`.
+
+Only candidates actually examined and skipped during this selection belong in `skipped`. Lower-ranked candidates not examined after an eligible candidate is found are not skipped.
+
+## Skip Reasons
+
+| Code | Criteria | Policy or Rule |
+|---|---|---|
+| `STAFF_NOT_ACTIVE` | Candidate is not `ACTIVE`. | `require_active_staff` |
+| `ALREADY_ON_SHIFT` | Candidate already has a committed roster assignment on the target shift. | Existing availability rule |
+| `UNAVAILABLE` | A recorded unavailability period overlaps the proposed shift. | Existing availability rule |
+| `SHIFT_CONFLICT` | Candidate has a committed assignment on another shift whose time overlaps the proposed shift. | `prevent_shift_conflict` |
+| `ROLE_MISMATCH` | Candidate’s role does not satisfy the case’s role criteria. | `require_matching_role` |
+| `SKILL_MISMATCH` | Candidate lacks one or more skills required by the case. | `require_matching_skill` |
+| `INSUFFICIENT_REST` | Adding the shift would leave insufficient rest before or after it. | `minimum_rest_hours` |
+| `DAILY_HOURS_EXCEEDED` | Adding the shift would exceed the applicable daily work-hour limit. | `maximum_daily_hours` |
+| `WEEKLY_HOURS_EXCEEDED` | Adding the shift would exceed the applicable weekly work-hour limit. | `maximum_weekly_hours` |
+| `SOURCE_WARD_MINIMUM` | Removing an existing assignment to transfer the candidate would leave the source shift below its agreed minimum. | `preserve_source_ward_minimum` |
+| `OPEN_OFFER` | Candidate has a blocking offer elsewhere: `SENT`, or `ACCEPTED` on a nonterminal case. | Shared offer-eligibility rule; code name proposed |
+
+### Policy Flags
+
+A disabled policy rule must not produce a skip reason.
+
+For example, when `require_matching_skill = false`, a skill mismatch alone does not reject the candidate.
+
+### Time Overlap
+
+Two intervals overlap when:
+
+    existing.start_at < proposed.end_at
+    AND existing.end_at > proposed.start_at
+
+Intervals that only touch at their boundaries do not overlap. Rest requirements are checked separately.
+
+For unavailability without an end time, treat it as continuing from its start time onward.
+
+### Source-Ward Minimum
+
+`SOURCE_WARD_MINIMUM` applies only when the proposed action removes an existing source assignment.
+
+A candidate whose home ward differs from the target ward, but who has no source assignment being removed, does not fail this rule.
+
+In round 1, if the workflow only adds assignments, this rule is not applicable to the actual selection flow. Its transfer behavior can be covered by unit tests.
+
+The team must define whether the source threshold uses fixed `minimum_staff` or the combined `effective_minimum`.
+
+### Work-Hour Rules
+
+Daily and weekly checks require agreed definitions for:
+
+- The applicable employment policy.
+- Day and week boundaries.
+- Regular work versus overtime.
+- Breaks and other counted time.
+- Overnight shifts.
+
+Do not assume that crossing midnight resets continuous work or rest requirements.
+
+## Candidates Already Contacted
+
+Candidates already contacted under the same plan must not receive another offer from that plan.
+
+Their previous outcomes are recorded by their outreach status and corresponding audit events, such as `OFFER_REJECTED`.
+
+This is different from failing a current eligibility check. Under this proposal, previously contacted candidates are excluded before building the new `skipped` list.
+
+## Multiple Failed Rules
+
+A candidate may fail more than one rule.
+
+Two payload designs are possible:
+
+### Option A: One Reason
+
+    {"staff_id": 201, "reason": "SHIFT_CONFLICT"}
+
+Use the first failure according to a fixed priority agreed by the team. Do not rely on database query order.
+
+### Option B: All Reasons
+
+    {
+      "staff_id": 201,
+      "reasons": ["SHIFT_CONFLICT", "INSUFFICIENT_REST"]
+    }
+
+Record all failures in a stable order.
+
+Recommendation: use `reasons` if the team needs complete explanations. Keep singular `reason` if the agreed contract only needs one explanation per skipped candidate.
+
+## OFFER_SENT Payload Example
+
+Using the singular `reason` contract:
+
+    {
+      "staff_id": 203,
+      "skipped": [
+        {
+          "staff_id": 201,
+          "reason": "UNAVAILABLE"
+        },
+        {
+          "staff_id": 202,
+          "reason": "OPEN_OFFER"
+        }
+      ]
+    }
+
+Meaning:
+
+- 201 was examined and skipped because of overlapping unavailability.
+- 202 was examined and skipped because of another blocking offer.
+- 203 passed the checks and received the offer.
+
+These fields are the skip-related portion of the payload. Preserve any other fields required by the agreed `OFFER_SENT` contract.
+
+## MANUAL_HANDOFF Payload
+
+If no eligible candidate remains, include the collected `skipped` list in the `MANUAL_HANDOFF` payload.
+
+Previously contacted candidates may also explain why no candidate remains, but their outcomes should be obtained from outreach history rather than mislabeled as new Hard Rule failures.
+
+## Storage and Display
+
+- Use fixed codes rather than free-text skip reasons.
+- Record `skipped` in the relevant `OFFER_SENT` or `MANUAL_HANDOFF` audit payload.
+- A skipped candidate receives no new `CANDIDATE_OUTREACH` row.
+- A candidate with no outreach history can still appear as “Not contacted.”
+- The Timeline can translate failure codes into readable explanations.
+- The frontend must render the payload for those explanations to be visible.
+
+## Decisions to Confirm
+
+1. Final code names, including `OPEN_OFFER` and `SOURCE_WARD_MINIMUM`.
+2. Singular `reason` or plural `reasons`.
+3. Fixed priority if only one reason is retained.
+4. Exact committed roster statuses.
+5. Role and skill matching criteria.
+6. Daily and weekly work-hour counting rules.
+7. Source-shift minimum calculation.
