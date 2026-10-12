@@ -1,13 +1,16 @@
 """
 Workflow orchestrator (docs/workflow.md, sections 5 and 6.2).
 
-The only code that changes STAFFING_CASES.status (D3). Two entry points:
+The only code that changes STAFFING_CASES.status (D3). Three entry points:
 
   * `advance(db, case_id)` runs handlers from the case's current status until
     it reaches a wait point or a status where automation stops.
   * `resume(db, case_id, next_status)` leaves a wait point after an outside
     decision (the candidate answered, the approver decided), then continues
-    like `advance()`.
+    like `advance()`. The Skeleton callers use it; round 1 replaces them.
+  * `recompute(db, case_id)` leaves a wait point for the status computed from
+    the remaining gap and the open offers (section 5.3), then continues like
+    `advance()`. The caller does not name the next status.
 
 Rules:
   * Every status change is checked against ALLOWED_TRANSITIONS and writes one
@@ -42,8 +45,9 @@ from app.domain.enums import (
 # orchestrator.CaseNotFoundError, and strict mypy rejects a plain import there.
 # Import it from app.domain.errors in new code; drop this once nothing uses the old path
 from app.domain.errors import CaseNotFoundError as CaseNotFoundError
+from app.domain.workflow.case_status import decide_status
 from app.domain.workflow.transitions import InvalidTransitionError, assert_transition
-from app.services import actor_service, audit_service
+from app.services import actor_service, audit_service, case_facts_service
 from app.workflow.handlers import (
     assess_staffing,
     contact_candidate,
@@ -69,7 +73,12 @@ HANDLERS: dict[CaseStatus, Handler] = {
     CaseStatus.EXECUTING: execute_assignment.handle,
 }
 
-# A correct workflow visits each status at most once per round
+# Upper bound on handler steps in one round. A round runs each handler at most
+# once: the edges that re-enter OUTREACH (T1, T4) start at a wait point, and
+# OUTREACH ends at a wait point or at MANUAL_HANDOFF, where the round stops.
+# A wait point can still appear twice in the status changes of one round, as its
+# start and its end (WAITING_APPROVAL -> OUTREACH -> WAITING_APPROVAL through T4
+# and T7). The move recompute() makes before the first handler is not a step
 _MAX_STEPS = len(CaseStatus)
 
 
@@ -109,6 +118,60 @@ def resume(db: Session, case_id: int, next_status: CaseStatus) -> None:
     _run_round(db, case)
 
 
+def recompute(db: Session, case_id: int) -> CaseStatus:
+    """Move a waiting case to the status its gap and offers call for, then commit.
+
+    Called after anything that can change the answer: a candidate accepted,
+    rejected or timed out, an approver decided, or another case took or released
+    a shared candidate. Returns the status the case ends the round with.
+
+      * A case where automation stopped (RESOLVED, UNRESOLVED, FAILED,
+        MANUAL_HANDOFF) is left alone: it has no way out. The caller's own
+        pending work is still committed.
+      * The same status as before writes nothing.
+      * A different status is checked against ALLOWED_TRANSITIONS, written with
+        one CASE_STATUS_CHANGED row, and the round continues like `advance()`
+        when it is not a wait point (OUTREACH sends the next wave, EXECUTING
+        closes the case).
+
+    Raises InvalidTransitionError, without touching the case, when it is neither
+    waiting nor stopped: a round always ends at one of those, so anything else
+    is a caller that is not on the workflow. The caller must then not commit.
+
+    Unlike `resume()` there is no requested status that can lose a race: the
+    status is computed under the case lock. So a failure while computing it is
+    a system fault and fails the case through D11 like a failing handler.
+
+    One computed move has no edge of its own: a case at WAITING_RESPONSE whose
+    assigned staff already close the gap. It is staffed, so it must not fail. It
+    passes through WAITING_APPROVAL (T2) to EXECUTING, both written as status
+    changes. This needs the gap to close without a recompute in between, for
+    example an approval decided in the same transaction as the answer.
+    """
+    case = _load_for_update(db, case_id)
+    if case.status in AUTOMATION_STOPPED_STATUSES:
+        _run_round(db, case)
+        return case.status
+    if case.status not in WAITING_CASE_STATUSES:
+        raise InvalidTransitionError(
+            f"Case {case.id} is {case.status.value}, not at a wait point: cannot recompute"
+        )
+    _run_round(db, case, before=_apply_computed_status)
+    return case.status
+
+
+def _apply_computed_status(db: Session, case: StaffingCase) -> None:
+    target = decide_status(case_facts_service.load_case_facts(db, case))
+    if target is case.status:
+        return
+    if case.status is CaseStatus.WAITING_RESPONSE and target is CaseStatus.EXECUTING:
+        # No WAITING_RESPONSE -> EXECUTING edge: go by way of WAITING_APPROVAL
+        assert_transition(case.status, CaseStatus.WAITING_APPROVAL)
+        _change_status(db, case, CaseStatus.WAITING_APPROVAL)
+    assert_transition(case.status, target)
+    _change_status(db, case, target)
+
+
 def _load_for_update(db: Session, case_id: int) -> StaffingCase:
     # SessionLocal has autoflush off: send the caller's pending changes first,
     # so the fresh read below cannot overwrite them
@@ -128,11 +191,23 @@ def _load_for_update(db: Session, case_id: int) -> StaffingCase:
     return case
 
 
-def _run_round(db: Session, case: StaffingCase) -> None:
+def _run_round(
+    db: Session,
+    case: StaffingCase,
+    *,
+    before: Callable[[Session, StaffingCase], None] | None = None,
+) -> None:
+    """Run handlers until the case waits or stops, then commit.
+
+    `before` runs first, inside the same savepoint, so a failure there is
+    recorded through D11 exactly like a failing handler.
+    """
     failed_at = case.status
     try:
         # Savepoint: a failure undoes this round only, not the caller's work
         with db.begin_nested():
+            if before is not None:
+                before(db, case)
             for _ in range(_MAX_STEPS):
                 failed_at = case.status
                 if not _run_step(db, case):

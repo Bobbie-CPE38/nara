@@ -126,6 +126,8 @@
 
 ### 2.3 ผลต่อ Orchestrator (ไฟล์ของคน 1)
 
+> กฎของ `decide_status()` ในข้อนี้ (3 ค่า 4 ข้อ) ถูกขยายเป็น 6 ค่า 7 ข้อใน PR S ตามรีวิว เพื่อให้เคสที่ไม่เหลือใครให้ติดต่อรอต่อที่จุดรอเดิมได้ ฉบับที่ใช้คือ `docs/workflow.md` ข้อ 5.3
+
 * **ฟังก์ชันคำนวณสถานะเคส** ตัวใหม่ แยกเป็นสองชั้นแบบเดียวกับ `gap_calculator`
   * ชั้นตัดสิน (Pure Function ไม่อ่าน DB): `domain/workflow/case_status.py` มี `decide_status(facts: CaseFacts) -> CaseStatus` โดย `CaseFacts` เป็น Dataclass แบบ Frozen มี 3 ค่า: `gap_closed_by_assigned`, `gap_closed_with_pending`, `has_open_offer` คืนได้ 4 สถานะ ตรวจตามลำดับนี้ ข้อแรกที่จริงคือคำตอบ
     1. `gap_closed_by_assigned` จริง (คนที่ได้เข้าเวรแล้วปิด Gap ครบ) → `EXECUTING`
@@ -1289,7 +1291,7 @@ optimization_service
 * Test ของเคสอื่นที่ได้รับผลกระทบ (ข้อ 2.3): เคส Y รอ A คนเดียว เคส X อนุมัติ A เคส Y ต้องเดินต่อเอง (ส่ง Wave ถัดไปหรือ `MANUAL_HANDOFF`) และ A ตอบรับเคส X แล้วเคส Y ที่รอ A คนเดียวต้องส่ง Wave ถัดไปได้
 * Test ของ Offer ที่ถูกพัก (ข้อ 2.1) สองกรณี: (1) A กดรับเคส X ขณะที่เคส Y เหลือ A คนเดียว เคส Y ต้องรอที่ `WAITING_RESPONSE` และ Offer ยัง `SENT` เคส X ไม่อนุมัติ A แล้ว A กดรับเคส Y ได้ (2) สถานการณ์เดียวกัน แต่ Offer ของเคส Y หมดเวลาก่อน A จะกดรับไม่ได้ และเคส Y เดินต่อไป `MANUAL_HANDOFF`
 * Test ของ Job เก็บตก (ข้อ 2.3): A กดรับเคส X แล้วจำลองระบบล่มหลัง Commit ก่อนเรียก `recompute()` ของเคส Y (เคส Y ยังมี B ที่ติดต่อได้) รัน Job แล้วเคส Y ต้องส่ง Offer ให้ B ได้ และ Offer ของ A ในเคส Y ยังเป็น `SENT` ไม่ถูกยกเลิก
-* Fixture `stub_handlers` ใน `tests/integration/conftest.py` คืนเส้น Golden Path แบบเดิมที่ผ่าน `SAFETY_VALIDATION` ต้องแก้ตามตาราง Transition ใหม่ใน PR ของฟังก์ชันคำนวณสถานะเคส
+* Fixture `stub_handlers` ใน `tests/integration/conftest.py` คืนเส้น Golden Path แบบเดิมที่ผ่าน `SAFETY_VALIDATION` ต้องแก้ตามตาราง Transition ใหม่ใน PR 3 ไม่ใช่ PR S ตามที่เคยเขียนไว้ เพราะ Fixture นี้บังคับให้มี Stub ครบทุก Handler ใน `orchestrator.HANDLERS` และ Handler ของ `SAFETY_VALIDATION` ยังอยู่จนกว่า PR 3 จะลบ PR S จึงไม่แตะ Fixture นี้
 * Test ที่ตอนนี้คาดหวัง `422` ของ `REJECT` และไม่อนุมัติ, Test ที่คาด `FAILED` จาก `NoCandidatesError` / Safety ไม่ผ่าน และ Test ของ `assert_available()` ต้องเปลี่ยนใน PR ของเจ้าของเส้นทางนั้น
 
 ---
@@ -1308,7 +1310,7 @@ PR 2b, 3 และ 4 เข้า Branch รวมหนึ่ง Branch ที�
 | 1b | Coverage ตาม Q18 | คน 1 | `calculate_gap()` Signature ใหม่, ฟังก์ชันสูตร `ceil`, Migration ของ `STAFFING_GAP` (เพิ่ม `effective_minimum`, ลบ `patient_count` กับ `patients_per_nurse`), ฟังก์ชันอ่าน Gap ให้ Solver (ข้อ 8.3) | M, 2a |
 | 1c | เพดาน Offer ต่อคน | คน 3 | ตาราง `OUTREACH_POLICY` + Seed, ฟังก์ชันเพดาน (ข้อ 3.3) ยังไม่มีใครเรียก | 2a, 2b |
 | M | Merge Gap | คน 1 | Migration (`SHIFT.merge_window_seconds`, `STAFFING_EVENTS.processed_at` และ `case_id`, ลบ `STAFFING_CASES.event_id`, `AUDIT_LOG.event_id`), แยกการรับ Event กับการปิด Window, Threshold, Event สี่ชนิด, หนึ่ง Window หนึ่งเคส, Timeline ผ่าน `event_id`, Service ของ Job + Route ภายใน, Route เลื่อน Clock และ Route อ่าน Event, หน้า `demo/control` ทุกคนต้อง `make reset` หลัง merge | หลัง 0 และ 1b ก่อน 2b (Q48) |
-| S | สถานะเคสคำนวณจาก Gap | คน 1 | ฟังก์ชันคำนวณสถานะเคสใน Orchestrator (ข้อ 2.3), `stub_handlers` ใหม่ ยังไม่มีใครเรียกจนกว่า 2b | 2b, 3, 4 |
+| S | สถานะเคสคำนวณจาก Gap | คน 1 | ฟังก์ชันคำนวณสถานะเคสใน Orchestrator (ข้อ 2.3) ยังไม่มีใครเรียกจนกว่า 2b ส่วน `stub_handlers` ย้ายไป PR 3 เพราะ Handler ของ `SAFETY_VALIDATION` ยังอยู่ | 2b, 3, 4 |
 | 2a | Solver | คน 2 | Solver ใช้ Hard Rules + Gap, เลือกกลุ่มด้วยน้ำหนัก และเรียง `rank` ด้วย `ranking_key`, กติกาเติม Target, ตาราง `CANDIDATE_ITEM_TARGET` (Q55), คอลัมน์ Weight ของ `CANDIDATE_SOURCE`, `ranking_key`, `working_time_service` + `STAFF_WORKING_TIME_SNAPSHOT` + `CANDIDATE_ITEMS.working_time_snapshot_id`, เปลี่ยนไปเรียกฟังก์ชันเพดาน Offer และลบกฎ Offer ค้างเดิม, T6, Scenario `no_feasible_solution` | 2b |
 | 2b | Wave + ตอบ Offer | คน 3 | `contact_candidate` (ข้อ 3.2 รวมการเขียน `CANDIDATE_ITEM_TARGET` ให้ทุกคนที่มันเลือกเอง การรอ Offer ที่ถูกพัก และการยกเลิก Offer ตอนเคสเข้า `MANUAL_HANDOFF`), `outreach_service` (ส่งหลายคน, Reject, ตอบรับหลายคน, สำรอง, หลาย Offer ต่อคน, `409`), หน้า `line-sim` (ยังไม่แสดงเส้นตาย), Scenario `candidate_reject`, `GOLDEN_PATH_AUDIT_ACTIONS` + E2E, เรียก `recompute()` ให้เคสอื่นที่ได้รับผลกระทบหลังตอบรับ (ข้อ 2.3) | เข้า Branch รวม ก่อน 3, 4 |
 | 3 | Safety รายคน | คน 2 | `safety_service` ตรวจตอนตอบรับและบันทึกผลไม่ผ่าน, ย้ายการสร้าง `APPROVAL_REQUEST` และการเขียน `APPROVAL_REQUESTED` ไปเป็นฟังก์ชันใน `approval_service` ที่ `safety_service` เรียกเมื่อ Safety ผ่าน (ไฟล์ของคน 3 แจ้งก่อนแก้), ลบ `assert_available()` และ `unavailable_staff()` พร้อมบรรทัดที่เรียก `assert_available()` ใน `roster_service` เพราะ PR 3 เข้าก่อน PR 4 ที่ย้ายการสร้าง Roster (ไฟล์ของคน 3 แจ้งก่อนแก้), ลบสองเส้นของ `SAFETY_VALIDATION` ออกจาก `transitions.py` + `test_transitions.py` และ Handler ของสถานะนี้ใน Orchestrator, Scenario `safety_failure` | เข้า Branch รวม หลัง 2b ก่อน 4 |
@@ -1354,7 +1356,7 @@ PR 2b, 3 และ 4 เข้า Branch รวมหนึ่ง Branch ที�
 | Migration ของ `OUTREACH_POLICY`, `CANDIDATE_OUTREACH` | Timeout ของ Offer (ข้อ 2.7) | PR O |
 | `docker-compose.yml`, ไฟล์ env ตัวอย่าง | Service ของ Job และ Secret ของ Route ภายใน (ค่า Secret จริงไม่ Commit) | PR M |
 | `availability_service` | ลบ `assert_available()`, `unavailable_staff()` และ Exception ที่เกี่ยว (Q17) เพิ่มฟังก์ชันเพดาน Offer (ข้อ 3.3) | PR 3, PR 1c |
-| `tests/integration/conftest.py` `stub_handlers` | เส้น Golden Path ใหม่ที่ไม่ผ่าน `SAFETY_VALIDATION` | PR S |
+| `tests/integration/conftest.py` `stub_handlers` | เส้น Golden Path ใหม่ที่ไม่ผ่าน `SAFETY_VALIDATION` | PR 3 (ลบพร้อม Handler ของสถานะนี้) |
 | `docs/database-schema.md` | คอลัมน์ของ Merge Gap ใส่แล้ว ยังต้องเพิ่ม `OUTREACH_POLICY`, คอลัมน์ของ `STAFFING_GAP` และแก้หัวข้อ Candidate Skip Reasons ให้ตรงกับข้อ 3 (รหัส `SOURCE_WARD_MINIMUM_VIOLATION`, `OFFER_LIMIT_REACHED`, การส่งเป็น Wave) | PR 0 |
 | `docs/workflow.md` ข้อ 12 แถว "การใช้ `PENDING_APPROVAL` ใน Roster" | เอาคำว่า Wave ออกจากเงื่อนไข เพราะ Wave ใช้แล้ว | PR 0 |
 | `docs/walking-skeleton.md` | ตาราง "หลัง Skeleton" ใส่สถานะของรอบ 1 | PR สุดท้ายของรอบ |
