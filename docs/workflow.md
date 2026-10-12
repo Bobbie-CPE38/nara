@@ -14,7 +14,7 @@ PR 0 ของรอบ 1 ย้ายกติกาที่ทีมรีว
 |---|---|---|
 | 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | 1b (เป้าหมายจำนวนคน), M (ที่เหลือ) |
 | 4, 5 | สถานะเคส, Transition, ฟังก์ชันคำนวณสถานะเคส | ตาราง Transition มี T1 ถึง T7 แล้วใน PR 0 ส่วนโค้ดที่ใช้เส้นใหม่: S, 2a, 2b, 3, 4 |
-| 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c, 2a, 2b, 3, 4, O |
+| 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c เพิ่มตาราง Policy, Seed และฟังก์ชันเพดานแล้ว; การเรียกใช้และส่วนที่เหลือ: 2a, 2b, 3, 4, O |
 | 7 | Audit | M, 2a, 2b, 3, 4, O |
 | 9 | API | 1b (`gap.effective_minimum`), M, 2b, 4, O (กติกา `expires_at` ของการตอบ Offer) |
 
@@ -624,6 +624,8 @@ Target ของ Wave, สูตรจัดอันดับ และลำ�
 | Safety ไม่เรียก | ผู้สมัครที่กำลังถูกตรวจมี Offer `ACCEPTED` ของเคสตัวเองอยู่ กติกานี้จึงไม่อยู่ในรายการรหัสของร่างรอบ 1 ข้อ 7.2 |
 
 PR 1c เพิ่ม Model, Migration, Seed และฟังก์ชันนี้แล้ว แต่ยังไม่มีผู้เรียกใน Workflow จนกว่า PR 2a / 2b จะเข้า โหลด Policy ด้วย `policy_service.get_outreach_policy(db)` เลือก `id=1` ตาม Seed ไม่ใช้ `effective_from` เลือกเวอร์ชัน และไม่ใช้ค่า Default เมื่อไม่มี Policy การเลือกเวอร์ชันเป็นงานภายหลัง
+
+Migration สร้างตารางว่าง ไม่สร้าง Policy ให้ฐานข้อมูลเดิม หลัง merge PR 1c ให้ `make reset` เพื่อโหลด Policy `id=1` ก่อนเริ่มใช้ฟังก์ชันใน PR 2a / 2b
 
 ฟังก์ชันนับแถว Offer ข้ามทุกเคสและทุก Plan ของผู้สมัคร แต่ไม่รวมเคสที่อยู่ใน `AUTOMATION_STOPPED_STATUSES` รวมสำรองที่ `ACCEPTED` ด้วย ผู้เรียกที่กำลังเลือกคนต้องล็อก Staff ตามข้อ 6.11 แล้วตรวจเพดานอีกครั้งใน Transaction เดียวกัน ฟังก์ชันอ่านนี้ไม่ได้จองสิทธิ์ส่ง Offer เอง
 
@@ -1377,5 +1379,5 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | ขั้นที่ 4 อ่าน Roster: เพิ่ม `GET /roster?shift_id=` และ `roster_service.get_shift_roster()`; ข้อ 9.3 ระบุรูปแบบคำตอบ `{shift, assignments}` ลำดับ `401` → `422` → `404` คืนทุกสถานะเรียงด้วย `id` และไม่นับ Coverage; `ShiftNotFoundError` ย้ายไป `app/domain/errors.py`; ข้อ 12 เพิ่มการตั้ง `COMPLETED`, สิทธิ์อ่านตาม Ward, ธงไม่พร้อม และ `?staff_id=` | คน 3 |
 | 2026-10-10 | Issue #26: LINE Sim ต้องส่ง `outreach_id` ของ Offer ที่เห็น; Service เทียบ ID หลังล็อกและก่อนเขียนข้อมูล ตอบ `409` เมื่อ Offer เปลี่ยน Frontend ส่ง ID และ Refresh หลัง Conflict; เพิ่ม Test Stale Offer, สิทธิ์ผู้ตอบ, Validation และคง Race / E2E | คน 3 |
 | 2026-10-12 | รอบ 1 PR 0: ย้ายกติกาจาก `docs/round1/round1-contract-draft.md` เข้าข้อ 3 (Window, Threshold, Event สี่ชนิด, `effective_minimum`), ข้อ 4 และ 5 (สถานะรายคน, T1 ถึง T7, `decide_status()` / `recompute()`), ข้อ 6.4 ถึง 6.11 (Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock), ข้อ 7 (Audit ทุก Action และลำดับของแต่ละกรณี) และข้อ 9.2 (คำตอบของ API ที่เปลี่ยน แทนส่วน `422` เดิม); `transitions.py` เพิ่ม T1 ถึง T7 โดยสองเส้นของ `SAFETY_VALIDATION` ยังอยู่; `enums.py` เพิ่ม `AuditAction` 3 ค่า และ `EntityType` 2 ค่า; ยังไม่เปลี่ยนพฤติกรรม | คน 1 |
-| 2026-10-12 | รอบ 1 PR 1c: เพิ่ม `OUTREACH_POLICY`, Migration และ Seed เพดาน 3 Offer; เพิ่ม `get_outreach_policy()` กับ `staff_at_offer_limit()` นับ `SENT` / `ACCEPTED` บนเคสที่ยังเดินอยู่ข้ามทุก Plan; ยังไม่ต่อกับ Solver / Wave และยังไม่มี Timeout | คน 3 |
 | 2026-10-12 | รอบ 1 PR 0 ตามรีวิว: ข้อ 8 เขียนใหม่ให้ตรงกับโค้ดปัจจุบัน ทุกแถวบอกพฤติกรรมของ Skeleton และ PR ที่จะมาเปลี่ยน; เพิ่มข้อ 8.1 เก็บการรับ Event ของ Skeleton จนกว่า PR M เข้า; Seam 5 กำหนดให้ PR 3 เป็นเจ้าของการสร้าง `APPROVAL_REQUEST` และการเขียน `APPROVAL_REQUESTED` ผ่านฟังก์ชันใน `approval_service`; PR 3 ลบการเรียก `assert_available()` ใน `roster_service` ด้วย; ตารางสถานะของรอบ 1 เพิ่ม PR 1b, 2a, O; `MANUAL_HANDOFF` มี `skipped` ใน payload | คน 1 |
+| 2026-10-12 | รอบ 1 PR 1c: เพิ่ม `OUTREACH_POLICY`, Migration และ Seed เพดาน 3 Offer; เพิ่ม `get_outreach_policy()` กับ `staff_at_offer_limit()` นับ `SENT` / `ACCEPTED` บนเคสที่ยังเดินอยู่ข้ามทุก Plan; ยังไม่ต่อกับ Solver / Wave และยังไม่มี Timeout | คน 3 |

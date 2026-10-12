@@ -8,6 +8,7 @@
 > * `a73d9e2c4b10` เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` (Backfill Policy เดิม = 2 สำหรับ Demo)
 > * `b82e4f6a901c` ย่อชื่อ CHECK ของคอลัมน์นั้นเป็น `ck_hard_constraint_policy_patients_per_nurse_valid` (กติกาเดิม)
 > * `c4d7e19a52f3` เพิ่ม Snapshot `patient_count` และ `patients_per_nurse` ใน `STAFFING_GAP` พร้อม CHECK (ไม่ Backfill, ดูข้อ 24)
+> * `d91a6c8e203f` เพิ่ม `OUTREACH_POLICY` และ CHECK เพดาน Offer มากกว่า 0 (PR 1c; Migration สร้างตารางว่าง ต้อง `make reset` เพื่อโหลด Policy ของ Demo)
 
 
 ## สรุปการตัดสินใจ
@@ -15,7 +16,7 @@
 
 | เรื่อง | ตัดสินว่า |
 |---|---|
-| จำนวนตาราง | 30 ตาราง (29 เดิม + `ACTORS`) |
+| จำนวนตาราง | 31 ตาราง (29 เดิม + `ACTORS` + `OUTREACH_POLICY`) |
 | ชนิด ID | `bigint` ทุกตาราง (รวม FK ทุกตัว) |
 | เก็บ Enum | Python `StrEnum` → คอลัมน์ `text` ยังไม่ใส่ DB ENUM / CHECK |
 | `created_at` / `updated_at` | `timestamptz` ตั้งค่าจาก `core/clock.py` ไม่พึ่ง Default ของ DB |
