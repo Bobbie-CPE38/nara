@@ -24,7 +24,6 @@ STUB_STEPS: dict[CaseStatus, tuple[CaseStatus, bool]] = {
     CaseStatus.ASSESSING: (CaseStatus.OPTIMIZING, False),
     CaseStatus.OPTIMIZING: (CaseStatus.OUTREACH, False),
     CaseStatus.OUTREACH: (CaseStatus.WAITING_RESPONSE, True),
-    CaseStatus.SAFETY_VALIDATION: (CaseStatus.WAITING_APPROVAL, True),
     CaseStatus.EXECUTING: (CaseStatus.RESOLVED, False),
 }
 

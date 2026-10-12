@@ -21,7 +21,6 @@ from app.db.models import (
 from app.domain.enums import AssignmentType, RosterStatus
 from app.domain.errors import ShiftNotFoundError
 from app.schemas.roster import RosterRow, RosterShift, ShiftRoster
-from app.services import availability_service
 
 
 def create_replacement(db: Session, case: StaffingCase) -> RosterAssignment:
@@ -31,6 +30,7 @@ def create_replacement(db: Session, case: StaffingCase) -> RosterAssignment:
     Follow the request's item, rather than a newer plan or a rank-1 lookup.
     Reject inconsistent case/plan/shift references before creating a roster row.
     Errors propagate to the orchestrator's D11 handling; do not catch and continue.
+    Hard Rules are not checked again here (Q38).
     """
     db.flush()
     approval = db.scalars(
@@ -52,8 +52,6 @@ def create_replacement(db: Session, case: StaffingCase) -> RosterAssignment:
     shift = db.get(Shift, item.proposed_shift_id)
     if shift is None:
         raise LookupError(f"No shift {item.proposed_shift_id}")
-    # Availability may change while the approval waits. Use Safety's same rules.
-    availability_service.assert_available(db, shift, item.staff_id)
 
     assignment = RosterAssignment(
         staff_id=item.staff_id,

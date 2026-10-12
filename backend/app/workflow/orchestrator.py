@@ -54,7 +54,6 @@ from app.workflow.handlers import (
     execute_assignment,
     intake_event,
     optimize,
-    validate_safety,
 )
 from app.workflow.handlers.base import HandlerResult
 
@@ -63,13 +62,13 @@ logger = logging.getLogger(__name__)
 Handler = Callable[[Session, StaffingCase], HandlerResult]
 
 # The handler that runs while a case is in each status (docs/workflow.md 5.1).
-# Wait points and stopped statuses have no handler.
+# Wait points and stopped statuses have no handler. Neither has SAFETY_VALIDATION:
+# it stays in the enum, but Safety runs per candidate and no case enters it (Q31).
 HANDLERS: dict[CaseStatus, Handler] = {
     CaseStatus.OPEN: intake_event.handle,
     CaseStatus.ASSESSING: assess_staffing.handle,
     CaseStatus.OPTIMIZING: optimize.handle,
     CaseStatus.OUTREACH: contact_candidate.handle,
-    CaseStatus.SAFETY_VALIDATION: validate_safety.handle,
     CaseStatus.EXECUTING: execute_assignment.handle,
 }
 

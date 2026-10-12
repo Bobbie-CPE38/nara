@@ -26,7 +26,7 @@ from app.db.models import (
 from app.domain.enums import EventStatus, EventType, RosterStatus
 from app.jobs import ticker
 from app.main import app
-from app.services import event_service, safety_service
+from app.services import approval_service, event_service
 from tests.integration.conftest import DEMO_NOW
 
 NIGHT_SHIFT, DAY_SHIFT = 1, 2
@@ -213,8 +213,8 @@ def test_service_applies_the_same_limit_without_the_route(seeded: Session) -> No
 # --------------------------------------------------------------------------- #
 # One name for the head nurse role
 # --------------------------------------------------------------------------- #
-def test_safety_and_event_intake_share_the_head_nurse_role_name() -> None:
-    assert safety_service.HEAD_NURSE_ROLE is HEAD_NURSE_ROLE
+def test_approval_and_event_intake_share_the_head_nurse_role_name() -> None:
+    assert approval_service.HEAD_NURSE_ROLE is HEAD_NURSE_ROLE
     assert event_service.HEAD_NURSE_ROLE is HEAD_NURSE_ROLE
 
 

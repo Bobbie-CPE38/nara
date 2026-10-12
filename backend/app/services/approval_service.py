@@ -1,13 +1,16 @@
-"""Pending approval reads and decisions; the orchestrator owns decision commits."""
+"""Approval requests: opened after Safety passes, listed, and decided.
+
+The orchestrator owns decision commits."""
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.db.models import ApprovalRequest, CandidateItem, StaffingCase
-from app.domain.enums import AuditAction, CaseStatus, EntityType
+from app.core.constants import HEAD_NURSE_ROLE
+from app.db.models import ApprovalRequest, CandidateItem, CandidatePlan, Role, StaffingCase
+from app.domain.enums import ActorName, ApprovalMode, AuditAction, CaseStatus, EntityType
 from app.schemas.approval import PendingApproval
-from app.services import audit_service
+from app.services import actor_service, audit_service
 from app.workflow import orchestrator
 
 
@@ -25,6 +28,45 @@ class ApprovalNotPendingError(ValueError):
 
 class UnsupportedApprovalDecisionError(ValueError):
     """The skeleton has no transition for declining approval yet."""
+
+
+def create_request(db: Session, *, case: StaffingCase, item: CandidateItem) -> ApprovalRequest:
+    """Open the pending MANUAL request of one candidate who passed Safety (seam 5).
+
+    safety_service calls this inside the transaction of the answer. Flushes and
+    writes APPROVAL_REQUESTED. Never commits and never changes case.status.
+    """
+    # The two foreign keys do not prove the item was planned for this case
+    plan = db.get(CandidatePlan, item.plan_id)
+    if plan is None or plan.case_id != case.id:
+        raise ValueError(f"Candidate item {item.id} does not belong to case {case.id}")
+    request = ApprovalRequest(
+        case_id=case.id,
+        candidate_item_id=item.id,
+        required_approver_role=db.scalars(
+            select(Role.id).where(Role.name == HEAD_NURSE_ROLE)
+        ).one(),
+        approval_mode=ApprovalMode.MANUAL,
+        is_pending=True,
+        approver_id=None,
+        is_approved=None,
+        reason=None,
+        decided_at=None,
+        requested_at=clock.now(),
+    )
+    db.add(request)
+    # The audit row needs the id, and SessionLocal has autoflush off
+    db.flush()
+    audit_service.log(
+        db,
+        case_id=case.id,
+        actor_id=actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR),
+        action=AuditAction.APPROVAL_REQUESTED,
+        entity_type=EntityType.APPROVAL_REQUEST,
+        entity_id=request.id,
+        payload={"approval_id": request.id, "approval_mode": request.approval_mode.value},
+    )
+    return request
 
 
 def decide(
