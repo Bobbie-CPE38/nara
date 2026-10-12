@@ -323,9 +323,8 @@ def recompute_affected_cases(db: Session, *, staff_id: int, own_case_id: int) ->
             db.rollback()
             logger.exception("Foreign case %s needs recompute retry", case_id)
             # PR O recovery tracking: docs/round1/round1-contract-draft.md, section 10.
-            # https://github.com/Bobbie-CPE38/nara/blob/feat/round1-case-flow/docs/round1/round1-contract-draft.md#10-ลำดับ-pr
-            # Until the sweep lands, this log
-            # signals a foreign case needing a manual recompute retry.
+            # Until the sweep lands, this log signals a foreign case needing
+            # a manual recompute retry.
 
 
 def record_response(
