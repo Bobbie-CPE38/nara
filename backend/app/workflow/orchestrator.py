@@ -73,9 +73,12 @@ HANDLERS: dict[CaseStatus, Handler] = {
     CaseStatus.EXECUTING: execute_assignment.handle,
 }
 
-# A correct round visits each status at most once: every edge that re-enters
-# OUTREACH (T1, T4) starts at a wait point, and OUTREACH ends at a wait point or
-# at MANUAL_HANDOFF, where the round stops
+# Upper bound on handler steps in one round. A round runs each handler at most
+# once: the edges that re-enter OUTREACH (T1, T4) start at a wait point, and
+# OUTREACH ends at a wait point or at MANUAL_HANDOFF, where the round stops.
+# A wait point can still appear twice in the status changes of one round, as its
+# start and its end (WAITING_APPROVAL -> OUTREACH -> WAITING_APPROVAL through T4
+# and T7). The move recompute() makes before the first handler is not a step
 _MAX_STEPS = len(CaseStatus)
 
 
@@ -136,9 +139,14 @@ def recompute(db: Session, case_id: int) -> CaseStatus:
     is a caller that is not on the workflow. The caller must then not commit.
 
     Unlike `resume()` there is no requested status that can lose a race: the
-    status is computed under the case lock. So a failure while computing it, or
-    a computed transition the table does not allow, is a system fault and fails
-    the case through D11 like a failing handler.
+    status is computed under the case lock. So a failure while computing it is
+    a system fault and fails the case through D11 like a failing handler.
+
+    One computed move has no edge of its own: a case at WAITING_RESPONSE whose
+    assigned staff already close the gap. It is staffed, so it must not fail. It
+    passes through WAITING_APPROVAL (T2) to EXECUTING, both written as status
+    changes. This needs the gap to close without a recompute in between, for
+    example an approval decided in the same transaction as the answer.
     """
     case = _load_for_update(db, case_id)
     if case.status in AUTOMATION_STOPPED_STATUSES:
@@ -156,6 +164,10 @@ def _apply_computed_status(db: Session, case: StaffingCase) -> None:
     target = decide_status(case_facts_service.load_case_facts(db, case))
     if target is case.status:
         return
+    if case.status is CaseStatus.WAITING_RESPONSE and target is CaseStatus.EXECUTING:
+        # No WAITING_RESPONSE -> EXECUTING edge: go by way of WAITING_APPROVAL
+        assert_transition(case.status, CaseStatus.WAITING_APPROVAL)
+        _change_status(db, case, CaseStatus.WAITING_APPROVAL)
     assert_transition(case.status, target)
     _change_status(db, case, target)
 

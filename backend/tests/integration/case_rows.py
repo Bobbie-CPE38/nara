@@ -17,6 +17,7 @@ from app.db.models import (
     CandidatePlan,
     Role,
     RosterAssignment,
+    SafetyValidation,
     Shift,
     StaffingCase,
     StaffingEvent,
@@ -193,3 +194,21 @@ def assign(db: Session, case: StaffingCase, item: CandidateItem) -> None:
     """Approve the candidate and put them on the roster, as one approval does."""
     approval(db, case, item, approved=True)
     replacement(db, item)
+
+
+def safety(
+    db: Session, case: StaffingCase, item: CandidateItem, *, passed: bool
+) -> SafetyValidation:
+    """The Safety row written when the candidate accepted."""
+    row = SafetyValidation(
+        case_id=case.id,
+        candidate_item_id=item.id,
+        hard_constraint_policy_id=1,
+        is_passed=passed,
+        failure_reason=None if passed else "SHIFT_CONFLICT",
+        validation_snapshot={},
+        validated_at=DEMO_NOW,
+    )
+    db.add(row)
+    db.flush()
+    return row

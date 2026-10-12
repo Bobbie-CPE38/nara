@@ -166,24 +166,26 @@ def _load_roster(db: Session, shift_id: int) -> list[RosterMember]:
         .where(RosterAssignment.shift_id == shift_id)
     ).all()
 
-    skills: dict[int, set[int]] = {}
-    staff_ids = {staff_id for staff_id, _, _ in rows}
-    if staff_ids:
-        skill_rows = db.execute(
-            select(StaffSkill.staff_id, StaffSkill.skill_id).where(
-                StaffSkill.staff_id.in_(staff_ids)
-            )
-        )
-        for staff_id, skill_id in skill_rows:
-            skills.setdefault(staff_id, set()).add(skill_id)
-
+    skills = load_skill_sets(db, {staff_id for staff_id, _, _ in rows})
     return [
         RosterMember(
             staff_id=staff_id,
             shift_id=shift_id,
             status=status,
             role_id=role_id,
-            skill_ids=frozenset(skills.get(staff_id, ())),
+            skill_ids=skills.get(staff_id, frozenset()),
         )
         for staff_id, status, role_id in rows
     ]
+
+
+def load_skill_sets(db: Session, staff_ids: set[int]) -> dict[int, frozenset[int]]:
+    """The full skill set of each given person. Someone without skills has no entry."""
+    if not staff_ids:
+        return {}
+    skills: dict[int, set[int]] = {}
+    for staff_id, skill_id in db.execute(
+        select(StaffSkill.staff_id, StaffSkill.skill_id).where(StaffSkill.staff_id.in_(staff_ids))
+    ):
+        skills.setdefault(staff_id, set()).add(skill_id)
+    return {staff_id: frozenset(skill_ids) for staff_id, skill_ids in skills.items()}

@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import AuditLog, Role, StaffingCase
+from app.db.models import AuditLog, CandidateItem, Role, StaffingCase
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     WAITING_CASE_STATUSES,
@@ -361,10 +361,12 @@ def test_missing_gap_row_fails_the_case_and_keeps_the_callers_work(seeded: Sessi
     assert seeded.scalar(select(Role).where(Role.name == "WRITTEN_BY_THE_CALLER")) is not None
 
 
-def test_a_computed_move_the_table_does_not_allow_fails_the_case(seeded: Session) -> None:
-    """WAITING_RESPONSE has no edge to EXECUTING: reaching this means a step was skipped."""
-    case, items = short_case(seeded)
-    assign(seeded, case, items[201])
+def test_a_computed_move_the_table_does_not_allow_fails_the_case(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not reachable with the real rules; a wrong rule must still not move the case freely."""
+    case, _ = short_case(seeded)
+    monkeypatch.setattr(orchestrator, "decide_status", lambda facts: CaseStatus.OPEN)
 
     result = orchestrator.recompute(seeded, case.id)
 
@@ -414,3 +416,136 @@ def test_recompute_flushes_the_callers_pending_rows_before_reading(
     request.is_pending, request.is_approved = True, None
 
     assert orchestrator.recompute(db, case.id) is WAITING_APPROVAL
+
+
+# --------------------------------------------------------------------------- #
+# A staffed case never fails, and a parked case does not walk through OUTREACH
+# --------------------------------------------------------------------------- #
+def test_a_staffed_case_at_waiting_response_resolves_by_way_of_waiting_approval(
+    seeded: Session,
+) -> None:
+    """The gap closed without a recompute at WAITING_APPROVAL, e.g. an approval decided in
+    the same transaction as the answer. There is no WAITING_RESPONSE -> EXECUTING edge."""
+    case, items = short_case(seeded)
+    offer(seeded, case, items[201], OutreachStatus.ACCEPTED)
+    assign(seeded, case, items[201])
+
+    result = orchestrator.recompute(seeded, case.id)
+
+    assert result is CaseStatus.RESOLVED
+    assert _status_changes(seeded, case) == [
+        ("WAITING_RESPONSE", "WAITING_APPROVAL"),
+        ("WAITING_APPROVAL", "EXECUTING"),
+        ("EXECUTING", "RESOLVED"),
+    ]
+    assert not any(row.action is AuditAction.WORKFLOW_FAILED for row in _audit(seeded, case))
+
+
+def _everyone_contacted(db: Session, case: StaffingCase, items: dict[int, CandidateItem]) -> None:
+    for item in items.values():
+        offer(db, case, item, OutreachStatus.REJECTED)
+
+
+def test_case_parked_on_a_pending_approval_stays_without_writing(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T7 state: gap of two, 201 pending, nobody left to contact. No news, no audit rows."""
+    case, items = short_case(seeded, 104, 105, status=WAITING_APPROVAL)
+    offer(seeded, case, items[201], OutreachStatus.ACCEPTED)
+    approval(seeded, case, items[201])
+    offer(seeded, case, items[202], OutreachStatus.REJECTED)
+    offer(seeded, case, items[203], OutreachStatus.REJECTED)
+    contact = Counting(next_status=WAITING_APPROVAL, wait=True)
+    monkeypatch.setitem(orchestrator.HANDLERS, CaseStatus.OUTREACH, contact)
+
+    for _ in range(3):
+        assert orchestrator.recompute(seeded, case.id) is WAITING_APPROVAL
+
+    assert contact.calls == 0
+    assert _audit(seeded, case) == []
+
+
+def test_case_parked_on_a_paused_offer_stays_without_writing(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """201 is the last candidate and accepted another case: wait for that outcome."""
+    case, items = short_case(seeded)
+    offer(seeded, case, items[201])
+    offer(seeded, case, items[202], OutreachStatus.REJECTED)
+    offer(seeded, case, items[203], OutreachStatus.REJECTED)
+    other = make_case(seeded, WAITING_APPROVAL, shift_id=DAY_SHIFT)
+    offer(seeded, other, make_plan(seeded, other, (201,))[201], OutreachStatus.ACCEPTED)
+    contact = Counting(next_status=WAITING_RESPONSE, wait=True)
+    monkeypatch.setitem(orchestrator.HANDLERS, CaseStatus.OUTREACH, contact)
+
+    for _ in range(3):
+        assert orchestrator.recompute(seeded, case.id) is WAITING_RESPONSE
+
+    assert contact.calls == 0
+    assert _audit(seeded, case) == []
+
+
+def test_parked_case_moves_to_the_other_wait_point_when_its_reason_changes(
+    seeded: Session,
+) -> None:
+    """Nobody left to contact. The pending approval is rejected; a paused offer remains."""
+    case, items = short_case(seeded, 104, 105, status=WAITING_APPROVAL)
+    offer(seeded, case, items[201], OutreachStatus.CANCELLED)
+    approval(seeded, case, items[201], approved=False)
+    offer(seeded, case, items[202])
+    offer(seeded, case, items[203], OutreachStatus.REJECTED)
+    other = make_case(seeded, WAITING_APPROVAL, shift_id=DAY_SHIFT)
+    offer(seeded, other, make_plan(seeded, other, (202,))[202], OutreachStatus.ACCEPTED)
+
+    assert orchestrator.recompute(seeded, case.id) is WAITING_RESPONSE
+    assert _status_changes(seeded, case) == [("WAITING_APPROVAL", "WAITING_RESPONSE")]
+
+
+def test_waiting_response_with_only_a_pending_approval_left_waits_for_the_approver(
+    seeded: Session,
+) -> None:
+    """Gap of two: 201 pending does not close it, everyone else answered no."""
+    case, items = short_case(seeded, 104, 105)
+    offer(seeded, case, items[201], OutreachStatus.ACCEPTED)
+    approval(seeded, case, items[201])
+    offer(seeded, case, items[202], OutreachStatus.REJECTED)
+    offer(seeded, case, items[203], OutreachStatus.REJECTED)
+
+    assert orchestrator.recompute(seeded, case.id) is WAITING_APPROVAL
+    assert _status_changes(seeded, case) == [("WAITING_RESPONSE", "WAITING_APPROVAL")]
+
+
+def test_nothing_to_wait_for_and_nobody_to_contact_enters_outreach_for_the_hand_off(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The paused offer timed out: contact_candidate is the one that hands the case off."""
+    case, items = short_case(seeded)
+    _everyone_contacted(seeded, case, items)
+    monkeypatch.setitem(
+        orchestrator.HANDLERS, CaseStatus.OUTREACH, returns(next_status=CaseStatus.MANUAL_HANDOFF)
+    )
+
+    assert orchestrator.recompute(seeded, case.id) is CaseStatus.MANUAL_HANDOFF
+    assert _status_changes(seeded, case) == [
+        ("WAITING_RESPONSE", "OUTREACH"),
+        ("OUTREACH", "MANUAL_HANDOFF"),
+    ]
+
+
+def test_wait_point_can_be_both_ends_of_one_round_through_t4_and_t7(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """203 is not contacted yet, so the case tries a wave; the handler finds nobody (T7)."""
+    case, items = short_case(seeded, 104, 105, status=WAITING_APPROVAL)
+    approval(seeded, case, items[201])
+    offer(seeded, case, items[202], OutreachStatus.REJECTED)
+    contact = Counting(next_status=WAITING_APPROVAL, wait=True)
+    monkeypatch.setitem(orchestrator.HANDLERS, CaseStatus.OUTREACH, contact)
+
+    assert orchestrator.recompute(seeded, case.id) is WAITING_APPROVAL
+
+    assert contact.calls == 1
+    assert _status_changes(seeded, case) == [
+        ("WAITING_APPROVAL", "OUTREACH"),
+        ("OUTREACH", "WAITING_APPROVAL"),
+    ]

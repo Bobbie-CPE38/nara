@@ -1,10 +1,22 @@
 """case_facts_service on the seeded Golden Case (docs/workflow.md, sections 4.1 and 5.3)."""
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import CandidateItem, CandidateOutreach, StaffingCase
-from app.domain.enums import AUTOMATION_STOPPED_STATUSES, CaseStatus, OutreachStatus
+from app.db.models import (
+    CandidateItem,
+    CandidateOutreach,
+    Role,
+    RosterAssignment,
+    StaffingCase,
+)
+from app.domain.enums import (
+    AUTOMATION_STOPPED_STATUSES,
+    CaseStatus,
+    OutreachStatus,
+    RosterStatus,
+)
 from app.domain.workflow.case_status import CaseFacts
 from app.services import case_facts_service
 from app.services.gap_service import GapNotFoundError
@@ -16,7 +28,9 @@ from tests.integration.case_rows import (
     make_case,
     make_plan,
     offer,
+    record_gap,
     replacement,
+    safety,
     short_case,
 )
 
@@ -126,7 +140,7 @@ def test_one_assigned_and_one_pending_close_a_gap_of_two_only_with_pending(
     approval(seeded, case, items[202])
     offer(seeded, case, items[203])
 
-    assert _facts(seeded, case) == (False, True, True)
+    assert _facts(seeded, case) == (False, True, False)
 
 
 def test_two_assigned_close_a_gap_of_two(seeded: Session) -> None:
@@ -302,4 +316,147 @@ def test_loader_works_with_production_session_settings(production_seeded: Sessio
     approval(db, case, items[202])
     offer(db, case, items[203])
 
-    assert _facts(db, case) == (False, True, True)
+    assert _facts(db, case) == (False, True, False)
+
+
+# --------------------------------------------------------------------------- #
+# Review fixes: COMPLETED rows, a self-sufficient "waiting" rule, the wait facts
+# --------------------------------------------------------------------------- #
+def test_a_completed_replacement_row_still_counts_as_assigned(seeded: Session) -> None:
+    """The shift started and the row was closed while the case waits on a second approval."""
+    case, items = short_case(seeded, 104, 105)
+    assign(seeded, case, items[201])
+    approval(seeded, case, items[202])
+    row = seeded.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id == 201, RosterAssignment.shift_id == case.shift_id
+        )
+    ).one()
+    row.status = RosterStatus.COMPLETED
+    seeded.flush()
+
+    assert _facts(seeded, case) == (False, True, False)
+
+
+def test_a_cancelled_replacement_row_does_not_count(seeded: Session) -> None:
+    case, items = short_case(seeded)
+    assign(seeded, case, items[201])
+    row = seeded.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id == 201, RosterAssignment.shift_id == case.shift_id
+        )
+    ).one()
+    row.status = RosterStatus.CANCELLED
+    seeded.flush()
+
+    assert _facts(seeded, case)[:2] == (False, False)
+
+
+def test_a_candidate_rejected_on_the_other_case_is_free_even_if_that_offer_stayed_accepted(
+    seeded: Session,
+) -> None:
+    """The other case should cancel the offer, but this rule does not depend on that write."""
+    case, items = short_case(seeded)
+    offer(seeded, case, items[201])
+    other, item, accepted = _other_case_accepted_by(seeded, 201)
+    approval(seeded, other, item, approved=False)
+    assert accepted.status is OutreachStatus.ACCEPTED
+
+    assert case_facts_service.staff_waiting_on_another_case(seeded, case.id, {201}) == set()
+    assert case_facts_service.has_open_offer(seeded, case.id) is True
+
+
+def test_a_candidate_who_failed_safety_on_the_other_case_is_free(seeded: Session) -> None:
+    case, items = short_case(seeded)
+    offer(seeded, case, items[201])
+    other, item, _ = _other_case_accepted_by(seeded, 201)
+    safety(seeded, other, item, passed=False)
+
+    assert case_facts_service.has_open_offer(seeded, case.id) is True
+
+
+def test_a_candidate_who_passed_safety_on_the_other_case_still_waits(seeded: Session) -> None:
+    case, items = short_case(seeded)
+    offer(seeded, case, items[201])
+    other, item, _ = _other_case_accepted_by(seeded, 201)
+    safety(seeded, other, item, passed=True)
+    approval(seeded, other, item)
+
+    assert case_facts_service.has_open_offer(seeded, case.id) is False
+
+
+def test_plan_with_someone_never_contacted_is_reported(seeded: Session) -> None:
+    case, items = short_case(seeded)
+    offer(seeded, case, items[201], OutreachStatus.REJECTED)
+    offer(seeded, case, items[202], OutreachStatus.TIMEOUT)
+    assert case_facts_service.load_case_facts(seeded, case).has_uncontacted_candidate is True
+
+    offer(seeded, case, items[203], OutreachStatus.CANCELLED)
+    assert case_facts_service.load_case_facts(seeded, case).has_uncontacted_candidate is False
+
+
+def test_uncontacted_looks_at_the_latest_plan_and_only_at_offers_of_this_case(
+    seeded: Session,
+) -> None:
+    case, old_items = short_case(seeded)
+    for item in old_items.values():
+        offer(seeded, case, item, OutreachStatus.REJECTED)
+    assert case_facts_service.load_case_facts(seeded, case).has_uncontacted_candidate is False
+
+    # A newer plan of the same case: its items have no offer yet
+    make_plan(seeded, case, (201,))
+    assert case_facts_service.load_case_facts(seeded, case).has_uncontacted_candidate is True
+
+    # An offer of another case to the same person does not count as contacted here
+    other = make_case(seeded, shift_id=DAY_SHIFT)
+    offer(seeded, other, make_plan(seeded, other, (201,))[201])
+    assert case_facts_service.load_case_facts(seeded, case).has_uncontacted_candidate is True
+
+
+def test_case_without_a_plan_has_nobody_to_contact(seeded: Session) -> None:
+    case = make_case(seeded)
+    cancel_roster(seeded, 105)
+    record_gap(seeded, case)
+
+    assert case_facts_service.load_case_facts(seeded, case).has_uncontacted_candidate is False
+
+
+def test_pending_and_paused_facts(seeded: Session) -> None:
+    """Gap of two: one pending approval and one paused offer, neither closes the gap."""
+    case, items = short_case(seeded, 104, 105)
+    approval(seeded, case, items[201])
+    offer(seeded, case, items[202])
+    _other_case_accepted_by(seeded, 202)
+
+    facts = case_facts_service.load_case_facts(seeded, case)
+
+    assert (facts.gap_closed_by_assigned, facts.gap_closed_with_pending) == (False, False)
+    assert facts.has_pending_approval is True
+    assert facts.has_paused_offer is True
+    assert facts.has_open_offer is False
+    assert facts.has_uncontacted_candidate is True  # 203
+
+
+@pytest.mark.parametrize(
+    "read",
+    [
+        lambda db, case: case_facts_service.load_case_facts(db, case),
+        lambda db, case: case_facts_service.has_open_offer(db, case.id),
+        lambda db, case: case_facts_service.staff_waiting_on_another_case(db, case.id, {201}),
+    ],
+    ids=["load_case_facts", "has_open_offer", "staff_waiting_on_another_case"],
+)
+def test_reads_do_not_flush_unrelated_pending_work_with_autoflush_on(
+    seeded: Session, read: object
+) -> None:
+    """The `seeded` session autoflushes. A read here must not send the caller's rows."""
+    assert seeded.autoflush is True
+    case, items = short_case(seeded)
+    offer(seeded, case, items[201])
+    pending = Role(name="NOT_FLUSHED_BY_A_READ")
+    seeded.add(pending)
+
+    read(seeded, case)  # type: ignore[operator]
+
+    assert pending in seeded.new
+    assert pending.id is None

@@ -126,6 +126,8 @@
 
 ### 2.3 ผลต่อ Orchestrator (ไฟล์ของคน 1)
 
+> กฎของ `decide_status()` ในข้อนี้ (3 ค่า 4 ข้อ) ถูกขยายเป็น 6 ค่า 7 ข้อใน PR S ตามรีวิว เพื่อให้เคสที่ไม่เหลือใครให้ติดต่อรอต่อที่จุดรอเดิมได้ ฉบับที่ใช้คือ `docs/workflow.md` ข้อ 5.3
+
 * **ฟังก์ชันคำนวณสถานะเคส** ตัวใหม่ แยกเป็นสองชั้นแบบเดียวกับ `gap_calculator`
   * ชั้นตัดสิน (Pure Function ไม่อ่าน DB): `domain/workflow/case_status.py` มี `decide_status(facts: CaseFacts) -> CaseStatus` โดย `CaseFacts` เป็น Dataclass แบบ Frozen มี 3 ค่า: `gap_closed_by_assigned`, `gap_closed_with_pending`, `has_open_offer` คืนได้ 4 สถานะ ตรวจตามลำดับนี้ ข้อแรกที่จริงคือคำตอบ
     1. `gap_closed_by_assigned` จริง (คนที่ได้เข้าเวรแล้วปิด Gap ครบ) → `EXECUTING`
