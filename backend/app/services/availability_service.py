@@ -16,16 +16,32 @@ Rules:
   * Open offers are not a rule here. The Solver's rule 4 lives in
     optimization_service, because the accepted candidate Safety re-checks always
     holds their own ACCEPTED offer.
+    Round 1 PR 1c adds staff_at_offer_limit below as a separate read helper;
+    it is not wired into these availability rules or Safety.
   * PENDING_APPROVAL counts as committed. Nothing writes it in the skeleton; a
     later step that writes it for the accepted candidate before Safety must
     exclude that row, or rule 2 blocks the candidate on their own assignment.
 """
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import RosterAssignment, Shift, Staff, StaffUnavailability
-from app.domain.enums import COMMITTED_ROSTER_STATUSES, StaffStatus
+from app.db.models import (
+    CandidateItem,
+    CandidateOutreach,
+    RosterAssignment,
+    Shift,
+    Staff,
+    StaffingCase,
+    StaffUnavailability,
+)
+from app.domain.enums import (
+    AUTOMATION_STOPPED_STATUSES,
+    COMMITTED_ROSTER_STATUSES,
+    OutreachStatus,
+    StaffStatus,
+)
+from app.services import policy_service
 
 
 class CandidateNotAvailableError(ValueError):
@@ -94,3 +110,37 @@ def assert_available(db: Session, shift: Shift, staff_id: int) -> None:
     error = unavailable_staff(db, shift, [staff_id]).get(staff_id)
     if error is not None:
         raise error(f"Staff {staff_id} cannot take shift {shift.id}")
+
+
+def staff_at_offer_limit(db: Session, staff_ids: list[int]) -> set[int]:
+    """Return requested staff IDs with SENT + ACCEPTED offers at or above the cap.
+
+    Count offer rows across all running cases and plans, including accepted
+    reserves. Offers on automation-stopped cases do not count. Read-only: the
+    caller must flush changes it wants counted and own transaction control.
+
+    Callers allocating offers must first lock the relevant STAFF rows in ID
+    order (workflow.md 6.11), then recheck here in the same transaction. This
+    query alone does not reserve capacity. Solver/Wave wiring is PR 2a/2b;
+    Safety must not call this helper on its own accepted offer.
+    """
+    if not staff_ids:
+        return set()
+    with db.no_autoflush:
+        policy = policy_service.get_outreach_policy(db)
+        return set(
+            db.scalars(
+                select(CandidateItem.staff_id)
+                .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+                .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
+                .where(
+                    CandidateItem.staff_id.in_(staff_ids),
+                    CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
+                    StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
+                )
+                .group_by(CandidateItem.staff_id)
+                .having(
+                    func.count(CandidateOutreach.id) >= policy.maximum_concurrent_offers_per_staff
+                )
+            )
+        )

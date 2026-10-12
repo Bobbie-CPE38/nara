@@ -408,16 +408,18 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `created_at` | timestamptz | NOT NULL |  |  |
 
 
-### 23.1 OUTREACH_POLICY **(รอบ 1 ยังไม่มีใน DB)**
+### 23.1 OUTREACH_POLICY
 
 
 กติกาของ Offer ต่อผู้สมัคร ตารางและ `maximum_concurrent_offers_per_staff` เพิ่มใน PR 1c ส่วน `offer_timeout_seconds` เพิ่มใน PR O
+
+Model และ Migration `d91a6c8e203f` เพิ่มแล้วใน PR 1c Seed เป็น `id=1`, `version=demo-outreach-v1` และเพดาน 3 โหลดด้วย `policy_service.get_outreach_policy()` ตาม `id=1`; `effective_from` ยังไม่ได้ใช้เลือกเวอร์ชัน
 
 | Field | Type | Null | Key | Enum / หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `maximum_concurrent_offers_per_staff` | integer | NOT NULL | CHECK | จำนวน Offer ที่ยังเปิดได้พร้อมกันต่อคน นับ Offer ที่ `SENT` หรือ `ACCEPTED` บนเคสที่ยังเดินอยู่ CHECK `> 0` Seed = 3 |
-| `offer_timeout_seconds` | integer | NOT NULL | CHECK | อายุของ Offer เป็นวินาที ใช้ตั้ง `CANDIDATE_OUTREACH.expires_at` ตอนส่ง CHECK `> 0` Seed = 300 |
+| `offer_timeout_seconds` | integer | NOT NULL | CHECK | อายุของ Offer เป็นวินาที ใช้ตั้ง `CANDIDATE_OUTREACH.expires_at` ตอนส่ง CHECK `> 0` Seed = 300 **(ยังไม่มีใน DB เพิ่มใน PR O)** |
 | `version` | text | NOT NULL |  |  |
 | `effective_from` | timestamptz | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |

@@ -11,6 +11,7 @@ from app.db.models import (
     Actor,
     ApprovalPolicy,
     HardConstraintPolicy,
+    OutreachPolicy,
     Role,
     RosterAssignment,
     Shift,
@@ -49,12 +50,16 @@ def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
         assert staff.status is StaffStatus.ACTIVE
         assert staff.password_hash == "!"
         assert staff.created_at == DEMO_NOW
-    for model in (HardConstraintPolicy, SoftConstraintPolicy, ApprovalPolicy):
+    for model in (HardConstraintPolicy, SoftConstraintPolicy, ApprovalPolicy, OutreachPolicy):
         assert seeded.scalar(select(func.count()).select_from(model)) == 1
     approval = seeded.get(ApprovalPolicy, 1)
     assert approval is not None
     assert approval.ratio == 2
     assert approval.incoming_count == 10
+    outreach = seeded.get(OutreachPolicy, 1)
+    assert outreach is not None
+    assert outreach.maximum_concurrent_offers_per_staff == 3
+    assert outreach.effective_from == outreach.created_at == DEMO_NOW
     hard = seeded.get(HardConstraintPolicy, 1)
     assert hard is not None
     assert hard.maximum_patients_per_nurse == 2
@@ -122,6 +127,7 @@ def test_seed_loaders_leave_transaction_control_to_caller(db: Session) -> None:
     assert db.scalar(select(func.count()).select_from(Staff)) == 0
     assert db.scalar(select(func.count()).select_from(Actor)) == 0
     assert db.scalar(select(func.count()).select_from(HardConstraintPolicy)) == 0
+    assert db.scalar(select(func.count()).select_from(OutreachPolicy)) == 0
 
 
 def test_golden_case_requires_demo_clock(db: Session) -> None:
