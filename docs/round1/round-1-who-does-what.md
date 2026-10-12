@@ -42,7 +42,7 @@
 | :-- | :-- |
 | **1a** Hard Rules | ตัวตรวจและรหัสใน `domain/constraints/` + Unit Test |
 | **2a** Solver | ใช้ Hard Rules กับ Gap, สูตร `plan_penalty`, `ranking_key`, `CANDIDATE_ITEM_TARGET`, `working_time_service`, เรียกฟังก์ชันเพดาน Offer, กรณี Solver ไม่ได้ใคร |
-| **3** Safety รายคน | ตรวจตอนตอบรับ บันทึกผลไม่ผ่าน ย้ายการสร้าง `APPROVAL_REQUEST` ไปเป็นฟังก์ชันใน `approval_service` ลบ `assert_available()` กับ `unavailable_staff()` และลบสองเส้นของ `SAFETY_VALIDATION` |
+| **3** Safety รายคน | ตรวจตอนตอบรับ บันทึกผลไม่ผ่าน ย้ายการสร้าง `APPROVAL_REQUEST` ไปเป็นฟังก์ชันใน `approval_service` ลบ `assert_available()` กับ `unavailable_staff()` รวมบรรทัดที่เรียกใน `roster_service` ของคน 3 และลบสองเส้นของ `SAFETY_VALIDATION` |
 | **6** หน้า `cases/[id]` | สถานะรายคน, เหตุผลที่ข้าม, `event_ids`, `effective_minimum` |
 
 ### คน 3 (4 PR)
