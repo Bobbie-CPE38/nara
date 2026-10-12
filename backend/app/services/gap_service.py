@@ -79,7 +79,7 @@ def assess_shift(db: Session, shift: Shift) -> ShiftAssessment:
         preserve_minimum_staffing=policy.preserve_minimum_staffing,
         required_roles=shift_requirement.required_roles,
         required_skills=shift_requirement.required_skills,
-        roster=_load_roster(db, shift.id),
+        roster=load_roster(db, shift.id),
     )
     return ShiftAssessment(shift_requirement=shift_requirement, result=result)
 
@@ -158,8 +158,11 @@ def get_case_gap(db: Session, case_id: int) -> CaseGap:
     )
 
 
-def _load_roster(db: Session, shift_id: int) -> list[RosterMember]:
-    """Every roster row of the shift, each with the person's role and full skill set."""
+def load_roster(db: Session, shift_id: int) -> list[RosterMember]:
+    """Every roster row of the shift, each with the person's role and full skill set.
+
+    Reads the database as it is: flush pending roster changes first.
+    """
     rows = db.execute(
         select(RosterAssignment.staff_id, RosterAssignment.status, Staff.role_id)
         .join(Staff, Staff.id == RosterAssignment.staff_id)

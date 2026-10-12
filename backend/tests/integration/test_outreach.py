@@ -44,16 +44,18 @@ def case(production_seeded: Session) -> StaffingCase:
         staff_id=105,
         occurred_at=DEMO_NOW,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=1,
         status=CaseStatus.OUTREACH,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     return case
 
@@ -193,7 +195,6 @@ def test_plan_selection_is_scoped_to_case(production_seeded: Session, case: Staf
     db = production_seeded
     selected = _item(db, _plan(db, case))
     other = StaffingCase(
-        event_id=case.event_id,
         shift_id=1,
         status=CaseStatus.OUTREACH,
         required_replacement_time=case.required_replacement_time,

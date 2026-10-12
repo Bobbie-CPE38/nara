@@ -51,7 +51,8 @@ class CaseDetail(BaseModel):
 
     id: int
     status: CaseStatus
-    event_id: int
+    # Every event of the case, by ID. One window can merge several
+    event_ids: list[int]
     shift_id: int
     required_replacement_time: AppDatetime
     created_at: AppDatetime

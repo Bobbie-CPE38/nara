@@ -63,8 +63,8 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
         <dl className="mt-2 grid grid-cols-2 gap-2">
           <dt>Shift</dt>
           <dd>{detail.shift_id}</dd>
-          <dt>Event</dt>
-          <dd>{detail.event_id}</dd>
+          <dt>Events</dt>
+          <dd>{detail.event_ids.join(", ")}</dd>
           <dt>Replacement needed by</dt>
           <dd>{formatDateTime(detail.required_replacement_time)}</dd>
           <dt>Opened</dt>

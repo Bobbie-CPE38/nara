@@ -25,13 +25,19 @@ def log(
     db: Session,
     *,
     case_id: int | None,
+    event_id: int | None = None,
     actor_id: int,
     action: AuditAction,
     entity_type: EntityType,
     entity_id: int | None,
     payload: dict[str, Any],
 ) -> None:
-    """Add one AUDIT_LOG row to the caller's transaction; flush but never commit."""
+    """Add one AUDIT_LOG row to the caller's transaction; flush but never commit.
+
+    A row about one event carries `event_id` and no `case_id`, also when that
+    event later opens a case: the case timeline finds it through
+    STAFFING_EVENTS.case_id (docs/workflow.md, section 3.7).
+    """
     # StrEnumText would otherwise accept a plain "CASE_OPENED" string
     if not isinstance(action, AuditAction):
         raise TypeError(f"action must be an AuditAction, got {action!r}")
@@ -40,12 +46,15 @@ def log(
     # None would be stored as JSON null and break readers of payload["..."]
     if not isinstance(payload, dict):
         raise TypeError(f"payload must be a dict, got {payload!r}")
+    if case_id is not None and event_id is not None:
+        raise ValueError("An audit row carries case_id or event_id, not both")
     if "password_hash" in payload:
         raise ValueError("payload must not contain password_hash")
 
     db.add(
         AuditLog(
             case_id=case_id,
+            event_id=event_id,
             actor_id=actor_id,
             action=action,
             entity_type=entity_type,

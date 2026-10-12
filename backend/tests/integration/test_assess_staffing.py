@@ -61,16 +61,18 @@ def _make_case(db: Session, status: CaseStatus = CaseStatus.ASSESSING) -> Staffi
         occurred_at=DEMO_NOW,
         staff_id=LEAVING_STAFF_ID,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=NIGHT_SHIFT,
         status=status,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     return case
 

@@ -7,7 +7,7 @@ frozen after a reset, so rows of one case can share the same time
 (docs/workflow.md, section 6.4).
 """
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -20,6 +20,7 @@ from app.db.models import (
     Skill,
     Staff,
     StaffingCase,
+    StaffingEvent,
     StaffingGap,
     StaffingGapRole,
     StaffingGapSkill,
@@ -33,7 +34,7 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
     return CaseDetail(
         id=case.id,
         status=case.status,
-        event_id=case.event_id,
+        event_ids=_event_ids(db, case.id),
         shift_id=case.shift_id,
         required_replacement_time=case.required_replacement_time,
         created_at=case.created_at,
@@ -44,12 +45,23 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
 
 
 def get_case_timeline(db: Session, case_id: int) -> list[AuditEntry]:
-    """Audit rows of the case, oldest first (section 6.4, seam 9)."""
+    """Audit rows of the case and of its events, oldest first (section 6.4, seam 9).
+
+    A row about an event has event_id and no case_id (section 3.7). It was
+    written before the case existed, so it comes before CASE_OPENED.
+    """
     case = _get_case(db, case_id)
     rows = db.execute(
         select(AuditLog, Actor.name, Actor.actor_type)
         .join(Actor, Actor.id == AuditLog.actor_id)
-        .where(AuditLog.case_id == case.id)
+        .where(
+            or_(
+                AuditLog.case_id == case.id,
+                AuditLog.event_id.in_(
+                    select(StaffingEvent.id).where(StaffingEvent.case_id == case.id)
+                ),
+            )
+        )
         # By id: every row of a demo run carries the same frozen created_at
         .order_by(AuditLog.id)
     )
@@ -74,6 +86,16 @@ def _get_case(db: Session, case_id: int) -> StaffingCase:
     if case is None:
         raise CaseNotFoundError(f"No case {case_id}")
     return case
+
+
+def _event_ids(db: Session, case_id: int) -> list[int]:
+    return list(
+        db.scalars(
+            select(StaffingEvent.id)
+            .where(StaffingEvent.case_id == case_id)
+            .order_by(StaffingEvent.id)
+        )
+    )
 
 
 def _latest_gap(db: Session, case_id: int) -> GapView | None:

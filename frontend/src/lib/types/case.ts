@@ -36,7 +36,8 @@ export type CandidateView = {
 export type CaseDetail = {
   id: number;
   status: string;
-  event_id: number;
+  /** Every event of the case, by ID. One merge window can put several into one case */
+  event_ids: number[];
   shift_id: number;
   required_replacement_time: string;
   created_at: string;
