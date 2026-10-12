@@ -27,6 +27,8 @@ class GapCount(BaseModel):
 
 class GapView(BaseModel):
     id: int
+    # The headcount target the gap was measured against, stored with the gap row
+    effective_minimum: int
     headcount_gap: int
     computed_at: AppDatetime
     roles: list[GapCount]

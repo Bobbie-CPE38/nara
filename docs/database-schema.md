@@ -8,6 +8,7 @@
 > * `a73d9e2c4b10` เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` (Backfill Policy เดิม = 2 สำหรับ Demo)
 > * `b82e4f6a901c` ย่อชื่อ CHECK ของคอลัมน์นั้นเป็น `ck_hard_constraint_policy_patients_per_nurse_valid` (กติกาเดิม)
 > * `c4d7e19a52f3` เพิ่ม Snapshot `patient_count` และ `patients_per_nurse` ใน `STAFFING_GAP` พร้อม CHECK (ไม่ Backfill, ดูข้อ 24)
+> * `d5e8f20b63a4` แทน Snapshot สองคอลัมน์นั้นด้วย `STAFFING_GAP.effective_minimum` (รอบ 1 PR 1b ไม่ Backfill ให้ `make reset`)
 
 
 ## สรุปการตัดสินใจ
@@ -161,8 +162,8 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
-| `required_staff` | integer | NOT NULL |  | จำนวนเป้าหมายที่บันทึกใน Requirement; Skeleton ยังไม่ใช้เป็นเป้าหมาย Headcount Gap (ใช้สูตร Patient Count / Ratio แทน) |
-| `minimum_staff` | integer | NOT NULL |  | จำนวนขั้นต่ำที่เก็บไว้สำหรับกฎความปลอดภัยในอนาคต เช่น เวรต้นทาง; ยังไม่ใช้ใน Gap Calculator ของ Skeleton |
+| `required_staff` | integer | NOT NULL |  | จำนวนคนที่ต้องการตามภาระงาน = `ceil(patient_count / maximum_patients_per_nurse)` เป็น Input ของ Headcount Gap ตั้งแต่รอบ 1 PR 1b ค่า Seed ตรงกับสูตร และ PART B ของ Merge Gap (PR M) จะ UPDATE ในแถวเดิมเมื่อจำนวนผู้ป่วยเปลี่ยน (`workflow.md` ข้อ 3.6) |
+| `minimum_staff` | integer | NOT NULL |  | จำนวนคนขั้นต่ำคงที่ของเวร เป็น Input ของ Headcount Gap ตั้งแต่รอบ 1 PR 1b: เป้าหมาย = `max(required_staff, minimum_staff)` เมื่อ `HARD_CONSTRAINT_POLICY.preserve_minimum_staffing` เปิด และ `required_staff` อย่างเดียวเมื่อปิด |
 | `created_at` | timestamptz | NOT NULL |  |  |
 
 
@@ -432,21 +433,15 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `case_id` | bigint | NOT NULL | FK STAFFING_CASES.id |  |
 | `staffing_requirement_id` | bigint | NOT NULL | FK STAFFING_REQUIREMENTS.id |  |
 | `headcount_gap` | integer | NOT NULL |  | `max(effective_minimum - จำนวนคนในเวร, 0)` |
-| `effective_minimum` | integer | NOT NULL |  | เป้าหมายจำนวนคนที่ใช้คิด Gap แถวนี้: `max(required_staff, minimum_staff)` เมื่อ `preserve_minimum_staffing` เปิด และ `required_staff` เมื่อปิด **(รอบ 1 ยังไม่มีใน DB เพิ่มใน PR 1b)** |
-| `patient_count` | integer | NOT NULL |  | Snapshot ของ `SHIFT.patient_count` ตอนคำนวณ **(ลบใน PR 1b)** |
-| `patients_per_nurse` | numeric | NOT NULL | CHECK | Snapshot ของ `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` ตอนคำนวณ **(ลบใน PR 1b)** |
+| `effective_minimum` | integer | NOT NULL |  | เป้าหมายจำนวนคนที่ใช้คิด Gap แถวนี้: `max(required_staff, minimum_staff)` เมื่อ `preserve_minimum_staffing` เปิด และ `required_staff` เมื่อปิด |
 | `computed_at` | timestamptz | NOT NULL |  |  |
 
 
-`patient_count` และ `patients_per_nurse` เป็น Snapshot ของ Input ที่ใช้คำนวณ Gap แถวนั้น
-ค่าใน `SHIFT` และ Policy เปลี่ยนภายหลังได้ จึงเก็บไว้กับแถวเพื่อย้อนตรวจการคำนวณแต่ละครั้ง
-CHECK `ck_staffing_gap_patients_per_nurse_valid`: `patients_per_nurse > 0` และไม่เป็น Infinity / NaN (กติกาเดียวกับ Policy)
-Migration `c4d7e19a52f3` ไม่ Backfill และหยุดถ้ามีแถวเก่าใน `STAFFING_GAP` (ให้ `make reset` ก่อน)
 
-รอบ 1 (PR 1b) เปลี่ยน Snapshot ของแถวนี้: เพิ่ม `effective_minimum` และลบ `patient_count`, `patients_per_nurse` พร้อม CHECK `ck_staffing_gap_patients_per_nurse_valid`
-เพราะ Gap คิดจาก `required_staff` และ `minimum_staff` ของ Requirement แล้ว สองค่านั้นอ่านผ่าน `staffing_requirement_id` ไม่เก็บซ้ำ
+
+`effective_minimum` คือเป้าหมายที่ใช้คิด Gap แถวนั้นจริง `required_staff` และ `minimum_staff` อ่านผ่าน `staffing_requirement_id` ไม่เก็บซ้ำ
 แต่ `required_staff` ถูก UPDATE ในแถวเดิม ค่าที่อ่านได้จึงเป็นค่าปัจจุบัน ค่าเดียวที่บอกเป้าหมายตอนคิดคือ `effective_minimum`
-Migration ของ PR 1b ไม่เติมค่าย้อนหลัง ทุกคน `make reset` หลัง merge
+Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `patients_per_nurse` และ CHECK `ck_staffing_gap_patients_per_nurse_valid`) ด้วยคอลัมน์นี้ ไม่ Backfill ทั้งขาขึ้นและขาลง และหยุดถ้ามีแถวใน `STAFFING_GAP` (ให้ `make reset` ก่อน)
 
 ### 25. STAFFING_GAP_ROLE
 

@@ -19,13 +19,14 @@ from app.db.models import (
     RosterAssignment,
     Shift,
     Staff,
+    StaffingRequirement,
     StaffingRequirementRole,
     StaffingRequirementSkill,
     StaffSkill,
 )
 from app.domain.enums import RosterStatus
 from app.domain.staffing.coverage import RosterMember
-from app.domain.staffing.gap_calculator import calculate_gap
+from app.domain.staffing.gap_calculator import calculate_gap, required_staff_for
 from app.seed import load
 from app.seed.reset import ALEMBIC_INI
 from app.services.policy_service import get_hard_constraint_policy
@@ -78,15 +79,22 @@ def test_seeded_policy_drives_golden_case(db: Session) -> None:
             )
         )
     }
+    requirement = db.get(StaffingRequirement, 1)
+    assert requirement is not None
+    # The stored workload target is the formula applied to the seeded shift and policy
+    assert requirement.required_staff == required_staff_for(
+        shift.patient_count, policy.maximum_patients_per_nurse
+    )
     result = calculate_gap(
         shift_id=shift.id,
-        patient_count=shift.patient_count,
-        patients_per_nurse=policy.maximum_patients_per_nurse,
+        required_staff=requirement.required_staff,
+        minimum_staff=requirement.minimum_staff,
+        preserve_minimum_staffing=policy.preserve_minimum_staffing,
         required_roles=required_roles,
         required_skills=required_skills,
         roster=roster,
     )
-    assert result.minimum_required_staff == 5
+    assert result.effective_minimum == 5
     assert result.headcount_gap == result.role_gaps[1].gap_count == 1
     assert result.skill_gaps[1].gap_count == 0
     assert result.has_gap
@@ -98,15 +106,7 @@ def test_policy_ratio_is_read_from_database_without_fallback(db: Session) -> Non
     policy.maximum_patients_per_nurse = Decimal("2.5")
     db.flush()
     db.expire_all()
-    result = calculate_gap(
-        shift_id=1,
-        patient_count=10,
-        patients_per_nurse=get_hard_constraint_policy(db).maximum_patients_per_nurse,
-        required_roles={},
-        required_skills={},
-        roster=[],
-    )
-    assert result.minimum_required_staff == 4
+    assert required_staff_for(10, get_hard_constraint_policy(db).maximum_patients_per_nurse) == 4
 
 
 def test_missing_demo_policy_fails_explicitly(db: Session) -> None:
