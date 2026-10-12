@@ -1,7 +1,7 @@
 """Add the concurrent-offer policy (round 1 PR 1c).
 
 Revision ID: d91a6c8e203f
-Revises: c4d7e19a52f3
+Revises: e1f5a8b3c6d2
 
 Offer expiry is added separately in PR O. This migration creates an empty
 table; the demo seed supplies policy id=1.
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "d91a6c8e203f"
-down_revision = "c4d7e19a52f3"
+down_revision = "e1f5a8b3c6d2"
 branch_labels = None
 depends_on = None
 
