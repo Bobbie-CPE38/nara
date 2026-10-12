@@ -525,7 +525,7 @@ Migration ของ PR 1b ไม่เติมค่าย้อนหลัง
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `case_id` | bigint | NULL | FK STAFFING_CASES.id |  |
-| `event_id` | bigint | NULL | FK STAFFING_EVENTS.id | ตั้งในแถวที่เป็นเรื่องของ Event ตัวนั้น (`EVENT_RECEIVED`, `UNAVAILABILITY_CREATED`, `EVENT_IGNORED`) Timeline ของเคสรวมแถวของ Event ที่เป็นของเคสด้วย **(รอบ 1 ยังไม่มีใน DB)** |
+| `event_id` | bigint | NULL | FK STAFFING_EVENTS.id | ตั้งในแถวที่เป็นเรื่องของ Event ตัวนั้น (`EVENT_RECEIVED`, `EVENT_IGNORED`, `UNAVAILABILITY_CREATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED`) แถวพวกนี้ไม่ใส่ `case_id` Timeline ของเคสรวมแถวของ Event ที่เป็นของเคสด้วย **(รอบ 1 ยังไม่มีใน DB)** |
 | `actor_id` | bigint | NOT NULL | FK ACTORS.id |  |
 | `entity_type` | text | NOT NULL |  | `EntityType` |
 | `entity_id` | bigint | NULL |  | NULL ได้สำหรับ composite key (ยังไม่ Audit ใน Skeleton) |
@@ -660,7 +660,7 @@ The old codes `OPEN_OFFER`, `HAS_OPEN_OFFER` and `SOURCE_WARD_MINIMUM` are not u
 
 ### Policy Flags
 
-A disabled policy flag must not produce a skip reason. Numeric limits have no flag and are always checked. Being equal to a limit passes; only exceeding it fails.
+A disabled policy flag must not produce a skip reason. Numeric limits have no flag and are always checked. For the maximum limits (daily hours, weekly hours, consecutive shifts), being equal to the limit passes and only exceeding it fails. For `minimum_rest_hours`, rest equal to the minimum passes and less rest fails.
 
 For example, when `require_matching_skill = false`, a skill mismatch alone does not reject the candidate.
 
