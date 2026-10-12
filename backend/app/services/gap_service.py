@@ -10,7 +10,6 @@ uses the same function, so both always agree.
 """
 
 from dataclasses import dataclass
-from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -37,13 +36,36 @@ class ShiftAssessment:
     """The gap of a shift together with the inputs it was computed from."""
 
     shift_requirement: ShiftRequirement
-    patient_count: int
-    patients_per_nurse: Decimal
     result: GapResult
 
 
+class GapNotFoundError(LookupError):
+    """The case has no STAFFING_GAP row. A case past ASSESSING always has one."""
+
+
+@dataclass(frozen=True)
+class CaseGap:
+    """What a case has to fill, read from its latest STAFFING_GAP.
+
+    role_gaps and skill_gaps hold only the roles and skills that are short
+    (gap_count > 0), keyed by ID. A case with both empty is short on headcount only.
+    """
+
+    gap: StaffingGap
+    role_gaps: dict[int, int]
+    skill_gaps: dict[int, int]
+
+    @property
+    def headcount_gap(self) -> int:
+        return self.gap.headcount_gap
+
+
 def assess_shift(db: Session, shift: Shift) -> ShiftAssessment:
-    """Compare the shift's current roster with its workload and requirement."""
+    """Compare the shift's current roster with its headcount and role/skill requirement.
+
+    The headcount target comes from required_staff and minimum_staff of the
+    current requirement and the preserve_minimum_staffing flag of the hard policy.
+    """
     # The caller may have just cancelled a roster row. SessionLocal has
     # autoflush off, so send that change before the roster is read back
     db.flush()
@@ -52,34 +74,29 @@ def assess_shift(db: Session, shift: Shift) -> ShiftAssessment:
     policy = policy_service.get_hard_constraint_policy(db)
     result = calculate_gap(
         shift_id=shift.id,
-        patient_count=shift.patient_count,
-        patients_per_nurse=policy.maximum_patients_per_nurse,
+        required_staff=shift_requirement.requirement.required_staff,
+        minimum_staff=shift_requirement.requirement.minimum_staff,
+        preserve_minimum_staffing=policy.preserve_minimum_staffing,
         required_roles=shift_requirement.required_roles,
         required_skills=shift_requirement.required_skills,
         roster=_load_roster(db, shift.id),
     )
-    return ShiftAssessment(
-        shift_requirement=shift_requirement,
-        patient_count=shift.patient_count,
-        patients_per_nurse=policy.maximum_patients_per_nurse,
-        result=result,
-    )
+    return ShiftAssessment(shift_requirement=shift_requirement, result=result)
 
 
 def record_gap(db: Session, case: StaffingCase, assessment: ShiftAssessment) -> StaffingGap:
     """Store one assessment as the STAFFING_GAP of a case; flush but never commit.
 
-    The snapshot columns take the values the calculator was given, not a fresh
-    read of the shift or the policy. Every required role and skill gets a row,
-    also the ones without a shortage.
+    effective_minimum is the target the calculator used, not a fresh read of the
+    requirement or the policy. Every required role and skill gets a row, also the
+    ones without a shortage.
     """
     result = assessment.result
     gap = StaffingGap(
         case_id=case.id,
         staffing_requirement_id=assessment.shift_requirement.requirement.id,
         headcount_gap=result.headcount_gap,
-        patient_count=assessment.patient_count,
-        patients_per_nurse=assessment.patients_per_nurse,
+        effective_minimum=result.effective_minimum,
         computed_at=clock.now(),
     )
     db.add(gap)
@@ -107,6 +124,38 @@ def record_gap(db: Session, case: StaffingCase, assessment: ShiftAssessment) -> 
     )
     db.flush()
     return gap
+
+
+def get_case_gap(db: Session, case_id: int) -> CaseGap:
+    """Return the latest gap of a case with its short roles and skills. Read-only.
+
+    The one loader for the Solver and Safety (workflow.md section 6.4, seam 11).
+    "Latest" is the highest id. Raises GapNotFoundError when the case has no gap.
+    """
+    gap = db.scalar(
+        select(StaffingGap)
+        .where(StaffingGap.case_id == case_id)
+        .order_by(StaffingGap.id.desc())
+        .limit(1)
+    )
+    if gap is None:
+        raise GapNotFoundError(f"No staffing gap for case {case_id}")
+
+    roles = db.execute(
+        select(StaffingGapRole.role_id, StaffingGapRole.gap_count).where(
+            StaffingGapRole.gap_id == gap.id, StaffingGapRole.gap_count > 0
+        )
+    )
+    skills = db.execute(
+        select(StaffingGapSkill.skill_id, StaffingGapSkill.gap_count).where(
+            StaffingGapSkill.gap_id == gap.id, StaffingGapSkill.gap_count > 0
+        )
+    )
+    return CaseGap(
+        gap=gap,
+        role_gaps={role_id: count for role_id, count in roles},
+        skill_gaps={skill_id: count for skill_id, count in skills},
+    )
 
 
 def _load_roster(db: Session, shift_id: int) -> list[RosterMember]:

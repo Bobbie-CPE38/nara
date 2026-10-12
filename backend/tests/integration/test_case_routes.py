@@ -105,8 +105,7 @@ def _add_gap(
         case_id=case.id,
         staffing_requirement_id=requirement_id,
         headcount_gap=headcount_gap,
-        patient_count=10,
-        patients_per_nurse=Decimal("2"),
+        effective_minimum=5,
         computed_at=computed_at,
     )
     db.add(gap)
@@ -228,6 +227,7 @@ def test_case_detail_shows_the_gap_with_role_and_skill_names(
     body = client.get(f"/cases/{case.id}").json()
 
     assert body["gap"]["id"] == gap.id
+    assert body["gap"]["effective_minimum"] == 5
     assert body["gap"]["headcount_gap"] == 1
     assert body["gap"]["roles"] == [
         {"id": RN, "name": "RN", "required_count": 5, "current_count": 4, "gap_count": 1}

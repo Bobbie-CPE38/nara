@@ -22,6 +22,7 @@ from app.db.models import (
     StaffSkill,
 )
 from app.domain.enums import ActorName, ActorType, RosterStatus, StaffStatus
+from app.domain.staffing.gap_calculator import required_staff_for
 from app.seed import base_data, load
 from app.seed.scenarios import golden_case
 from tests.integration.conftest import DEMO_NOW
@@ -136,3 +137,19 @@ def test_seed_command_refuses_existing_data_without_modifying_it(seeded: Session
         load(seeded)
     assert seeded.scalar(select(func.count()).select_from(Staff)) == 9
     assert seeded.scalar(select(func.count()).select_from(Actor)) == 15
+
+
+def test_required_staff_of_every_seeded_shift_matches_the_workload_formula(
+    seeded: Session,
+) -> None:
+    """Nothing rewrites required_staff before the merge window exists, so the seed must be right."""
+    hard = seeded.get(HardConstraintPolicy, 1)
+    assert hard is not None
+    requirements = seeded.scalars(select(StaffingRequirement)).all()
+    assert len(requirements) == 2
+    for requirement in requirements:
+        shift = seeded.get(Shift, requirement.shift_id)
+        assert shift is not None
+        assert requirement.required_staff == required_staff_for(
+            shift.patient_count, hard.maximum_patients_per_nurse
+        )

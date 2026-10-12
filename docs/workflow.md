@@ -12,11 +12,11 @@ PR 0 ของรอบ 1 ย้ายกติกาที่ทีมรีว
 
 | ข้อ | เรื่อง | โค้ดตรงกับข้อนี้เมื่อ PR ไหนเข้า |
 |---|---|---|
-| 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | 1b (เป้าหมายจำนวนคน), M (ที่เหลือ) |
+| 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | เป้าหมายจำนวนคนตรงแล้ว (PR 1b) ที่เหลือ: M |
 | 4, 5 | สถานะเคส, Transition, ฟังก์ชันคำนวณสถานะเคส | ตาราง Transition มี T1 ถึง T7 แล้วใน PR 0 ส่วนโค้ดที่ใช้เส้นใหม่: S, 2a, 2b, 3, 4 |
 | 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c, 2a, 2b, 3, 4, O |
 | 7 | Audit | M, 2a, 2b, 3, 4, O |
-| 9 | API | 1b (`gap.effective_minimum`), M, 2b, 4, O (กติกา `expires_at` ของการตอบ Offer) |
+| 9 | API | `gap.effective_minimum` ตรงแล้ว (PR 1b) ที่เหลือ: M, 2b, 4, O (กติกา `expires_at` ของการตอบ Offer) |
 
 เรื่องที่ยังอยู่ในร่างรอบ 1 ไม่ได้ย้ายเข้าไฟล์นี้ เลข Q ที่อ้างในไฟล์นี้คือคำถามในร่างรอบ 1 ข้อ 12
 
@@ -255,7 +255,7 @@ Body ที่เพิ่ม การตรวจตอนรับ และ 
 | `effective_minimum` | เป้าหมายจำนวนคน = `max(required_staff, minimum_staff)` เมื่อ `preserve_minimum_staffing` เปิด และ `required_staff` เมื่อปิด |
 | `headcount_gap` | `max(effective_minimum - current_valid_staff, 0)` |
 | `calculate_gap()` | รับ `required_staff` และ `minimum_staff` แทน `patient_count` และ `patients_per_nurse` |
-| สูตร `ceil` | แยกเป็นฟังก์ชันของตัวเอง ใช้ตอนเขียน `required_staff` (Seed และ PART B) |
+| สูตร `ceil` | `gap_calculator.required_staff_for()` ใช้ตอนเขียน `required_staff` (PART B ของ PR M) ค่า Seed เขียนเป็นตัวเลขตรง ๆ และมี Test ตรวจว่าตรงกับสูตร |
 | Snapshot ใน `STAFFING_GAP` | เก็บ `effective_minimum` คอลัมน์เดียว ลบ `patient_count` กับ `patients_per_nurse` `required_staff` และ `minimum_staff` อ่านผ่าน `staffing_requirement_id` ไม่เก็บซ้ำ |
 
 ```text
@@ -273,6 +273,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 * Golden Case ไม่เปลี่ยนผล: เวร 1 มี `required_staff = 5`, `minimum_staff = 4` เป้าหมายยังเป็น 5 และค่า Seed ตรงกับสูตรอยู่แล้ว (ผู้ป่วย 10 คน หาร 2 = 5, เวร 2 ผู้ป่วย 2 คน หาร 2 = 1)
 * Ratio ที่ใช้คือ `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` ค่าเดียวทั้งโรงพยาบาล โหลดด้วย `policy_service.get_hard_constraint_policy(db)` ซึ่งเลือก Policy `id=1` ตาม Seed ไม่มีค่า Default / Fallback ใน Calculator และไม่มีคอลัมน์ Ratio ใน WARD ค่านี้ไม่ใช่ `APPROVAL_POLICY.ratio` (ตัวคูณสำหรับ Auto-approval)
 * ตรวจ Role / Skill ตาม Requirement แยกจาก Headcount ขาดอย่างใดอย่างหนึ่งก็ถือว่ามี Gap แม้จำนวนคนจะเพียงพอแล้วก็ตาม
+* จนกว่า PR M เข้า ยังไม่มีโค้ดไหนเขียน `required_staff` ใหม่ ค่าจึงเป็นค่าจาก Seed ตลอด และการแก้ `SHIFT.patient_count` อย่างเดียวไม่เปลี่ยน Gap
 * ตรวจ Gap ด้วย `gap_service.assess_shift(db, shift)` ซึ่งโหลด Requirement ผ่าน `requirement_service.get_current_requirement()` (Seam 10) การปิด Window และขั้น `ASSESSING` ต้องเรียกฟังก์ชันเดียวกันนี้
 * `effective_minimum` คือค่าที่ส่งเข้าสูตร `headcount_gap` จริง `record_gap()` เขียนค่าที่ใช้คิด ไม่คิดใหม่ตอนบันทึก
 * `required_staff` ถูก UPDATE ในแถวเดิม ค่าที่อ่านผ่าน `staffing_requirement_id` จึงเป็นค่าปัจจุบัน ไม่ใช่ค่าตอนคิด Gap ค่าเดียวในแถว Gap ที่บอกเป้าหมายตอนคิดคือ `effective_minimum` ห้ามเอา `required_staff` / `minimum_staff` ของ Requirement มาแสดงคู่กับ Gap เก่าว่าเป็นค่าที่ใช้คิด (Q20)
@@ -564,7 +565,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | 8 | Approval → Roster | คน 3 | อนุมัติแล้วสร้าง Roster ของคนนั้นใน Transaction เดียวกับการอนุมัติ จาก Item ของ Request: `staff_id = item.staff_id`, `shift_id = item.proposed_shift_id`, `status = ASSIGNED`, `assignment_type = REPLACEMENT`, `candidate_source = item.source` ไม่ตรวจ Hard Rules ซ้ำ (Q38) จากนั้นยกเลิก Offer ของคนนั้นในเคสอื่นที่ขัดกับเวรใหม่ (ข้อ 6.8) Handler ของ `EXECUTING` เหลืองานปิดเคส |
 | 9 | Timeline | คน 1 | `GET /cases/{id}/audit` แถวที่ `case_id` เป็นเคสนี้ รวมกับแถวที่ `event_id` เป็น Event ของเคสนี้ เรียงด้วย `id` (ข้อ 3.7) |
 | 10 | Requirement ของเวร | คน 1 (รับ Event + Gap) | `STAFFING_REQUIREMENTS` ที่ `shift_id` ของเวรนั้น เรียง `id` จากมากไปน้อย เอาแถวแรก ไม่เจอ → Error ตารางนี้ไม่มี Unique ที่ `shift_id` จึงมีหลายเวอร์ชันได้ (Seed มีเวรละแถว) การปิด Window และ `assess_staffing` ต้องโหลดผ่าน**ฟังก์ชันเดียวกัน** เพื่อให้เห็น Requirement ตัวเดียวกันเสมอ แถว Gap เก็บ `id` นี้ใน `staffing_requirement_id` |
-| 11 | Gap → Solver | คน 1 → คน 2 | ฟังก์ชันเดียวใน `gap_service` อ่าน `STAFFING_GAP` ของเคสที่ `id` มากสุด พร้อมแถว Role / Skill ที่ `gap_count > 0` ให้ Solver และ Safety เรียก ไม่เขียน Query เอง รายละเอียดอยู่ร่างรอบ 1 ข้อ 8.3 |
+| 11 | Gap → Solver | คน 1 → คน 2 | `gap_service.get_case_gap(db, case_id)` คืน `CaseGap` (`gap`, `headcount_gap`, `role_gaps`, `skill_gaps` เป็น Dict จาก ID ไป `gap_count` เฉพาะตัวที่ขาด) ไม่เจอแถว → `GapNotFoundError` ฟังก์ชันนี้อ่าน `STAFFING_GAP` ของเคสที่ `id` มากสุด พร้อมแถว Role / Skill ที่ `gap_count > 0` ให้ Solver และ Safety เรียก ไม่เขียน Query เอง รายละเอียดอยู่ร่างรอบ 1 ข้อ 8.3 |
 
 ### 6.5 คอลัมน์เวลา
 
@@ -856,7 +857,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 | ขั้น | Stub ทำอะไร | ตารางที่เขียน |
 |---|---|---|
 | Event | ของจริงตั้งแต่ Skeleton ไม่ใช่ Stub: หนึ่ง Event เปิดหนึ่งเคสทันทีใน Request เดียว ไม่มี Window และรับเฉพาะ `STAFF_UNAVAILABLE` รายละเอียดอยู่ข้อ 8.1 PR M เปลี่ยนเป็นข้อ 3 | STAFFING_EVENTS, STAFF_UNAVAILABILITY, ROSTER_ASSIGNMENT, STAFFING_CASES |
-| Gap | โหลด Hard Policy `id=1` ผ่าน `policy_service`; ใช้ `gap_calculator` เทียบคนที่ `ASSIGNED` กับ `ceil(patient_count / policy.maximum_patients_per_nurse)` และ Role / Skill กับ Requirement; ใช้ `result.has_gap` แถว `STAFFING_GAP` ต้องเก็บ `patient_count` และ `patients_per_nurse` ค่าเดียวกับที่ส่งให้ `gap_calculator` ไม่อ่านจาก Shift / Policy ใหม่อีกรอบ (ข้อ 8.1) Handler `assess_staffing` เรียก `gap_service.assess_shift()` ตัวเดียวกับการรับ Event (Seam 10) แล้วบันทึกด้วย `gap_service.record_gap()`: `STAFFING_GAP` หนึ่งแถว (`computed_at = clock.now()`) และแถว Role / Skill ของทุกรายการใน Requirement รวมรายการที่ไม่ขาด จากนั้นเขียน `GAP_ASSESSED` โดย `role_gaps` / `skill_gaps` ใน payload เป็น List เรียงตาม ID ของ `{role_id หรือ skill_id, required_count, current_count, gap_count}` (ไม่ใช้ ID เป็น Key เพราะ JSON จะเปลี่ยนเป็นข้อความ) ถ้า `result.has_gap` เป็น False โยน `NoGapError` โดยไม่เขียนแถว เคสเป็น `FAILED` ตาม D11 (ข้อ 5 ไม่มี Transition ของกรณีนี้ และการรับ Event เปิดเคสเฉพาะเมื่อมี Gap ภายใต้ Lock ของเวรเดียวกัน จึงไม่เกิดใน Golden Path) PR 1b เปลี่ยนเป้าหมายจำนวนคนเป็น `effective_minimum` และลบสองคอลัมน์ Snapshot นี้ (ข้อ 3.6) | STAFFING_GAP (+ ROLE, SKILL) |
+| Gap | ของจริงตั้งแต่ PR 1b ไม่ใช่ Stub: `gap_service.assess_shift()` โหลด Requirement ปัจจุบันของเวร (Seam 10) และ Hard Policy `id=1` แล้วส่ง `required_staff`, `minimum_staff` และธง `preserve_minimum_staffing` ให้ `gap_calculator.calculate_gap()` ซึ่งคิด `effective_minimum` และ `headcount_gap` ตามข้อ 3.6 และเทียบ Role / Skill กับ Requirement ใช้ `result.has_gap` Handler `assess_staffing` เรียก `assess_shift()` ตัวเดียวกับการรับ Event แล้วบันทึกด้วย `gap_service.record_gap()`: `STAFFING_GAP` หนึ่งแถว (`effective_minimum` = ค่าที่ใช้คิดจริง, `computed_at = clock.now()`) และแถว Role / Skill ของทุกรายการใน Requirement รวมรายการที่ไม่ขาด จากนั้นเขียน `GAP_ASSESSED` โดย `role_gaps` / `skill_gaps` ใน payload เป็น List เรียงตาม ID ของ `{role_id หรือ skill_id, required_count, current_count, gap_count}` (ไม่ใช้ ID เป็น Key เพราะ JSON จะเปลี่ยนเป็นข้อความ) ถ้า `result.has_gap` เป็น False โยน `NoGapError` โดยไม่เขียนแถว เคสเป็น `FAILED` ตาม D11 (ข้อ 5 ไม่มี Transition ของกรณีนี้ และการรับ Event เปิดเคสเฉพาะเมื่อมี Gap ภายใต้ Lock ของเวรเดียวกัน จึงไม่เกิดใน Golden Path) | STAFFING_GAP (+ ROLE, SKILL) |
 | Solver | เริ่มจากผู้สมัคร 3 คนตายตัวตาม Golden Case แล้วตัดคนที่ไม่ `ACTIVE`, มี Roster ในเวรของเคสที่สถานะอยู่ใน `COMMITTED_ROSTER_STATUSES` หรือมี `STAFF_UNAVAILABILITY` ชนช่วงเวลาของเวรนั้น (`end_at` เป็น NULL = ไม่พร้อมตั้งแต่ `start_at`) ออก กติกาอยู่ใน `services/availability_service.py` ใช้ร่วมกับ Safety ไม่เช็กเวรอื่นที่เวลาชนกัน (Hard Rules ของจริงทำภายหลัง) กฎข้อที่ 4 เฉพาะ Solver: ตัดคนที่มี Offer ค้างอยู่ คือ `CANDIDATE_OUTREACH` ที่ `SENT` (ของเคสไหนก็ได้ เพราะการตอบ Offer ของ Skeleton ต้องเจอ Offer `SENT` ของผู้ตอบหนึ่งแถวพอดี ถ้ามีสองแถว ทั้งสองเคสจะค้างที่ `WAITING_RESPONSE`) หรือ `ACCEPTED` ที่เคสยังไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` กฎนี้อยู่ใน `optimization_service` ไม่อยู่ใน `availability_service` เพราะผู้สมัครที่ Safety เช็กมี Offer `ACCEPTED` ของตัวเองเสมอ ก่อนเช็กกติกา Solver ล็อกแถว `STAFF` ของผู้สมัคร (`FOR NO KEY UPDATE` เรียงตาม `id`) จนรอบนั้น Commit ที่ `WAITING_RESPONSE` เคสที่วางแผนพร้อมกันจะรอแล้วเห็น Offer ของเคสแรก จึงไม่เลือกคนเดียวกัน ใส่ `rank` ใหม่ 1, 2, 3 ต่อกัน `solver_status = FEASIBLE`, `solver_version = "stub"` ถ้าไม่เหลือใครเลย โยน `NoCandidatesError` โดยไม่เขียน Plan เคสเป็น `FAILED` ตาม D11 เส้น T6 (`OPTIMIZING → MANUAL_HANDOFF`) มีในข้อ 5.1 แล้ว แต่โค้ดยังไม่ใช้จนกว่า PR 2a เข้า PR 2a ยังแทนกฎข้อที่ 4 ด้วยเพดาน Offer (ข้อ 6.7) | CANDIDATE_PLANS, CANDIDATE_ITEMS |
 | Outreach | สร้าง Outreach ให้ Item ที่ `rank = 1` ของ Plan ล่าสุด หนึ่งแถวพอดี สถานะ `SENT` ไม่ส่ง LINE จริง PR 2b เปลี่ยนเป็นส่งทั้ง Wave (ข้อ 6.6) | CANDIDATE_OUTREACH |
 | Response | LINE Simulator ส่ง `ACCEPT` → `ACCEPTED` แล้วเรียก `orchestrator.resume(db, case_id, SAFETY_VALIDATION)` ตอบได้เฉพาะ Offer `SENT` บนเคสที่อยู่ `WAITING_RESPONSE` ซึ่งต้องมีหนึ่งแถวพอดี `REJECT` ตอบ `422` ไม่เขียน DB PR 2b เปลี่ยนเป็นข้อ 9.2 | CANDIDATE_OUTREACH |
@@ -914,21 +915,11 @@ POST /events
   (Seam 10) ขั้น `ASSESSING` ต้องเรียกฟังก์ชันเดียวกันนี้
 * ขั้นตอน 1–3 อยู่ใน Transaction เดียว ถ้าพังกลางทาง Event ไม่ถูกบันทึกเลย
 * `STAFF.status` ของคนที่ลาไม่เปลี่ยน (ยังเป็น `ACTIVE`)
-* เป้าหมายจำนวนคนมาจากภาระงาน: `minimum_required_staff = ceil(SHIFT.patient_count / patients_per_nurse)`
-  และ `headcount_gap = max(minimum_required_staff - current_valid_staff, 0)`
-  ใน Skeleton `current_valid_staff` คือคนไม่ซ้ำที่มี Roster `ASSIGNED` ในเวรนั้น
-  ใน Skeleton ใช้ `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` เป็น Ratio เดียวทั้งโรงพยาบาล
-  ทั้ง `event_service` และ `assess_staffing` โหลดด้วย `policy_service.get_hard_constraint_policy(db)`
-  ซึ่งเลือก Policy `id=1` ตาม Seed แล้วส่ง `patients_per_nurse=policy.maximum_patients_per_nurse`
-  ให้ `calculate_gap()`; ไม่มีค่า Default / Fallback ใน Calculator และไม่มีคอลัมน์ Ratio ใน WARD
-  ค่านี้ไม่ใช่ `APPROVAL_POLICY.ratio` (ตัวคูณสำหรับ Auto-approval)
+* เป้าหมายจำนวนคนและ Snapshot ของ Gap เป็นไปตามข้อ 3.6 แล้วตั้งแต่ PR 1b: `effective_minimum` จาก `required_staff`, `minimum_staff` และธง `preserve_minimum_staffing` ไม่ได้คิดจาก `SHIFT.patient_count` ตรง ๆ อีก
 * ตรวจ Role / Skill ตาม Requirement แยกจาก Headcount; ขาดอย่างใดอย่างหนึ่งก็ถือว่ามี Gap
   แม้จำนวนคนจะเพียงพอตาม Ratio แล้วก็ตาม
 * Skeleton ตรึง Hard Policy `id=1` ตลอด Demo ไม่แก้ค่าระหว่างที่มีเคสทำงาน; การเลือกเวอร์ชันตาม
   `effective_from` และ Ratio แยก Ward เป็นงานภายหลัง
-* `STAFFING_GAP` เก็บ Snapshot ของ Input ที่ใช้คำนวณไว้กับแถว: `patient_count` (จาก `SHIFT.patient_count`)
-  และ `patients_per_nurse` (จาก `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse`) ผู้เขียนแถว Gap ต้องใส่ค่าที่ส่งให้
-  `gap_calculator` จริง ไม่อ่านจาก Shift / Policy ใหม่อีกรอบ จึงย้อนตรวจ Gap แต่ละแถวได้แม้ค่าทั้งสองเปลี่ยนภายหลัง
 * `STAFFING_GAP` ยังไม่มี FK ไป Hard Policy (ต่างจาก `CANDIDATE_PLANS` / `SAFETY_VALIDATION`); การอ้างเวอร์ชันของ Policy โดยตรงเป็นงานภายหลัง
 * `PLANNED_LEAVE` (ลาที่ไม่ชนเวรที่มี Roster) ไม่สร้าง Event และ `NO_SHOW` (ระบบสร้างเองจาก `ATTENDANCE`) อยู่นอก Skeleton ดูข้อ 12
 
@@ -1102,7 +1093,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 ```
 
 * `event_ids` คือ Event ทุกตัวของเคส อ่านจาก `STAFFING_EVENTS.case_id` เรียงตาม `id` แทน `event_id` ตัวเดียวของ Skeleton (Q36, PR M)
-* `gap.effective_minimum` คือเป้าหมายจำนวนคนที่ใช้คิด Gap แถวนั้น (ข้อ 3.6, PR 1b) ไม่คืน `required_staff` กับ `minimum_staff`
+* `gap.effective_minimum` คือเป้าหมายจำนวนคนที่ใช้คิด Gap แถวนั้น (ข้อ 3.6) ไม่คืน `required_staff` กับ `minimum_staff`
   เพราะ Requirement ถูก UPDATE ในแถวเดิม ค่าที่อ่านได้อาจไม่ใช่ค่าตอนคิด (Q20)
 * `gap` เป็น `null` จนกว่าขั้น `ASSESSING` จะบันทึก `STAFFING_GAP` ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
   ใน `roles` / `skills` ฟิลด์ `id` คือ Role ID / Skill ID
@@ -1259,7 +1250,7 @@ Golden Case ใช้ `HARD_CONSTRAINT_POLICY(id=1).maximum_patients_per_nurse =
 ค่านี้เป็น Ratio เดียวทั้งโรงพยาบาลสำหรับ Skeleton ไม่ใช่ค่า Auto-approval
 `required_staff` เป็นจำนวนคนที่ต้องการตามภาระงาน ค่า Seed ตรงกับสูตร `ceil(patient_count / patients_per_nurse)`
 และ `minimum_staff` เป็นจำนวนขั้นต่ำคงที่ของเวร รอบ 1 ใช้ทั้งสองค่าตัดสิน Headcount Gap ผ่าน `effective_minimum` (ข้อ 3.6)
-เวร 1: `max(5, 4) = 5` ผลของ Golden Case จึงเท่าเดิม จนกว่า PR 1b เข้า โค้ดยังคิดจาก Patient Count ตรง ๆ
+เวร 1: `max(5, 4) = 5` ผลของ Golden Case จึงเท่าเดิม
 ส่วน `STAFFING_REQUIREMENT_ROLE` / `STAFFING_REQUIREMENT_SKILL` ใช้คำนวณ Role / Skill Gap
 
 **ROSTER_ASSIGNMENT**
@@ -1374,5 +1365,6 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-10 | Issue #26: LINE Sim ต้องส่ง `outreach_id` ของ Offer ที่เห็น; Service เทียบ ID หลังล็อกและก่อนเขียนข้อมูล ตอบ `409` เมื่อ Offer เปลี่ยน Frontend ส่ง ID และ Refresh หลัง Conflict; เพิ่ม Test Stale Offer, สิทธิ์ผู้ตอบ, Validation และคง Race / E2E | คน 3 |
 | 2026-10-12 | รอบ 1 PR 0: ย้ายกติกาจาก `docs/round1/round1-contract-draft.md` เข้าข้อ 3 (Window, Threshold, Event สี่ชนิด, `effective_minimum`), ข้อ 4 และ 5 (สถานะรายคน, T1 ถึง T7, `decide_status()` / `recompute()`), ข้อ 6.4 ถึง 6.11 (Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock), ข้อ 7 (Audit ทุก Action และลำดับของแต่ละกรณี) และข้อ 9.2 (คำตอบของ API ที่เปลี่ยน แทนส่วน `422` เดิม); `transitions.py` เพิ่ม T1 ถึง T7 โดยสองเส้นของ `SAFETY_VALIDATION` ยังอยู่; `enums.py` เพิ่ม `AuditAction` 3 ค่า และ `EntityType` 2 ค่า; ยังไม่เปลี่ยนพฤติกรรม | คน 1 |
 | 2026-10-12 | รอบ 1 PR 0 ตามรีวิว: ข้อ 8 เขียนใหม่ให้ตรงกับโค้ดปัจจุบัน ทุกแถวบอกพฤติกรรมของ Skeleton และ PR ที่จะมาเปลี่ยน; เพิ่มข้อ 8.1 เก็บการรับ Event ของ Skeleton จนกว่า PR M เข้า; Seam 5 กำหนดให้ PR 3 เป็นเจ้าของการสร้าง `APPROVAL_REQUEST` และการเขียน `APPROVAL_REQUESTED` ผ่านฟังก์ชันใน `approval_service`; PR 3 ลบการเรียก `assert_available()` ใน `roster_service` ด้วย; ตารางสถานะของรอบ 1 เพิ่ม PR 1b, 2a, O; `MANUAL_HANDOFF` มี `skipped` ใน payload | คน 1 |
+| 2026-10-12 | รอบ 1 PR 1b: `calculate_gap()` รับ `required_staff`, `minimum_staff` และธง `preserve_minimum_staffing` แทน `patient_count` และ `patients_per_nurse`; เพิ่ม `required_staff_for()` (สูตร `ceil`) และ `effective_minimum_for()`; `STAFFING_GAP` เพิ่ม `effective_minimum` และลบ `patient_count`, `patients_per_nurse` พร้อม CHECK (Migration `d5e8f20b63a4` ไม่ Backfill ทั้งขาขึ้นและขาลง หยุดถ้ามีแถวเก่า ให้ `make reset`); เพิ่ม `gap_service.get_case_gap()` สำหรับ Solver และ Safety (Seam 11); `GET /cases/{id}` คืน `gap.effective_minimum`; ข้อ 8 แถว Gap และข้อ 8.1 ปรับตาม | คน 1 |
 | 2026-10-12 | รอบ 1 PR 1a: ตัวตรวจ Hard Rules 11 รหัสใน `domain/constraints/` (`codes.py`, `context.py`, `hard_rules.py`, `evaluator.py`) เป็น Pure Function คืนรหัสที่ไม่ผ่านทุกข้อเรียงตามตารางในร่างรอบ 1 ข้อ 7.2 พร้อม `checked_rules` และ `details` ตามข้อ 7.4 ยังไม่มีใครเรียก Solver, Safety และ `availability_service` ยังทำงานตามข้อ 8 จนกว่า PR 2a และ 3 เข้า; Migration `e1f5a8b3c6d2` เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_consecutive_shifts` (Seed และ Backfill = 7) และ CHECK ของ `ATTENDANCE.overtime_minutes` ทุกคน `make reset` หลัง merge | คน 2 |
 | 2026-10-12 | รอบ 1 PR 1a ตามรีวิว: ผู้สมัครที่ไม่ได้ถูกเลือกมาเติม Role ใด (เติมจำนวนคนหรือ Skill อย่างเดียว) ต้องมี Role ที่ Requirement ของเวรมี ผู้เรียกตัวตรวจส่ง Role ของ Requirement เป็น `target_role_ids` ไม่ส่ง Set ว่าง (ร่างรอบ 1 ข้อ 7.2 Q55 และ 8.3) Logic ของตัวตรวจไม่เปลี่ยน เพิ่ม Test ของกรณีนี้; ตารางสถานะของรอบ 1 ระบุว่าตัวตรวจมีแล้วแต่ยังไม่มีผู้เรียก | คน 2 |

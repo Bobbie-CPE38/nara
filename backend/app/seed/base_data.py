@@ -6,7 +6,10 @@ incoming count 10. Auto-approval activates above twice the ward's required
 nurse-to-patient ratio; incoming count refers to staff awaiting head nurse or
 nurse supervisor approval. The count's comparison rule is still deferred.
 The skeleton uses fixed candidates and MANUAL approval, not these parameters.
-Hard policy maximum_patients_per_nurse (2) is used by the real gap calculator.
+Hard policy maximum_patients_per_nurse (2) is the ratio behind the seeded
+required_staff of each shift. The gap reads required_staff, not the ratio;
+required_staff_for() applies the ratio and has no caller in app code until the
+merge window (round 1 PR M). preserve_minimum_staffing is read by the gap.
 """
 
 from decimal import Decimal
