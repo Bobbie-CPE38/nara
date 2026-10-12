@@ -52,8 +52,8 @@ def test_migration_follows_the_outreach_policy_migration() -> None:
     migration = _migration()
 
     assert migration.down_revision == PARENT_REVISION
-    heads = ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_heads()
-    assert heads == [REVISION]
+    # One head, whichever it is: a later migration must not have to edit this test
+    assert len(ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_heads()) == 1
 
 
 def test_downgrade_and_upgrade_round_trip_on_an_empty_database(db: Session) -> None:

@@ -36,6 +36,7 @@ def _case_and_requirement(db: Session) -> tuple[int, int]:
         occurred_at=DEMO_NOW,
         staff_id=LEAVING_STAFF_ID,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     db.add(event)
     db.flush()

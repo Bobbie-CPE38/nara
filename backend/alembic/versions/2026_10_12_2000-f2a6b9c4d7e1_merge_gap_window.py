@@ -72,6 +72,11 @@ def upgrade() -> None:
     op.add_column(
         "staffing_events", sa.Column("processed_at", sa.DateTime(timezone=True), nullable=True)
     )
+    op.create_check_constraint(
+        op.f("ck_staffing_events_processed_at_matches_status"),
+        "staffing_events",
+        "(status = 'RECEIVED') = (processed_at IS NULL)",
+    )
     op.add_column("staffing_events", sa.Column("case_id", sa.BigInteger(), nullable=True))
     op.create_foreign_key(
         op.f("fk_staffing_events_case_id_staffing_cases"),
@@ -102,6 +107,9 @@ def downgrade() -> None:
         op.f("fk_staffing_events_case_id_staffing_cases"), "staffing_events", type_="foreignkey"
     )
     op.drop_column("staffing_events", "case_id")
+    op.drop_constraint(
+        op.f("ck_staffing_events_processed_at_matches_status"), "staffing_events", type_="check"
+    )
     op.drop_column("staffing_events", "processed_at")
 
     op.add_column("staffing_cases", sa.Column("event_id", sa.BigInteger(), nullable=False))

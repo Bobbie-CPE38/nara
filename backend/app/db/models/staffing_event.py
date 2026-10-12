@@ -23,6 +23,11 @@ class StaffingEvent(Base):
             f"(event_type IN ({_STAFF_EVENT_TYPES_SQL})) = (staff_id IS NOT NULL)",
             name="staff_id_matches_event_group",
         ),
+        # A waiting event has no close time; a closed one always has
+        CheckConstraint(
+            "(status = 'RECEIVED') = (processed_at IS NULL)",
+            name="processed_at_matches_status",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

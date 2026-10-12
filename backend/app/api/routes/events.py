@@ -16,6 +16,7 @@ from app.services.event_service import (
     NotHeadNurseError,
     ShiftNotFoundError,
 )
+from app.services.requirement_service import RequirementNotFoundError
 from app.services.unavailability_service import NoAssignedRosterError
 
 router = APIRouter(prefix="/events", tags=["events"])
@@ -63,6 +64,9 @@ def create_event(body: EventCreate, db: DbSession, user: DemoUser) -> EventResul
         )
     except ShiftNotFoundError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
+    except RequirementNotFoundError as error:
+        # The shift is not set up for staffing yet: its window could never close
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
     except NotHeadNurseError as error:
         raise HTTPException(status.HTTP_403_FORBIDDEN, str(error)) from error
     except NoAssignedRosterError as error:

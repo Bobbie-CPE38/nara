@@ -214,6 +214,7 @@ def _case_with_gap(db: Session, *cancelled_staff: int) -> StaffingCase:
         occurred_at=shift.start_at,
         staff_id=cancelled_staff[0],
         status=EventStatus.PROCESSED,
+        processed_at=shift.start_at,
     )
     db.add(event)
     db.flush()

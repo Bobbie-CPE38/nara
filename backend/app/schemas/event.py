@@ -2,7 +2,7 @@ from typing import Self
 
 from pydantic import AwareDatetime, BaseModel, Field, model_validator
 
-from app.core.constants import MAX_BIGINT
+from app.core.constants import MAX_BIGINT, MAX_EVENT_REASON_LENGTH
 from app.domain.enums import CaseStatus, EventStatus, EventType
 
 # The count columns are PostgreSQL integer: a larger number would fail in the database
@@ -41,7 +41,7 @@ class EventCreate(BaseModel):
     end_at: AwareDatetime | None = None
     # ASSIGNMENT_CANCELLED: whose assignment is cancelled, and why
     staff_id: int | None = Field(default=None, gt=0, le=MAX_BIGINT)
-    reason: str | None = None
+    reason: str | None = Field(default=None, max_length=MAX_EVENT_REASON_LENGTH)
     # PATIENT_SURGE: the new total of the shift, not a difference
     patient_count: int | None = Field(default=None, ge=0, le=MAX_INTEGER)
     # REQUIREMENT_CHANGED: new counts of roles and skills the requirement already has

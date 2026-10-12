@@ -50,6 +50,7 @@ def _request(
             staff_id=105,
             occurred_at=DEMO_NOW,
             status=EventStatus.PROCESSED,
+            processed_at=DEMO_NOW,
         )
         db.add(event)
         db.flush()

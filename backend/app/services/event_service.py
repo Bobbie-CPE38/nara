@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock
+from app.core.constants import HEAD_NURSE_ROLE, MAX_EVENT_REASON_LENGTH
 from app.db.models import Role, Shift, StaffingCase, StaffingEvent
 from app.domain.enums import (
     STAFF_EVENT_TYPES,
@@ -40,10 +41,6 @@ from app.services import (
     unavailability_service,
 )
 from app.services.merge_window_service import REPORTED_BY
-
-# The role that may report an event about someone or something else. The same
-# role approves a replacement (docs/workflow.md, section 3.4)
-HEAD_NURSE_ROLE = "HEAD_NURSE"
 
 
 class EventNotFoundError(LookupError):
@@ -96,10 +93,15 @@ def receive_event(
       * REQUIREMENT_CHANGED: `roles` and `skills`, ID to new required count.
 
     Every check runs before the first write, so a rejected request leaves no
-    trace: ShiftNotFoundError, InvalidLeaveEndError, InvalidEventDetailsError,
-    NotHeadNurseError and unavailability_service.NoAssignedRosterError.
+    trace: ShiftNotFoundError, requirement_service.RequirementNotFoundError,
+    InvalidLeaveEndError, InvalidEventDetailsError, NotHeadNurseError and
+    unavailability_service.NoAssignedRosterError.
     """
     shift = merge_window_service.lock_shift(db, shift_id)
+    # Closing the window needs the requirement for the threshold and the gap.
+    # Without one the close would fail every time, the event would stay
+    # RECEIVED, and every later event of the shift would queue behind it
+    requirement_service.get_current_requirement(db, shift.id)
     if event_type is EventType.STAFF_UNAVAILABLE:
         subject_staff_id: int | None = staff_id
         payload = _leave_details(shift, end_at)
@@ -195,6 +197,10 @@ def _cancellation_details(
         raise InvalidEventDetailsError("staff_id of the cancelled person is required")
     if reason is None or not reason.strip():
         raise InvalidEventDetailsError("reason is required")
+    if len(reason.strip()) > MAX_EVENT_REASON_LENGTH:
+        raise InvalidEventDetailsError(
+            f"reason must be at most {MAX_EVENT_REASON_LENGTH} characters"
+        )
     return target_staff_id, {"reason": reason.strip()}
 
 

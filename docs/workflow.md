@@ -216,6 +216,7 @@ Body ที่เพิ่ม การตรวจตอนรับ และ 
 * "Head Nurse" ตรวจด้วย Role เดียวกับผู้อนุมัติใน `approval_service` (`403` แบบเดียวกัน)
 * `REQUIREMENT_CHANGED` แก้ได้แค่จำนวนของ Role / Skill ไม่แก้ `minimum_staff` และ `required_staff` (ตัวหลังมาจากสูตร)
 * แถว Audit ทั้งสามใส่ `event_id` แบบเดียวกับ `UNAVAILABILITY_CREATED` (Q33)
+* `reason` ของ `ASSIGNMENT_CANCELLED` เป็นข้อความที่ Head Nurse พิมพ์ ยาวได้ไม่เกิน 500 ตัวอักษร (`MAX_EVENT_REASON_LENGTH`) เกินตอบ `422` ข้อความนี้ถูกเก็บใน payload ของ Event และของ Audit ข้อห้ามในข้อ 6.3 คือเหตุผลการลาของพนักงาน ซึ่งเป็นข้อมูลส่วนตัว ส่วนข้อความนี้เป็นเหตุผลของการตัดสินใจด้านการจัดเวร แบบเดียวกับ `reason` ของการอนุมัติ (ข้อ 7.2) จึงเก็บได้ ผู้กรอกต้องไม่ใส่เหตุผลการลาหรือข้อมูลผู้ป่วยลงไป
 * Body รับเฉพาะ Field ของชนิดนั้น ส่ง Field ของชนิดอื่นมาด้วยตอบ `422` เช่น `patient_count` กับ `STAFF_UNAVAILABLE` และ Role / Skill ตัวเดียวกันซ้ำสองรายการใน `REQUIREMENT_CHANGED` ก็ตอบ `422`
 * `STAFFING_EVENTS.staff_id` คือคนที่ Event พูดถึง: คนที่ลา (`STAFF_UNAVAILABLE`) หรือคนที่ถูกยกเลิก (`ASSIGNMENT_CANCELLED`) อีกสองชนิดเป็น NULL ตาม CHECK ของตาราง ผู้แจ้งของสามชนิดที่ Head Nurse แจ้งจึงเก็บใน payload ที่ Key `reported_by` (Staff ID) PART B ใช้ค่านี้เป็น Actor ของแถว Audit เพราะตอน Window ปิดไม่มี Request ของผู้แจ้งแล้ว
 * รูปของ payload ที่ PART A เก็บ
@@ -239,10 +240,13 @@ Body ที่เพิ่ม การตรวจตอนรับ และ 
   | `shift_id` อยู่ในช่วง `bigint` (1 ถึง 9223372036854775807) | `422` |
   | Field ของชนิดนั้นครบและถูกรูปแบบ ไม่มี Field ของชนิดอื่น (ตรวจจาก Body อย่างเดียว) | `422` |
   | มี Shift ID นั้น | `404` |
+  | เวรมีแถว `STAFFING_REQUIREMENTS` (ทุกชนิด) | `409` |
   | ผู้แจ้งเป็น Head Nurse (เฉพาะสามชนิดที่ Head Nurse แจ้ง) | `403` |
   | การตรวจที่ต้องอ่าน DB ของชนิดนั้น | ตามคอลัมน์ "ตรวจตอนรับ" ของตารางในข้อ 3.4: `422` (`end_at` ไม่หลังเวลาเริ่มเวร, id ไม่อยู่ใน Requirement ของเวร) และ `409` (ไม่มี Roster `ASSIGNED`) |
 
   `404` มาก่อน `403`: คนที่ไม่ใช่ Head Nurse ส่งเวรที่ไม่มีอยู่ได้ `404`
+
+  เหตุผลของ `409`: PART B ต้องใช้ Requirement ตรวจ Threshold และคิด Gap ถ้าเวรไม่มี Requirement การปิด Window จะพังทุกรอบ Event ค้าง `RECEIVED` และ Event ตัวถัดไปของเวรนั้นต่อคิวตามไม่มีวันถูกปิด จึงปฏิเสธตั้งแต่ตอนรับ Seed ให้ทุกเวรมี Requirement กรณีนี้จึงเกิดกับข้อมูลที่ตั้งค่าไม่ครบเท่านั้น
 
 * การตรวจว่าผู้แจ้งมี Roster `ASSIGNED` ในเวรนั้นทำตอนรับ Event แต่ไม่กันการแจ้งซ้ำใน Window เดียวกัน เพราะ Roster ยังไม่ถูกยกเลิกจนกว่า Window ปิด (Q41) Event ที่ซ้ำถูกจับใน PART B: ตัวที่สองไม่มี Roster ให้ยกเลิก จึงเป็น `IGNORED` เฉพาะตัวนั้น (Q44)
 * PART A และ PART B ล็อกแถว `SHIFT` ตัวเดียวกันด้วย `SELECT ... FOR NO KEY UPDATE` และถือ Lock จน Commit PART B ล็อก `SHIFT` ก่อนแล้วจึงแก้ Roster (ข้อ 6.11)
@@ -318,7 +322,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 * Job เป็น Service แยกใน `docker-compose.yml` ทำหน้าที่จับรอบอย่างเดียว ทุก 30 วินาทีเรียก Route ภายใน `POST /internal/merge-windows/close-due` ของ Backend Route นี้กันด้วย Secret ใน Header `X-Internal-Secret` ค่าอ่านจาก env `INTERNAL_JOB_SECRET` ไม่ Commit ลง Repo (Q35)
   * Header ไม่มีหรือไม่ตรง ตอบ `401` ถ้า Backend ไม่ได้ตั้ง `INTERNAL_JOB_SECRET` Route ตอบ `503` ทุกคำขอ ไม่มีค่าไหนเปิดได้ (ไม่ตั้ง = ปิด ไม่ใช่เปิด)
   * ค่าต้องยาวอย่างน้อย 8 ตัวอักษร `docker-compose.yml` และ `.env.example` ใส่ค่า `local-dev-only` ไว้สำหรับเครื่องพัฒนาเท่านั้น แบบเดียวกับรหัสผ่านของ PostgreSQL ที่อื่นต้องตั้งค่าเอง
-  * Service ชื่อ `job` รัน `python -m app.jobs.ticker` ใช้แค่ Standard Library ไม่ติดตั้งอะไรและไม่ต่อ DB ปรับรอบได้ด้วย env `JOB_INTERVAL_SECONDS`
+  * Service ชื่อ `job` รัน `python -m app.jobs.ticker` ใช้แค่ Standard Library ไม่ติดตั้งอะไรและไม่ต่อ DB ปรับรอบได้ด้วย env `JOB_INTERVAL_SECONDS` ซึ่งต้องเป็นตัวเลขตั้งแต่ 1 ขึ้นไป ค่าอื่นทำให้ Service หยุดพร้อมข้อความ การเรียกที่ล้มเหลวทุกแบบ รวม Backend รีสตาร์ตกลางคำขอ ไม่ทำให้ Service ล้ม รอบถัดไปเรียกใหม่
 * Backend เป็นคนตัดสินว่าเวรไหนถึงเวลาปิด ด้วยนาฬิกาของ Backend เอง เพราะเวลาของ Demo ที่ถูกหยุดไว้อยู่ในหน่วยความจำของ Process ของ Backend (`core/clock.py`) Service แยกเห็นแต่เวลาจริง
 * `POST /demo/clock/advance` เลื่อน Clock ของ Demo แล้วเรียกฟังก์ชันปิด Window ตัวเดียวกับ Job เพราะเลื่อนนาฬิกาอย่างเดียว Job ไม่รันเอง
 * ทั้ง Route ของ Job และ Route เลื่อน Clock เรียก `job_service.run_due_work(db)` ตัวเดียวกัน ซึ่งปิด Window ที่ถึงเวลาทีละเวร หนึ่ง Transaction ต่อเวร เวรที่ปิดไม่สำเร็จถูก Rollback และข้ามไป เวรอื่นไม่ได้รับผล
@@ -327,7 +331,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 ### 3.9 ข้อจำกัดที่รู้
 
 * แก้ `merge_window_seconds` ของเวรขณะ Window เปิดอยู่ เวลาปิดเลื่อนตาม เพราะไม่ได้เก็บเวลาปิดไว้
-* ถ้า PART B พังกับเวรไหน Event ของเวรนั้นค้าง `RECEIVED` และ Job ลองใหม่ทุกรอบ
+* ถ้า PART B พังกับเวรไหน Event ของเวรนั้นค้าง `RECEIVED` และ Job ลองใหม่ทุกรอบ รอบ 1 ไม่มีการเลิกลองเอง: Window นั้นยังเปิดอยู่ Event ใหม่ของเวรนั้นเข้าคิวต่อ และ Backend เขียน Log ระดับ Error ทุกรอบจนกว่าจะมีคนแก้ต้นเหตุ เหตุผลที่ไม่ตั้ง Event เป็น `IGNORED` เอง: การลาหรือการเพิ่มผู้ป่วยที่แจ้งมาจะหายไปเงียบ ๆ ทั้งที่เวรอาจขาดคนจริง ต้นเหตุที่รู้ตอนนี้คือเวรไม่มี Requirement ซึ่งถูกปฏิเสธตั้งแต่ตอนรับแล้ว (ข้อ 3.5)
 * ระหว่างที่เคสของเวรยังเดินอยู่ Event ใหม่ของเวรนั้นไม่ถูกทำอะไร Offer มี Timeout (ข้อ 6.9) แต่การอนุมัติไม่มี เคสที่ค้างรออนุมัติจึงเดินได้นาน คนที่แจ้งลาช่วงนั้นยังเป็น `ASSIGNED` ใน Roster (Q41) และการขาดคนเพิ่มยังไม่ถูกหาคนแทนจนกว่าเคสแรกจบ
 * ตอน Window = 0 ถ้าเวรมีเคสเดินอยู่ `POST /events` ตอบ `RECEIVED` ไม่ได้เคสทันที Test ที่ให้สองคนลาเวรเดียวกันแล้วคาดสองเคสทันทีต้องแก้
 * ตอน Window = 0 กับ Clock ที่หยุดนิ่งของ Demo Event คนละชุดของเวรเดียวกันได้ `processed_at` เท่ากันได้ ยอมรับ เพราะตอน Window = 0 หนึ่ง Event คือหนึ่งชุดอยู่แล้ว
@@ -1414,3 +1418,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-12 | รอบ 1 PR S: เพิ่ม `domain/workflow/case_status.py` (`CaseFacts`, `decide_status()`, `GapNeeds`, `GapFiller`, `gap_closed()`), `services/case_facts_service.py` (`load_case_facts()`, `has_open_offer()`, `staff_waiting_on_another_case()`) และ `orchestrator.recompute()`; ข้อ 5.3 ระบุว่าใครนับเป็นได้เข้าเวรแล้ว / รออนุมัติ, นิยามของ Offer ที่ถูกพักในโค้ด และความล้มเหลวใน `recompute()` เป็น `FAILED` ตาม D11; Test ว่า `MANUAL_HANDOFF` จาก Handler หยุดรอบเอง และ T1 / T4 เข้า `OUTREACH` แล้วไม่วน; ยังไม่มีผู้เรียก จึงยังไม่เปลี่ยนพฤติกรรม; Fixture `stub_handlers` ยังมี Stub ของ `SAFETY_VALIDATION` จนกว่า PR 3 ลบ Handler นั้น | คน 1 |
 | 2026-10-12 | รอบ 1 PR S ตามรีวิว: `CaseFacts` เพิ่ม `has_uncontacted_candidate`, `has_pending_approval`, `has_paused_offer` และ `decide_status()` เพิ่มกฎข้อ 5 ถึง 7 ให้เคสที่ไม่เหลือใครให้ติดต่อแต่ยังมีสิ่งที่ต้องรออยู่ที่จุดรอเดิมโดยไม่เขียนอะไร; เคสที่ได้คนครบตอนอยู่ `WAITING_RESPONSE` ผ่าน `WAITING_APPROVAL` ไป `EXECUTING` ไม่เป็น `FAILED`; "ได้เข้าเวรแล้ว" นับแถว Roster ที่ `COMPLETED` ด้วย; Offer ที่ถูกพักไม่นับ Offer ที่คำขออนุมัติตัดสินแล้วหรือ Safety ไม่ผ่าน โดยไม่พึ่งว่า Offer ถูกตั้งเป็น `CANCELLED`; ตัวอ่านปิด Autoflush เอง; ลบ `GapNeeds` และใช้ `gap_service.load_skill_sets()` ร่วมกัน; ข้อ 5.3 ระบุข้อจำกัดของการนับและเหตุที่ `recompute()` ยังรันกับ Handler ของ Skeleton ไม่ได้ | คน 1 |
 | 2026-10-12 | รอบ 1 PR M: Migration `f2a6b9c4d7e1` (`SHIFT.merge_window_seconds`, `STAFFING_EVENTS.processed_at` + `case_id`, `AUDIT_LOG.event_id`, ลบ `STAFFING_CASES.event_id`) ทุกคนต้อง `make reset`; `event_service.receive_event()` เหลือ PART A และรับ Event สี่ชนิด; เพิ่ม `merge_window_service` (PART B), `domain/staffing/threshold.py`, `job_service`, `jobs/ticker.py` และ Service `job` ใน `docker-compose.yml`; Route ใหม่ `GET /events/{event_id}`, `POST /demo/clock/advance`, `POST /internal/merge-windows/close-due`; `audit_service.log()` รับ `event_id`; Case API ตอบ `event_ids` และ Timeline รวมแถวของ Event; ข้อ 3.4, 3.5, 3.7, 3.8 เพิ่มสิ่งที่กำหนดใน PR นี้ (`reported_by`, ลำดับการตรวจ, รหัส `reason` ของ `EVENT_IGNORED`, ชื่อ Header และ env ของ Secret); เพิ่มข้อ 3.10; ข้อ 7.1 กำหนด Key ของ payload; ลบข้อ 8.1; ข้อ 9.3 เพิ่มรูปแบบคำตอบของ Route ใหม่ | คน 1 |
+| 2026-10-12 | รอบ 1 PR M ตามรีวิว: เพิ่ม CHECK `ck_staffing_events_processed_at_matches_status` ใน Migration `f2a6b9c4d7e1` และ Model; `POST /events` ตอบ `409` เมื่อเวรไม่มี `STAFFING_REQUIREMENTS` (ข้อ 3.5) เพราะ Window ของเวรนั้นปิดไม่ได้; `reason` ของ `ASSIGNMENT_CANCELLED` ยาวได้ไม่เกิน 500 ตัวอักษรและข้อ 3.4 ระบุว่าเป็นข้อความอิสระที่เก็บได้; ข้อ 3.9 ระบุว่า Window ที่ปิดไม่สำเร็จถูกลองใหม่ทุกรอบโดยไม่เลิกเอง; `jobs/ticker.py` ไม่ล้มเมื่อ Connection ถูกปิดกลางคำขอ และตรวจ `JOB_INTERVAL_SECONDS`; ชื่อ Role `HEAD_NURSE` ย้ายไป `core/constants.py` ที่เดียว | คน 1 |

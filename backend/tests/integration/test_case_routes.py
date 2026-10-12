@@ -62,6 +62,7 @@ def case(seeded: Session) -> StaffingCase:
         occurred_at=DEMO_NOW,
         staff_id=105,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     seeded.add(event)
     seeded.flush()
@@ -428,6 +429,7 @@ def _event(db: Session, *, case: StaffingCase | None, staff_id: int = 104) -> St
         occurred_at=DEMO_NOW,
         staff_id=staff_id,
         status=EventStatus.IGNORED if case is None else EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
         case_id=None if case is None else case.id,
     )
     db.add(row)

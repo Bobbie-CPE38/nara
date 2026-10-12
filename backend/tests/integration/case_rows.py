@@ -65,6 +65,7 @@ def make_case(
         occurred_at=DEMO_NOW,
         staff_id=105,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     db.add(event)
     db.flush()

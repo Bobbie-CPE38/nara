@@ -42,6 +42,7 @@ def case(seeded: Session) -> StaffingCase:
         shift_id=shift.id,
         occurred_at=DEMO_NOW,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     seeded.add(event)
     seeded.flush()
