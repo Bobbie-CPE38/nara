@@ -334,8 +334,8 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `staff_id` | bigint | NOT NULL | FK STAFF.id |  |
 | `check_in_at` | timestamptz | NOT NULL |  |  |
 | `check_out_at` | timestamptz | NULL |  |  |
-| `work_minutes` | integer | NULL |  |  |
-| `overtime_minutes` | integer | NULL |  |  |
+| `work_minutes` | integer | NULL |  | เวลาทำงานจริงทั้งหมด รวม OT |
+| `overtime_minutes` | integer | NULL | CHECK | ส่วนของ `work_minutes` ที่เป็น OT CHECK `0 <= overtime_minutes <= work_minutes` NULL = ข้อมูลยังไม่ครบ ไม่ใช่ 0 |
 | `synced_at` | timestamptz | NOT NULL |  |  |
 
 
@@ -377,6 +377,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `minimum_rest_hours` | numeric | NOT NULL |  | gap ขั้นต่ำของการจบ shift หนึ่งไปอีก shift หนึ่ง ใช้ปฏิเสธการจัดเวรที่พักไม่พอ |
 | `maximum_daily_hours` | numeric | NOT NULL |  |  |
 | `maximum_weekly_hours` | numeric | NOT NULL |  |  |
+| `maximum_consecutive_shifts` | integer | NOT NULL | CHECK | เพิ่มในรอบ 1: จำนวนเวรต่อเนื่องสูงสุดหลังรวมเวรที่เสนอ CHECK `>= 0` Seed = 7 พักไม่เกิน 24 ชั่วโมงนับว่าต่อเนื่อง |
 | `maximum_patients_per_nurse` | numeric | NOT NULL |  | จำนวนผู้ป่วยสูงสุดต่อพยาบาล ใช้ Ratio เดียวทั้งโรงพยาบาลใน Skeleton; Seed = 2; CHECK มากกว่า 0 และเป็นค่าจำกัด; ไม่มี Default หลัง Migration |
 | `prevent_shift_conflict` | boolean | NOT NULL |  |  |
 | `require_matching_role` | boolean | NOT NULL |  |  |
