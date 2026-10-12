@@ -50,6 +50,8 @@ def shift_conflict(context: CandidateContext, policy: HardRulePolicy) -> bool:
 
 
 def role_mismatch(context: CandidateContext, policy: HardRulePolicy) -> bool:
+    # Empty = the shift requirement lists no role. A headcount-only candidate still
+    # gets the requirement's roles from the caller (see CandidateContext)
     return bool(context.target_role_ids) and context.role_id not in context.target_role_ids
 
 

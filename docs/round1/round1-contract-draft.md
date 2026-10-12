@@ -921,6 +921,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 2.7 
 * **Q52 `HAS_OPEN_OFFER`:** เลิกใช้ ใช้เพดานของ `OUTREACH_POLICY` และรหัส `OFFER_LIMIT_REACHED` ตาม Q30 (ข้อ 3.3)
 * **Q55 `ROLE_MISMATCH` / `SKILL_MISMATCH`:** ประเมินตาม Coverage ที่ผู้สมัครถูกเลือกมาเติม ไม่บังคับให้ทุกคนปิดทุก Gap ของเคส
   * ผู้สมัครที่ถูกเลือกมาเติมจำนวนคน ไม่มี Skill ที่เคสขาดก็ผ่านได้
+  * แต่ Role ของเขาต้องเป็น Role ที่ Requirement ของเวรมี (ข้อ 8.3) ผู้สมัครที่ไม่ได้ถูกเลือกมาเติม Role ใด (เติมจำนวนคนหรือ Skill อย่างเดียว) ไม่มีแถว `ROLE` ใน `CANDIDATE_ITEM_TARGET` ผู้เรียกตัวตรวจจึงต้องส่ง Role ของ Requirement ของเวรเป็น `target_role_ids` แทน ไม่ส่ง Set ว่าง ไม่งั้นผู้สมัครที่มี Role ที่เวรไม่ใช้จะไม่ถูกตัดด้วย `ROLE_MISMATCH` Set ว่างใช้เฉพาะเมื่อ Requirement ไม่ระบุ Role เลย ทำใน Loader ตัวเดียวของ PR 2a ที่ Solver, การเลือกคนของ Wave และ Safety (PR 3) เรียกร่วมกัน
   * กลุ่มคนที่ได้เข้าเวรรวมกันต้องครอบคลุมจำนวนคน, Role และ Skill ครบก่อนเคสจะ `RESOLVED`
   * Solver, การเลือกคนของ Wave, Safety และการตัดสินว่า Gap ของเคสถูกปิด (`gap_closed_by_assigned` ข้อ 2.3) ใช้ความหมายเดียวกัน เพื่อไม่ตัดผู้สมัครที่ Solver เลือกมาเติมจำนวนคนอย่างถูกต้อง
   * ที่เก็บ: ตารางใหม่ `CANDIDATE_ITEM_TARGET` เป็นตารางลูกของ `CANDIDATE_ITEMS` (ข้อ 8.3) Solver เขียนให้กลุ่มของ Wave แรกตอนสร้าง Plan `contact_candidate` เขียนให้ทุกคนที่มันเลือกเอง ทั้งคนที่เติมแทนใน Wave แรกและคนของ Wave ถัดไป ก่อนส่ง Offer (ข้อ 3.2 ขั้นที่ 5) Safety อ่านตอนตรวจ

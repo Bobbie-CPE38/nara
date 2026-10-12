@@ -122,10 +122,19 @@ class CandidateContext:
     Asia/Bangkok week of the proposed shift, and the unbroken run of shifts
     around it. A missing row makes a rule pass silently.
 
-    target_role_ids and target_skill_ids are what the candidate is selected to
-    fill (Q55). The role must be one of the target roles, and the candidate must
-    hold every target skill. An empty set asks for nothing, so a candidate
-    selected for headcount only passes without the skill the case is short of.
+    target_role_ids are the roles the candidate may have. The caller passes one
+    of two sets (Q55, and section 8.3 of the contract):
+      * the roles of the role targets the candidate is selected to fill, or
+      * for a candidate who fills no role target (selected for headcount or a
+        skill only), the role IDs of the requirement of the proposed shift.
+    The second set is not optional: without it a role the shift does not use
+    passes. The set is empty only when the requirement lists no role at all,
+    and then any role passes.
+
+    target_skill_ids are the skills of the skill targets the candidate is
+    selected to fill (Q55). The candidate must hold every one of them. An empty
+    set asks for no skill, so a candidate selected for headcount only passes
+    without the skill the case is short of.
 
     source_shift is None when taking the proposed shift removes no existing
     assignment, which is every case in round 1.

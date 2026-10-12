@@ -66,7 +66,10 @@ PROPOSED = slot(1, at(2, 8))
 
 
 def candidate(**changes: Any) -> CandidateContext:
-    """An RN with ICU and BLS, free all week, selected for headcount only."""
+    """An RN with ICU and BLS, free all week, selected for headcount only.
+
+    The requirement of the shift lists RN, so that is the role set the caller passes.
+    """
     values: dict[str, Any] = {
         "staff_id": 201,
         "status": StaffStatus.ACTIVE,
@@ -75,7 +78,7 @@ def candidate(**changes: Any) -> CandidateContext:
         "proposed_shift": PROPOSED,
         "roster": (),
         "unavailability": (),
-        "target_role_ids": frozenset(),
+        "target_role_ids": frozenset({RN}),
         "target_skill_ids": frozenset(),
     }
     return CandidateContext(**(values | changes))
@@ -508,6 +511,30 @@ def test_role_only_has_to_be_one_of_the_target_roles() -> None:
     context = candidate(target_role_ids=frozenset({RN, HEAD_NURSE}))
 
     assert evaluate(context, POLICY).passed
+
+
+@pytest.mark.parametrize(("role_id", "passes"), [(RN, True), (HEAD_NURSE, False)])
+def test_headcount_only_candidate_needs_a_role_of_the_shift_requirement(
+    role_id: int, passes: bool
+) -> None:
+    """Section 8.3: with no role target to fill, the caller passes the requirement's roles."""
+    requirement_roles = frozenset({RN})
+    context = candidate(
+        role_id=role_id, target_role_ids=requirement_roles, target_skill_ids=frozenset()
+    )
+
+    result = evaluate(context, POLICY)
+
+    assert result.passed is passes
+    assert result.failed_rules == (() if passes else (HardRuleCode.ROLE_MISMATCH,))
+
+
+def test_any_role_passes_only_when_the_requirement_lists_no_role() -> None:
+    """An empty role set is not how a caller says "headcount only"."""
+    result = evaluate(candidate(role_id=HEAD_NURSE, target_role_ids=frozenset()), POLICY)
+
+    assert result.passed
+    assert HardRuleCode.ROLE_MISMATCH in result.checked_rules
 
 
 # --------------------------------------------------------------------------- #

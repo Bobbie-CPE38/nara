@@ -671,6 +671,8 @@ For example, when `require_matching_skill = false`, a skill mismatch alone does 
 
 A candidate does not have to close every gap of the case alone. Role and skill are evaluated against the targets the candidate is selected to fill, stored in `CANDIDATE_ITEM_TARGET`. A candidate selected only for headcount passes without the missing skill.
 
+A candidate who fills no role target (selected for headcount or a skill only) must still have a role that the requirement of the shift lists. The caller of the evaluator passes those role IDs as the candidate's role set, so any other role fails with `ROLE_MISMATCH`. Any role passes only when the requirement lists no role at all.
+
 ### Time Overlap
 
 Two intervals overlap when:
