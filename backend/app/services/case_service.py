@@ -99,6 +99,7 @@ def _latest_gap(db: Session, case_id: int) -> GapView | None:
     )
     return GapView(
         id=gap.id,
+        effective_minimum=gap.effective_minimum,
         headcount_gap=gap.headcount_gap,
         computed_at=gap.computed_at,
         roles=[
