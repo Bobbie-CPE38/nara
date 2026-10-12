@@ -138,7 +138,8 @@ nara/
 │   │   │   ├── errors.py
 │   │   │   │
 │   │   │   ├── workflow/
-│   │   │   │   └── transitions.py
+│   │   │   │   ├── transitions.py
+│   │   │   │   └── case_status.py
 │   │   │   │
 │   │   │   ├── staffing/
 │   │   │   │   ├── coverage.py
@@ -192,6 +193,7 @@ nara/
 │   │   │   ├── case_service.py
 │   │   │   ├── requirement_service.py
 │   │   │   ├── gap_service.py
+│   │   │   ├── case_facts_service.py
 │   │   │   ├── candidate_service.py
 │   │   │   ├── optimization_service.py
 │   │   │   ├── outreach_service.py
@@ -327,7 +329,8 @@ nara/
 │       │   │
 │       │   └── workflow/
 │       │       ├── test_handlers.py
-│       │       └── test_transitions.py
+│       │       ├── test_transitions.py
+│       │       └── test_case_status.py
 │       │
 │       ├── integration/
 │       │   ├── conftest.py
@@ -345,6 +348,9 @@ nara/
 │       │   ├── test_events.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_gap_service.py
+│       │   ├── case_rows.py
+│       │   ├── test_case_facts.py
+│       │   ├── test_recompute.py
 │       │   ├── test_assess_staffing.py
 │       │   ├── test_orchestrator.py
 │       │   ├── test_optimize.py
