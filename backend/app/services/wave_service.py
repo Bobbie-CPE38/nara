@@ -6,16 +6,18 @@ The handler owns OFFER_SENT and MANUAL_HANDOFF. No commit or case-status write.
 from collections import Counter
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    AuditLog,
     CandidateItem,
     CandidateItemTarget,
     CandidateOutreach,
     CandidatePlan,
     Shift,
 )
+from app.domain.enums import AuditAction
 from app.domain.staffing.wave_targets import fill_targets
 from app.domain.workflow.case_status import GapFiller
 from app.services import availability_service, case_facts_service, gap_service, hard_rule_service
@@ -109,13 +111,21 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
         already_selected=[person(item) for item in kept],
     )
     for item in candidates:
-        if item.staff_id in credits and item.id not in target_item_ids:
+        if item.staff_id in credits:
+            # Uncontacted Solver members may be selected for different targets in
+            # a later wave. Replace their provisional credits before first send;
+            # targets of anyone already contacted remain immutable.
+            if item.id in target_item_ids:
+                db.execute(
+                    delete(CandidateItemTarget).where(
+                        CandidateItemTarget.candidate_item_id == item.id
+                    )
+                )
             record_item_targets(db, item, credits[item.staff_id])
     chosen = [item for item in eligible if item in kept or item.staff_id in credits]
-    # A Wave is persisted through its OFFER_SENT payload; frozen clocks are not IDs.
-    from app.db.models import AuditLog
-    from app.domain.enums import AuditAction
-
+    # Every new wave writes its number on all OFFER_SENT audit rows in the
+    # same transaction as the offers. Legacy history without this field is
+    # wave 1, so the next send is wave 2. Frozen clocks cannot identify waves.
     previous = list(
         db.scalars(
             select(AuditLog.payload).where(

@@ -98,6 +98,10 @@ def advance(db: Session, case_id: int) -> None:
 def resume(db: Session, case_id: int, next_status: CaseStatus) -> None:
     """Leave a wait point for `next_status`, then continue like `advance()`.
 
+    Optional prepare runs inside the D11 savepoint before computing the status.
+    It is not called for a stopped case. It must not commit or change case.status;
+    its workflow writes roll back on failure while the caller's answer is kept.
+
     Raises InvalidTransitionError, without touching the case, when it is not at
     a wait point or the transition is not allowed. A repeated request (a second
     ACCEPT, a double click on Approve) lands here, so it must not fail the case.

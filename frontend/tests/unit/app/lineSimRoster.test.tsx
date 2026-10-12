@@ -159,6 +159,22 @@ describe("LINE simulator", () => {
       expect.objectContaining({ demoUser: 202 }),
     );
   });
+  it.each(["RESOLVED", "FAILED", "UNRESOLVED", "MANUAL_HANDOFF"] as const)(
+    "hides the waiting-for-approval message when the case is %s",
+    async (caseStatus) => {
+      replies(() => [{ ...offer, status: "ACCEPTED", case_status: caseStatus,
+        can_accept: false, can_reject: false }]);
+      render(<LineSimulatorPage />);
+      await screen.findByText("ACCEPTED");
+      expect(screen.queryByText(/Wait for head-nurse approval/)).toBeNull();
+    },
+  );
+  it("shows the approval message for a live non-reserve acceptance", async () => {
+    replies(() => [{ ...offer, status: "ACCEPTED", case_status: "WAITING_APPROVAL",
+      can_accept: false, can_reject: false }]);
+    render(<LineSimulatorPage />);
+    await screen.findByText(/Wait for head-nurse approval/);
+  });
   it("accepts only once and refreshes history", async () => {
     let accepted = false;
     replies((path) => {
@@ -359,7 +375,7 @@ describe("LINE simulator", () => {
   });
   it.each([
     { offers: [{ ...offer, status: "ACCEPTED" }] },
-    { offers: [{ ...offer, case_status: "FAILED" }] },
+    { offers: [{ ...offer, case_status: "FAILED", can_accept: false, can_reject: false }] },
   ])(
     "disables history and stopped cases: $offers",
     async ({ offers }) => {

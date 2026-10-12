@@ -133,10 +133,10 @@ describe("usePolling", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("does not refresh while disabled", () => {
+  it("resolves refresh without reading while disabled", async () => {
     const load = vi.fn();
     const { result } = renderHook(() => usePolling(load, { enabled: false }));
-    act(() => { void result.current.refresh(); });
+    await act(async () => { await result.current.refresh(); });
     expect(load).not.toHaveBeenCalled();
   });
   it("loads immediately and observes the golden-path states every two seconds", async () => {

@@ -20,9 +20,11 @@ from app.db.models import (
     StaffingEvent,
 )
 from app.domain.enums import (
+    AuditAction,
     CandidateSource,
     CaseStatus,
     Channel,
+    EntityType,
     EventStatus,
     EventType,
     OutreachStatus,
@@ -256,3 +258,67 @@ def test_real_workflow_offer_is_visible_before_and_after_acceptance(
     assert after.json()[0]["status"] == "ACCEPTED"
     assert after.json()[0]["case_status"] == "WAITING_APPROVAL"
     assert after.json()[0]["response_at"] == DEMO_NOW.isoformat()
+
+
+def test_offer_read_batches_queries_and_only_loads_referenced_cancellation_audits(
+    production_seeded: Session,
+) -> None:
+    from sqlalchemy import event
+
+    from app.services import actor_service, audit_service
+
+    db = production_seeded
+    first = _offer(db, status=OutreachStatus.CANCELLED)
+    foreign = _offer(db, staff_id=202)
+    audit_service.log(
+        db,
+        case_id=foreign.case_id,
+        actor_id=actor_service.user_id(db, 201),
+        action=AuditAction.ASSIGNMENT_CREATED,
+        entity_type=EntityType.CANDIDATE_OUTREACH,
+        entity_id=foreign.id,
+        payload={"cancelled_outreach_ids": [first.id]},
+    )
+    # Unrelated assignment history must not be returned by the audit query.
+    audit_service.log(
+        db,
+        case_id=foreign.case_id,
+        actor_id=actor_service.user_id(db, 201),
+        action=AuditAction.ASSIGNMENT_CREATED,
+        entity_type=EntityType.CANDIDATE_OUTREACH,
+        entity_id=foreign.id,
+        payload={"cancelled_outreach_ids": [foreign.id]},
+    )
+    db.commit()
+    statements = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement)
+
+    bind = db.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        before = outreach_service.list_offers(db, staff_id=201)
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+    assert before[0].cancellation_reason == "CONFLICTING_ASSIGNMENT"
+    count = len(statements)
+    audit_statement = next(sql for sql in statements if "FROM audit_log" in sql)
+    assert "@>" in audit_statement  # Payload references filtered in PostgreSQL.
+    for _ in range(8):
+        _offer(db, status=OutreachStatus.CANCELLED)
+        _offer(db, status=OutreachStatus.ACCEPTED)
+        _offer(db)
+    db.commit()
+    statements.clear()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        after = outreach_service.list_offers(db, staff_id=201)
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+    assert len(statements) == count == 5
+    assert after[0].cancellation_reason == "CONFLICTING_ASSIGNMENT"
+    assert any(row.is_reserve for row in after)
+    assert any(row.blocked_reason == "AWAITING_OTHER_CASE" for row in after)
+    assert any(row.cancellation_reason == "CANCELLED" for row in after)

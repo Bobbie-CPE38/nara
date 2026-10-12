@@ -24,6 +24,10 @@ function offerSnapshot(offer: Offer) {
   ]);
 }
 
+const STOPPED_CASE_STATUSES = new Set([
+  "FAILED", "RESOLVED", "UNRESOLVED", "MANUAL_HANDOFF",
+]);
+
 type Feedback = {
   message: string;
   kind: "notice" | "error";
@@ -76,7 +80,7 @@ function StaffOffers({
   const openOffers =
     data?.filter(
       (offer) =>
-        offer.status === "SENT" && offer.can_reject && !["FAILED", "RESOLVED", "UNRESOLVED", "MANUAL_HANDOFF"].includes(offer.case_status),
+        offer.status === "SENT" && offer.can_reject,
     ) ?? [];
 
   async function respond(offerId: number, response: "ACCEPT" | "REJECT") {
@@ -155,7 +159,8 @@ function StaffOffers({
                 )
               : offerSnapshot(offer) === offerSnapshot(selected),
           ),
-        message: cause instanceof Error ? cause.message : "Could not send your response.",
+        message:
+          cause instanceof Error ? cause.message : "Could not send your response.",
       });
       if (cause instanceof ApiError && cause.status === 409) {
         setAnsweredSnapshot(offerSnapshot(selected));
@@ -226,7 +231,10 @@ function StaffOffers({
                     <td className="p-3">{offer.case_id}</td>
                     <td className="p-3">
                       {offer.ward_name} · Shift {offer.proposed_shift_id}
-                      <div>{formatDemoTime(offer.shift_start_at)} – {formatDemoTime(offer.shift_end_at)}</div>
+                      <div>
+                        {formatDemoTime(offer.shift_start_at)} –{" "}
+                        {formatDemoTime(offer.shift_end_at)}
+                      </div>
                     </td>
                     <td className="p-3">{offer.status}</td>
                     <td className="p-3">{offer.case_status}</td>
@@ -256,10 +264,28 @@ function StaffOffers({
                         </button>
                       </div>
                       {offer.blocked_reason === "AWAITING_OTHER_CASE" && (
-                        <p>Accept is paused while another case reviews your acceptance. You may still reject this offer.</p>
+                        <p>
+                          Accept is paused while another case reviews your
+                          acceptance. You may still reject this offer.
+                        </p>
                       )}
-                      {offer.cancellation_reason && <p>Cancelled: {offer.cancellation_reason}</p>}
-                      {offer.is_reserve ? <p>Accepted as a reserve. Do not come to the shift unless selected and approved.</p> : offer.status === "ACCEPTED" && <p>Acceptance is not a confirmed assignment. Wait for head-nurse approval.</p>}
+                      {offer.cancellation_reason && (
+                        <p>Cancelled: {offer.cancellation_reason}</p>
+                      )}
+                      {offer.is_reserve ? (
+                        <p>
+                          Accepted as a reserve. Do not come to the shift unless
+                          selected and approved.
+                        </p>
+                      ) : (
+                        offer.status === "ACCEPTED" &&
+                        !STOPPED_CASE_STATUSES.has(offer.case_status) && (
+                          <p>
+                            Acceptance is not a confirmed assignment. Wait for
+                            head-nurse approval.
+                          </p>
+                        )
+                      )}
                     </td>
                   </tr>
                 );
@@ -269,7 +295,8 @@ function StaffOffers({
         </div>
       )}
       <p className="text-sm text-slate-600">
-        Choose an offer to accept or reject. Accepting pauses acceptance of your other offers until the outcome is known.
+        Choose an offer to accept or reject. Accepting pauses acceptance of your
+        other offers until the outcome is known.
       </p>
     </section>
   );

@@ -14,7 +14,14 @@ from app.db.models import (
     Shift,
     Staff,
 )
-from app.domain.enums import AuditAction, CaseStatus, OutreachStatus, StaffStatus
+from app.domain.enums import (
+    AuditAction,
+    CaseStatus,
+    OutreachStatus,
+    SelectionType,
+    StaffStatus,
+    TargetType,
+)
 from app.domain.staffing.wave_targets import fill_targets
 from app.domain.workflow.case_status import GapFiller
 from app.services import optimization_service, outreach_service, wave_service
@@ -221,3 +228,80 @@ def test_exhausted_case_waits_for_paused_offer_instead_of_handoff(seeded: Sessio
     from app.services import case_facts_service
 
     assert case_facts_service.has_open_offer(seeded, case.id)
+
+
+def test_skipped_solver_reserve_gets_new_primary_targets_in_later_wave(seeded: Session) -> None:
+    case, items = short_case(seeded, status=CaseStatus.OUTREACH)
+    credits = fill_targets(
+        headcount_gap=1,
+        role_gaps={1: 1},
+        skill_gaps={},
+        candidates=[GapFiller(202, 1, frozenset({2})), GapFiller(201, 1, frozenset({1, 2}))],
+    )
+    for staff_id, targets in credits.items():
+        optimization_service.record_item_targets(seeded, items[staff_id], targets)
+    limited_offers = []
+    for _ in range(3):
+        other = make_case(seeded)
+        item = make_plan(seeded, other, (201,))[201]
+        limited_offers.append(offer(seeded, other, item))
+    assert set(
+        seeded.scalars(
+            select(CandidateItemTarget.selection_type).where(
+                CandidateItemTarget.candidate_item_id == items[201].id
+            )
+        )
+    ) == {SelectionType.RESERVE}
+    contact_candidate.handle(seeded, case)
+    assert _recipients(seeded, case.id) == [202, 203]
+    for row in seeded.scalars(
+        select(CandidateOutreach).where(CandidateOutreach.case_id == case.id)
+    ):
+        row.status = OutreachStatus.REJECTED
+    for row in limited_offers:
+        row.status = OutreachStatus.REJECTED
+    seeded.flush()
+    contact_candidate.handle(seeded, case)
+    assert _recipients(seeded, case.id) == [202, 203, 201]
+    targets = list(
+        seeded.scalars(
+            select(CandidateItemTarget).where(
+                CandidateItemTarget.candidate_item_id == items[201].id
+            )
+        )
+    )
+    assert {(row.target_type, row.selection_type) for row in targets} == {
+        (TargetType.ROLE, SelectionType.PRIMARY),
+        (TargetType.HEADCOUNT, SelectionType.PRIMARY),
+    }
+    assert len(targets) == 2
+
+
+@pytest.mark.parametrize("with_legacy_audit", [False, True])
+def test_legacy_history_without_wave_number_advances_to_wave_two(
+    seeded: Session, with_legacy_audit: bool
+) -> None:
+    case, items = _setup(seeded)
+    row = offer(seeded, case, items[201], OutreachStatus.REJECTED)
+    if with_legacy_audit:
+        from app.domain.enums import EntityType
+        from app.services import actor_service, audit_service
+
+        audit_service.log(
+            seeded,
+            case_id=case.id,
+            actor_id=actor_service.user_id(seeded, 201),
+            action=AuditAction.OFFER_SENT,
+            entity_type=EntityType.CANDIDATE_OUTREACH,
+            entity_id=row.id,
+            payload={"outreach_id": row.id, "staff_id": 201},
+        )
+    contact_candidate.handle(seeded, case)
+    payloads = list(
+        seeded.scalars(
+            select(AuditLog.payload).where(
+                AuditLog.case_id == case.id, AuditLog.action == AuditAction.OFFER_SENT
+            )
+        )
+    )
+    assert [p["wave"] for p in payloads if "wave" in p] == [2, 2]

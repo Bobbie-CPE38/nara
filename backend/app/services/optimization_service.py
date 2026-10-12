@@ -211,7 +211,8 @@ def record_item_targets(db: Session, item: CandidateItem, credits: Iterable[Targ
 
     Two writers: the Solver for the first wave, and contact_candidate for everyone
     it selects itself, before it sends the offer (workflow.md section 6.6). Rows
-    are written once and never changed.
+    stay immutable after first contact. Uncontacted Solver members selected
+    for a later wave have their provisional rows replaced by wave_service.
     """
     db.add_all(
         CandidateItemTarget(

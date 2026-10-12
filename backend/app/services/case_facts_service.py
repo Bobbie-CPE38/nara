@@ -158,6 +158,20 @@ def staff_waiting_on_another_case(db: Session, case_id: int, staff_ids: set[int]
 def _staff_waiting_on_another_case(db: Session, case_id: int, staff_ids: set[int]) -> set[int]:
     if not staff_ids:
         return set()
+    return {
+        staff_id
+        for staff_id, waiting_case_id in _waiting_acceptances(db, staff_ids)
+        if waiting_case_id != case_id
+    }
+
+
+def staff_waiting_case_ids(db: Session, staff_id: int) -> set[int]:
+    """Batch offer reads: running cases holding this staff's unresolved acceptance."""
+    with db.no_autoflush:
+        return {case_id for _, case_id in _waiting_acceptances(db, {staff_id})}
+
+
+def _waiting_acceptances(db: Session, staff_ids: set[int]) -> set[tuple[int, int]]:
     decided = exists().where(
         ApprovalRequest.candidate_item_id == CandidateOutreach.candidate_item_id,
         ApprovalRequest.is_pending.is_(False),
@@ -167,13 +181,12 @@ def _staff_waiting_on_another_case(db: Session, case_id: int, staff_ids: set[int
         SafetyValidation.is_passed.is_(False),
     )
     return set(
-        db.scalars(
-            select(CandidateItem.staff_id)
+        db.execute(
+            select(CandidateItem.staff_id, CandidateOutreach.case_id)
             .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
             .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
             .where(
                 CandidateItem.staff_id.in_(staff_ids),
-                CandidateOutreach.case_id != case_id,
                 CandidateOutreach.status == OutreachStatus.ACCEPTED,
                 StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
                 ~decided,

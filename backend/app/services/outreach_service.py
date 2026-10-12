@@ -7,7 +7,7 @@ foreign-case notifications run after that commit in separate transactions.
 import logging
 from collections.abc import Sequence
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -73,41 +73,45 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
             .mappings()
             .all()
         )
+        if not rows:
+            return []
+        item_ids = {row["candidate_item_id"] for row in rows}
+        requested = set(
+            db.scalars(
+                select(ApprovalRequest.candidate_item_id).where(
+                    ApprovalRequest.candidate_item_id.in_(item_ids)
+                )
+            )
+        )
+        validated = set(
+            db.scalars(
+                select(SafetyValidation.candidate_item_id).where(
+                    SafetyValidation.candidate_item_id.in_(item_ids)
+                )
+            )
+        )
+        # One set of unresolved acceptances for the staff, independent of the
+        # number of displayed offers. Keep the shared pausing semantics.
+        waiting_cases = case_facts_service.staff_waiting_case_ids(db, staff_id)
+        cancelled = {row["id"] for row in rows if row["status"] == OutreachStatus.CANCELLED}
+        reasons = _cancellation_reasons(db, cancelled)
         result = []
         for row in rows:
             live = row["status"] is OutreachStatus.SENT and (
                 row["case_status"] not in AUTOMATION_STOPPED_STATUSES
             )
-            paused = live and bool(
-                case_facts_service.staff_waiting_on_another_case(db, row["case_id"], {staff_id})
-            )
+            paused = live and bool(waiting_cases - {row["case_id"]})
             blocked = (
                 "AWAITING_OTHER_CASE"
                 if paused
                 else ("CASE_STOPPED" if row["case_status"] in AUTOMATION_STOPPED_STATUSES else None)
             )
-            reason = (
-                _cancellation_reason(db, row["id"], row["case_id"])
-                if (row["status"] is OutreachStatus.CANCELLED)
-                else None
-            )
+            reason = reasons.get(row["id"]) if row["status"] == OutreachStatus.CANCELLED else None
             reserve = (
                 row["status"] == OutreachStatus.ACCEPTED
                 and row["case_status"] not in AUTOMATION_STOPPED_STATUSES
-                and not db.scalar(
-                    select(
-                        exists().where(
-                            ApprovalRequest.candidate_item_id == row["candidate_item_id"]
-                        )
-                    )
-                )
-                and not db.scalar(
-                    select(
-                        exists().where(
-                            SafetyValidation.candidate_item_id == row["candidate_item_id"]
-                        )
-                    )
-                )
+                and row["candidate_item_id"] not in requested
+                and row["candidate_item_id"] not in validated
             )
             result.append(
                 OfferView.model_validate(
@@ -124,26 +128,42 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
         return result
 
 
-def _cancellation_reason(db: Session, outreach_id: int, case_id: int) -> str:
-    rows = db.scalars(
-        select(AuditLog)
-        .where((AuditLog.case_id == case_id) | (AuditLog.action == AuditAction.ASSIGNMENT_CREATED))
-        .order_by(AuditLog.id.desc())
-    )
+def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]:
+    """Batch only audits whose payload references the displayed cancelled offers.
+
+    Foreign ASSIGNMENT_CREATED rows are relevant only when their cancellation
+    list contains one of these IDs; never load all assignments in the system.
+    Latest matching audit wins, as in the original per-offer lookup.
+    """
+    if not outreach_ids:
+        return {}
+    references = [
+        predicate
+        for outreach_id in sorted(outreach_ids)
+        for predicate in (
+            AuditLog.payload.contains({"cancelled_outreach_ids": [outreach_id]}),
+            AuditLog.payload.contains({"outreach_id": outreach_id}),
+        )
+    ]
+    rows = db.scalars(select(AuditLog).where(or_(*references)).order_by(AuditLog.id.desc()))
+    reasons: dict[int, str] = {}
     for row in rows:
         payload = row.payload
-        if outreach_id in payload.get("cancelled_outreach_ids", []):
-            return {
-                AuditAction.CASE_RESOLVED: "CASE_RESOLVED",
-                AuditAction.MANUAL_HANDOFF: "MANUAL_HANDOFF",
-                AuditAction.ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
-            }.get(row.action, "CANCELLED")
-        if payload.get("outreach_id") == outreach_id:
-            if row.action == AuditAction.SAFETY_FAILED:
-                return ", ".join(payload.get("failed_rules", [])) or "SAFETY_FAILED"
-            if row.action == AuditAction.APPROVAL_REJECTED:
-                return payload.get("reason") or "APPROVAL_REJECTED"
-    return "CANCELLED"
+        for outreach_id in outreach_ids - reasons.keys():
+            if outreach_id in payload.get("cancelled_outreach_ids", []):
+                reasons[outreach_id] = {
+                    AuditAction.CASE_RESOLVED: "CASE_RESOLVED",
+                    AuditAction.MANUAL_HANDOFF: "MANUAL_HANDOFF",
+                    AuditAction.ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
+                }.get(row.action, "CANCELLED")
+            elif payload.get("outreach_id") == outreach_id:
+                if row.action == AuditAction.SAFETY_FAILED:
+                    reasons[outreach_id] = (
+                        ", ".join(payload.get("failed_rules", [])) or "SAFETY_FAILED"
+                    )
+                elif row.action == AuditAction.APPROVAL_REJECTED:
+                    reasons[outreach_id] = payload.get("reason") or "APPROVAL_REJECTED"
+    return {outreach_id: reasons.get(outreach_id, "CANCELLED") for outreach_id in outreach_ids}
 
 
 def send_offer(
@@ -177,6 +197,8 @@ def send_offer(
     ]
     db.add_all(offers)
     db.flush()
+    # The mock sends before commit. A real LINE adapter must use a transactional
+    # outbox so rolled-back waves cannot deliver offers that do not exist.
     for item, outreach in zip(items, offers, strict=True):
         line_mock.send_offer(staff_id=item.staff_id, outreach_id=outreach.id)
     return offers
@@ -300,7 +322,10 @@ def recompute_affected_cases(db: Session, *, staff_id: int, own_case_id: int) ->
         except Exception:
             db.rollback()
             logger.exception("Foreign case %s needs recompute retry", case_id)
-            # PR O's sweep recovers missed notifications after a committed answer.
+            # PR O recovery tracking: docs/round1/round1-contract-draft.md, section 10.
+            # https://github.com/Bobbie-CPE38/nara/blob/feat/round1-case-flow/docs/round1/round1-contract-draft.md#10-ลำดับ-pr
+            # Until the sweep lands, this log
+            # signals a foreign case needing a manual recompute retry.
 
 
 def record_response(
