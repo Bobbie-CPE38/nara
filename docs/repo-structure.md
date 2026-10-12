@@ -188,7 +188,6 @@ nara/
 │   │   │       ├── assess_staffing.py
 │   │   │       ├── optimize.py
 │   │   │       ├── contact_candidate.py
-│   │   │       ├── validate_safety.py
 │   │   │       ├── execute_assignment.py
 │   │   │       └── manual_handoff.py
 │   │   │
@@ -374,10 +373,9 @@ nara/
 │       │   ├── test_execute_assignment.py
 │       │   ├── test_roster_route.py
 │       │   ├── test_outreach.py
-│       │   ├── test_accepted_outreach.py
 │       │   ├── test_outreach_response.py
 │       │   ├── test_line_sim_offers.py
-│       │   ├── test_validate_safety.py
+│       │   ├── test_safety_service.py
 │       │   ├── test_pending_approvals.py
 │       │   ├── test_approval_decision.py
 │       │   ├── test_line_webhook.py
