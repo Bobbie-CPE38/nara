@@ -656,7 +656,7 @@ Only candidates examined and skipped in steps 3 and 4 belong in `skipped`. A can
 |---|---|---|
 | `STAFF_NOT_ACTIVE` | Candidate is not `ACTIVE`. | `require_active_staff` |
 | `ALREADY_ON_SHIFT` | Candidate already has a committed roster assignment on the target shift. | Always checked |
-| `UNAVAILABLE` | A recorded unavailability period overlaps the proposed shift. | Always checked |
+| `UNAVAILABLE` | A recorded unavailability period overlaps the proposed shift, or the candidate has a `CANCELLED` roster row on the proposed shift (they left it or were taken off it). | Always checked |
 | `SHIFT_CONFLICT` | Candidate has a committed assignment on another shift whose time overlaps the proposed shift. | `prevent_shift_conflict` |
 | `ROLE_MISMATCH` | Candidate does not have the role of the target they are selected to fill. | `require_matching_role` |
 | `SKILL_MISMATCH` | Candidate does not have the skill of the target they are selected to fill. | `require_matching_skill` |
@@ -723,7 +723,7 @@ Their previous outcome is recorded by the outreach status and the matching audit
 
 `skipped` is a list of `{staff_id, reason}` with one fixed code per skipped candidate.
 
-A candidate may fail more than one rule. One code is kept: the first failed Hard Rule in the order of the Skip Reasons table above, which is also the order Safety uses for `failure_reason`. The offer limit is checked after the Hard Rules, so `OFFER_LIMIT_REACHED` appears only for a candidate who passed them. The Solver (PR 2a) works this way and wave selection (PR 2b) must do the same. Do not rely on database query order.
+A candidate may fail more than one rule. One code is kept: the first failed Hard Rule in the order of the Skip Reasons table above, which is also the order Safety uses for `failure_reason`. The offer limit is checked after the Hard Rules, so `OFFER_LIMIT_REACHED` appears only for a candidate who passed them. Until PR 2b the Solver also writes it for a candidate who holds any open offer (interim rule, `docs/workflow.md` section 8). The Solver (PR 2a) works this way and wave selection (PR 2b) must do the same. Do not rely on database query order.
 
 ## OFFER_SENT Payload Example
 

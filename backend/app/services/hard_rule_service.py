@@ -186,7 +186,8 @@ def _roster(
     The window is the Asia/Bangkok week of the proposed shift plus a margin on
     both sides. The margin holds a run two shifts longer than the policy allows
     when no shift is longer than 24 hours. So every candidate that passes is
-    counted exactly, and a longer run still fails.
+    counted exactly, and a longer run still fails. A CANCELLED row on the proposed
+    shift makes the UNAVAILABLE rule fail.
     """
     week = week_start(proposed.start_at)
     margin = (policy.maximum_consecutive_shifts + 2) * (MAX_REST_WITHIN_RUN + _LONGEST_SHIFT)

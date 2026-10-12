@@ -909,7 +909,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 2.7 
 | รหัส | ความหมาย |
 |---|---|
 | `ALREADY_ON_SHIFT` | ผู้สมัครมี Roster ในเวรของเคสอยู่แล้ว |
-| `UNAVAILABLE` | ผู้สมัครมี `STAFF_UNAVAILABILITY` ชนช่วงเวลาของเวร |
+| `UNAVAILABLE` | ผู้สมัครมี `STAFF_UNAVAILABILITY` ชนช่วงเวลาของเวร หรือมีแถว Roster `CANCELLED` บนเวรที่เสนอ (ลาหรือถูกถอดจากเวรนั้นแล้ว เช่น `ASSIGNMENT_CANCELLED`) |
 
 กติการ่วม
 
@@ -1174,13 +1174,13 @@ optimization_service
 ร่างไม่ได้ระบุเรื่องต่อไปนี้ PR 2a กำหนดไว้ดังนี้ รายละเอียดของโค้ดอยู่ `docs/workflow.md` ข้อ 8 แถว Solver
 
 * Pool ของผู้สมัคร = พนักงานทุกคนที่ `home_ward_id` ตรงกับหอของเวรของเคส
-* เวลาอ้างอิงของ Snapshot = `clock.now()` หนึ่งค่าต่อรอบ Optimize (`captured_at`) "วันนี้" และ "สัปดาห์นี้" คือวันและสัปดาห์ของ `captured_at`
+* เวลาอ้างอิงของ Snapshot = `clock.now()` หนึ่งค่าต่อรอบ Optimize (`captured_at`) "วันนี้" และ "สัปดาห์นี้" คือวันและสัปดาห์ของ `captured_at` ส่วน Hard Rule ชั่วโมงต่อสัปดาห์ใช้สัปดาห์ของเวรที่เสนอ สองค่านี้ต่างสัปดาห์กันเมื่อเคสเปิดให้เวรของสัปดาห์ถัดไป เป็นไปตามที่ตั้งใจ
 * `rest_hours` ยัง NOT NULL: เป็น 0 ตอนกำลังอยู่เวร และเป็น 0 เมื่อไม่มีเวรก่อนหน้า
 * Target ที่ผู้สมัครมีไม่พอถูกลดลงเท่าจำนวนคนที่ตรง แล้วเลือกกลุ่มที่ปิด Target ที่ลดแล้วได้ครบและ `plan_penalty` ต่ำสุด
 * คะแนนเท่ากัน: เลือกกลุ่มที่คนน้อยกว่า แล้วกลุ่มที่ `staff_id` น้อยกว่า
 * ผู้สมัครที่ปิด Gap ไม่ได้สักอย่าง (เกิดเมื่อ `headcount_gap = 0`) ไม่อยู่ใน Plan
 * `solver_status`: `FEASIBLE` เมื่อมีผู้สมัครอย่างน้อยหนึ่งคน `INFEASIBLE` เมื่อไม่มี
-* กฎ Offer ค้างเดิมถูกลบใน PR 2a ตามข้อ 3.3 ระหว่างที่ PR 2b ยังไม่เข้า `staging` ผู้สมัครที่ได้ Offer จากสองเคสพร้อมกันจะตอบไม่ได้ (`docs/workflow.md` ข้อ 8 แถว Response)
+* กฎ Offer ค้างเดิมยังอยู่ใน Solver ชั่วคราว (รหัส `OFFER_LIMIT_REACHED`) เพราะการตอบ Offer ของ Skeleton รับได้หนึ่ง Offer `SENT` ต่อคน PR 2b ลบกฎนี้ตามข้อ 3.3 พร้อมกับเปลี่ยนเส้นทางตอบ (`docs/workflow.md` ข้อ 8 แถว Response)
 
 #### ลำดับการเติม Target ของ Wave (คำตอบของคน 2)
 
@@ -1324,7 +1324,7 @@ PR 2b, 3 และ 4 เข้า Branch รวมหนึ่ง Branch ที�
 | 1c | เพดาน Offer ต่อคน | คน 3 | ตาราง `OUTREACH_POLICY` + Seed, ฟังก์ชันเพดาน (ข้อ 3.3) ยังไม่มีใครเรียก | 2a, 2b |
 | M | Merge Gap | คน 1 | Migration (`SHIFT.merge_window_seconds`, `STAFFING_EVENTS.processed_at` และ `case_id`, ลบ `STAFFING_CASES.event_id`, `AUDIT_LOG.event_id`), แยกการรับ Event กับการปิด Window, Threshold, Event สี่ชนิด, หนึ่ง Window หนึ่งเคส, Timeline ผ่าน `event_id`, Service ของ Job + Route ภายใน, Route เลื่อน Clock และ Route อ่าน Event, หน้า `demo/control` ทุกคนต้อง `make reset` หลัง merge | หลัง 0 และ 1b ก่อน 2b (Q48) |
 | S | สถานะเคสคำนวณจาก Gap | คน 1 | ฟังก์ชันคำนวณสถานะเคสใน Orchestrator (ข้อ 2.3) ยังไม่มีใครเรียกจนกว่า 2b ส่วน `stub_handlers` ย้ายไป PR 3 เพราะ Handler ของ `SAFETY_VALIDATION` ยังอยู่ | 2b, 3, 4 |
-| 2a | Solver | คน 2 | Solver ใช้ Hard Rules + Gap, เลือกกลุ่มด้วยน้ำหนัก และเรียง `rank` ด้วย `ranking_key`, กติกาเติม Target, ตาราง `CANDIDATE_ITEM_TARGET` (Q55), คอลัมน์ Weight ของ `CANDIDATE_SOURCE`, `ranking_key`, `working_time_service` + `STAFF_WORKING_TIME_SNAPSHOT` + `CANDIDATE_ITEMS.working_time_snapshot_id`, เปลี่ยนไปเรียกฟังก์ชันเพดาน Offer และลบกฎ Offer ค้างเดิม, T6, Scenario `no_feasible_solution` | 2b |
+| 2a | Solver | คน 2 | Solver ใช้ Hard Rules + Gap, เลือกกลุ่มด้วยน้ำหนัก และเรียง `rank` ด้วย `ranking_key`, กติกาเติม Target, ตาราง `CANDIDATE_ITEM_TARGET` (Q55), คอลัมน์ Weight ของ `CANDIDATE_SOURCE`, `ranking_key`, `working_time_service` + `STAFF_WORKING_TIME_SNAPSHOT` + `CANDIDATE_ITEMS.working_time_snapshot_id`, เปลี่ยนไปเรียกฟังก์ชันเพดาน Offer (การลบกฎ Offer ค้างเดิมเลื่อนไป PR 2b ตามรีวิว), T6, Scenario `no_feasible_solution` | 2b |
 | 2b | Wave + ตอบ Offer | คน 3 | `contact_candidate` (ข้อ 3.2 รวมการเขียน `CANDIDATE_ITEM_TARGET` ให้ทุกคนที่มันเลือกเอง การรอ Offer ที่ถูกพัก และการยกเลิก Offer ตอนเคสเข้า `MANUAL_HANDOFF`), `outreach_service` (ส่งหลายคน, Reject, ตอบรับหลายคน, สำรอง, หลาย Offer ต่อคน, `409`), หน้า `line-sim` (ยังไม่แสดงเส้นตาย), Scenario `candidate_reject`, `GOLDEN_PATH_AUDIT_ACTIONS` + E2E, เรียก `recompute()` ให้เคสอื่นที่ได้รับผลกระทบหลังตอบรับ (ข้อ 2.3) | เข้า Branch รวม ก่อน 3, 4 |
 | 3 | Safety รายคน | คน 2 | `safety_service` ตรวจตอนตอบรับและบันทึกผลไม่ผ่าน, ย้ายการสร้าง `APPROVAL_REQUEST` และการเขียน `APPROVAL_REQUESTED` ไปเป็นฟังก์ชันใน `approval_service` ที่ `safety_service` เรียกเมื่อ Safety ผ่าน (ไฟล์ของคน 3 แจ้งก่อนแก้), ลบ `assert_available()` และ `unavailable_staff()` พร้อมบรรทัดที่เรียก `assert_available()` ใน `roster_service` เพราะ PR 3 เข้าก่อน PR 4 ที่ย้ายการสร้าง Roster (ไฟล์ของคน 3 แจ้งก่อนแก้), ลบสองเส้นของ `SAFETY_VALIDATION` ออกจาก `transitions.py` + `test_transitions.py` และ Handler ของสถานะนี้ใน Orchestrator, Scenario `safety_failure` | เข้า Branch รวม หลัง 2b ก่อน 4 |
 | 4 | อนุมัติและจัดเวรรายคน | คน 3 | `approval_service` (ไม่อนุมัติ, `reason`, เลื่อนสำรอง), จัดเวรใน Transaction ของการอนุมัติ, ยกเลิก Offer ที่ขัดกับเวรใหม่, Handler ของ `EXECUTING` ปิดเคส, เรียก `recompute()` ให้เคสอื่นที่ได้รับผลกระทบหลังตัดสิน (ข้อ 2.3), `409` กับเคสที่หยุดแล้ว, Scenario `head_nurse_reject` | เข้า Branch รวม หลัง 3 แล้ว merge Branch รวมเข้า `staging` ก่อน O, 5, 6 |

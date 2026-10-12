@@ -210,6 +210,20 @@ def is_on_proposed_shift(context: CandidateContext) -> bool:
     )
 
 
+def was_removed_from_proposed_shift(context: CandidateContext) -> bool:
+    """True when a roster row of the candidate on the proposed shift is CANCELLED.
+
+    The person left that shift or was taken off it (leave, ASSIGNMENT_CANCELLED),
+    so the same shift is not offered to them again. A cancelled row on another
+    shift says nothing about this one.
+    """
+    return any(
+        entry.status is RosterStatus.CANCELLED
+        and entry.shift.shift_id == context.proposed_shift.shift_id
+        for entry in context.roster
+    )
+
+
 def other_committed_shifts(context: CandidateContext) -> tuple[ShiftSlot, ...]:
     """The candidate's committed shifts other than the proposed one, by start time.
 

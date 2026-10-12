@@ -52,12 +52,21 @@ def test_the_roster_of_a_candidate_is_part_of_the_check(seeded: Session) -> None
     assert check.result.details["projected_consecutive_shifts"] == 2
 
 
-def test_a_cancelled_roster_row_does_not_block(seeded: Session) -> None:
+def test_a_cancelled_roster_row_on_the_shift_blocks(seeded: Session) -> None:
     cancel_roster(seeded, 105)
 
     checks = hard_rule_service.check_staff(seeded, shift=_night(seeded), staff_ids=[105])
 
-    assert _failed(checks) == {105: ()}
+    assert _failed(checks) == {105: ("UNAVAILABLE",)}
+
+
+def test_a_cancelled_roster_row_on_another_shift_does_not_block(seeded: Session) -> None:
+    cancel_roster(seeded, 202, 2)
+
+    checks = hard_rule_service.check_staff(seeded, shift=_night(seeded), staff_ids=[202])
+
+    assert _failed(checks) == {202: ()}
+    assert checks[202].result.details["weekly_hours"] == 8
 
 
 def test_a_requirement_without_roles_lets_any_role_pass(seeded: Session) -> None:

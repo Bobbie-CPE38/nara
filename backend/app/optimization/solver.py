@@ -14,9 +14,13 @@ targets each of them fills, and the rank of every candidate.
      ranking_key order. plan_penalty decides who is in the group. ranking_key
      only orders people, so the two can disagree about who looks better.
 
-The search tries groups exhaustively and stops a branch once it cannot beat the
-best group. That is enough for one ward (tens of candidates, targets of a few
-people). Round 2 replaces it with OR-Tools.
+The search tries groups in order of cost and drops a branch in three cases: the
+group is covered, the cheapest people still ahead cannot beat the best group, or
+the next candidate is of a kind the branch already skipped. Two candidates are
+of one kind when they count toward the same targets, so the earlier (cheaper,
+then lower ID) one is never worse. A ward of equal candidates is therefore
+searched in a number of steps close to candidates x target, not in every
+combination. Round 2 replaces the search with OR-Tools.
 
 No database access, clock reads, or writes.
 """
@@ -29,7 +33,10 @@ from fractions import Fraction
 from app.domain.constraints.penalties import SoftWeights, candidate_penalty, plan_penalty
 from app.domain.constraints.soft_metrics import SoftMetrics, ranking_key
 from app.domain.staffing.wave_targets import TargetCredit, fill_targets, wave_target
-from app.domain.workflow.case_status import GapFiller, gap_closed
+from app.domain.workflow.case_status import GapFiller
+
+# (role target or None, short skills) of a candidate: what they count toward
+_Kind = tuple[int | None, frozenset[int]]
 
 
 @dataclass(frozen=True)
@@ -132,19 +139,45 @@ def _cheapest_covering_group(
         candidates,
         key=lambda candidate: (costs[candidate.filler.staff_id], candidate.filler.staff_id),
     )
+    prices = [costs[candidate.filler.staff_id] for candidate in ordered]
+    # spent[i] = cost of the first i of `ordered`. The list is in cost order, so
+    # spent[i + n] - spent[i] is the least that n more people from i on can cost
+    spent = [Fraction(0)]
+    for price in prices:
+        spent.append(spent[-1] + price)
+
+    def kind(candidate: SolverCandidate) -> _Kind:
+        filler = candidate.filler
+        return (
+            filler.role_id if filler.role_id in roles else None,
+            frozenset(skill_id for skill_id in filler.skill_ids if skill_id in skills),
+        )
+
+    kinds = [kind(candidate) for candidate in ordered]
+
+    def missing(chosen: Sequence[SolverCandidate]) -> int:
+        """The largest open target: the group needs at least this many more people."""
+        role_count = Counter(candidate.filler.role_id for candidate in chosen)
+        skill_count = Counter(
+            skill_id for candidate in chosen for skill_id in candidate.filler.skill_ids
+        )
+        return max(
+            0,
+            headcount - len(chosen),
+            *(count - role_count[role_id] for role_id, count in roles.items()),
+            *(count - skill_count[skill_id] for skill_id, count in skills.items()),
+        )
+
     # (penalty, people, staff IDs) of the best group so far: smaller is better
     best: tuple[Fraction, int, tuple[int, ...]] | None = None
     best_group: tuple[SolverCandidate, ...] = ()
 
-    def search(index: int, chosen: list[SolverCandidate], cost: Fraction) -> None:
+    def search(
+        index: int, chosen: list[SolverCandidate], cost: Fraction, skipped: frozenset[_Kind]
+    ) -> None:
         nonlocal best, best_group
-        covered = gap_closed(
-            headcount_gap=headcount,
-            role_gaps=roles,
-            skill_gaps=skills,
-            fillers=(candidate.filler for candidate in chosen),
-        )
-        if covered:
+        needed = missing(chosen)
+        if needed == 0:
             score = (
                 cost,
                 len(chosen),
@@ -154,15 +187,19 @@ def _cheapest_covering_group(
                 best, best_group = score, tuple(chosen)
             # One more person never makes a covering group cheaper
             return
-        if index == len(ordered):
+        if index + needed > len(ordered):
             return
-        if best is not None and (cost > best[0] or (cost == best[0] and len(chosen) >= best[1])):
-            return
-        candidate = ordered[index]
-        chosen.append(candidate)
-        search(index + 1, chosen, cost + costs[candidate.filler.staff_id])
-        chosen.pop()
-        search(index + 1, chosen, cost)
+        if best is not None:
+            floor = cost + spent[index + needed] - spent[index]
+            if floor > best[0] or (floor == best[0] and len(chosen) + needed > best[1]):
+                return
+        if kinds[index] not in skipped:
+            chosen.append(ordered[index])
+            search(index + 1, chosen, cost + prices[index], skipped)
+            chosen.pop()
+            # An earlier candidate of a kind is never worse than a later one
+            skipped = skipped | {kinds[index]}
+        search(index + 1, chosen, cost, skipped)
 
-    search(0, [], Fraction(0))
+    search(0, [], Fraction(0), frozenset())
     return best_group

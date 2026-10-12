@@ -378,6 +378,7 @@ nara/
 │       │   ├── test_no_feasible_solution.py
 │       │   ├── test_soft_constraint.py
 │       │   ├── test_solver_schema.py
+│       │   ├── test_two_cases_offers.py
 │       │   └── test_audit_trail.py
 │       │
 │       └── e2e/

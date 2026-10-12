@@ -45,7 +45,7 @@ from app.domain.enums import (
 from app.seed import load
 from app.workflow import orchestrator
 from app.workflow.handlers import optimize
-from tests.integration.case_rows import leave, make_case, record_gap
+from tests.integration.case_rows import cancel_roster, leave, make_case, record_gap
 from tests.integration.conftest import DEMO_NOW
 
 SHIFT_ID = 1
@@ -424,8 +424,20 @@ def test_unavailability_that_only_touches_the_shift_keeps_the_candidate(
     assert _candidates(seeded, case) == [(201, 1), (202, 2), (203, 3)]
 
 
+def test_staff_taken_off_the_shift_are_not_offered_it_again(seeded: Session) -> None:
+    """ASSIGNMENT_CANCELLED cancels the roster row and records no leave."""
+    cancel_roster(seeded, 104)
+    case = _case_with_gap(seeded)
+
+    optimize.handle(seeded, case)
+
+    assert _candidates(seeded, case) == [(201, 1), (202, 2), (203, 3)]
+    [plan] = _plans(seeded, case)
+    assert {"staff_id": 104, "reason": "UNAVAILABLE"} in plan.input_snapshot["skipped"]
+
+
 # --------------------------------------------------------------------------- #
-# The offer cap replaces the old open-offer rule
+# The offer cap, and the interim open-offer rule (until PR 2b)
 # --------------------------------------------------------------------------- #
 def _open_offer(
     db: Session, staff_id: int, *, offer_status: OutreachStatus, case_status: CaseStatus
@@ -483,17 +495,6 @@ def test_a_candidate_at_the_offer_cap_is_left_out(seeded: Session) -> None:
     assert {"staff_id": 201, "reason": "OFFER_LIMIT_REACHED"} in plan.input_snapshot["skipped"]
 
 
-def test_a_candidate_below_the_offer_cap_stays(seeded: Session) -> None:
-    case = _make_case(seeded)
-    _offers(
-        seeded, 201, 2, offer_status=OutreachStatus.SENT, case_status=CaseStatus.WAITING_RESPONSE
-    )
-
-    optimize.handle(seeded, case)
-
-    assert _candidates(seeded, case) == [(201, 1), (202, 2), (203, 3)]
-
-
 def test_offers_of_stopped_cases_do_not_count(seeded: Session) -> None:
     case = _make_case(seeded)
     _offers(seeded, 201, 3, offer_status=OutreachStatus.ACCEPTED, case_status=CaseStatus.RESOLVED)
@@ -503,8 +504,43 @@ def test_offers_of_stopped_cases_do_not_count(seeded: Session) -> None:
     assert _candidates(seeded, case) == [(201, 1), (202, 2), (203, 3)]
 
 
-def test_two_cases_on_the_shift_plan_the_same_people(seeded: Session) -> None:
-    """Interim until PR 2b (docs/workflow.md section 8): the old open-offer rule is gone."""
+@pytest.mark.parametrize(
+    ("offer_status", "case_status", "dropped"),
+    [
+        (OutreachStatus.SENT, CaseStatus.WAITING_RESPONSE, True),
+        (OutreachStatus.SENT, CaseStatus.FAILED, True),
+        (OutreachStatus.ACCEPTED, CaseStatus.WAITING_APPROVAL, True),
+        (OutreachStatus.ACCEPTED, CaseStatus.FAILED, False),
+        (OutreachStatus.ACCEPTED, CaseStatus.RESOLVED, False),
+        (OutreachStatus.REJECTED, CaseStatus.WAITING_RESPONSE, False),
+    ],
+    ids=[
+        "sent",
+        "sent_in_a_stopped_case",
+        "accepted_in_a_running_case",
+        "accepted_in_a_failed_case",
+        "accepted_in_a_resolved_case",
+        "rejected",
+    ],
+)
+def test_which_offers_count_as_open(
+    seeded: Session, offer_status: OutreachStatus, case_status: CaseStatus, dropped: bool
+) -> None:
+    case = _make_case(seeded)
+    _open_offer(seeded, 201, offer_status=offer_status, case_status=case_status)
+
+    optimize.handle(seeded, case)
+
+    [plan] = _plans(seeded, case)
+    if dropped:
+        assert _candidates(seeded, case) == [(202, 1), (203, 2)]
+        assert {"staff_id": 201, "reason": "OFFER_LIMIT_REACHED"} in plan.input_snapshot["skipped"]
+    else:
+        assert _candidates(seeded, case) == [(201, 1), (202, 2), (203, 3)]
+
+
+def test_second_case_on_the_shift_offers_the_next_candidate(seeded: Session) -> None:
+    """The answer route needs exactly one SENT offer per responder, so 201 is not offered twice."""
     first = _make_case(seeded)
     second = _case_with_gap(seeded)
 
@@ -514,7 +550,8 @@ def test_two_cases_on_the_shift_plan_the_same_people(seeded: Session) -> None:
     seeded.expire_all()
     assert first.status is CaseStatus.WAITING_RESPONSE
     assert second.status is CaseStatus.WAITING_RESPONSE
-    assert _candidates(seeded, second) == [(201, 1), (202, 2), (203, 3)]
+    assert _candidates(seeded, first) == [(201, 1), (202, 2), (203, 3)]
+    assert _candidates(seeded, second) == [(202, 1), (203, 2)]
 
 
 # --------------------------------------------------------------------------- #
