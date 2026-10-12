@@ -56,12 +56,13 @@ def case(production_seeded: Session) -> StaffingCase:
     db.add(event)
     db.flush()
     row = StaffingCase(
-        event_id=event.id,
         shift_id=1,
         status=CaseStatus.WAITING_APPROVAL,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(row)
+    db.flush()
+    event.case_id = row.id
     db.flush()
     return row
 
@@ -246,7 +247,6 @@ def test_approved_request_of_other_case_is_not_used(
     approved: ApprovalRequest,
 ) -> None:
     other = StaffingCase(
-        event_id=case.event_id,
         shift_id=case.shift_id,
         status=CaseStatus.EXECUTING,
         required_replacement_time=DEMO_NOW,
@@ -272,7 +272,6 @@ def test_inconsistent_item_references_fail_without_assignment(
         item.proposed_shift_id = 2
     else:
         other = StaffingCase(
-            event_id=case.event_id,
             shift_id=case.shift_id,
             status=CaseStatus.EXECUTING,
             required_replacement_time=DEMO_NOW,

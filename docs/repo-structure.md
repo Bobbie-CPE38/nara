@@ -118,6 +118,7 @@ nara/
 │   │   │   ├── ward.py
 │   │   │   ├── shift.py
 │   │   │   ├── event.py
+│   │   │   ├── job.py
 │   │   │   ├── case.py
 │   │   │   ├── requirement.py
 │   │   │   ├── unavailability.py
@@ -143,7 +144,8 @@ nara/
 │   │   │   │
 │   │   │   ├── staffing/
 │   │   │   │   ├── coverage.py
-│   │   │   │   └── gap_calculator.py
+│   │   │   │   ├── gap_calculator.py
+│   │   │   │   └── threshold.py
 │   │   │   │
 │   │   │   ├── constraints/
 │   │   │   │   ├── codes.py
@@ -190,6 +192,8 @@ nara/
 │   │   │
 │   │   ├── services/
 │   │   │   ├── event_service.py
+│   │   │   ├── merge_window_service.py
+│   │   │   ├── job_service.py
 │   │   │   ├── case_service.py
 │   │   │   ├── requirement_service.py
 │   │   │   ├── gap_service.py
@@ -247,6 +251,7 @@ nara/
 │   │   │       └── case_status.py
 │   │   │
 │   │   ├── jobs/
+│   │   │   ├── ticker.py
 │   │   │   ├── runner.py
 │   │   │   │
 │   │   │   └── tasks/
@@ -277,6 +282,7 @@ nara/
 │   │   │       ├── audit.py
 │   │   │       ├── webhooks.py
 │   │   │       ├── line_sim.py
+│   │   │       ├── internal.py
 │   │   │       └── demo.py
 │   │   │
 │   │   └── seed/
@@ -286,6 +292,8 @@ nara/
 │   │       ├── base_data.py
 │   │       └── scenarios/
 │   │           ├── golden_case.py
+│   │           ├── merge_gap.py
+│   │           ├── threshold.py
 │   │           ├── candidate_reject.py
 │   │           ├── candidate_timeout.py
 │   │           ├── safety_failure.py

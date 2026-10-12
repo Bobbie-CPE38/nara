@@ -54,12 +54,13 @@ def _make_case(db: Session, status: CaseStatus) -> StaffingCase:
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=SHIFT_ID,
         status=status,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     return case
 
@@ -294,7 +295,7 @@ def test_failure_keeps_the_callers_earlier_work(
         action=AuditAction.CASE_OPENED,
         entity_type=EntityType.STAFFING_CASES,
         entity_id=case.id,
-        payload={"event_id": case.event_id},
+        payload={"shift_id": case.shift_id},
     )
 
     def failing_intake(db: Session, case: StaffingCase) -> HandlerResult:
@@ -309,7 +310,9 @@ def test_failure_keeps_the_callers_earlier_work(
         AuditAction.CASE_STATUS_CHANGED,
         AuditAction.WORKFLOW_FAILED,
     ]
-    assert seeded.get(StaffingEvent, case.event_id) is not None
+    assert (
+        seeded.scalar(select(StaffingEvent.id).where(StaffingEvent.case_id == case.id)) is not None
+    )
 
 
 def test_database_error_inside_a_handler_still_records_the_failure(

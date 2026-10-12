@@ -53,12 +53,13 @@ def _offer(
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=1,
         status=case_status,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     plan = CandidatePlan(
         case_id=case.id,

@@ -1,4 +1,9 @@
-"""POST /events on the seeded Golden Case (docs/workflow.md, section 3)."""
+"""POST /events on the seeded Golden Case (docs/workflow.md, section 3).
+
+Both shifts of the Golden Case have merge_window_seconds = 0: the window of an
+event closes in the request that reports it, so the answer already carries the
+case. Windows that stay open are in test_merge_window.py.
+"""
 
 import contextlib
 import threading
@@ -8,7 +13,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
@@ -34,6 +39,7 @@ from app.domain.enums import (
     RosterStatus,
     StaffStatus,
 )
+from app.domain.staffing.coverage import RosterMember
 from app.main import app
 from app.seed import load
 from app.services import gap_service
@@ -75,8 +81,14 @@ def _roster_status(db: Session, staff_id: int, shift_id: int) -> RosterStatus:
 
 
 def _timeline(db: Session, case_id: int) -> list[AuditLog]:
+    """Rows of the case and of its events, like GET /cases/{id}/audit (section 3.7)."""
+    events_of_case = select(StaffingEvent.id).where(StaffingEvent.case_id == case_id)
     return list(
-        db.scalars(select(AuditLog).where(AuditLog.case_id == case_id).order_by(AuditLog.id))
+        db.scalars(
+            select(AuditLog)
+            .where(or_(AuditLog.case_id == case_id, AuditLog.event_id.in_(events_of_case)))
+            .order_by(AuditLog.id)
+        )
     )
 
 
@@ -104,7 +116,8 @@ def test_leave_that_opens_a_gap_creates_a_case_and_runs_it(
         EventStatus.PROCESSED,
     )
     assert event.payload == {}
-    assert (case.event_id, case.shift_id) == (event.id, NIGHT_SHIFT)
+    assert (event.case_id, case.shift_id) == (case.id, NIGHT_SHIFT)
+    assert event.processed_at == event.occurred_at
 
 
 def test_leave_cancels_the_roster_row_and_records_the_unavailability(
@@ -163,6 +176,12 @@ def test_timeline_starts_with_the_golden_path_audit_rows(
         user_actor,
         orchestrator_actor,
     )
+    # Rows about the event carry event_id and no case_id, also once the case exists
+    assert [(row.event_id, row.case_id) for row in rows[:3]] == [
+        (body["event_id"], None),
+        (body["event_id"], None),
+        (None, body["case_id"]),
+    ]
     assert received.entity_type is EntityType.STAFFING_EVENTS
     assert received.entity_id == body["event_id"]
     assert received.payload == {
@@ -253,8 +272,12 @@ def test_workflow_failure_is_a_recorded_result_not_an_http_error(
         (AS_105, LEAVE | {"shift_id": DAY_SHIFT}, 409),
         # 900 (head nurse) is on no shift
         ({"X-Demo-User": "900"}, LEAVE, 409),
+        # The other event types need their own details (test_event_types.py)
         (AS_105, LEAVE | {"event_type": "PATIENT_SURGE"}, 422),
         (AS_105, LEAVE | {"event_type": "ASSIGNMENT_CANCELLED"}, 422),
+        # A detail of another event type
+        (AS_105, LEAVE | {"patient_count": 12}, 422),
+        (AS_105, LEAVE | {"staff_id": 104}, 422),
         (AS_105, LEAVE | {"event_type": "NOT_AN_EVENT"}, 422),
         (AS_105, LEAVE | {"shift_id": 0}, 422),
         # One above PostgreSQL bigint: must be rejected before the database sees it
@@ -270,8 +293,10 @@ def test_workflow_failure_is_a_recorded_result_not_an_http_error(
         "unknown_shift",
         "not_on_that_shift",
         "not_on_any_shift",
-        "patient_surge",
-        "assignment_cancelled",
+        "patient_surge_without_count",
+        "assignment_cancelled_without_details",
+        "leave_with_patient_count",
+        "leave_with_staff_id",
         "unknown_event_type",
         "shift_id_zero",
         "shift_id_above_bigint",
@@ -368,19 +393,20 @@ def test_two_people_leaving_the_same_shift_at_once_do_not_hide_the_gap(
     sees the other person as ASSIGNED (that cancellation is not committed yet),
     and marks its event IGNORED. The shift ends up empty with no case.
 
-    The barrier holds both requests just before the gap check, which is the
-    moment they would both read the stale roster. With the shift lock only one
-    request gets that far at a time, so the barrier times out and lets it go on.
+    The barrier holds both requests just before the roster is read back for the
+    threshold check, which is the moment they would both read the stale roster.
+    With the shift lock only one request gets that far at a time, so the barrier
+    times out and lets it go on.
     """
     both_cancelled = threading.Barrier(2, timeout=10)
-    real_assess = gap_service.assess_shift
+    real_load = gap_service.load_roster
 
-    def assess_when_both_are_ready(db: Session, shift: Shift) -> gap_service.ShiftAssessment:
+    def load_when_both_are_ready(db: Session, shift_id: int) -> list[RosterMember]:
         with contextlib.suppress(threading.BrokenBarrierError):
             both_cancelled.wait(timeout=1.5)
-        return real_assess(db, shift)
+        return real_load(db, shift_id)
 
-    monkeypatch.setattr(gap_service, "assess_shift", assess_when_both_are_ready)
+    monkeypatch.setattr(gap_service, "load_roster", load_when_both_are_ready)
     start = threading.Barrier(2, timeout=10)
     answers: dict[int, tuple[int, dict[str, Any]]] = {}
 

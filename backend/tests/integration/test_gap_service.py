@@ -218,12 +218,13 @@ def _case_with_gap(db: Session, *cancelled_staff: int) -> StaffingCase:
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=NIGHT_SHIFT,
         status=CaseStatus.ASSESSING,
         required_replacement_time=shift.start_at,
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     gap_service.record_gap(db, case, gap_service.assess_shift(db, shift))
     return case

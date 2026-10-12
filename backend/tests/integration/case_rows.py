@@ -69,12 +69,13 @@ def make_case(
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=shift_id,
         status=status,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     return case
 

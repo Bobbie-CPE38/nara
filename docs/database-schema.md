@@ -138,7 +138,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `shift_type` | text | NOT NULL |  | `ShiftType` |
 | `is_active` | boolean | NOT NULL |  |  |
 | `deactivated_at` | timestamptz | NULL |  |  |
-| `merge_window_seconds` | integer | NOT NULL |  | CHECK `>= 0` ความยาว Merge Window ของเวรนี้เป็นวินาที 0 = ไม่รอ **(รอบ 1 ยังไม่มีใน DB)** |
+| `merge_window_seconds` | integer | NOT NULL |  | CHECK `>= 0` (`ck_shift_merge_window_seconds_non_negative`) ความยาว Merge Window ของเวรนี้เป็นวินาที 0 = ไม่รอ ไม่มีค่า Default ใน DB |
 
 
 ### 8. STAFFING_EVENTS
@@ -153,8 +153,8 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `staff_id` | bigint | NULL | FK STAFF.id | ต้องมีค่าเมื่อเป็น Event กลุ่มบุคลากร (CHECK ตาม `event_type`) **(ใหม่ v5)** |
 | `payload` | jsonb | NOT NULL |  | `{}` ถ้าไม่มีรายละเอียด **(ใหม่ v5)** |
 | `status` | text | NOT NULL |  | `EventStatus` **(ใหม่)** |
-| `processed_at` | timestamptz | NULL |  | เวลาที่ Merge Window ของ Event นี้ปิด ว่างเมื่อ `status = RECEIVED` ตั้งเมื่อเป็น `PROCESSED` หรือ `IGNORED` Event ที่ปิดพร้อมกันได้ค่าเดียวกัน CHECK: ว่างก็ต่อเมื่อ `status = RECEIVED` **(รอบ 1 ยังไม่มีใน DB)** |
-| `case_id` | bigint | NULL | FK STAFFING_CASES.id | เคสที่ Event นี้เป็นส่วนหนึ่ง ตั้งตอน Merge Window ปิดเมื่อเป็น `PROCESSED` ว่างเมื่อเป็น `RECEIVED` หรือ `IGNORED` เคสหนึ่งมีได้หลาย Event **(รอบ 1 ยังไม่มีใน DB)** |
+| `processed_at` | timestamptz | NULL |  | เวลาที่ Merge Window ของ Event นี้ปิด ว่างเมื่อ `status = RECEIVED` ตั้งเมื่อเป็น `PROCESSED` หรือ `IGNORED` Event ที่ปิดพร้อมกันได้ค่าเดียวกัน CHECK: ว่างก็ต่อเมื่อ `status = RECEIVED` |
+| `case_id` | bigint | NULL | FK STAFFING_CASES.id | เคสที่ Event นี้เป็นส่วนหนึ่ง ตั้งตอน Merge Window ปิดเมื่อเป็น `PROCESSED` ว่างเมื่อเป็น `RECEIVED` หรือ `IGNORED` เคสหนึ่งมีได้หลาย Event |
 
 
 ### 9. STAFFING_REQUIREMENTS
@@ -195,7 +195,6 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | Field | Type | Null | Key | Enum / หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
-| `event_id` | bigint | NOT NULL | FK STAFFING_EVENTS.id | **(รอบ 1 จะลบ ใช้ `STAFFING_EVENTS.case_id` แทน เพราะเคสหนึ่งมีได้หลาย Event)** |
 | `shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
 | `status` | text | NOT NULL |  | `CaseStatus` (ไม่มี `IGNORED`) |
 | `required_replacement_time` | timestamptz | NOT NULL |  |  |
@@ -526,7 +525,7 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `case_id` | bigint | NULL | FK STAFFING_CASES.id |  |
-| `event_id` | bigint | NULL | FK STAFFING_EVENTS.id | ตั้งในแถวที่เป็นเรื่องของ Event ตัวนั้น (`EVENT_RECEIVED`, `EVENT_IGNORED`, `UNAVAILABILITY_CREATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED`) แถวพวกนี้ไม่ใส่ `case_id` Timeline ของเคสรวมแถวของ Event ที่เป็นของเคสด้วย **(รอบ 1 ยังไม่มีใน DB)** |
+| `event_id` | bigint | NULL | FK STAFFING_EVENTS.id | ตั้งในแถวที่เป็นเรื่องของ Event ตัวนั้น (`EVENT_RECEIVED`, `EVENT_IGNORED`, `UNAVAILABILITY_CREATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED`) แถวพวกนี้ไม่ใส่ `case_id` Timeline ของเคสรวมแถวของ Event ที่เป็นของเคสด้วย |
 | `actor_id` | bigint | NOT NULL | FK ACTORS.id |  |
 | `entity_type` | text | NOT NULL |  | `EntityType` |
 | `entity_id` | bigint | NULL |  | NULL ได้สำหรับ composite key (ยังไม่ Audit ใน Skeleton) |

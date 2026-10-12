@@ -46,12 +46,13 @@ def case(seeded: Session) -> StaffingCase:
     seeded.add(event)
     seeded.flush()
     row = StaffingCase(
-        event_id=event.id,
         shift_id=shift.id,
         status=CaseStatus.OPEN,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     seeded.add(row)
+    seeded.flush()
+    event.case_id = row.id
     seeded.flush()
     return row
 
@@ -172,5 +173,79 @@ def test_log_fails_at_call_site_for_unknown_actor(seeded: Session) -> None:
             action=AuditAction.EVENT_RECEIVED,
             entity_type=EntityType.STAFFING_EVENTS,
             entity_id=None,
+            payload={},
+        )
+
+
+def test_log_stores_the_event_of_a_row_about_an_event(
+    seeded: Session, orchestrator_id: int, case: StaffingCase
+) -> None:
+    """Section 3.7: event_id alone, also when the event belongs to a case."""
+    event_id = seeded.scalars(select(StaffingEvent.id)).one()
+
+    audit_service.log(
+        seeded,
+        case_id=None,
+        event_id=event_id,
+        actor_id=orchestrator_id,
+        action=AuditAction.EVENT_RECEIVED,
+        entity_type=EntityType.STAFFING_EVENTS,
+        entity_id=event_id,
+        payload={},
+    )
+    seeded.expire_all()
+
+    [row] = _audit_rows(seeded)
+    assert (row.event_id, row.case_id) == (event_id, None)
+
+
+def test_log_leaves_event_id_empty_unless_it_is_given(
+    seeded: Session, orchestrator_id: int, case: StaffingCase
+) -> None:
+    """Callers written before the merge window pass no event_id and keep working."""
+    audit_service.log(
+        seeded,
+        case_id=case.id,
+        actor_id=orchestrator_id,
+        action=AuditAction.CASE_OPENED,
+        entity_type=EntityType.STAFFING_CASES,
+        entity_id=case.id,
+        payload={},
+    )
+
+    [row] = _audit_rows(seeded)
+    assert (row.event_id, row.case_id) == (None, case.id)
+
+
+def test_log_rejects_a_row_with_both_a_case_and_an_event(
+    seeded: Session, orchestrator_id: int, case: StaffingCase
+) -> None:
+    event_id = seeded.scalars(select(StaffingEvent.id)).one()
+
+    with pytest.raises(ValueError, match="case_id or event_id, not both"):
+        audit_service.log(
+            seeded,
+            case_id=case.id,
+            event_id=event_id,
+            actor_id=orchestrator_id,
+            action=AuditAction.EVENT_RECEIVED,
+            entity_type=EntityType.STAFFING_EVENTS,
+            entity_id=event_id,
+            payload={},
+        )
+
+    assert _audit_rows(seeded) == []
+
+
+def test_log_rejects_an_unknown_event(seeded: Session, orchestrator_id: int) -> None:
+    with pytest.raises(IntegrityError):
+        audit_service.log(
+            seeded,
+            case_id=None,
+            event_id=999,
+            actor_id=orchestrator_id,
+            action=AuditAction.EVENT_RECEIVED,
+            entity_type=EntityType.STAFFING_EVENTS,
+            entity_id=999,
             payload={},
         )

@@ -74,12 +74,13 @@ def _make_offer(db: Session, *, staff_id: int = 201) -> CandidateOutreach:
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=1,
         status=CaseStatus.WAITING_RESPONSE,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     plan = CandidatePlan(
         case_id=case.id,

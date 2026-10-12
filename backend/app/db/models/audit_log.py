@@ -15,6 +15,8 @@ class AuditLog(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     case_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("staffing_cases.id"))
+    # Set on a row about one event, which then has no case_id (workflow.md 3.7)
+    event_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("staffing_events.id"))
     actor_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("actors.id"))
     entity_type: Mapped[EntityType] = mapped_column(StrEnumText(EntityType))
     entity_id: Mapped[int | None] = mapped_column(BigInteger)

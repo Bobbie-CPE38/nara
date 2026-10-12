@@ -72,12 +72,13 @@ def _make_case(db: Session, status: CaseStatus = CaseStatus.SAFETY_VALIDATION) -
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=SHIFT_ID,
         status=status,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     return case
 

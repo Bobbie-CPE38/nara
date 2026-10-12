@@ -53,6 +53,8 @@ services:
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       # Follows FRONTEND_PORT unless CORS_ORIGINS is set in .env
       CORS_ORIGINS: '${CORS_ORIGINS:-["http://localhost:${FRONTEND_PORT:-3000}"]}'
+      # Shared with the job service. The default is for local development only
+      INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:-local-dev-only}
       PYTHONUNBUFFERED: "1"
     command: >
       sh -c "
@@ -76,6 +78,28 @@ services:
       timeout: 3s
       retries: 20
       start_period: 120s
+    restart: unless-stopped
+    networks:
+      - staffing_net
+
+  # Keeps the rhythm only: every 30 seconds it asks the backend to close what is
+  # due. The backend decides with its own clock (docs/workflow.md, section 3.8)
+  job:
+    image: python:3.11-slim
+    container_name: nara-staffing-job
+    working_dir: /app
+    volumes:
+      - ./backend:/app:ro
+    environment:
+      BACKEND_URL: http://backend:8000
+      INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:-local-dev-only}
+      JOB_INTERVAL_SECONDS: ${JOB_INTERVAL_SECONDS:-30}
+      PYTHONUNBUFFERED: "1"
+      PYTHONDONTWRITEBYTECODE: "1"
+    command: ["python", "-m", "app.jobs.ticker"]
+    depends_on:
+      backend:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - staffing_net

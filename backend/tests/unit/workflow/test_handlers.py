@@ -28,7 +28,6 @@ def test_stub_preserves_case_and_transaction_ownership(
     db = create_autospec(Session, instance=True)
     case = StaffingCase(
         id=1,
-        event_id=1,
         shift_id=1,
         status=current,
         required_replacement_time=clock.now(),

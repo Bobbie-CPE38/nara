@@ -40,12 +40,13 @@ def _case_and_requirement(db: Session) -> tuple[int, int]:
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=NIGHT_SHIFT,
         status=CaseStatus.ASSESSING,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     requirement_id = db.scalar(
         select(StaffingRequirement.id).where(StaffingRequirement.shift_id == NIGHT_SHIFT)
