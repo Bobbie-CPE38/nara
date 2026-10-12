@@ -42,7 +42,7 @@
 | :-- | :-- |
 | **1a** Hard Rules | ตัวตรวจและรหัสใน `domain/constraints/` + Unit Test |
 | **2a** Solver | ใช้ Hard Rules กับ Gap, สูตร `plan_penalty`, `ranking_key`, `CANDIDATE_ITEM_TARGET`, `working_time_service`, เรียกฟังก์ชันเพดาน Offer, กรณี Solver ไม่ได้ใคร |
-| **3** Safety รายคน | ตรวจตอนตอบรับ บันทึกผลไม่ผ่าน ลบ `assert_available()` และลบสองเส้นของ `SAFETY_VALIDATION` |
+| **3** Safety รายคน | ตรวจตอนตอบรับ บันทึกผลไม่ผ่าน ลบ `assert_available()` กับ `unavailable_staff()` และลบสองเส้นของ `SAFETY_VALIDATION` |
 | **6** หน้า `cases/[id]` | สถานะรายคน, เหตุผลที่ข้าม, `event_ids`, `effective_minimum` |
 
 ### คน 3 (4 PR)
@@ -63,8 +63,8 @@
 3. PR 1a, 1b, 1c ทำขนานกันได้
 4. PR M (หลัง 0 และ 1b) และ PR S ต้องเข้าก่อน 2b
 5. PR 2a (หลัง 1a, 1b, 1c) ต้องเข้าก่อน 2b
-6. PR 2b แล้ว PR 3 แล้ว PR 4 ตามลำดับ
-7. PR O หลัง M, 1c และ 2b
-8. PR 5 หลัง 4 และ PR 6 หลัง 2b, 3, 4
+6. PR 2b แล้ว PR 3 แล้ว PR 4 ตามลำดับ ทั้งสามตัวเข้า Branch รวมหนึ่ง Branch ที่แตกจาก `staging` แล้ว merge Branch รวมเข้า `staging` ครั้งเดียว เพราะหลัง PR 2b ระบบส่ง Offer เป็น Wave แล้ว แต่ Safety กับการอนุมัติยังเป็นโค้ดเก่าจนกว่า PR 3 และ 4 จะเข้า
+7. PR O หลัง M, 1c และหลัง Branch รวมเข้า `staging`
+8. PR 5 และ PR 6 หลัง Branch รวมเข้า `staging`
 
 จุดที่รวมแล้วพังเงียบได้อยู่ท้ายข้อ 10 ของร่าง อ่านก่อนเปิด PR ของตัวเอง
