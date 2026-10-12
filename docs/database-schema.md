@@ -11,6 +11,7 @@
 > * `d5e8f20b63a4` แทน Snapshot สองคอลัมน์นั้นด้วย `STAFFING_GAP.effective_minimum` (รอบ 1 PR 1b ไม่ Backfill ให้ `make reset`)
 > * `e1f5a8b3c6d2` (รอบ 1 PR 1a) เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_consecutive_shifts` พร้อม CHECK (Backfill Policy เดิม = 7) และ CHECK ของ `ATTENDANCE.overtime_minutes`
 > * `d91a6c8e203f` เพิ่ม `OUTREACH_POLICY` และ CHECK เพดาน Offer มากกว่า 0 (PR 1c; Migration สร้างตารางว่าง ต้อง `make reset` เพื่อโหลด Policy ของ Demo)
+> * `f3a7c1d9e5b2` (รอบ 1 PR 2a) เพิ่มตาราง `CANDIDATE_ITEM_TARGET` พร้อม CHECK สองข้อ, `CANDIDATE_ITEMS.working_time_snapshot_id` และ `SOFT_CONSTRAINT_POLICY.candidate_source_weight` (Backfill Policy เดิม = 200)
 
 
 ## สรุปการตัดสินใจ
@@ -18,7 +19,7 @@
 
 | เรื่อง | ตัดสินว่า |
 |---|---|
-| จำนวนตาราง | 31 ตาราง (29 เดิม + `ACTORS` + `OUTREACH_POLICY`) |
+| จำนวนตาราง | 32 ตาราง (29 เดิม + `ACTORS` + `OUTREACH_POLICY` + `CANDIDATE_ITEM_TARGET`) |
 | ชนิด ID | `bigint` ทุกตาราง (รวม FK ทุกตัว) |
 | เก็บ Enum | Python `StrEnum` → คอลัมน์ `text` ยังไม่ใส่ DB ENUM / CHECK |
 | `created_at` / `updated_at` | `timestamptz` ตั้งค่าจาก `core/clock.py` ไม่พึ่ง Default ของ DB |
@@ -265,10 +266,10 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `generated_at` | timestamptz | NOT NULL |  |  |
 | `execution_time_ms` | integer | NOT NULL |  |  |
 | `objective_score` | numeric | NULL |  |  |
-| `solver_version` | text | NOT NULL |  | Skeleton = `"stub"` |
+| `solver_version` | text | NOT NULL |  | รอบ 1 = `"weighted-v1"` (Skeleton = `"stub"`) |
 | `hard_constraint_policy_id` | bigint | NOT NULL | FK HARD_CONSTRAINT_POLICY.id |  |
 | `soft_constraint_policy_id` | bigint | NOT NULL | FK SOFT_CONSTRAINT_POLICY.id |  |
-| `input_snapshot` | jsonb | NOT NULL |  |  |
+| `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `candidates` (ค่าของแต่ละคนเรียงตาม `rank`), `skipped` |
 
 
 ### 16. CANDIDATE_ITEMS
@@ -282,10 +283,10 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `rank` | integer | NOT NULL |  |  |
 | `source` | text | NOT NULL |  | `CandidateSource` |
 | `proposed_shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
-| `working_time_snapshot_id` | bigint | NULL | FK STAFF_WORKING_TIME_SNAPSHOT.id | Snapshot ที่ Solver ใช้ตอนจัดอันดับผู้สมัครคนนี้ **(รอบ 1 ยังไม่มีใน DB)** |
+| `working_time_snapshot_id` | bigint | NULL | FK STAFF_WORKING_TIME_SNAPSHOT.id | Snapshot ที่ Solver ใช้ตอนจัดอันดับผู้สมัครคนนี้ เพิ่มใน PR 2a NULL เฉพาะแถวที่เขียนก่อน PR 2a |
 
 
-### 16.1 CANDIDATE_ITEM_TARGET **(รอบ 1 ยังไม่มีใน DB)**
+### 16.1 CANDIDATE_ITEM_TARGET
 
 
 ตารางลูกของ `CANDIDATE_ITEMS` เก็บว่าผู้สมัครถูกเลือกมาเติม Target ไหน คนหนึ่งคนมีได้หลายแถว
@@ -294,10 +295,14 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `candidate_item_id` | bigint | NOT NULL | FK CANDIDATE_ITEMS.id |  |
-| `target_type` | text | NOT NULL |  | `HEADCOUNT`, `ROLE`, `SKILL` |
+| `target_type` | text | NOT NULL |  | `TargetType`: `HEADCOUNT`, `ROLE`, `SKILL` |
 | `role_id` | bigint | NULL | FK ROLE.id | ใช้เมื่อ Target เป็น `ROLE` |
 | `skill_id` | bigint | NULL | FK SKILL.id | ใช้เมื่อ Target เป็น `SKILL` |
-| `selection_type` | text | NOT NULL |  | `PRIMARY` หรือ `RESERVE` |
+| `selection_type` | text | NOT NULL |  | `SelectionType`: `PRIMARY` หรือ `RESERVE` |
+
+CHECK `ck_candidate_item_target_role_id_matches_target_type`: `(target_type = 'ROLE') = (role_id IS NOT NULL)` และ `ck_candidate_item_target_skill_id_matches_target_type`: `(target_type = 'SKILL') = (skill_id IS NOT NULL)` ประกาศใน `__table_args__` ของ Model
+
+ผู้เขียนมีสองจุด ผ่าน `optimization_service.record_item_targets()`: Solver เขียนให้กลุ่มของ Wave แรก และ `contact_candidate` เขียนให้ทุกคนที่มันเลือกเอง (PR 2b) คนหนึ่งคนได้แถวของทุก Target ที่ยังไม่เป็น 0 ตอนเขาถูกเลือก คนที่ถูกนับภายในจำนวน Gap ของ Target นั้นเป็น `PRIMARY` ที่เกินจาก Gap จนถึง Target เป็น `RESERVE` แถวไม่ถูกแก้ทีหลัง
 
 
 ### 17. CONTACTS
@@ -350,13 +355,15 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `staff_id` | bigint | NOT NULL | FK STAFF.id |  |
-| `hours_today` | numeric | NOT NULL |  |  |
-| `hours_this_week` | numeric | NOT NULL |  |  |
-| `rest_hours` | numeric | NOT NULL |  |  |
-| `overtime_hours` | numeric | NOT NULL |  |  |
-| `consecutive_shifts` | integer | NOT NULL |  |  |
-| `consecutive_night_shifts` | integer | NOT NULL |  |  |
-| `captured_at` | timestamptz | NOT NULL |  |  |
+| `hours_today` | numeric | NOT NULL |  | ชั่วโมงของเวรที่เริ่มในวันเดียวกับ `captured_at` (Asia/Bangkok) นับทั้งเวร รวมเวรที่ยังไม่เริ่ม |
+| `hours_this_week` | numeric | NOT NULL |  | ชั่วโมงของเวรที่เริ่มในสัปดาห์ของ `captured_at` (จันทร์ 00:00 ถึงจันทร์ถัดไป) รวมเวรที่ยังไม่เริ่ม ไม่รวมเวรที่เคสเสนอ ใช้ให้คะแนน |
+| `rest_hours` | numeric | NOT NULL |  | ชั่วโมงตั้งแต่เวรล่าสุดจบถึง `captured_at` เป็น 0 ตอนกำลังอยู่เวร และเป็น 0 เมื่อไม่มีเวรก่อนหน้า (แยกสองกรณีนี้ไม่ได้) ไม่ใช้ตรวจหรือให้คะแนนในรอบ 1 |
+| `overtime_hours` | numeric | NOT NULL |  | OT ที่ทำไปแล้วในสัปดาห์ของ `captured_at` รวมจาก `ATTENDANCE.overtime_minutes` ของแถวที่สรุปแล้ว นับตาม `check_in_at` ใช้ให้คะแนน |
+| `consecutive_shifts` | integer | NOT NULL |  | จำนวนเวรในลำดับเวรต่อเนื่องปัจจุบัน ณ `captured_at` เป็น 0 เมื่อพักจากเวรล่าสุดเกิน 24 ชั่วโมง ไม่ใช้ตรวจหรือให้คะแนนในรอบ 1 |
+| `consecutive_night_shifts` | integer | NOT NULL |  | จำนวนเวร `NIGHT` ติดกันที่ท้ายลำดับนั้น ไม่ใช้ตรวจหรือให้คะแนนในรอบ 1 |
+| `captured_at` | timestamptz | NOT NULL |  | เวลาอ้างอิงของ Snapshot = `clock.now()` ของรอบ Optimize ค่าเดียวกันทุกคนในรอบ |
+
+`working_time_service.capture()` เป็นผู้เขียนจุดเดียว (PR 2a) เขียนแถวใหม่ทุกครั้งที่ Solver รัน ไม่แก้แถวเดิม นับเฉพาะ Roster ที่สถานะอยู่ใน `COMMITTED_ROSTER_STATUSES` เวรที่จบก่อนต้นสัปดาห์เกิน 31 วันไม่ถูกโหลด ลำดับเวรต่อเนื่องที่ยาวกว่านั้นจึงถูกตัด
 
 
 ### 21. APPROVAL_POLICY
@@ -405,11 +412,13 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | `workload_imbalance_weight` | numeric | NOT NULL |  |  |
 | `projected_overtime_weight` | numeric | NOT NULL |  |  |
 | `roster_change_weight` | numeric | NOT NULL |  |  |
-| `candidate_source_weight` | numeric | NOT NULL |  | Weight ของพจน์แหล่งที่มาใน `plan_penalty` Seed = 200 ลำดับของแหล่งที่มายังอ่านจาก `candidate_source_priority` **(รอบ 1 ยังไม่มีใน DB เพิ่มใน PR 2a)** |
+| `candidate_source_weight` | numeric | NOT NULL |  | Weight ของพจน์แหล่งที่มาใน `plan_penalty` Seed = 200 ลำดับของแหล่งที่มายังอ่านจาก `candidate_source_priority` ไม่มี Default หลัง Migration |
 | `candidate_source_priority` | jsonb | NOT NULL |  |  |
 | `optimization_priority` | jsonb | NOT NULL |  |  |
 | `effective_from` | timestamptz | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |
+
+ค่า Seed ของรอบ 1: `candidate_count_weight = 1000`, `candidate_source_weight = 200`, `workload_imbalance_weight = 1`, `consecutive_shift_weight = 5`, `projected_overtime_weight = 2`, `roster_change_weight = 300` Weight ต้องไม่ติดลบ ไม่งั้น Solver โยน Error และเคสเป็น `FAILED`
 
 
 ### 23.1 OUTREACH_POLICY
@@ -559,6 +568,9 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | `CandidateSource` | ROSTER_ASSIGNMENT.candidate_source, CANDIDATE_ITEMS.source | `SAME_WARD`, `FLOAT_POOL`, `CROSS_WARD` |
 | `SolverStatus` | CANDIDATE_PLANS.solver_status | `OPTIMAL`, `FEASIBLE`, `INFEASIBLE`, `MODEL_INVALID`, `UNKNOWN` |
 | `OptimizationObjective` | SOFT_CONSTRAINT_POLICY.optimization_priority (ใน JSON) | `MIN_CANDIDATE_COUNT`, `MIN_CONSECUTIVE_SHIFT`, `CANDIDATE_SOURCE`, `WEEKLY_WORKLOAD_FAIRNESS`, `MIN_PROJECTED_OVERTIME` |
+| `TargetType` | CANDIDATE_ITEM_TARGET.target_type | `HEADCOUNT`, `ROLE`, `SKILL` |
+| `SelectionType` | CANDIDATE_ITEM_TARGET.selection_type | `PRIMARY`, `RESERVE` |
+| `ManualHandoffReason` | `reason` ใน payload ของ `MANUAL_HANDOFF` (ไม่เก็บเป็นคอลัมน์) | `NO_CANDIDATE_LEFT`, `NO_FEASIBLE_PLAN` |
 | `OutreachStatus` | CANDIDATE_OUTREACH.status | `PENDING`, `SENT`, `ACCEPTED`, `REJECTED`, `TIMEOUT`, `FAILED`, `CANCELLED` |
 | `CandidateResponse` | API ของ LINE / LINE Sim (ไม่เก็บใน DB) | `ACCEPT`, `REJECT` |
 | `Channel` | CANDIDATE_OUTREACH.channel | `LINE` |
@@ -643,7 +655,7 @@ Only candidates examined and skipped in steps 3 and 4 belong in `skipped`. A can
 |---|---|---|
 | `STAFF_NOT_ACTIVE` | Candidate is not `ACTIVE`. | `require_active_staff` |
 | `ALREADY_ON_SHIFT` | Candidate already has a committed roster assignment on the target shift. | Always checked |
-| `UNAVAILABLE` | A recorded unavailability period overlaps the proposed shift. | Always checked |
+| `UNAVAILABLE` | A recorded unavailability period overlaps the proposed shift, or the candidate has a `CANCELLED` roster row on the proposed shift (they left it or were taken off it). | Always checked |
 | `SHIFT_CONFLICT` | Candidate has a committed assignment on another shift whose time overlaps the proposed shift. | `prevent_shift_conflict` |
 | `ROLE_MISMATCH` | Candidate does not have the role of the target they are selected to fill. | `require_matching_role` |
 | `SKILL_MISMATCH` | Candidate does not have the skill of the target they are selected to fill. | `require_matching_skill` |
@@ -657,6 +669,8 @@ Only candidates examined and skipped in steps 3 and 4 belong in `skipped`. A can
 The first eleven codes are Hard Rules. The Solver, wave selection and Safety must return the same result from the same data. `OFFER_LIMIT_REACHED` is not a Hard Rule: it is checked by the Solver and by wave selection, never by Safety, because the candidate being validated always holds the accepted offer of their own case.
 
 The old codes `OPEN_OFFER`, `HAS_OPEN_OFFER` and `SOURCE_WARD_MINIMUM` are not used.
+
+The Solver also leaves out a candidate who can fill nothing: the case is short of a role or a skill only (`headcount_gap = 0`) and the candidate has none of them. The code is `SKILL_MISMATCH` when a skill is short, otherwise `ROLE_MISMATCH`.
 
 ### Policy Flags
 
@@ -708,7 +722,7 @@ Their previous outcome is recorded by the outreach status and the matching audit
 
 `skipped` is a list of `{staff_id, reason}` with one fixed code per skipped candidate.
 
-A candidate may fail more than one rule. The contract fixes the shape but not which code is kept in that case. The PR that implements wave selection must pick a stable rule and write it here; the order of the Skip Reasons table above, which Safety also uses for `failure_reason`, is the natural choice. Do not rely on database query order.
+A candidate may fail more than one rule. One code is kept: the first failed Hard Rule in the order of the Skip Reasons table above, which is also the order Safety uses for `failure_reason`. The offer limit is checked after the Hard Rules, so `OFFER_LIMIT_REACHED` appears only for a candidate who passed them. Until PR 2b the Solver also writes it for a candidate who holds any open offer (interim rule, `docs/workflow.md` section 8). The Solver (PR 2a) works this way and wave selection (PR 2b) must do the same. Do not rely on database query order.
 
 ## OFFER_SENT Payload Example
 

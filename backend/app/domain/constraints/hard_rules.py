@@ -22,6 +22,7 @@ from app.domain.constraints.context import (
     is_on_proposed_shift,
     other_committed_shifts,
     projected_consecutive_shifts,
+    was_removed_from_proposed_shift,
     weekly_hours,
 )
 from app.domain.enums import StaffStatus
@@ -37,6 +38,13 @@ def already_on_shift(context: CandidateContext, policy: HardRulePolicy) -> bool:
 
 
 def unavailable(context: CandidateContext, policy: HardRulePolicy) -> bool:
+    """An unavailability period overlaps the shift, or the candidate was removed from it.
+
+    A leave writes both a CANCELLED roster row and a period. ASSIGNMENT_CANCELLED
+    writes only the roster row, and that person must not get the shift back either.
+    """
+    if was_removed_from_proposed_shift(context):
+        return True
     shift = context.proposed_shift
     return any(
         period.start_at < shift.end_at and (period.end_at is None or period.end_at > shift.start_at)

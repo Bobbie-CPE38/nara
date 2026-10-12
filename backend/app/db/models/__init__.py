@@ -11,6 +11,7 @@ from app.db.models.approval_request import ApprovalRequest
 from app.db.models.attendance import Attendance
 from app.db.models.audit_log import AuditLog
 from app.db.models.candidate_item import CandidateItem
+from app.db.models.candidate_item_target import CandidateItemTarget
 from app.db.models.candidate_outreach import CandidateOutreach
 from app.db.models.candidate_plan import CandidatePlan
 from app.db.models.contact import Contact
@@ -44,6 +45,7 @@ __all__ = [
     "Attendance",
     "AuditLog",
     "CandidateItem",
+    "CandidateItemTarget",
     "CandidateOutreach",
     "CandidatePlan",
     "Contact",

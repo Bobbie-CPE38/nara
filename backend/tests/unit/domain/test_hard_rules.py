@@ -224,6 +224,20 @@ def test_only_committed_rows_put_the_candidate_on_the_shift(
     assert (HardRuleCode.ALREADY_ON_SHIFT in result.failed_rules) is blocked
 
 
+def test_a_cancelled_row_on_the_proposed_shift_is_unavailable() -> None:
+    result = evaluate(candidate(roster=(on(PROPOSED, RosterStatus.CANCELLED),)), POLICY)
+
+    assert result.failed_rules == (HardRuleCode.UNAVAILABLE,)
+
+
+def test_a_cancelled_row_on_another_shift_does_not_block() -> None:
+    other = slot(2, at(4, 8))
+
+    result = evaluate(candidate(roster=(on(other, RosterStatus.CANCELLED),)), POLICY)
+
+    assert result.failed_rules == ()
+
+
 @pytest.mark.parametrize(
     ("status", "clashes"),
     [

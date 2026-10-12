@@ -2,7 +2,8 @@
 Safety check of the accepted candidate (docs/workflow.md, sections 6.4 and 8).
 
 The walking skeleton has no hard rules yet. The accepted candidate is re-checked
-with the Solver's rules (availability_service), because the situation can change
+with the three Skeleton rules of availability_service (the Solver uses the full
+Hard Rules since PR 2a; Safety follows in PR 3), because the situation can change
 while the offer waits for an answer. If they still hold, the candidate passes and
 the case waits for a head nurse's manual approval. The real rule engine replaces
 the pass later; the lookups and the approval request stay.

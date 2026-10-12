@@ -20,6 +20,9 @@ class SoftConstraintPolicy(Base):
     workload_imbalance_weight: Mapped[Decimal] = mapped_column(Numeric)
     projected_overtime_weight: Mapped[Decimal] = mapped_column(Numeric)
     roster_change_weight: Mapped[Decimal] = mapped_column(Numeric)
+    # Weight of the source term of plan_penalty. The order of the sources is
+    # candidate_source_priority
+    candidate_source_weight: Mapped[Decimal] = mapped_column(Numeric)
     # Ordering of CandidateSource values; JSON shape not fixed yet
     candidate_source_priority: Mapped[Any] = mapped_column(JSONB)
     # Ordering of OptimizationObjective values; JSON shape not fixed yet

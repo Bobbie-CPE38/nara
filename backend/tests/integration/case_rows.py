@@ -21,10 +21,12 @@ from app.db.models import (
     Shift,
     StaffingCase,
     StaffingEvent,
+    StaffUnavailability,
 )
 from app.domain.enums import (
     ApprovalMode,
     AssignmentType,
+    AvailabilityReason,
     CandidateSource,
     CaseStatus,
     Channel,
@@ -49,6 +51,26 @@ def cancel_roster(db: Session, staff_id: int, shift_id: int = NIGHT_SHIFT) -> No
         )
     ).one()
     row.status = RosterStatus.CANCELLED
+    db.flush()
+
+
+def leave(db: Session, staff_id: int, shift_id: int = NIGHT_SHIFT) -> None:
+    """What closing the merge window does for a leave: cancel the roster row and record the absence.
+
+    Without the unavailability row the person is still a free RN of the ward and
+    the Solver would offer them the shift they just left.
+    """
+    cancel_roster(db, staff_id, shift_id)
+    shift = db.get(Shift, shift_id)
+    assert shift is not None
+    db.add(
+        StaffUnavailability(
+            staff_id=staff_id,
+            start_at=shift.start_at,
+            end_at=shift.end_at,
+            reason=AvailabilityReason.UNPLANNED_LEAVE,
+        )
+    )
     db.flush()
 
 
