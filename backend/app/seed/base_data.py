@@ -41,6 +41,7 @@ def seed(db: Session) -> None:
                 minimum_rest_hours=Decimal(11),
                 maximum_daily_hours=Decimal(12),
                 maximum_weekly_hours=Decimal(52),
+                maximum_consecutive_shifts=7,
                 maximum_patients_per_nurse=Decimal(2),
                 prevent_shift_conflict=True,
                 require_matching_role=True,

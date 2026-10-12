@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Numeric, Text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, Integer, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core import clock
@@ -15,6 +15,7 @@ class HardConstraintPolicy(Base):
             "maximum_patients_per_nurse > 0 AND maximum_patients_per_nurse < 'Infinity'::numeric",
             name="patients_per_nurse_valid",
         ),
+        CheckConstraint("maximum_consecutive_shifts >= 0", name="consecutive_shifts_non_negative"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -22,6 +23,8 @@ class HardConstraintPolicy(Base):
     minimum_rest_hours: Mapped[Decimal] = mapped_column(Numeric)
     maximum_daily_hours: Mapped[Decimal] = mapped_column(Numeric)
     maximum_weekly_hours: Mapped[Decimal] = mapped_column(Numeric)
+    # Counted after inserting the proposed shift; a rest of 24 hours or less keeps a run
+    maximum_consecutive_shifts: Mapped[int] = mapped_column(Integer)
     maximum_patients_per_nurse: Mapped[Decimal] = mapped_column(Numeric)
     prevent_shift_conflict: Mapped[bool] = mapped_column(Boolean)
     require_matching_role: Mapped[bool] = mapped_column(Boolean)

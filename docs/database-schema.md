@@ -9,6 +9,7 @@
 > * `b82e4f6a901c` ย่อชื่อ CHECK ของคอลัมน์นั้นเป็น `ck_hard_constraint_policy_patients_per_nurse_valid` (กติกาเดิม)
 > * `c4d7e19a52f3` เพิ่ม Snapshot `patient_count` และ `patients_per_nurse` ใน `STAFFING_GAP` พร้อม CHECK (ไม่ Backfill, ดูข้อ 24)
 > * `d5e8f20b63a4` แทน Snapshot สองคอลัมน์นั้นด้วย `STAFFING_GAP.effective_minimum` (รอบ 1 PR 1b ไม่ Backfill ให้ `make reset`)
+> * `e1f5a8b3c6d2` (รอบ 1 PR 1a) เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_consecutive_shifts` พร้อม CHECK (Backfill Policy เดิม = 7) และ CHECK ของ `ATTENDANCE.overtime_minutes`
 
 
 ## สรุปการตัดสินใจ
@@ -339,6 +340,8 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `overtime_minutes` | integer | NULL | CHECK | ส่วนของ `work_minutes` ที่เป็น OT CHECK `0 <= overtime_minutes <= work_minutes` NULL = ข้อมูลยังไม่ครบ ไม่ใช่ 0 |
 | `synced_at` | timestamptz | NOT NULL |  |  |
 
+CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_minutes <= work_minutes` ผ่านเมื่อคอลัมน์ใดคอลัมน์หนึ่งเป็น NULL เพราะแถวนั้นยังไม่สรุป จึงยังไม่มีค่าให้เทียบ
+
 
 ### 20. STAFF_WORKING_TIME_SNAPSHOT
 
@@ -378,7 +381,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `minimum_rest_hours` | numeric | NOT NULL |  | gap ขั้นต่ำของการจบ shift หนึ่งไปอีก shift หนึ่ง ใช้ปฏิเสธการจัดเวรที่พักไม่พอ |
 | `maximum_daily_hours` | numeric | NOT NULL |  |  |
 | `maximum_weekly_hours` | numeric | NOT NULL |  |  |
-| `maximum_consecutive_shifts` | integer | NOT NULL | CHECK | เพิ่มในรอบ 1: จำนวนเวรต่อเนื่องสูงสุดหลังรวมเวรที่เสนอ CHECK `>= 0` Seed = 7 พักไม่เกิน 24 ชั่วโมงนับว่าต่อเนื่อง |
+| `maximum_consecutive_shifts` | integer | NOT NULL | CHECK | เพิ่มในรอบ 1: จำนวนเวรต่อเนื่องสูงสุดหลังรวมเวรที่เสนอ CHECK `ck_hard_constraint_policy_consecutive_shifts_non_negative` (`>= 0`) Seed = 7 พักไม่เกิน 24 ชั่วโมงนับว่าต่อเนื่อง ไม่มี Default หลัง Migration |
 | `maximum_patients_per_nurse` | numeric | NOT NULL |  | จำนวนผู้ป่วยสูงสุดต่อพยาบาล ใช้ Ratio เดียวทั้งโรงพยาบาลใน Skeleton; Seed = 2; CHECK มากกว่า 0 และเป็นค่าจำกัด; ไม่มี Default หลัง Migration |
 | `prevent_shift_conflict` | boolean | NOT NULL |  |  |
 | `require_matching_role` | boolean | NOT NULL |  |  |
@@ -662,6 +665,8 @@ For example, when `require_matching_skill = false`, a skill mismatch alone does 
 ### Role and Skill
 
 A candidate does not have to close every gap of the case alone. Role and skill are evaluated against the targets the candidate is selected to fill, stored in `CANDIDATE_ITEM_TARGET`. A candidate selected only for headcount passes without the missing skill.
+
+A candidate who fills no role target (selected for headcount or a skill only) must still have a role that the requirement of the shift lists. The caller of the evaluator passes those role IDs as the candidate's role set, so any other role fails with `ROLE_MISMATCH`. Any role passes only when the requirement lists no role at all.
 
 ### Time Overlap
 
