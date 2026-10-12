@@ -19,7 +19,7 @@ class CandidatePlan(Base):
     generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     execution_time_ms: Mapped[int] = mapped_column(Integer)
     objective_score: Mapped[Decimal | None] = mapped_column(Numeric)
-    # Skeleton = "stub"
+    # "weighted-v1" since round 1 PR 2a ("stub" before)
     solver_version: Mapped[str] = mapped_column(Text)
     hard_constraint_policy_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("hard_constraint_policy.id")

@@ -74,6 +74,7 @@ nara/
 │   │   │       ├── roster_assignment.py
 │   │   │       ├── candidate_plan.py
 │   │   │       ├── candidate_item.py
+│   │   │       ├── candidate_item_target.py
 │   │   │       ├── contact.py
 │   │   │       ├── candidate_outreach.py
 │   │   │       ├── attendance.py
@@ -143,7 +144,8 @@ nara/
 │   │   │   │
 │   │   │   ├── staffing/
 │   │   │   │   ├── coverage.py
-│   │   │   │   └── gap_calculator.py
+│   │   │   │   ├── gap_calculator.py
+│   │   │   │   └── wave_targets.py
 │   │   │   │
 │   │   │   ├── constraints/
 │   │   │   │   ├── codes.py
@@ -193,6 +195,7 @@ nara/
 │   │   │   ├── case_service.py
 │   │   │   ├── requirement_service.py
 │   │   │   ├── gap_service.py
+│   │   │   ├── hard_rule_service.py
 │   │   │   ├── case_facts_service.py
 │   │   │   ├── candidate_service.py
 │   │   │   ├── optimization_service.py
@@ -289,6 +292,7 @@ nara/
 │   │           ├── candidate_reject.py
 │   │           ├── candidate_timeout.py
 │   │           ├── safety_failure.py
+│   │           ├── soft_constraint.py
 │   │           ├── head_nurse_reject.py
 │   │           ├── auto_approval.py
 │   │           ├── manual_handoff.py
@@ -316,6 +320,7 @@ nara/
 │       │   │   ├── test_hard_rules.py
 │       │   │   ├── test_soft_metrics.py
 │       │   │   ├── test_penalties.py
+│       │   │   ├── test_wave_targets.py
 │       │   │   └── test_approval_policy.py
 │       │   │
 │       │   ├── optimization/
@@ -348,6 +353,7 @@ nara/
 │       │   ├── test_events.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_gap_service.py
+│       │   ├── test_hard_rule_service.py
 │       │   ├── case_rows.py
 │       │   ├── test_case_facts.py
 │       │   ├── test_recompute.py
@@ -355,6 +361,7 @@ nara/
 │       │   ├── test_orchestrator.py
 │       │   ├── test_optimize.py
 │       │   ├── test_outreach_policy.py
+│       │   ├── test_working_time_service.py
 │       │   ├── test_execute_assignment.py
 │       │   ├── test_roster_route.py
 │       │   ├── test_outreach.py
@@ -369,6 +376,8 @@ nara/
 │       │   ├── test_approval_timeout.py
 │       │   ├── test_safety_failure.py
 │       │   ├── test_no_feasible_solution.py
+│       │   ├── test_soft_constraint.py
+│       │   ├── test_solver_schema.py
 │       │   └── test_audit_trail.py
 │       │
 │       └── e2e/

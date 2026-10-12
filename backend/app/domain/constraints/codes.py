@@ -26,3 +26,8 @@ class HardRuleCode(StrEnum):
     WEEKLY_HOURS_EXCEEDED = "WEEKLY_HOURS_EXCEEDED"
     CONSECUTIVE_SHIFTS_EXCEEDED = "CONSECUTIVE_SHIFTS_EXCEEDED"
     SOURCE_WARD_MINIMUM_VIOLATION = "SOURCE_WARD_MINIMUM_VIOLATION"
+
+
+# Not a Hard Rule (see the module docstring): the Solver and wave selection write
+# this code when a candidate already holds the maximum number of open offers
+OFFER_LIMIT_REACHED = "OFFER_LIMIT_REACHED"

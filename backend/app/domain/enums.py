@@ -148,6 +148,32 @@ class OptimizationObjective(StrEnum):
     MIN_PROJECTED_OVERTIME = "MIN_PROJECTED_OVERTIME"
 
 
+class TargetType(StrEnum):
+    """CANDIDATE_ITEM_TARGET.target_type: what a candidate was selected to fill."""
+
+    HEADCOUNT = "HEADCOUNT"
+    ROLE = "ROLE"
+    SKILL = "SKILL"
+
+
+class SelectionType(StrEnum):
+    """CANDIDATE_ITEM_TARGET.selection_type.
+
+    RESERVE is the extra 10% of a wave target. It is not the reserve of Q28, a
+    candidate who accepted after the gap was already closed.
+    """
+
+    PRIMARY = "PRIMARY"
+    RESERVE = "RESERVE"
+
+
+class ManualHandoffReason(StrEnum):
+    """`reason` in the payload of a MANUAL_HANDOFF audit row."""
+
+    NO_CANDIDATE_LEFT = "NO_CANDIDATE_LEFT"  # T5, written by contact_candidate
+    NO_FEASIBLE_PLAN = "NO_FEASIBLE_PLAN"  # T6, written by optimize
+
+
 # --------------------------------------------------------------------------- #
 # Outreach
 # --------------------------------------------------------------------------- #

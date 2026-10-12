@@ -14,3 +14,7 @@ class CandidateItem(Base):
     rank: Mapped[int] = mapped_column(Integer)
     source: Mapped[CandidateSource] = mapped_column(StrEnumText(CandidateSource))
     proposed_shift_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("shift.id"))
+    # The snapshot the Solver ranked this candidate with. NULL only on rows from before round 1
+    working_time_snapshot_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("staff_working_time_snapshot.id")
+    )

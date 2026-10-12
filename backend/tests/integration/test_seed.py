@@ -61,6 +61,24 @@ def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
     assert outreach is not None
     assert outreach.maximum_concurrent_offers_per_staff == 3
     assert outreach.effective_from == outreach.created_at == DEMO_NOW
+    soft = seeded.get(SoftConstraintPolicy, 1)
+    assert soft is not None
+    assert (
+        soft.candidate_count_weight,
+        soft.consecutive_shift_weight,
+        soft.workload_imbalance_weight,
+        soft.projected_overtime_weight,
+        soft.roster_change_weight,
+        soft.candidate_source_weight,
+    ) == (1000, 5, 1, 2, 300, 200)
+    assert soft.candidate_source_priority == ["SAME_WARD", "FLOAT_POOL", "CROSS_WARD"]
+    assert soft.optimization_priority == [
+        "MIN_CANDIDATE_COUNT",
+        "CANDIDATE_SOURCE",
+        "WEEKLY_WORKLOAD_FAIRNESS",
+        "MIN_CONSECUTIVE_SHIFT",
+        "MIN_PROJECTED_OVERTIME",
+    ]
     hard = seeded.get(HardConstraintPolicy, 1)
     assert hard is not None
     assert hard.maximum_patients_per_nurse == 2

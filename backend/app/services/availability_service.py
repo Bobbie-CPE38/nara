@@ -1,10 +1,9 @@
 """
 Can a staff member take a shift at all? (docs/workflow.md, section 8)
 
-One rule set for the steps that pick or confirm a replacement: the Solver drops
-candidates that break it, and Safety re-checks the accepted candidate, because
-the situation can change while the offer waits for an answer. A staff member is
-unavailable for a shift when they:
+The three Skeleton rules. Safety and Execute still use them until round 1 PR 3;
+the Solver moved to the Hard Rules of domain/constraints in PR 2a
+(hard_rule_service). A staff member is unavailable for a shift when they:
   1. are not ACTIVE,
   2. already have a roster row on that shift in COMMITTED_ROSTER_STATUSES,
   3. have STAFF_UNAVAILABILITY overlapping the shift (no end_at = from start_at on).
@@ -13,11 +12,10 @@ Rules:
   * Read-only. Nothing here adds, flushes or commits.
   * Clashes with other shifts (rest time, double booking) are left to the real
     hard rules after the skeleton.
-  * Open offers are not a rule here. The Solver's rule 4 lives in
-    optimization_service, because the accepted candidate Safety re-checks always
+  * Open offers are not a rule here. The offer cap is staff_at_offer_limit()
+    below: the Solver calls it since PR 2a, wave selection follows in PR 2b, and
+    Safety never does, because the accepted candidate Safety re-checks always
     holds their own ACCEPTED offer.
-    Round 1 PR 1c adds staff_at_offer_limit below as a separate read helper;
-    it is not wired into these availability rules or Safety.
   * PENDING_APPROVAL counts as committed. Nothing writes it in the skeleton; a
     later step that writes it for the accepted candidate before Safety must
     exclude that row, or rule 2 blocks the candidate on their own assignment.
@@ -121,8 +119,9 @@ def staff_at_offer_limit(db: Session, staff_ids: list[int]) -> set[int]:
 
     Callers allocating offers must first lock the relevant STAFF rows in ID
     order (workflow.md 6.11), then recheck here in the same transaction. This
-    query alone does not reserve capacity. Solver/Wave wiring is PR 2a/2b;
-    Safety must not call this helper on its own accepted offer.
+    query alone does not reserve capacity. The Solver calls it since PR 2a; wave
+    selection follows in PR 2b. Safety must not call this helper on its own
+    accepted offer.
     """
     if not staff_ids:
         return set()
