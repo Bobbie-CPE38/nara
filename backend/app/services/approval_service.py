@@ -27,6 +27,7 @@ from app.domain.enums import (
     EntityType,
     OutreachStatus,
 )
+from app.domain.staffing.ward_authority import manages_ward
 from app.schemas.approval import PendingApproval
 from app.services import (
     actor_service,
@@ -57,6 +58,10 @@ class ApprovalNotFoundError(LookupError):
 
 class ApproverRoleError(ValueError):
     """The authenticated staff member does not have the required role."""
+
+
+class ApproverWardError(ValueError):
+    """The authenticated staff member is not of the ward the shift belongs to."""
 
 
 class ApprovalNotPendingError(ValueError):
@@ -120,11 +125,15 @@ def decide(
     approval_id: int,
     staff_id: int,
     role_id: int,
+    home_ward_id: int,
     actor_id: int,
     approved: bool,
     reason: str | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase]:
     """Decide one candidate and execute immediately, then recompute the case.
+
+    The approver needs the required role and must be of the ward of the shift
+    (workflow.md section 6.12). Both refusals come before the pending check.
 
     Lock Shift → Request → own-case and candidate's foreign Offers in one ID-
     ordered query → case → whole-plan Staff. Refresh state after lock waits.
@@ -132,7 +141,7 @@ def decide(
     recompute's savepoint. Workflow failure preserves the decision, fails the
     case, and rolls back its assignment. Foreign notifications follow commit.
     """
-    request, case, item, offers = _lock_decision(db, approval_id, role_id)
+    request, case, item, offers = _lock_decision(db, approval_id, role_id, home_ward_id)
     own = [
         row
         for row in offers
@@ -226,6 +235,7 @@ def _lock_decision(
     db: Session,
     approval_id: int,
     role_id: int,
+    home_ward_id: int,
 ) -> tuple[ApprovalRequest, StaffingCase, CandidateItem, list[CandidateOutreach]]:
     """Acquire the full lock set before writes; restart if an offer appeared while waiting.
 
@@ -240,9 +250,16 @@ def _lock_decision(
         initial_case = db.get(StaffingCase, initial.case_id)
         if initial_case is None:
             raise LookupError(f"No case {initial.case_id}")
-        db.scalar(
-            select(Shift).where(Shift.id == initial_case.shift_id).with_for_update(key_share=True)
+        # KEY SHARE does not block an update of ward_id. No path moves a shift to
+        # another ward, so the ward read here holds for the decision
+        shift = db.scalar(
+            select(Shift)
+            .where(Shift.id == initial_case.shift_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         )
+        if shift is None:
+            raise LookupError(f"No shift {initial_case.shift_id}")
         request = db.scalars(
             select(ApprovalRequest)
             .where(ApprovalRequest.id == approval_id)
@@ -251,6 +268,9 @@ def _lock_decision(
         ).one()
         if role_id != request.required_approver_role:
             raise ApproverRoleError("The staff member does not have the required approver role")
+        # Same rule as the manual exits of MANUAL_HANDOFF (section 6.12)
+        if not manages_ward(home_ward_id=home_ward_id, ward_id=shift.ward_id):
+            raise ApproverWardError("The staff member is not a head nurse of the shift's ward")
         if not request.is_pending:
             raise ApprovalNotPendingError(f"Approval request {approval_id} is not pending")
         item = db.get(CandidateItem, request.candidate_item_id)
