@@ -78,6 +78,12 @@ def get_case_fillers(
         return list(_fillers(db, staff_ids).values())
 
 
+def count_assigned(db: Session, case_id: int) -> int:
+    """How many people this case already put on the roster. Read-only."""
+    with db.no_autoflush:
+        return len(_assigned_staff_ids(db, case_id))
+
+
 def load_case_facts(db: Session, case: StaffingCase) -> CaseFacts:
     """Read the gap, the assigned and pending candidates and the offers of one case.
 
