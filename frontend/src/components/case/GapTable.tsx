@@ -17,6 +17,11 @@ export function GapTable({ gap }: { gap: GapView }) {
     <>
       <p className="mt-2">
         Headcount: <Shortage count={gap.headcount_gap} />
+        <span className="ml-2">
+          {gap.headcount_gap > 0
+            ? `Minimum ${gap.effective_minimum}, ${gap.effective_minimum - gap.headcount_gap} on shift`
+            : `Minimum ${gap.effective_minimum}`}
+        </span>
         <span className="ml-4 text-sm text-gray-500">Computed {formatDateTime(gap.computed_at)}</span>
       </p>
       {rows.length === 0 ? (

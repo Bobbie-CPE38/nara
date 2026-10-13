@@ -1,6 +1,6 @@
 """Answers of the case read routes (docs/workflow.md, section 9.3)."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -35,6 +35,25 @@ class GapView(BaseModel):
     skills: list[GapCount]
 
 
+# Where a candidate is in the case (docs/workflow.md, section 4.1). Computed
+# from the candidate's rows when the case is read, never stored
+CandidateStage = Literal[
+    "NOT_CONTACTED",
+    "OFFER_PENDING",
+    "OFFER_SENT",
+    "OFFER_REJECTED",
+    "OFFER_TIMEOUT",
+    "OFFER_FAILED",
+    "OFFER_CANCELLED",
+    "ACCEPTED",
+    "SAFETY_FAILED",
+    "WAITING_APPROVAL",
+    "APPROVAL_REJECTED",
+    "APPROVED",
+    "ASSIGNED",
+]
+
+
 class CandidateView(BaseModel):
     candidate_item_id: int
     rank: int
@@ -44,6 +63,7 @@ class CandidateView(BaseModel):
     source: CandidateSource
     # null until an offer was created for this candidate
     outreach_status: OutreachStatus | None
+    stage: CandidateStage
 
 
 class CaseDetail(BaseModel):

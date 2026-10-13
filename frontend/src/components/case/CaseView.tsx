@@ -3,24 +3,18 @@
 import { useCallback } from "react";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
+import { SkippedTable } from "@/components/candidate/SkippedTable";
 import { GapTable } from "@/components/case/GapTable";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError } from "@/lib/api";
-import { type CaseSnapshot, isCaseId, loadCase } from "@/lib/cases";
+import { type CaseSnapshot, collectSkips, isCaseId, loadCase } from "@/lib/cases";
 import {
   CASE_STATUS_INFO,
   POLL_INTERVAL_MS,
-  type StatusTone,
   TERMINAL_CASE_STATUSES,
+  TONE_CLASS,
 } from "@/lib/constants";
 import { formatDateTime, formatValue } from "@/lib/format";
-
-const TONE_CLASS: Record<StatusTone, string> = {
-  ok: "text-green-700",
-  bad: "text-red-700",
-  waiting: "text-amber-700",
-  neutral: "",
-};
 
 function isFinal({ detail }: CaseSnapshot) {
   return TERMINAL_CASE_STATUSES.has(detail.status);
@@ -40,6 +34,7 @@ function describe(error: Error) {
 
 function CaseSections({ detail, audit }: CaseSnapshot) {
   const info = CASE_STATUS_INFO.get(detail.status);
+  const skips = collectSkips(audit);
   // FAILED is a normal answer. Its reason is only in the audit, and only as an error type.
   const failure = detail.status === "FAILED"
     ? audit.findLast(entry => entry.action === "WORKFLOW_FAILED")
@@ -80,6 +75,12 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
       <section className="mt-6">
         <h2 className="text-xl font-semibold">Candidates</h2>
         <CandidateTable candidates={detail.candidates} />
+        {skips.length > 0 && (
+          <>
+            <h3 className="mt-4 font-semibold">Skipped</h3>
+            <SkippedTable skips={skips} candidates={detail.candidates} />
+          </>
+        )}
       </section>
       <section className="mt-6">
         <h2 className="text-xl font-semibold">Timeline</h2>

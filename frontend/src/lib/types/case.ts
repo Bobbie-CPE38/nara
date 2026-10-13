@@ -15,6 +15,8 @@ export type GapCount = {
 
 export type GapView = {
   id: number;
+  /** The headcount target the gap was measured against */
+  effective_minimum: number;
   headcount_gap: number;
   computed_at: string;
   roles: GapCount[];
@@ -30,6 +32,8 @@ export type CandidateView = {
   source: string;
   /** null until an offer was created for this candidate */
   outreach_status: string | null;
+  /** Where the candidate is in the case (docs/workflow.md, section 4.1) */
+  stage: string;
 };
 
 /** GET /cases/{id} */

@@ -1,3 +1,4 @@
+import { CANDIDATE_STAGE_INFO, TONE_CLASS } from "@/lib/constants";
 import type { CandidateView } from "@/lib/types/case";
 
 /** Candidates in the order the API sends them, which is by rank. */
@@ -11,7 +12,7 @@ export function CandidateTable({ candidates }: { candidates: CandidateView[] }) 
           <th className="py-1 pr-4">Staff ID</th>
           <th className="py-1 pr-4">Name</th>
           <th className="py-1 pr-4">Source</th>
-          <th className="py-1 pr-4">Offer</th>
+          <th className="py-1 pr-4">Status</th>
         </tr>
       </thead>
       <tbody>
@@ -22,7 +23,14 @@ export function CandidateTable({ candidates }: { candidates: CandidateView[] }) 
             <td className="py-1 pr-4">{candidate.first_name} {candidate.last_name}</td>
             <td className="py-1 pr-4">{candidate.source}</td>
             <td className="py-1 pr-4">
-              {candidate.outreach_status ?? <span className="text-gray-500">Not contacted</span>}
+              {(() => {
+                const info = CANDIDATE_STAGE_INFO.get(candidate.stage);
+                return (
+                  <span className={TONE_CLASS[info?.tone ?? "neutral"]}>
+                    {info?.label ?? candidate.stage}
+                  </span>
+                );
+              })()}
             </td>
           </tr>
         ))}
