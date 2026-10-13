@@ -8,15 +8,27 @@
 
 ## สถานะของรอบ 1
 
-PR 0 ของรอบ 1 ย้ายกติกาที่ทีมรีวิวแล้วจาก `docs/round1/round1-contract-draft.md` (ในไฟล์นี้เรียกว่า "ร่างรอบ 1") เข้ามาในข้อ 3, 4, 5, 6, 7 และ 9 PR 0 ยังไม่เปลี่ยนพฤติกรรมของระบบ โค้ดจะตรงกับแต่ละข้อเมื่อ PR ของข้อนั้นเข้า `staging` ตามตารางนี้ ระหว่างนั้นสิ่งที่โค้ดทำจริงดูได้จากข้อ 8
+รอบ 1 เสร็จแล้ว PR ทุกตัวของร่างรอบ 1 ข้อ 10 เข้า `staging` ครบ โค้ดตรงกับข้อ 3 ถึง 7 และข้อ 9 ของไฟล์นี้ กติกาเหล่านี้ย้ายมาจาก `docs/round1/round1-contract-draft.md` (ในไฟล์นี้เรียกว่า "ร่างรอบ 1") ใน PR 0
 
-| ข้อ | เรื่อง | โค้ดตรงกับข้อนี้เมื่อ PR ไหนเข้า |
-|---|---|---|
-| 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | ตรงแล้ว (PR 1b และ PR M) รวมการปิด Offer ที่หมดเวลาและ recovery sweep แล้ว (PR O) |
-| 4, 5 | สถานะเคส, Transition, ฟังก์ชันคำนวณสถานะเคส | ตาราง Transition มี T1 ถึง T7 แล้วใน PR 0 `decide_status()` และ `orchestrator.recompute()` มีแล้วใน PR S และเส้นทางตอบ Offer เรียก `recompute()` แล้วใน PR 2b Handler `optimize` ใช้ T6 แล้ว (PR 2a) Safety รายคนด้วย Hard Rules เต็มและการลบสองเส้นของ `SAFETY_VALIDATION` ตรงแล้ว (PR 3) การอนุมัติ/จัดเวรรายคนและปิดเคสเมื่อ Assigned ครบตรงแล้ว (PR 4) |
-| 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c เพิ่มตาราง Policy, Seed และฟังก์ชันเพดานแล้ว; 2a ให้ Solver เรียกฟังก์ชันเพดาน เขียน `CANDIDATE_ITEM_TARGET` และเพิ่ม Seam 12 ถึง 14 แล้ว; 2b และ 4 ทำ Wave/Response/Approval/Execution แล้ว Timeout และ Recovery ตรงแล้ว (PR O) |
-| 7 | Audit | แถวของ Event และ `AUDIT_LOG.event_id` ตรงแล้ว (PR M) `SOLVER_EXECUTED` และ `MANUAL_HANDOFF` ของ T6 ตรงแล้ว (PR 2a) Wave/Response/Safety/Approval/Assignment/Resolution ตรงแล้ว (PR 2b, 3, 4) OFFER_TIMEOUT ตรงแล้ว (PR O) |
-| 9 | API | `gap.effective_minimum` ตรงแล้ว (PR 1b) Route ของ Event, `event_ids`, Timeline ผ่าน `event_id`, Route เลื่อน Clock และ Route ของ Job ตรงแล้ว (PR M) Accept/Reject และการตัดสินรายคนตรงแล้ว (PR 2b, 4) deadline และการตอบหลังหมดเวลาตรงแล้ว (PR O) |
+| PR ของรอบ 1 | เรื่อง | ข้อของไฟล์นี้ | PR บน GitHub |
+|---|---|---|---|
+| 0 | ย้าย Contract เข้าไฟล์นี้, Transition T1 ถึง T7 | 3 ถึง 7, 9 | #33 |
+| 1a | ตัวตรวจ Hard Rules | ร่างรอบ 1 ข้อ 7 | #36 |
+| 1b | เป้าหมายจำนวนคนและ Gap (`effective_minimum`) | 3.6 | #34 |
+| 1c | เพดาน Offer ต่อคน | 6.7 | #35 |
+| M | Window, Threshold, Event สี่ชนิด, Job | 3 | #38 |
+| S | ฟังก์ชันคำนวณสถานะเคส | 5.3 | #37 |
+| 2a | Solver ใช้ Gap, Hard Rules และน้ำหนัก | 8 แถว Solver | #39 |
+| 2b | Wave และการตอบ Offer รายคน | 6.6, 6.8, 6.10 | #40 |
+| 3 | Safety รายคน | 8 แถว Safety | #41 |
+| 4 | อนุมัติและจัดเวรรายคน | 6.10, 9.2 | #42 |
+| (รวม 2b, 3, 4) | Branch รวมเข้า `staging` ครั้งเดียว | | #43 |
+| O | Timeout ของ Offer และรอบเก็บตกของ Job | 6.9, 3.8 | #44 |
+| 5 | หน้า `approvals` | 9.3 | #45 |
+| 6 | หน้า `cases/[id]` | 9.3 | #46 |
+| (เพิ่ม) | หน้า `demo/control` แสดง Offer ที่หมดเวลาหลังเลื่อน Clock | 9.3 | #47 |
+
+สิ่งที่รอบ 1 ตั้งใจไม่ทำอยู่ในร่างรอบ 1 ข้อ 1.2 และข้อ 12 ของไฟล์นี้
 
 เรื่องที่ยังอยู่ในร่างรอบ 1 ไม่ได้ย้ายเข้าไฟล์นี้ เลข Q ที่อ้างในไฟล์นี้คือคำถามในร่างรอบ 1 ข้อ 12
 
@@ -941,11 +953,11 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 
 ---
 
-## 8. Stub ของแต่ละขั้น
+## 8. สิ่งที่แต่ละขั้นทำ
 
-ข้อนี้อธิบายสิ่งที่โค้ดทำตอนนี้ คือพฤติกรรมของ Skeleton จนกว่า PR ของรอบ 1 จะเข้า เจ้าของแต่ละแถวอัปเดตแถวของตัวเองใน PR ที่เปลี่ยนโค้ดส่วนนั้น และเปลี่ยนชื่อข้อนี้เมื่อไม่เหลือ Stub กติกาของรอบ 1 อยู่ข้อ 3 ถึง 7 และร่างรอบ 1 ข้อ 7, 8
+ข้อนี้เคยชื่อ "Stub ของแต่ละขั้น" ตอนนี้ทุกขั้นเป็นของจริงแล้ว ส่วนเดียวที่ยังเป็นตัวจำลองคือการส่งข้อความ LINE (`integrations/line/mock.py`) ข้อนี้อธิบายสิ่งที่โค้ดของแต่ละขั้นทำตอนนี้ เจ้าของแต่ละแถวอัปเดตแถวของตัวเองใน PR ที่เปลี่ยนโค้ดส่วนนั้น กติกาของรอบ 1 อยู่ข้อ 3 ถึง 7 และร่างรอบ 1 ข้อ 7, 8
 
-| ขั้น | Stub ทำอะไร | ตารางที่เขียน |
+| ขั้น | ทำอะไร | ตารางที่เขียน |
 |---|---|---|
 | Event | ของจริง ไม่ใช่ Stub และตรงกับข้อ 3 ตั้งแต่ PR M: รับ Event สี่ชนิดเป็น `RECEIVED` (PART A) แล้วปิด Window ทีละเวร ตรวจ Threshold และเปิดได้หนึ่งเคสต่อ Window (PART B) เวรของ Golden Case ตั้ง Window = 0 จึงยังเดินรวดเดียวใน Request เดียวเหมือน Skeleton | STAFFING_EVENTS, STAFF_UNAVAILABILITY, ROSTER_ASSIGNMENT, SHIFT, STAFFING_REQUIREMENTS (+ ROLE, SKILL), STAFFING_CASES |
 | Gap | ของจริงตั้งแต่ PR 1b ไม่ใช่ Stub: `gap_service.assess_shift()` โหลด Requirement ปัจจุบันของเวร (Seam 10) และ Hard Policy `id=1` แล้วส่ง `required_staff`, `minimum_staff` และธง `preserve_minimum_staffing` ให้ `gap_calculator.calculate_gap()` ซึ่งคิด `effective_minimum` และ `headcount_gap` ตามข้อ 3.6 และเทียบ Role / Skill กับ Requirement ใช้ `result.has_gap` Handler `assess_staffing` เรียก `assess_shift()` ตัวเดียวกับการรับ Event แล้วบันทึกด้วย `gap_service.record_gap()`: `STAFFING_GAP` หนึ่งแถว (`effective_minimum` = ค่าที่ใช้คิดจริง, `computed_at = clock.now()`) และแถว Role / Skill ของทุกรายการใน Requirement รวมรายการที่ไม่ขาด จากนั้นเขียน `GAP_ASSESSED` โดย `role_gaps` / `skill_gaps` ใน payload เป็น List เรียงตาม ID ของ `{role_id หรือ skill_id, required_count, current_count, gap_count}` (ไม่ใช้ ID เป็น Key เพราะ JSON จะเปลี่ยนเป็นข้อความ) ถ้า `result.has_gap` เป็น False โยน `NoGapError` โดยไม่เขียนแถว เคสเป็น `FAILED` ตาม D11 (ข้อ 5 ไม่มี Transition ของกรณีนี้ และการรับ Event เปิดเคสเฉพาะเมื่อมี Gap ภายใต้ Lock ของเวรเดียวกัน จึงไม่เกิดใน Golden Path) | STAFFING_GAP (+ ROLE, SKILL) |
@@ -1351,7 +1363,7 @@ Golden Case ใช้ `HARD_CONSTRAINT_POLICY(id=1).maximum_patients_per_nurse =
 | 201 ตอบรับ | ผ่าน Safety ของ 201 ทันที เคสรออนุมัติ Offer ของ 202 ยัง `SENT` |
 | 900 อนุมัติ | Roster ของ 201 `ASSIGNED` + `REPLACEMENT` สร้างตอนอนุมัติ เคส `RESOLVED` Offer ของ 202 เป็น `CANCELLED` RN 5/5 อีกครั้ง |
 
-ตารางนี้เป็นผลของรอบ 1 แถว Outreach ลงไปเปลี่ยนจริงเมื่อ PR 2b, 3 และ 4 เข้า ก่อนหน้านั้นระบบส่ง Offer ให้ 201 คนเดียว
+ตารางนี้เป็นผลของรอบ 1 แถว Outreach ลงไปเป็นแบบนี้ตั้งแต่ PR 2b, 3 และ 4 เข้า (PR #43) ใน Skeleton ระบบส่ง Offer ให้ 201 คนเดียว
 
 ### 10.4 ข้อมูลเผื่อ Test อื่น (ใช้ Seed เดียวกัน)
 
@@ -1376,7 +1388,9 @@ Golden Case ใช้ `HARD_CONSTRAINT_POLICY(id=1).maximum_patients_per_nurse =
 Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workforce_recovery.py` ต้องผ่านทุก PR ที่เข้า `staging`
 
 ---
-## 12. เรื่องที่ทำภายหลัง (ไม่อยู่ใน Skeleton)
+## 12. เรื่องที่ทำภายหลัง
+
+ข้อนี้เก็บเฉพาะเรื่องที่ยังไม่ได้ทำ เรื่องที่รอบ 1 ทำแล้วถูกย้ายออก ดูรายการท้ายตาราง เรื่องที่รอบ 1 ตั้งใจเลื่อนออกไปพร้อมรอบที่วางไว้อยู่ร่างรอบ 1 ข้อ 1.2
 
 | เรื่อง | หมายเหตุ |
 |---|---|
@@ -1387,12 +1401,18 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | `GET /roster?staff_id=` | ตารางเวรของพนักงานหนึ่งคน เพิ่มเป็น Filter ของ Route เดิม ไม่ใช่ Path ใหม่ |
 | `NO_SHOW` | ตรวจ check-in ใน `ATTENDANCE` หลัง `SHIFT.start_at` + เวลาผ่อนผัน (สมมติ 15 นาที) แล้วสร้าง `STAFF_UNAVAILABILITY` + Event `STAFF_UNAVAILABLE` ทีละเวร |
 | แก้ `end_at` ของ `STAFF_UNAVAILABILITY` | กลับเร็ว / หยุดนานกว่าที่บันทึก / ใส่วันกลับเมื่อเคยเป็น NULL → Audit `UNAVAILABILITY_UPDATED` |
-| การรวม Event + `case_id` ใน STAFFING_EVENTS | ใช้ `EventStatus.RECEIVED` เป็นคิวรอรวม |
-| Celery, Timeout, Approval Timeout | |
+| Approval Timeout | การอนุมัติยังไม่มี Timeout หรือ Deadline เคสที่รออนุมัติรอจนผู้อนุมัติตัดสิน (ข้อ 6.9) ถ้าทำ ให้ต่อเข้ากับ `job_service.run_due_work()` ตัวเดียวกับ Timeout ของ Offer |
 | Auto-Approval | Future feature: activate when the nurse-to-patient ratio exceeds twice the ward's required ratio (`ratio = 2`). `incoming_count` refers to staff awaiting approval by the head nurse or nurse supervisor (policy value = 10); its comparison rule remains to be defined. Skeleton uses MANUAL approval. |
 | รูปแบบ `required_approver_role` | Skeleton เก็บ `ROLE.id` ของ HEAD_NURSE ไปก่อน |
 | LangGraph | ดูทางเลือกในเอกสารแยก |
-| Event กลุ่มภาระงาน (`PATIENT_SURGE` ฯลฯ) | อัปเดต `SHIFT.patient_count` แล้วคำนวณ Headcount จาก Ratio เดียวกันก่อนประเมิน ไม่ต้องสร้าง Requirement ใหม่เพียงเพราะ Patient Count เปลี่ยน; ถ้า Role / Skill Requirement เปลี่ยน ต้องอัปเดต Requirement ก่อนประเมิน การรับ Event กลุ่มนี้ยังเป็นงานภายหลัง |
+
+เรื่องที่ย้ายออกเพราะรอบ 1 ทำแล้ว
+
+| เรื่อง | ทำใน | ตอนนี้อยู่ข้อ |
+|---|---|---|
+| การรวม Event และ `case_id` ใน `STAFFING_EVENTS` | PR M | 3.2 |
+| Event กลุ่มภาระงาน (`PATIENT_SURGE`, `REQUIREMENT_CHANGED`) | PR M | 3.4 |
+| Timeout ของ Offer ใช้ Service ของ Job ตัวเดียวกับ Merge Gap ไม่ใช้ Celery | PR O | 6.9 |
 
 ---
 
@@ -1461,3 +1481,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-13 | รอบ 1 PR 5: หน้า `approvals` มีช่องกรอกเหตุผลตอนไม่อนุมัติ (ไม่ว่าง ไม่เกิน 500 ตัวอักษร ส่งค่าที่ตัดช่องว่างหัวท้ายแล้ว) และคอลัมน์บอกว่าเคสของคำขอยังขาดกี่คน; `GET /cases/{id}` เพิ่ม `assigned_count` จาก `case_facts_service.assigned_staff_ids()` | คน 1 |
 | 2026-10-13 | `POST /demo/clock/advance` คืน `timed_out_outreach_ids` และ `recovered_case_ids` เพิ่มจาก `closed_windows` และหน้า `demo/control` แสดงสองรายการนี้หลังเลื่อน Clock เพราะตั้งแต่ PR O การเลื่อน Clock ทำให้ Offer หมดเวลาได้ แต่หน้าเดิมบอกแค่เรื่อง Window; Route ของ Job ไม่เปลี่ยน | คน 1 |
 | 2026-10-13 | รอบ 1 PR 6: `GET /cases/{id}` เพิ่ม `candidates[].stage` (ข้อ 4.1, 9.3) คำนวณตอนอ่านด้วยเงื่อนไขเดียวกับ `case_facts_service`; หน้า `cases/[id]` แสดงสถานะรายคน, ตารางผู้สมัครที่ถูกข้ามจาก `skipped` ใน Audit และ `effective_minimum` ของ Gap ไม่มี Migration | คน 2 |
+| 2026-10-13 | ปิดรอบ 1: ส่วน "สถานะของรอบ 1" เปลี่ยนเป็นตาราง PR ที่เข้าครบแล้วพร้อมเลข PR; ข้อ 8 เปลี่ยนชื่อจาก "Stub ของแต่ละขั้น" เป็น "สิ่งที่แต่ละขั้นทำ" เพราะไม่เหลือ Stub นอกจาก LINE Mock; ข้อ 12 ย้ายเรื่องที่รอบ 1 ทำแล้วออก (รวม Event, Event กลุ่มภาระงาน, Timeout ของ Offer) เหลือ Approval Timeout; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
