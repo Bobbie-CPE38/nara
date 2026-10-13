@@ -47,6 +47,11 @@ function requestKey(row: PendingApproval): string {
   return [row.id, row.case_id, row.candidate_item_id, row.staff_id].join(":");
 }
 
+/** The decision deadline in Bangkok time. A dash while the API does not send one */
+function deadlineText(expiresAt: string | null | undefined): string {
+  return expiresAt ? formatDateTime(expiresAt) : "—";
+}
+
 function shortByText(shortBy: number | null): string {
   if (shortBy === null) return "—";
   return shortBy === 0 ? "Headcount covered" : `Short by ${shortBy}`;
@@ -173,6 +178,7 @@ export default function Approvals() {
               <th>Staff</th>
               <th>Shift</th>
               <th>Requested at</th>
+              <th>Decide by</th>
               <th>Decision</th>
             </tr>
           </thead>
@@ -189,6 +195,7 @@ export default function Approvals() {
                 <td>{row.staff_id}</td>
                 <td>{row.proposed_shift_id}</td>
                 <td>{formatDateTime(row.requested_at)}</td>
+                <td>{deadlineText(row.expires_at)}</td>
                 <td className="flex gap-2">
                   <button
                     type="button"

@@ -21,6 +21,8 @@ const PENDING = {
   staff_id: 201,
   proposed_shift_id: 1,
   requested_at: "2026-10-09T21:00:00+07:00",
+  // 900 seconds after the request (docs/workflow.md, section 6.13)
+  expires_at: "2026-10-09T21:15:00+07:00",
 };
 
 /** The part of GET /cases/{id} the page reads: a gap of two with one person assigned. */
@@ -61,6 +63,30 @@ describe("approvals page", () => {
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/approvals\?pending=true$/);
     expect(request.headers.get("X-Demo-User")).toBe("900");
+  });
+
+  it("shows when each request must be decided by", async () => {
+    stubFetch([PENDING, { ...PENDING, id: 5, expires_at: "2026-10-09T21:20:00+07:00" }]);
+    render(createElement(Approvals));
+
+    expect(await screen.findByRole("columnheader", { name: "Decide by" })).toBeTruthy();
+    expect(screen.getByText("2026-10-09 21:15:00")).toBeTruthy();
+    expect(screen.getByText("2026-10-09 21:20:00")).toBeTruthy();
+  });
+
+  it.each([
+    ["is missing", {}],
+    ["is null", { expires_at: null }],
+  ])("shows a dash for the deadline when it %s", async (_, override) => {
+    // Before round 2 PR T the API does not send the field at all
+    const { expires_at: _omitted, ...withoutDeadline } = PENDING;
+    stubFetch([{ ...withoutDeadline, ...override }]);
+    render(createElement(Approvals));
+
+    const row = (await screen.findByRole("button", { name: "Approve" })).closest("tr");
+    const cells = [...(row?.querySelectorAll("td") ?? [])].map((cell) => cell.textContent);
+    expect(cells[5]).toBe("2026-10-09 21:00:00");
+    expect(cells[6]).toBe("—");
   });
 
   it("says so when nothing is pending", async () => {
