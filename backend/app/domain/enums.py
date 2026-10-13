@@ -274,7 +274,8 @@ class AuditAction(StrEnum):
     CASE_STATUS_CHANGED = "CASE_STATUS_CHANGED"  # written only by the orchestrator
     CASE_RESOLVED = "CASE_RESOLVED"
     MANUAL_HANDOFF = "MANUAL_HANDOFF"
-    CASE_CLOSED_UNRESOLVED = "CASE_CLOSED_UNRESOLVED"  # round 2, T9. Not written yet
+    # Round 2, T9: closed by a head nurse or by a successor case. Not written yet
+    CASE_CLOSED_UNRESOLVED = "CASE_CLOSED_UNRESOLVED"
     WORKFLOW_FAILED = "WORKFLOW_FAILED"
     # Steps
     GAP_ASSESSED = "GAP_ASSESSED"

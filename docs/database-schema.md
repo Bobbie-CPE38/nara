@@ -594,7 +594,7 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 
 * จุดรอ: `WAITING_RESPONSE`, `WAITING_APPROVAL`
 * สิ้นสุด: `RESOLVED`, `UNRESOLVED`, `FAILED`
-* หยุดอัตโนมัติแต่ยังเปิดให้คนจัดการ: `MANUAL_HANDOFF` ตั้งแต่รอบ 2 ออกได้ไป `RESOLVED` (T8) หรือ `UNRESOLVED` (T9) ด้วยการกระทำของ Head Nurse (`docs/workflow.md` ข้อ 6.12)
+* หยุดอัตโนมัติแต่ยังเปิดให้คนจัดการ: `MANUAL_HANDOFF` ตั้งแต่รอบ 2 ออกได้ไป `RESOLVED` (T8) หรือ `UNRESOLVED` (T9) จากการกระทำของ Head Nurse หรือจากขั้นปิด Window เมื่อเคสใหม่ของเวรเปิด ไม่ใช่จาก Handler หรือ `recompute()` (`docs/workflow.md` ข้อ 6.12)
 
 
 ---
