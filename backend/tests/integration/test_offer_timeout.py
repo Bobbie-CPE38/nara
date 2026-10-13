@@ -27,7 +27,9 @@ from app.services import (
     audit_service,
     availability_service,
     case_facts_service,
+    hard_rule_service,
     job_service,
+    offer_timeout_service,
     outreach_service,
 )
 from app.workflow.handlers import contact_candidate
@@ -383,7 +385,9 @@ def test_recovery_does_not_recompute_healthy_waiting_approval(production_seeded)
     approval(db, case, items[201])
     db.commit()
     clock.advance(timedelta(days=1))
-    work = job_service.run_due_work(db)
+    with patch.object(outreach_service, "lock_case_for_outreach") as lock:
+        work = job_service.run_due_work(db)
+    lock.assert_not_called()
     assert work.timed_out_outreach_ids == work.recovered_case_ids == []
     assert case.status == CaseStatus.WAITING_APPROVAL
 
@@ -539,3 +543,122 @@ def test_workflow_failure_preserves_timeout_and_fails_case(production_seeded):
         db.scalar(select(AuditLog.id).where(AuditLog.action == AuditAction.WORKFLOW_FAILED))
         is not None
     )
+
+
+@pytest.mark.parametrize(
+    "phase", [CaseStatus.OUTREACH, CaseStatus.EXECUTING, CaseStatus.SAFETY_VALIDATION]
+)
+def test_expiry_commits_for_non_waiting_case_without_retry_loop(production_seeded, phase):
+    db = production_seeded
+    case, rows = setup_wave(db)
+    case.status = phase
+    db.commit()
+    clock.advance(timedelta(seconds=300))
+    result = offer_timeout_service.expire_due_offers(db)
+    assert result.outreach_ids == [row.id for row in rows]
+    assert not result.failed_case_ids
+    db.refresh(case)
+    assert case.status == phase
+    assert all(db.get(CandidateOutreach, row.id).status == OutreachStatus.TIMEOUT for row in rows)
+    assert offer_timeout_service.expire_due_offers(db).outreach_ids == []
+
+
+def test_healthy_response_wait_takes_no_workflow_locks(production_seeded):
+    db = production_seeded
+    setup_wave(db)
+    with patch.object(outreach_service, "lock_case_for_outreach") as lock:
+        assert offer_timeout_service.recover_waiting_cases(db, excluded_case_ids=set()) == []
+    lock.assert_not_called()
+
+
+def test_recovery_rechecks_after_lock_when_preview_is_stale(production_seeded):
+    db = production_seeded
+    case, items = short_case(db)
+    db.commit()
+    real_lock = outreach_service.lock_case_for_outreach
+
+    def became_healthy(db, case_id):
+        # Simulate an offer committed between the unlocked hint and the lock.
+        offer(db, case, items[201])
+        db.commit()
+        return real_lock(db, case_id)
+
+    with (
+        patch.object(outreach_service, "lock_case_for_outreach", side_effect=became_healthy),
+        patch.object(offer_timeout_service.orchestrator, "recompute") as recompute,
+    ):
+        assert offer_timeout_service.recover_waiting_cases(db, excluded_case_ids=set()) == []
+    recompute.assert_not_called()
+
+
+def test_offer_lock_restarts_when_new_offer_appears(production_seeded):
+    db = production_seeded
+    case, items = short_case(db)
+    db.commit()
+    real_lock_staff = hard_rule_service.lock_staff
+    calls = 0
+
+    def change_once(db, staff_ids):
+        nonlocal calls
+        calls += 1
+        real_lock_staff(db, staff_ids)
+        if calls == 1:
+            # Deterministically inject the phantom at the exact race boundary.
+            offer(db, case, items[201])
+
+    with (
+        patch.object(hard_rule_service, "lock_staff", side_effect=change_once),
+        patch.object(db, "rollback", wraps=db.rollback) as rollback,
+    ):
+        locked = outreach_service.lock_case_for_outreach(db, case.id)
+    assert locked.id == case.id and calls == 2
+    rollback.assert_called_once()
+    assert db.scalar(select(func.count()).select_from(CandidateOutreach)) == 0
+
+
+def test_offer_lock_exhaustion_is_retryable_and_rolls_back(production_seeded):
+    db = production_seeded
+    case, items = short_case(db)
+    db.commit()
+    real_lock_staff = hard_rule_service.lock_staff
+
+    def change_every_time(db, staff_ids):
+        real_lock_staff(db, staff_ids)
+        offer(db, case, items[201])
+
+    with (
+        patch.object(hard_rule_service, "lock_staff", side_effect=change_every_time) as lock,
+        patch.object(db, "rollback", wraps=db.rollback) as rollback,
+        pytest.raises(outreach_service.OutreachLockRetryError),
+    ):
+        outreach_service.lock_case_for_outreach(db, case.id)
+    assert lock.call_count == rollback.call_count == 5
+    assert db.scalar(select(func.count()).select_from(CandidateOutreach)) == 0
+    assert not issubclass(
+        outreach_service.OutreachLockRetryError, outreach_service.OpenOfferConflictError
+    )
+
+
+def test_response_lock_retry_returns_503_not_offer_conflict(client, production_seeded):
+    _, rows = setup_wave(production_seeded)
+    with patch.object(
+        outreach_service,
+        "lock_case_for_outreach",
+        side_effect=outreach_service.OutreachLockRetryError("Retry response"),
+    ):
+        result = answer(client, rows[0])
+    assert result.status_code == 503
+    assert result.headers["Retry-After"] == "1"
+    assert result.json()["detail"] == "Retry response"
+
+
+def test_repeated_failure_logging_is_bounded():
+    offer_timeout_service._failure_counts.clear()
+    try:
+        with patch.object(offer_timeout_service.logger, "exception") as log:
+            for _ in range(120):
+                offer_timeout_service._log_failure("Recovery", 999)
+        assert log.call_count == 2
+        assert offer_timeout_service._failure_counts[("Recovery", 999)] == 120
+    finally:
+        offer_timeout_service._failure_counts.clear()

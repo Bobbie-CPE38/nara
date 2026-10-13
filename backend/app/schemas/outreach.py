@@ -1,5 +1,7 @@
 """Offer list shown by the demo LINE simulator."""
 
+from typing import Literal
+
 from pydantic import BaseModel
 
 from app.domain.enums import CaseStatus, Channel, OutreachStatus
@@ -24,7 +26,7 @@ class OfferView(BaseModel):
     shift_end_at: AppDatetime
     can_accept: bool
     can_reject: bool
-    blocked_reason: str | None
+    blocked_reason: Literal["CASE_STOPPED", "OFFER_EXPIRED", "AWAITING_OTHER_CASE"] | None
     cancellation_reason: str | None
     is_assigned: bool
     is_reserve: bool

@@ -13,11 +13,15 @@ Base: `staging` at `53459ce`, after the integration of #40, #41 and #42.
 
 ## Recovery and transactions
 
-Each case is processed in its own transaction with Offer → Case → whole-plan Staff locks. State and deadlines are rechecked after waits. If a concurrent wave appeared before Staff locks were acquired, release and restart the complete lock order rather than locking new offers late.
+Recovery first reads facts without row locks as a hint. Healthy waits take no workflow locks. Only apparently stranded cases acquire Offer → Case → whole-plan Staff locks and recheck the same predicate before writing. Each case is processed in its own transaction. State and deadlines are rechecked after waits. If a concurrent wave appeared before Staff locks were acquired, release and restart the complete lock order rather than locking new offers late.
 
-Timeout updates/audits are outside D11's workflow savepoint. Workflow failure keeps TIMEOUT and fails the case; timeout/audit failure rolls back that case, excludes it from recovery during the same tick, and retries next tick. Other cases continue.
+Timeout updates/audits are outside D11's workflow savepoint. Workflow failure keeps TIMEOUT and fails the case; timeout/audit failure rolls back that case, excludes it from recovery during the same tick, and retries next tick. Other cases continue. Repeated failures log a stack trace on the first and every 120th consecutive failure per operation/case; the process-local counter is bounded to 1,024 entries and cleared on success. Retries still run each tick.
+
+For a legacy/inconsistent case outside waiting or stopped statuses, expiry commits TIMEOUT and its audits without calling recompute or changing case status, and logs that manual repair is required. Such an offer does not retry forever.
 
 The sweep recovers WAITING_RESPONSE cases with no SENT offers, or only paused offers plus an uncontacted candidate. Legitimate paused-only waits remain until another case produces an outcome or the offer expires. It also repairs stale WAITING_APPROVAL after cancellation leaves no actionable request; healthy pending approvals remain untouched. Reserve promotion uses the real Safety path.
+
+Lock retries may roll back the transaction: callers must have no uncommitted writes. Exhausting the five lock-set attempts raises a separate OutreachLockRetryError; LINE responses return 503 with Retry-After: 1, while stale/expired offers remain 409.
 
 ## Migration and deployment
 
@@ -33,4 +37,4 @@ Approval deadlines are intentionally absent. Real LINE delivery still requires a
 
 ## Validation
 
-Backend: 1,414 tests passed, including E2E, existing case-flow regressions, upgrade/backfill/refusal tests and two-connection races. Frontend: 187 tests passed. Ruff, formatting, mypy, TypeScript typecheck and production build passed. The migration was exercised only on the guarded test database; the developer database was not reset or migrated.
+Backend: 1,423 tests passed, including E2E, existing case-flow regressions, upgrade/backfill/refusal tests two-connection races, lock-set retries/exhaustion, unlocked healthy waits and locked rechecks. Frontend: 187 tests passed. Ruff, formatting, mypy, TypeScript typecheck and production build and Prettier checks for the changed frontend files passed. No frontend lint script/configuration is currently provided by the project. The migration was exercised only on the guarded test database; the developer database was not reset or migrated.

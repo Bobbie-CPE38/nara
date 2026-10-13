@@ -25,8 +25,9 @@ def staff_at_offer_limit(db: Session, staff_ids: list[int]) -> set[int]:
     """Return requested staff IDs with SENT + ACCEPTED offers at or above the cap.
 
     Count unexpired SENT and ACCEPTED rows across running cases/plans,
-    including accepted reserves (which never expire). Offers on automation-stopped cases do not count. Read-only: the
-    caller must flush changes it wants counted and own transaction control.
+    including accepted reserves (which never expire). Offers on automation-stopped
+    cases do not count. Read-only: the caller must flush changes it wants counted
+    and own transaction control.
 
     Callers allocating offers must first lock the relevant STAFF rows in ID
     order (workflow.md 6.11), then recheck here in the same transaction. This

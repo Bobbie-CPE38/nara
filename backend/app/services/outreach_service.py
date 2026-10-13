@@ -46,7 +46,7 @@ class OpenOfferConflictError(ValueError):
     """The selected offer is not answerable by this staff member."""
 
 
-class OutreachLockRetryError(OpenOfferConflictError):
+class OutreachLockRetryError(ValueError):
     """Concurrent waves prevented acquiring a stable offer lock set; retry."""
 
 
@@ -254,6 +254,7 @@ def cancel_offer(db: Session, outreach: CandidateOutreach) -> None:
 def lock_case_for_outreach(db: Session, case_id: int) -> StaffingCase:
     """Offer rows → case → whole-plan Staff, in the agreed global order.
 
+    Caller must have no uncommitted writes: retries roll back the transaction.
     Must be called before making response/foreign-case recompute writes. Lock
     every offer in one query, including the selected row on replay, then refresh
     cached state after waiting. NO KEY UPDATE permits FK audit inserts.

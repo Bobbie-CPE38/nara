@@ -649,7 +649,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | `APPROVAL_REQUEST.requested_at` | NOT NULL | `approval_service.create_request()` | `IntegrityError` → เคส `FAILED` |
 | `CANDIDATE_OUTREACH.sent_at` | NULL | Outreach | ไม่ Error แต่ข้อมูลหาย |
 | `CANDIDATE_OUTREACH.response_at` | NULL | Respond | ไม่ Error แต่ข้อมูลหาย |
-| `CANDIDATE_OUTREACH.expires_at` | NULL | Outreach (PR O) | NULL ได้ในแถวที่ยังไม่ส่งหรือประวัติที่ไม่มี sent_at; SENT ต้องมี deadline (CHECK) ส่วน ACCEPTED ไม่หมดเวลาแม้พ้น deadline |
+| `CANDIDATE_OUTREACH.expires_at` | NULL | Outreach (PR O) | NULL ได้ในแถวที่ยังไม่ส่งหรือประวัติที่ไม่มี sent_at; ประวัติที่มี sent_at backfill เป็น sent_at + 300 วินาทีด้วย; SENT ต้องมี deadline (CHECK) ส่วน ACCEPTED ไม่หมดเวลาแม้พ้น deadline |
 | `APPROVAL_REQUEST.decided_at` | NULL | Decide | ไม่ Error แต่ข้อมูลหาย |
 
 คอลัมน์เวลาอีกสองชนิดไม่ต้องใส่ตามตารางนี้
@@ -733,6 +733,10 @@ Migration สร้างตารางว่าง ไม่สร้าง Po
 
 ### 6.9 Timeout ของ Offer
 
+PR O ตามรีวิว: recovery อ่าน facts โดยไม่ล็อกก่อน แล้วล็อกและตรวจซ้ำเฉพาะเคสที่ดูค้าง; healthy waits ไม่ล็อก Offer/Case/Staff ทุก tick. Lock retry ครบ 5 รอบตอบ `503` พร้อม `Retry-After: 1` แยกจาก Offer conflict `409`; ผู้เรียก lock helper ต้องไม่มี uncommitted writes เพราะ retry rollback. เคสสถานะเก่าที่ไม่ใช่ wait/stopped ยังปิด Offer เป็น TIMEOUT พร้อม audit ได้ แต่ไม่เรียก recompute หรือเปลี่ยนสถานะเคส และ log ให้ซ่อมด้วยมือ. ความล้มเหลวซ้ำ log stack trace ครั้งแรกและทุก 120 ครั้งต่อ operation/case (counter ใน process จำกัด 1,024 entries; ล้างเมื่อสำเร็จ).
+
+
+
 Offer มี Timeout ส่วนการอนุมัติ**ไม่มี** Timeout หรือ Deadline เคสที่รออนุมัติรอจนผู้อนุมัติตัดสิน (Q56)
 
 | หัวข้อ | กติกา |
@@ -746,7 +750,7 @@ Offer มี Timeout ส่วนการอนุมัติ**ไม่มี
 | กดตอบหลังหมดเวลา | ช่วงที่ตอบได้คือ `clock.now() < expires_at`; เท่ากับ deadline ถือว่าหมดเวลาและตอบ `409` ไม่เขียน DB `respond` เทียบ `expires_at` กับ `clock.now()` เอง ไม่รอ Job เพราะ Job รันทุก 30 วินาที ช่วงนั้น Offer ที่เลยเวลาแล้วยังเป็น `SENT` การเปลี่ยนเป็น `TIMEOUT` ยังเป็นหน้าที่ของ Job ที่เดียว |
 | ใครสั่ง | Service ของ Job ตัวเดียวกับ Merge Gap (ข้อ 3) ทุกรอบให้ Backend ปิด Offer ที่หมดเวลา ปุ่มเลื่อน Clock ของ Demo ทำงานเดียวกัน |
 
-* ผลต่อ Demo: Clock ของ Demo เป็นตัวเดียวทั้งระบบ เลื่อน Clock เกิน 300 วินาที Offer ที่ยัง `SENT` และส่งไว้ก่อนหน้านั้นจะ `TIMEOUT` ทุกแถว ไม่ว่าเป็นของเคสไหน เรื่องนี้เป็นคนละส่วนกับการปิด Window ซึ่งยังเป็นไปตาม Q43 (Window ปิดเมื่อครบ `merge_window_seconds` และเคสก่อนหน้าของเวรจบแล้ว) Scenario และการสาธิตที่เลื่อน Clock เพื่อปิด Window จึงต้องรู้ว่า Offer ที่ค้างอยู่จะหมดเวลาไปพร้อมกัน
+* ผลต่อ Demo: Clock ของ Demo เป็นตัวเดียวทั้งระบบ เลื่อน Clock ตั้งแต่ 300 วินาที Offer ที่ยัง `SENT` และส่งไว้ก่อนหน้านั้นจะ `TIMEOUT` ทุกแถว ไม่ว่าเป็นของเคสไหน เรื่องนี้เป็นคนละส่วนกับการปิด Window ซึ่งยังเป็นไปตาม Q43 (Window ปิดเมื่อครบ `merge_window_seconds` และเคสก่อนหน้าของเวรจบแล้ว) Scenario และการสาธิตที่เลื่อน Clock เพื่อปิด Window จึงต้องรู้ว่า Offer ที่ค้างอยู่จะหมดเวลาไปพร้อมกัน
 
 ### 6.10 แถวที่แต่ละเส้นทางเขียน
 

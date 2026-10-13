@@ -13,11 +13,61 @@ from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.db.models import CandidateItem, CandidateOutreach, StaffingCase
-from app.domain.enums import ActorName, AuditAction, CaseStatus, EntityType, OutreachStatus
+from app.domain.enums import (
+    AUTOMATION_STOPPED_STATUSES,
+    WAITING_CASE_STATUSES,
+    ActorName,
+    AuditAction,
+    CaseStatus,
+    EntityType,
+    OutreachStatus,
+)
 from app.services import actor_service, audit_service, case_facts_service, outreach_service
 from app.workflow import orchestrator
 
 logger = logging.getLogger(__name__)
+
+# Per-process, bounded diagnostic suppression; retries still run every tick.
+_failure_counts: dict[tuple[str, int], int] = {}
+
+
+def _log_failure(operation: str, case_id: int) -> None:
+    key = (operation, case_id)
+    if key not in _failure_counts and len(_failure_counts) >= 1024:
+        del _failure_counts[next(iter(_failure_counts))]
+    count = _failure_counts.get(key, 0) + 1
+    _failure_counts[key] = count
+    if count == 1 or count % 120 == 0:
+        logger.exception(
+            "%s for case %s failed (%s consecutive failures); retry next tick",
+            operation,
+            case_id,
+            count,
+        )
+
+
+def _needs_recovery(db: Session, case: StaffingCase) -> bool:
+    if case.status not in WAITING_CASE_STATUSES:
+        return False
+    facts = case_facts_service.load_case_facts(db, case)
+    if case.status == CaseStatus.WAITING_APPROVAL:
+        return not facts.has_pending_approval or facts.gap_closed_by_assigned
+    has_sent = (
+        db.scalar(
+            select(CandidateOutreach.id)
+            .where(
+                CandidateOutreach.case_id == case.id,
+                CandidateOutreach.status == OutreachStatus.SENT,
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    return not facts.has_open_offer and (
+        not has_sent
+        or (facts.has_paused_offer and facts.has_uncontacted_candidate)
+        or facts.gap_closed_with_pending
+    )
 
 
 @dataclass
@@ -80,11 +130,22 @@ def expire_due_offers(db: Session) -> ExpiredOffers:
                     payload={"outreach_id": outreach.id, "staff_id": staff_id},
                 )
                 ids.append(outreach.id)
-            orchestrator.recompute(db, case.id, prepare=outreach_service.promote_reserves)
+            if case.status in WAITING_CASE_STATUSES or case.status in AUTOMATION_STOPPED_STATUSES:
+                orchestrator.recompute(db, case.id, prepare=outreach_service.promote_reserves)
+            else:
+                # Persist expiry even for legacy/inconsistent active phases. The
+                # job cannot drive those phases through recompute's wait API.
+                logger.error(
+                    "Expired offers for non-waiting case %s (%s); manual repair required",
+                    case.id,
+                    case.status.value,
+                )
+                db.commit()
+            _failure_counts.pop(("Offer expiry", case_id), None)
             result.outreach_ids.extend(ids)
         except Exception:
             db.rollback()
-            logger.exception("Offer expiry for case %s failed; retry next tick", case_id)
+            _log_failure("Offer expiry", case_id)
             result.failed_case_ids.add(case_id)
     return result
 
@@ -113,36 +174,24 @@ def recover_waiting_cases(db: Session, *, excluded_case_ids: set[int]) -> list[i
     recovered = []
     for case_id in case_ids:
         try:
-            case = outreach_service.lock_case_for_outreach(db, case_id)
-            if case.status not in {CaseStatus.WAITING_RESPONSE, CaseStatus.WAITING_APPROVAL}:
-                db.rollback()
-                continue
-            facts = case_facts_service.load_case_facts(db, case)
-            has_sent = (
-                db.scalar(
-                    select(CandidateOutreach.id)
-                    .where(
-                        CandidateOutreach.case_id == case_id,
-                        CandidateOutreach.status == OutreachStatus.SENT,
-                    )
-                    .limit(1)
-                )
-                is not None
-            )
-            if case.status == CaseStatus.WAITING_APPROVAL:
-                needs_retry = not facts.has_pending_approval or facts.gap_closed_by_assigned
-            else:
-                needs_retry = not facts.has_open_offer and (
-                    not has_sent
-                    or (facts.has_paused_offer and facts.has_uncontacted_candidate)
-                    or facts.gap_closed_with_pending
-                )
+            # Read without row locks first. This is a hint, not an authoritative
+            # snapshot: only apparently stranded cases acquire the shared locks.
+            with db.no_autoflush:
+                case = db.get(StaffingCase, case_id, populate_existing=True)
+                needs_retry = case is not None and _needs_recovery(db, case)
+            db.rollback()
             if not needs_retry:
+                _failure_counts.pop(("Recovery", case_id), None)
+                continue
+            case = outreach_service.lock_case_for_outreach(db, case_id)
+            if not _needs_recovery(db, case):
                 db.rollback()
+                _failure_counts.pop(("Recovery", case_id), None)
                 continue
             orchestrator.recompute(db, case_id, prepare=outreach_service.promote_reserves)
+            _failure_counts.pop(("Recovery", case_id), None)
             recovered.append(case_id)
         except Exception:
             db.rollback()
-            logger.exception("Recovery for case %s failed; retry next tick", case_id)
+            _log_failure("Recovery", case_id)
     return recovered
