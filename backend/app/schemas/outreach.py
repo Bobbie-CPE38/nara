@@ -17,6 +17,7 @@ class OfferView(BaseModel):
     channel: Channel
     sent_at: AppDatetime | None
     response_at: AppDatetime | None
+    expires_at: AppDatetime | None
     ward_id: int
     ward_name: str
     shift_start_at: AppDatetime

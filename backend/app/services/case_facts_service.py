@@ -14,9 +14,9 @@ Who counts, per candidate (workflow.md section 4.1):
     COMPLETED.
   * pending: the approval request is pending AND its case/item still has an
     ACCEPTED offer. Cancelled offers cannot reserve gap coverage.
-  * open offer: the offer of the case is SENT and its candidate is not waiting
+  * open offer: the offer of the case is unexpired SENT and its candidate is not waiting
     on another case.
-  * paused offer: the offer of the case is SENT and its candidate is waiting on
+  * paused offer: the offer of the case is unexpired SENT and its candidate is waiting on
     another case.
 
 Known limits:
@@ -32,6 +32,7 @@ from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.selectable import Exists
 
+from app.core import clock
 from app.db.models import (
     ApprovalRequest,
     CandidateItem,
@@ -206,6 +207,7 @@ def _sent_staff_ids(db: Session, case_id: int) -> set[int]:
             .where(
                 CandidateOutreach.case_id == case_id,
                 CandidateOutreach.status == OutreachStatus.SENT,
+                CandidateOutreach.expires_at > clock.now(),
             )
         )
     )

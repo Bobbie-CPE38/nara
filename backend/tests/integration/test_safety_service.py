@@ -113,6 +113,7 @@ def _offer(
         case_id=case.id,
         candidate_item_id=item.id,
         channel=Channel.LINE,
+        expires_at=clock.now() + timedelta(seconds=300),
         sent_at=clock.now(),
         response_at=clock.now() if status is OutreachStatus.ACCEPTED else None,
         status=status,

@@ -17,6 +17,7 @@ function offerSnapshot(offer: Offer) {
     offer.case_status,
     offer.sent_at,
     offer.response_at,
+    offer.expires_at,
     offer.can_accept,
     offer.can_reject,
     offer.blocked_reason,
@@ -211,6 +212,7 @@ function StaffOffers({
                   "Case status",
                   "Sent (Bangkok)",
                   "Responded (Bangkok)",
+                  "Deadline (Bangkok)",
                   "Action",
                 ].map((label) => (
                   <th key={label} scope="col" className="p-3">
@@ -245,6 +247,9 @@ function StaffOffers({
                     <td className="whitespace-nowrap p-3">
                       {formatDemoTime(offer.response_at)}
                     </td>
+                    <td className="whitespace-nowrap p-3">
+                      {formatDemoTime(offer.expires_at)}
+                    </td>
                     <td className="p-3">
                       <div className="flex gap-2">
                         <button
@@ -264,6 +269,9 @@ function StaffOffers({
                           Reject
                         </button>
                       </div>
+                      {offer.blocked_reason === "OFFER_EXPIRED" && (
+                        <p>This offer has expired. You can no longer accept or reject it.</p>
+                      )}
                       {offer.blocked_reason === "AWAITING_OTHER_CASE" && (
                         <p>
                           Accept is paused while another case reviews your

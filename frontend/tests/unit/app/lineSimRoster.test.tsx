@@ -41,6 +41,7 @@ const offer: Offer = {
   channel: "LINE",
   sent_at: "2026-10-09T21:00:00+07:00",
   response_at: null,
+  expires_at: "2026-10-09T21:05:00+07:00",
   ward_id: 1,
   ward_name: "ICU",
   shift_start_at: "2026-10-09T23:00:00+07:00",
@@ -182,6 +183,19 @@ describe("LINE simulator", () => {
       can_accept: false, can_reject: false }]);
     render(<LineSimulatorPage />);
     await screen.findByText(/Wait for head-nurse approval/);
+  });
+  it("shows the deadline and disables an overdue SENT offer before the job runs", async () => {
+    replies(() => [{ ...offer, can_accept: false, can_reject: false,
+      blocked_reason: "OFFER_EXPIRED" }]);
+    render(<LineSimulatorPage />);
+    await screen.findByText("Deadline (Bangkok)");
+    await screen.findByText(/This offer has expired/);
+    for (const name of ["Accept offer 1", "Reject offer 1"]) {
+      const button = screen.getByRole("button", { name }) as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      fireEvent.click(button);
+    }
+    expect(request.mock.calls.some(([path]) => path.endsWith("/respond"))).toBe(false);
   });
   it("accepts only once and refreshes history", async () => {
     let accepted = false;

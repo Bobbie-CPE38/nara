@@ -31,7 +31,7 @@ def close_due_merge_windows(
     db: DbSession,
     x_internal_secret: Annotated[str | None, Header(alias=SECRET_HEADER)] = None,
 ) -> DueWorkResult:
-    """Close every merge window that is due by the backend clock.
+    """Expire offers, recover missed notifications and close due windows.
 
     The job service calls this every 30 seconds. A shift whose close fails is
     skipped and tried again on the next call.

@@ -12,9 +12,10 @@ Rules:
     always holds their own ACCEPTED offer.
 """
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core import clock
 from app.db.models import CandidateItem, CandidateOutreach, StaffingCase
 from app.domain.enums import AUTOMATION_STOPPED_STATUSES, OutreachStatus
 from app.services import policy_service
@@ -23,8 +24,8 @@ from app.services import policy_service
 def staff_at_offer_limit(db: Session, staff_ids: list[int]) -> set[int]:
     """Return requested staff IDs with SENT + ACCEPTED offers at or above the cap.
 
-    Count offer rows across all running cases and plans, including accepted
-    reserves. Offers on automation-stopped cases do not count. Read-only: the
+    Count unexpired SENT and ACCEPTED rows across running cases/plans,
+    including accepted reserves (which never expire). Offers on automation-stopped cases do not count. Read-only: the
     caller must flush changes it wants counted and own transaction control.
 
     Callers allocating offers must first lock the relevant STAFF rows in ID
@@ -44,7 +45,11 @@ def staff_at_offer_limit(db: Session, staff_ids: list[int]) -> set[int]:
                 .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
                 .where(
                     CandidateItem.staff_id.in_(staff_ids),
-                    CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
+                    or_(
+                        CandidateOutreach.status == OutreachStatus.ACCEPTED,
+                        (CandidateOutreach.status == OutreachStatus.SENT)
+                        & (CandidateOutreach.expires_at > clock.now()),
+                    ),
                     StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
                 )
                 .group_by(CandidateItem.staff_id)

@@ -32,6 +32,7 @@ export type Offer = {
   channel: "LINE";
   sent_at: string | null;
   response_at: string | null;
+  expires_at: string | null;
   ward_id: number;
   ward_name: string;
   shift_start_at: string;

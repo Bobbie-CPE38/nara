@@ -90,6 +90,7 @@ def _offer(
         candidate_item_id=item.id,
         channel=Channel.LINE,
         status=status,
+        expires_at=DEMO_NOW + timedelta(seconds=300),
         sent_at=DEMO_NOW,
         response_at=None,
     )
@@ -138,6 +139,7 @@ def test_offer_contract_and_demo_staff_selection(
             "channel": "LINE",
             "sent_at": DEMO_NOW.isoformat(),
             "response_at": None,
+            "expires_at": (DEMO_NOW + timedelta(seconds=300)).isoformat(),
             "ward_id": 1,
             "ward_name": "ICU",
             "shift_start_at": (DEMO_NOW + timedelta(hours=2)).isoformat(),
