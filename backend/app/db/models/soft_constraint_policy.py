@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Numeric, Text
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, Integer, Numeric, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -12,6 +12,10 @@ from app.db.base import Base
 
 class SoftConstraintPolicy(Base):
     __tablename__ = "soft_constraint_policy"
+
+    __table_args__ = (
+        CheckConstraint("solver_time_limit_seconds > 0", name="solver_time_limit_positive"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     version: Mapped[str] = mapped_column(Text)
@@ -29,3 +33,4 @@ class SoftConstraintPolicy(Base):
     optimization_priority: Mapped[Any] = mapped_column(JSONB)
     effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=clock.now)
+    solver_time_limit_seconds: Mapped[int] = mapped_column(Integer)
