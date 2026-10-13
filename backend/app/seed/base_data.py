@@ -85,6 +85,7 @@ def seed(db: Session) -> None:
                 incoming_count=10,
                 version="demo-stub-v1",
                 created_at=now,
+                approval_timeout_seconds=900,
             ),
             OutreachPolicy(
                 id=1,

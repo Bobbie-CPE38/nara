@@ -166,7 +166,7 @@ def test_accepted_reserve_and_pending_approval_do_not_time_out(client, productio
     assert answer(client, rows[0]).status_code == 200
     assert answer(client, rows[1], staff=202).status_code == 200
     count = db.scalar(select(func.count()).select_from(AuditLog))
-    clock.advance(timedelta(days=1))
+    clock.advance(timedelta(seconds=300))
     work = job_service.run_due_work(db)
     assert work.timed_out_outreach_ids == work.recovered_case_ids == []
     db.expire_all()
@@ -384,7 +384,7 @@ def test_recovery_does_not_recompute_healthy_waiting_approval(production_seeded)
     offer(db, case, items[201], OutreachStatus.ACCEPTED)
     approval(db, case, items[201])
     db.commit()
-    clock.advance(timedelta(days=1))
+    clock.advance(timedelta(seconds=300))
     with patch.object(outreach_service, "lock_case_for_outreach") as lock:
         work = job_service.run_due_work(db)
     lock.assert_not_called()
@@ -657,7 +657,7 @@ def test_repeated_failure_logging_is_bounded():
     try:
         with patch.object(offer_timeout_service.logger, "exception") as log:
             for _ in range(120):
-                offer_timeout_service._log_failure("Recovery", 999, RuntimeError("retry"))
+                offer_timeout_service.log_failure("Recovery", 999, RuntimeError("retry"))
         assert log.call_count == 2
         assert offer_timeout_service._failure_counts[("Recovery", 999, RuntimeError)] == 120
     finally:
@@ -733,11 +733,11 @@ def test_new_exception_type_is_logged_and_success_clears_all_types():
     offer_timeout_service._failure_counts.clear()
     try:
         with patch.object(offer_timeout_service.logger, "exception") as log:
-            offer_timeout_service._log_failure("Recovery", 999, RuntimeError("first"))
-            offer_timeout_service._log_failure("Recovery", 999, RuntimeError("repeat"))
-            offer_timeout_service._log_failure("Recovery", 999, ValueError("new failure"))
+            offer_timeout_service.log_failure("Recovery", 999, RuntimeError("first"))
+            offer_timeout_service.log_failure("Recovery", 999, RuntimeError("repeat"))
+            offer_timeout_service.log_failure("Recovery", 999, ValueError("new failure"))
         assert log.call_count == 2
-        offer_timeout_service._clear_failures("Recovery", 999)
+        offer_timeout_service.clear_failures("Recovery", 999)
         assert offer_timeout_service._failure_counts == {}
     finally:
         offer_timeout_service._failure_counts.clear()

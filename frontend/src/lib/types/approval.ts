@@ -9,6 +9,7 @@ export type PendingApproval = {
   staff_id: number;
   proposed_shift_id: number;
   requested_at: string;
+  expires_at: string;
 };
 
 /** Answer of POST /approvals/{id}/decision. */

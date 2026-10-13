@@ -116,6 +116,7 @@ describe("demo control page", () => {
         { shift_id: 1, event_ids: [3, 4], case_id: 7, case_status: "WAITING_RESPONSE" },
         { shift_id: 3, event_ids: [5], case_id: null, case_status: null },
       ],
+      timed_out_approval_request_ids: [],
       timed_out_outreach_ids: [],
       recovered_case_ids: [],
     });
@@ -141,6 +142,7 @@ describe("demo control page", () => {
     stubFetch({
       clock: "2026-10-09T21:10:00+07:00",
       closed_windows: [],
+      timed_out_approval_request_ids: [],
       timed_out_outreach_ids: [],
       recovered_case_ids: [],
     });
@@ -157,6 +159,7 @@ describe("demo control page", () => {
     stubFetch({
       clock: "2026-10-09T21:10:00+07:00",
       closed_windows: [],
+      timed_out_approval_request_ids: [],
       timed_out_outreach_ids: [1, 2],
       recovered_case_ids: [7, 9],
     });
@@ -183,6 +186,19 @@ describe("demo control page", () => {
         "Advance clock 10 minutes: The demo clock is not frozen. Call POST /demo/reset first (HTTP 409)",
       ),
     ).toBeTruthy();
+  });
+
+  it("shows approvals that timed out after advancing the clock", async () => {
+    stubFetch({
+      clock: "2026-10-09T21:15:00+07:00",
+      closed_windows: [],
+      timed_out_outreach_ids: [],
+      timed_out_approval_request_ids: [4, 8],
+      recovered_case_ids: [],
+    });
+    render(createElement(DemoControl));
+    click("Advance clock 10 minutes");
+    expect(await screen.findByText("Approvals timed out: 4, 8")).toBeTruthy();
   });
 
   it("resets the demo without a demo user and shows the new clock", async () => {

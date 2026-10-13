@@ -165,6 +165,9 @@ export default function DemoControl() {
               ))}
             </ul>
           )}
+          {outcome.result.timed_out_approval_request_ids.length > 0 && (
+            <p>Approvals timed out: {outcome.result.timed_out_approval_request_ids.join(", ")}</p>
+          )}
           {outcome.result.timed_out_outreach_ids.length > 0 && (
             <p>Offers timed out: {outcome.result.timed_out_outreach_ids.join(", ")}</p>
           )}

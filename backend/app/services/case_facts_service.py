@@ -14,7 +14,7 @@ Who counts, per candidate (workflow.md section 4.1):
   * assigned: the approval request of the case is approved AND the candidate
     holds a replacement roster row on the proposed shift that is ASSIGNED or
     COMPLETED.
-  * pending: the approval request is pending AND its case/item still has an
+  * pending: the approval request is pending AND its specific offer is still an
     ACCEPTED offer. Cancelled offers cannot reserve gap coverage.
   * open offer: unexpired SENT; the candidate is not waiting on another case.
   * paused offer: unexpired SENT; the candidate is waiting on another case.
@@ -51,6 +51,7 @@ from app.domain.enums import (
 )
 from app.domain.workflow.case_status import CaseFacts, GapFiller, gap_closed
 from app.services import gap_service
+from app.services.outreach_attempt_service import contactable_item
 
 # A replacement keeps counting after its shift ended and the row was closed
 _ON_ROSTER_STATUSES = (RosterStatus.ASSIGNED, RosterStatus.COMPLETED)
@@ -188,11 +189,11 @@ def pending_staff_ids(db: Session, case_id: int) -> set[int]:
 
 def _waiting_acceptances(db: Session, staff_ids: set[int]) -> set[tuple[int, int]]:
     decided = exists().where(
-        ApprovalRequest.candidate_item_id == CandidateOutreach.candidate_item_id,
+        ApprovalRequest.outreach_id == CandidateOutreach.id,
         ApprovalRequest.is_pending.is_(False),
     )
     failed_safety = exists().where(
-        SafetyValidation.candidate_item_id == CandidateOutreach.candidate_item_id,
+        SafetyValidation.outreach_id == CandidateOutreach.id,
         SafetyValidation.is_passed.is_(False),
     )
     return set(
@@ -226,7 +227,7 @@ def _sent_staff_ids(db: Session, case_id: int) -> set[int]:
 
 
 def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
-    """True when the latest plan of the case holds an item without an offer of the case.
+    """True when the latest plan holds an uncontacted item or an unused timeout retry.
 
     "Latest" is the highest id (seam 1). A case without a plan has nobody to contact.
     """
@@ -238,13 +239,11 @@ def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
     )
     if plan_id is None:
         return False
-    contacted = exists().where(
-        CandidateOutreach.candidate_item_id == CandidateItem.id,
-        CandidateOutreach.case_id == case_id,
-    )
     return (
         db.scalar(
-            select(CandidateItem.id).where(CandidateItem.plan_id == plan_id, ~contacted).limit(1)
+            select(CandidateItem.id)
+            .where(CandidateItem.plan_id == plan_id, contactable_item(case_id))
+            .limit(1)
         )
         is not None
     )
@@ -272,13 +271,16 @@ def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:
 
 
 def accepted_offer_for_request() -> Exists:
-    """Shared predicate for actionable requests and pending gap coverage.
+    """Shared offer-link predicate for approval attempts and pending gap coverage.
 
+    List/decision callers also check the deadline; the timeout job selects expired
+    attempts. Coverage stays reserved until the job records the timeout.
     Cancellation preserves undecided request history. Its offer is the authority
-    for whether that request can still be acted on; match BOTH case and item.
+    for whether that request can still be acted on; match its exact attempt, case and item.
     """
     return exists().where(
         CandidateOutreach.case_id == ApprovalRequest.case_id,
+        CandidateOutreach.id == ApprovalRequest.outreach_id,
         CandidateOutreach.candidate_item_id == ApprovalRequest.candidate_item_id,
         CandidateOutreach.status == OutreachStatus.ACCEPTED,
     )

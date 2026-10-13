@@ -45,6 +45,7 @@ export const CANDIDATE_STAGE_INFO: ReadonlyMap<string, { label: string; tone: St
   ["SAFETY_FAILED", { label: "Accepted, failed the safety check", tone: "bad" }],
   ["WAITING_APPROVAL", { label: "Accepted, waiting for approval", tone: "waiting" }],
   ["APPROVAL_REJECTED", { label: "Not approved", tone: "bad" }],
+  ["APPROVAL_TIMEOUT", { label: "Approval timed out", tone: "neutral" }],
   ["APPROVED", { label: "Approved, not on the roster", tone: "waiting" }],
   ["ASSIGNED", { label: "Assigned to the shift", tone: "ok" }],
 ]);

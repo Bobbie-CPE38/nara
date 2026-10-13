@@ -291,7 +291,7 @@ class AuditAction(StrEnum):
     APPROVAL_REQUESTED = "APPROVAL_REQUESTED"
     APPROVAL_APPROVED = "APPROVAL_APPROVED"
     APPROVAL_REJECTED = "APPROVAL_REJECTED"
-    APPROVAL_TIMEOUT = "APPROVAL_TIMEOUT"  # round 2, written by the job. Not written yet
+    APPROVAL_TIMEOUT = "APPROVAL_TIMEOUT"  # round 2 PR T, written by the job
     ASSIGNMENT_CREATED = "ASSIGNMENT_CREATED"
     # Round 2: a head nurse staffed a MANUAL_HANDOFF case directly. Not written yet
     MANUAL_ASSIGNMENT_CREATED = "MANUAL_ASSIGNMENT_CREATED"
