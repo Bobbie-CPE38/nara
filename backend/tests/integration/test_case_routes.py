@@ -16,6 +16,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    RosterAssignment,
     StaffingCase,
     StaffingEvent,
     StaffingGap,
@@ -26,6 +27,7 @@ from app.db.models import (
 from app.domain.enums import (
     GOLDEN_PATH_AUDIT_ACTIONS,
     ActorName,
+    AssignmentType,
     AuditAction,
     CandidateSource,
     CaseStatus,
@@ -34,10 +36,14 @@ from app.domain.enums import (
     EventStatus,
     EventType,
     OutreachStatus,
+    RosterStatus,
     SolverStatus,
 )
 from app.main import app
 from app.services import audit_service
+from app.services.case_service import _OFFER_STAGES
+from tests.integration import case_rows
+from tests.integration.case_rows import approval
 from tests.integration.conftest import DEMO_NOW
 
 NIGHT_SHIFT = 1
@@ -62,16 +68,18 @@ def case(seeded: Session) -> StaffingCase:
         occurred_at=DEMO_NOW,
         staff_id=105,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     seeded.add(event)
     seeded.flush()
     row = StaffingCase(
-        event_id=event.id,
         shift_id=NIGHT_SHIFT,
         status=CaseStatus.WAITING_RESPONSE,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     seeded.add(row)
+    seeded.flush()
+    event.case_id = row.id
     seeded.flush()
     return row
 
@@ -80,6 +88,11 @@ def _actor(db: Session, name: ActorName) -> int:
     actor_id = db.scalar(select(Actor.id).where(Actor.name == name.value))
     assert actor_id is not None
     return actor_id
+
+
+def _event_id(db: Session, case: StaffingCase) -> int:
+    """The one event the `case` fixture linked to the case."""
+    return db.scalars(select(StaffingEvent.id).where(StaffingEvent.case_id == case.id)).one()
 
 
 def _log(db: Session, case: StaffingCase, action: AuditAction, actor: ActorName) -> None:
@@ -105,8 +118,7 @@ def _add_gap(
         case_id=case.id,
         staffing_requirement_id=requirement_id,
         headcount_gap=headcount_gap,
-        patient_count=10,
-        patients_per_nurse=Decimal("2"),
+        effective_minimum=5,
         computed_at=computed_at,
     )
     db.add(gap)
@@ -174,6 +186,7 @@ def _add_outreach(
             case_id=case.id,
             candidate_item_id=item.id,
             channel=Channel.LINE,
+            expires_at=sent_at + timedelta(seconds=300),
             sent_at=sent_at,
             status=status,
         )
@@ -185,7 +198,7 @@ def _add_outreach(
 # GET /cases/{id}
 # --------------------------------------------------------------------------- #
 def test_case_detail_has_the_status_key_the_e2e_test_reads(
-    client: TestClient, case: StaffingCase
+    client: TestClient, seeded: Session, case: StaffingCase
 ) -> None:
     response = client.get(f"/cases/{case.id}")
 
@@ -196,15 +209,20 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
     assert set(body) == {
         "id",
         "status",
-        "event_id",
+        "event_ids",
         "shift_id",
         "required_replacement_time",
         "created_at",
         "updated_at",
         "gap",
+        "assigned_count",
         "candidates",
     }
-    assert (body["id"], body["event_id"], body["shift_id"]) == (case.id, case.event_id, NIGHT_SHIFT)
+    assert (body["id"], body["event_ids"], body["shift_id"]) == (
+        case.id,
+        [_event_id(seeded, case)],
+        NIGHT_SHIFT,
+    )
 
 
 def test_case_before_assessment_has_no_gap_and_no_candidates(
@@ -228,6 +246,7 @@ def test_case_detail_shows_the_gap_with_role_and_skill_names(
     body = client.get(f"/cases/{case.id}").json()
 
     assert body["gap"]["id"] == gap.id
+    assert body["gap"]["effective_minimum"] == 5
     assert body["gap"]["headcount_gap"] == 1
     assert body["gap"]["roles"] == [
         {"id": RN, "name": "RN", "required_count": 5, "current_count": 4, "gap_count": 1}
@@ -273,8 +292,37 @@ def test_candidates_come_from_the_latest_plan_in_rank_order(
         "last_name",
         "source",
         "outreach_status",
+        "stage",
     }
     assert (first["first_name"], first["source"]) == ("Arunee", "SAME_WARD")
+
+
+def test_assigned_count_is_the_approved_candidates_on_the_roster(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    _add_gap(seeded, case, headcount_gap=2)
+    first, second, third = _add_plan(seeded, case, [201, 202, 203])
+    assert client.get(f"/cases/{case.id}").json()["assigned_count"] == 0
+
+    # Approved and on the roster: the only one that counts
+    approval(seeded, case, first, approved=True)
+    seeded.add(
+        RosterAssignment(
+            staff_id=201,
+            shift_id=NIGHT_SHIFT,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REPLACEMENT,
+            candidate_source=CandidateSource.SAME_WARD,
+        )
+    )
+    # Still waiting for the head nurse, and rejected
+    approval(seeded, case, second)
+    approval(seeded, case, third, approved=False)
+    seeded.flush()
+
+    body = client.get(f"/cases/{case.id}").json()
+    assert body["assigned_count"] == 1
+    assert body["gap"]["headcount_gap"] == 2
 
 
 def test_candidate_shows_its_newest_outreach_status(
@@ -289,6 +337,63 @@ def test_candidate_shows_its_newest_outreach_status(
     body = client.get(f"/cases/{case.id}").json()
 
     assert [c["outreach_status"] for c in body["candidates"]] == ["ACCEPTED", "SENT", None]
+
+
+def _stages(client: TestClient, case: StaffingCase) -> list[str]:
+    body = client.get(f"/cases/{case.id}").json()
+    return [c["stage"] for c in body["candidates"]]
+
+
+def test_every_offer_status_but_accepted_has_a_stage() -> None:
+    # A status without a stage would make GET /cases/{id} answer 500
+    assert set(_OFFER_STAGES) == set(OutreachStatus) - {OutreachStatus.ACCEPTED}
+
+
+def test_candidate_stage_follows_the_offer(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, second, _ = _add_plan(seeded, case, [201, 202, 203])
+    case_rows.offer(seeded, case, first, OutreachStatus.SENT)
+    case_rows.offer(seeded, case, second, OutreachStatus.REJECTED)
+
+    assert _stages(client, case) == ["OFFER_SENT", "OFFER_REJECTED", "NOT_CONTACTED"]
+
+
+def test_candidate_stage_of_closed_offers_and_a_reserve(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, second, third = _add_plan(seeded, case, [201, 202, 203])
+    case_rows.offer(seeded, case, first, OutreachStatus.TIMEOUT)
+    case_rows.offer(seeded, case, second, OutreachStatus.CANCELLED)
+    case_rows.offer(seeded, case, third, OutreachStatus.ACCEPTED)
+
+    assert _stages(client, case) == ["OFFER_TIMEOUT", "OFFER_CANCELLED", "ACCEPTED"]
+
+
+def test_candidate_stage_after_acceptance(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, second, third = _add_plan(seeded, case, [201, 202, 203])
+    case_rows.offer(seeded, case, first, OutreachStatus.ACCEPTED)
+    case_rows.safety(seeded, case, first, passed=True)
+    case_rows.approval(seeded, case, first)
+    case_rows.offer(seeded, case, second, OutreachStatus.CANCELLED)
+    case_rows.safety(seeded, case, second, passed=False)
+    case_rows.approval(seeded, case, third, approved=False)
+
+    assert _stages(client, case) == ["WAITING_APPROVAL", "SAFETY_FAILED", "APPROVAL_REJECTED"]
+
+
+def test_candidate_stage_after_a_decision(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, second, third = _add_plan(seeded, case, [201, 202, 203])
+    case_rows.assign(seeded, case, first)
+    case_rows.approval(seeded, case, second, approved=True)
+    case_rows.offer(seeded, case, third, OutreachStatus.CANCELLED)
+    case_rows.approval(seeded, case, third)
+
+    assert _stages(client, case) == ["ASSIGNED", "APPROVED", "OFFER_CANCELLED"]
 
 
 # --------------------------------------------------------------------------- #
@@ -388,7 +493,6 @@ def test_timeline_leaves_out_rows_of_other_cases_and_rows_without_a_case(
     client: TestClient, seeded: Session, case: StaffingCase
 ) -> None:
     other = StaffingCase(
-        event_id=case.event_id,
         shift_id=NIGHT_SHIFT,
         status=CaseStatus.OPEN,
         required_replacement_time=DEMO_NOW,
@@ -403,13 +507,104 @@ def test_timeline_leaves_out_rows_of_other_cases_and_rows_without_a_case(
         actor_id=_actor(seeded, ActorName.WORKFLOW_ORCHESTRATOR),
         action=AuditAction.EVENT_IGNORED,
         entity_type=EntityType.STAFFING_EVENTS,
-        entity_id=case.event_id,
+        entity_id=_event_id(seeded, case),
         payload={},
     )
 
     body = client.get(f"/cases/{case.id}/audit").json()
 
     assert [entry["entity_id"] for entry in body] == [case.id]
+
+
+def _event(db: Session, *, case: StaffingCase | None, staff_id: int = 104) -> StaffingEvent:
+    row = StaffingEvent(
+        event_type=EventType.STAFF_UNAVAILABLE,
+        shift_id=NIGHT_SHIFT,
+        occurred_at=DEMO_NOW,
+        staff_id=staff_id,
+        status=EventStatus.IGNORED if case is None else EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
+        case_id=None if case is None else case.id,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _log_event(db: Session, event_id: int, action: AuditAction) -> None:
+    audit_service.log(
+        db,
+        case_id=None,
+        event_id=event_id,
+        actor_id=_actor(db, ActorName.WORKFLOW_ORCHESTRATOR),
+        action=action,
+        entity_type=EntityType.STAFFING_EVENTS,
+        entity_id=event_id,
+        payload={},
+    )
+
+
+def test_case_lists_every_event_merged_into_it_by_id(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    """One merge window can put several events into one case (Q36)."""
+    first = _event_id(seeded, case)
+    second = _event(seeded, case=case)
+    _event(seeded, case=None, staff_id=103)
+
+    body = client.get(f"/cases/{case.id}").json()
+
+    assert body["event_ids"] == [first, second.id]
+    assert "event_id" not in body
+
+
+def test_timeline_includes_the_rows_of_the_events_of_the_case(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    """Rows about an event have event_id and no case_id (section 3.7, Q33).
+
+    They were written before the case existed, so by id they come before CASE_OPENED.
+    """
+    first = _event_id(seeded, case)
+    second = _event(seeded, case=case)
+    _log_event(seeded, first, AuditAction.EVENT_RECEIVED)
+    _log_event(seeded, second.id, AuditAction.EVENT_RECEIVED)
+    _log_event(seeded, first, AuditAction.UNAVAILABILITY_CREATED)
+    _log_event(seeded, second.id, AuditAction.UNAVAILABILITY_CREATED)
+    _log(seeded, case, AuditAction.CASE_OPENED, ActorName.WORKFLOW_ORCHESTRATOR)
+
+    body = client.get(f"/cases/{case.id}/audit").json()
+
+    assert [entry["action"] for entry in body] == [
+        "EVENT_RECEIVED",
+        "EVENT_RECEIVED",
+        "UNAVAILABILITY_CREATED",
+        "UNAVAILABILITY_CREATED",
+        "CASE_OPENED",
+    ]
+    assert [entry["entity_id"] for entry in body[:4]] == [first, second.id, first, second.id]
+
+
+def test_timeline_leaves_out_events_that_are_not_part_of_the_case(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    """An IGNORED event of the same shift, and an event of another case."""
+    other = StaffingCase(
+        shift_id=NIGHT_SHIFT,
+        status=CaseStatus.OPEN,
+        required_replacement_time=DEMO_NOW,
+    )
+    seeded.add(other)
+    seeded.flush()
+    ignored = _event(seeded, case=None, staff_id=103)
+    of_other = _event(seeded, case=other)
+    _log_event(seeded, ignored.id, AuditAction.EVENT_IGNORED)
+    _log_event(seeded, of_other.id, AuditAction.EVENT_RECEIVED)
+    _log_event(seeded, _event_id(seeded, case), AuditAction.EVENT_RECEIVED)
+
+    body = client.get(f"/cases/{case.id}/audit").json()
+
+    assert [entry["entity_id"] for entry in body] == [_event_id(seeded, case)]
 
 
 def test_case_without_audit_rows_has_an_empty_timeline(

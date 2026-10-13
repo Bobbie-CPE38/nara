@@ -74,11 +74,13 @@ nara/
 │   │   │       ├── roster_assignment.py
 │   │   │       ├── candidate_plan.py
 │   │   │       ├── candidate_item.py
+│   │   │       ├── candidate_item_target.py
 │   │   │       ├── contact.py
 │   │   │       ├── candidate_outreach.py
 │   │   │       ├── attendance.py
 │   │   │       ├── staff_working_time_snapshot.py
 │   │   │       ├── approval_policy.py
+│   │   │       ├── outreach_policy.py
 │   │   │       ├── hard_constraint_policy.py
 │   │   │       ├── soft_constraint_policy.py
 │   │   │       ├── staffing_gap.py
@@ -117,6 +119,7 @@ nara/
 │   │   │   ├── ward.py
 │   │   │   ├── shift.py
 │   │   │   ├── event.py
+│   │   │   ├── job.py
 │   │   │   ├── case.py
 │   │   │   ├── requirement.py
 │   │   │   ├── unavailability.py
@@ -137,11 +140,14 @@ nara/
 │   │   │   ├── errors.py
 │   │   │   │
 │   │   │   ├── workflow/
-│   │   │   │   └── transitions.py
+│   │   │   │   ├── transitions.py
+│   │   │   │   └── case_status.py
 │   │   │   │
 │   │   │   ├── staffing/
 │   │   │   │   ├── coverage.py
-│   │   │   │   └── gap_calculator.py
+│   │   │   │   ├── gap_calculator.py
+│   │   │   │   ├── threshold.py
+│   │   │   │   └── wave_targets.py
 │   │   │   │
 │   │   │   ├── constraints/
 │   │   │   │   ├── codes.py
@@ -182,16 +188,21 @@ nara/
 │   │   │       ├── assess_staffing.py
 │   │   │       ├── optimize.py
 │   │   │       ├── contact_candidate.py
-│   │   │       ├── validate_safety.py
 │   │   │       ├── execute_assignment.py
 │   │   │       └── manual_handoff.py
 │   │   │
 │   │   ├── services/
 │   │   │   ├── event_service.py
+│   │   │   ├── merge_window_service.py
+│   │   │   ├── job_service.py
+│   │   │   ├── offer_timeout_service.py
 │   │   │   ├── case_service.py
 │   │   │   ├── requirement_service.py
 │   │   │   ├── gap_service.py
+│   │   │   ├── hard_rule_service.py
+│   │   │   ├── case_facts_service.py
 │   │   │   ├── candidate_service.py
+│   │   │   ├── wave_service.py
 │   │   │   ├── optimization_service.py
 │   │   │   ├── outreach_service.py
 │   │   │   ├── safety_service.py
@@ -244,6 +255,7 @@ nara/
 │   │   │       └── case_status.py
 │   │   │
 │   │   ├── jobs/
+│   │   │   ├── ticker.py
 │   │   │   ├── runner.py
 │   │   │   │
 │   │   │   └── tasks/
@@ -274,6 +286,7 @@ nara/
 │   │   │       ├── audit.py
 │   │   │       ├── webhooks.py
 │   │   │       ├── line_sim.py
+│   │   │       ├── internal.py
 │   │   │       └── demo.py
 │   │   │
 │   │   └── seed/
@@ -283,9 +296,12 @@ nara/
 │   │       ├── base_data.py
 │   │       └── scenarios/
 │   │           ├── golden_case.py
+│   │           ├── merge_gap.py
+│   │           ├── threshold.py
 │   │           ├── candidate_reject.py
 │   │           ├── candidate_timeout.py
 │   │           ├── safety_failure.py
+│   │           ├── soft_constraint.py
 │   │           ├── head_nurse_reject.py
 │   │           ├── auto_approval.py
 │   │           ├── manual_handoff.py
@@ -313,6 +329,7 @@ nara/
 │       │   │   ├── test_hard_rules.py
 │       │   │   ├── test_soft_metrics.py
 │       │   │   ├── test_penalties.py
+│       │   │   ├── test_wave_targets.py
 │       │   │   └── test_approval_policy.py
 │       │   │
 │       │   ├── optimization/
@@ -326,7 +343,8 @@ nara/
 │       │   │
 │       │   └── workflow/
 │       │       ├── test_handlers.py
-│       │       └── test_transitions.py
+│       │       ├── test_transitions.py
+│       │       └── test_case_status.py
 │       │
 │       ├── integration/
 │       │   ├── conftest.py
@@ -344,16 +362,24 @@ nara/
 │       │   ├── test_events.py
 │       │   ├── test_event_ignored.py
 │       │   ├── test_gap_service.py
+│       │   ├── test_hard_rule_service.py
+│       │   ├── case_rows.py
+│       │   ├── test_case_facts.py
+│       │   ├── test_recompute.py
 │       │   ├── test_assess_staffing.py
 │       │   ├── test_orchestrator.py
 │       │   ├── test_optimize.py
+│       │   ├── test_outreach_policy.py
+│       │   ├── test_working_time_service.py
+│       │   ├── test_approval_per_candidate.py
 │       │   ├── test_execute_assignment.py
 │       │   ├── test_roster_route.py
+│       │   ├── test_offer_timeout.py
+│       │   ├── test_offer_timeout_migration.py
 │       │   ├── test_outreach.py
-│       │   ├── test_accepted_outreach.py
 │       │   ├── test_outreach_response.py
 │       │   ├── test_line_sim_offers.py
-│       │   ├── test_validate_safety.py
+│       │   ├── test_safety_service.py
 │       │   ├── test_pending_approvals.py
 │       │   ├── test_approval_decision.py
 │       │   ├── test_line_webhook.py
@@ -361,6 +387,9 @@ nara/
 │       │   ├── test_approval_timeout.py
 │       │   ├── test_safety_failure.py
 │       │   ├── test_no_feasible_solution.py
+│       │   ├── test_soft_constraint.py
+│       │   ├── test_solver_schema.py
+│       │   ├── test_two_cases_offers.py
 │       │   └── test_audit_trail.py
 │       │
 │       └── e2e/
@@ -427,7 +456,8 @@ nara/
 │       │   │   ├── CaseView.tsx
 │       │   │   └── GapTable.tsx
 │       │   ├── candidate/
-│       │   │   └── CandidateTable.tsx
+│       │   │   ├── CandidateTable.tsx
+│       │   │   └── SkippedTable.tsx
 │       │   ├── optimization/
 │       │   ├── outreach/
 │       │   ├── safety/

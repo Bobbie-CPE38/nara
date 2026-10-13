@@ -89,6 +89,7 @@ def seed(db: Session) -> None:
                 end_at=day + timedelta(days=1, hours=7),
                 shift_type=ShiftType.NIGHT,
                 is_active=True,
+                merge_window_seconds=0,
             ),
             Shift(
                 id=2,
@@ -98,6 +99,7 @@ def seed(db: Session) -> None:
                 end_at=day + timedelta(days=2, hours=15),
                 shift_type=ShiftType.DAY,
                 is_active=True,
+                merge_window_seconds=0,
             ),
         ]
     )

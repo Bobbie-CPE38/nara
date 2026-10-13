@@ -5,7 +5,13 @@ import pytest
 
 from app.domain.enums import RosterStatus
 from app.domain.staffing.coverage import RosterMember
-from app.domain.staffing.gap_calculator import CountGap, GapResult, calculate_gap
+from app.domain.staffing.gap_calculator import (
+    CountGap,
+    GapResult,
+    calculate_gap,
+    effective_minimum_for,
+    required_staff_for,
+)
 
 RN, HEAD_NURSE = 1, 2
 ICU, BLS = 1, 2
@@ -31,15 +37,16 @@ def test_golden_case_before_and_after_leave_and_replacement() -> None:
     def calculate() -> GapResult:
         return calculate_gap(
             shift_id=1,
-            patient_count=10,
-            patients_per_nurse=2,
+            required_staff=5,
+            minimum_staff=4,
+            preserve_minimum_staffing=True,
             required_roles=roles,
             required_skills=skills,
             roster=roster,
         )
 
     before = calculate()
-    assert before.minimum_required_staff == 5
+    assert before.effective_minimum == 5
     assert before.headcount_gap == 0
     assert before.role_gaps == {RN: CountGap(5, 5)}
     assert before.skill_gaps == {ICU: CountGap(2, 2)}
@@ -68,8 +75,9 @@ def test_missing_skill_with_enough_headcount() -> None:
     roster[1] = replace(roster[1], skill_ids=frozenset({BLS}))
     result = calculate_gap(
         shift_id=1,
-        patient_count=10,
-        patients_per_nurse=2,
+        required_staff=5,
+        minimum_staff=0,
+        preserve_minimum_staffing=True,
         required_roles={RN: 5},
         required_skills={ICU: 2},
         roster=roster,
@@ -86,8 +94,9 @@ def test_wrong_role_does_not_fill_rn_shortage() -> None:
     roster[4] = replace(roster[4], role_id=HEAD_NURSE)
     result = calculate_gap(
         shift_id=1,
-        patient_count=10,
-        patients_per_nurse=2,
+        required_staff=5,
+        minimum_staff=0,
+        preserve_minimum_staffing=True,
         required_roles={RN: 5},
         required_skills={ICU: 2},
         roster=roster,
@@ -104,8 +113,9 @@ def test_shift_two_has_no_gap_even_after_203_leaves(cancelled: bool) -> None:
         roster[-1] = replace(roster[-1], status=RosterStatus.CANCELLED)
     result = calculate_gap(
         shift_id=2,
-        patient_count=2,
-        patients_per_nurse=2,
+        required_staff=1,
+        minimum_staff=0,
+        preserve_minimum_staffing=True,
         required_roles={RN: 1},
         required_skills={},
         roster=roster,
@@ -120,8 +130,9 @@ def test_shift_two_has_no_gap_even_after_203_leaves(cancelled: bool) -> None:
 def test_empty_roster_and_missing_categories() -> None:
     result = calculate_gap(
         shift_id=1,
-        patient_count=10,
-        patients_per_nurse=2,
+        required_staff=5,
+        minimum_staff=0,
+        preserve_minimum_staffing=True,
         required_roles={RN: 4, HEAD_NURSE: 1},
         required_skills={ICU: 2, BLS: 3},
         roster=[],
@@ -137,8 +148,9 @@ def test_only_assigned_staff_count(status: RosterStatus) -> None:
     member = RosterMember(1, 1, status, RN, frozenset({ICU}))
     result = calculate_gap(
         shift_id=1,
-        patient_count=2,
-        patients_per_nurse=2,
+        required_staff=1,
+        minimum_staff=0,
+        preserve_minimum_staffing=True,
         required_roles={RN: 1},
         required_skills={ICU: 1},
         roster=[member],
@@ -155,8 +167,9 @@ def test_distinct_people_and_multiple_skills_without_mutating_input() -> None:
     original = roster.copy()
     result = calculate_gap(
         shift_id=1,
-        patient_count=4,
-        patients_per_nurse=2,
+        required_staff=2,
+        minimum_staff=0,
+        preserve_minimum_staffing=True,
         required_roles={RN: 2},
         required_skills={ICU: 2, BLS: 1},
         roster=iter(roster),
@@ -170,8 +183,9 @@ def test_distinct_people_and_multiple_skills_without_mutating_input() -> None:
 def test_zero_requirements() -> None:
     result = calculate_gap(
         shift_id=1,
-        patient_count=0,
-        patients_per_nurse=2,
+        required_staff=0,
+        minimum_staff=0,
+        preserve_minimum_staffing=True,
         required_roles={RN: 0},
         required_skills={ICU: 0},
         roster=[],
@@ -182,13 +196,14 @@ def test_zero_requirements() -> None:
     assert not result.has_gap
 
 
-@pytest.mark.parametrize("kind", ["headcount", "role", "skill"])
+@pytest.mark.parametrize("kind", ["required", "minimum", "role", "skill"])
 def test_negative_requirements_are_rejected(kind: str) -> None:
     with pytest.raises(ValueError, match="non-negative"):
         calculate_gap(
             shift_id=1,
-            patient_count=-1 if kind == "headcount" else 2,
-            patients_per_nurse=2,
+            required_staff=-1 if kind == "required" else 1,
+            minimum_staff=-1 if kind == "minimum" else 1,
+            preserve_minimum_staffing=True,
             required_roles={RN: -1 if kind == "role" else 1},
             required_skills={ICU: -1 if kind == "skill" else 1},
             roster=[],
@@ -206,8 +221,9 @@ def test_conflicting_staff_snapshots_are_rejected(kind: str) -> None:
     with pytest.raises(ValueError, match="Conflicting coverage"):
         calculate_gap(
             shift_id=1,
-            patient_count=2,
-            patients_per_nurse=2,
+            required_staff=1,
+            minimum_staff=0,
+            preserve_minimum_staffing=True,
             required_roles={},
             required_skills={},
             roster=[member, other],
@@ -225,79 +241,106 @@ def test_conflicting_staff_snapshots_are_rejected(kind: str) -> None:
         (12, Decimal("2.4"), 5),
         (1, Decimal("0.1"), 10),
         (10, Decimal("1.999999999999999999999999999999"), 6),
+        (10, 2, 5),
     ],
 )
-def test_workload_target_rounds_up_exactly(patients: int, ratio: Decimal, expected: int) -> None:
+def test_required_staff_rounds_up_exactly(
+    patients: int, ratio: Decimal | int, expected: int
+) -> None:
+    assert required_staff_for(patients, ratio) == expected
+
+
+def test_required_staff_rejects_a_negative_number_of_patients() -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        required_staff_for(-1, 2)
+
+
+@pytest.mark.parametrize("ratio", ["0", "-2", "NaN", "Infinity", "-Infinity"])
+def test_invalid_workload_ratio_is_rejected(ratio: str) -> None:
+    with pytest.raises(ValueError, match="positive and finite"):
+        required_staff_for(10, Decimal(ratio))
+
+
+@pytest.mark.parametrize("ratio", [2.4, 2.0, True, False, "2.4", None])
+def test_ratio_requires_decimal_or_integer(ratio: object) -> None:
+    with pytest.raises(TypeError, match="Decimal or int"):
+        required_staff_for(12, ratio)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("required", "minimum", "preserve", "expected"),
+    [
+        (5, 4, True, 5),  # Golden Case shift 1: the workload target is the larger one
+        (2, 4, True, 4),  # the fixed floor is the larger one
+        (4, 4, True, 4),
+        (2, 4, False, 2),  # flag off: the floor is not used
+        (5, 4, False, 5),
+        (0, 0, True, 0),
+    ],
+)
+def test_effective_minimum_uses_the_floor_only_when_the_flag_is_on(
+    required: int, minimum: int, preserve: bool, expected: int
+) -> None:
+    assert (
+        effective_minimum_for(
+            required_staff=required, minimum_staff=minimum, preserve_minimum_staffing=preserve
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(("preserve", "target", "gap"), [(True, 4, 2), (False, 2, 0)])
+def test_minimum_staff_above_required_staff_opens_a_headcount_gap(
+    preserve: bool, target: int, gap: int
+) -> None:
+    """The workload needs two nurses, but the shift must never drop below four."""
+    member = RosterMember(1, 1, RosterStatus.ASSIGNED, RN, frozenset())
     result = calculate_gap(
         shift_id=1,
-        patient_count=patients,
-        patients_per_nurse=ratio,
+        required_staff=2,
+        minimum_staff=4,
+        preserve_minimum_staffing=preserve,
         required_roles={},
         required_skills={},
-        roster=[],
+        roster=[member, replace(member, staff_id=2)],
     )
-    assert result.minimum_required_staff == expected
-    assert result.headcount_gap == expected
+    assert result.effective_minimum == target
+    assert result.headcount_gap == gap
+    assert result.has_gap is (gap > 0)
 
 
-def test_patient_surge_changes_gap_with_same_roster() -> None:
+def test_higher_required_staff_changes_gap_with_same_roster() -> None:
+    """A patient surge reaches the gap through required_staff, rewritten by its owner."""
     roster = golden_roster()
     original = roster.copy()
-    before = calculate_gap(
-        shift_id=1,
-        patient_count=10,
-        patients_per_nurse=2,
-        required_roles={RN: 5},
-        required_skills={ICU: 2},
-        roster=roster,
-    )
-    after = calculate_gap(
-        shift_id=1,
-        patient_count=11,
-        patients_per_nurse=2,
-        required_roles={RN: 5},
-        required_skills={ICU: 2},
-        roster=roster,
-    )
+
+    def calculate(required_staff: int) -> GapResult:
+        return calculate_gap(
+            shift_id=1,
+            required_staff=required_staff,
+            minimum_staff=4,
+            preserve_minimum_staffing=True,
+            required_roles={RN: 5},
+            required_skills={ICU: 2},
+            roster=roster,
+        )
+
+    before = calculate(required_staff_for(10, 2))
+    after = calculate(required_staff_for(11, 2))
     assert not before.has_gap
-    assert after.minimum_required_staff == 6
+    assert after.effective_minimum == 6
     assert after.headcount_gap == 1
     assert after.role_gaps[RN].gap_count == after.skill_gaps[ICU].gap_count == 0
     assert after.has_gap
     assert roster == original
 
 
-@pytest.mark.parametrize("ratio", ["0", "-2", "NaN", "Infinity", "-Infinity"])
-def test_invalid_workload_ratio_is_rejected(ratio: str) -> None:
-    with pytest.raises(ValueError, match="positive and finite"):
-        calculate_gap(
-            shift_id=1,
-            patient_count=10,
-            patients_per_nurse=Decimal(ratio),
-            required_roles={},
-            required_skills={},
-            roster=[],
-        )
-
-
-@pytest.mark.parametrize("ratio", [2.4, 2.0, True, False, "2.4", None])
-def test_ratio_requires_decimal_or_integer(ratio: object) -> None:
-    with pytest.raises(TypeError, match="Decimal or int"):
-        calculate_gap(
-            shift_id=1,
-            patient_count=12,
-            patients_per_nurse=ratio,  # type: ignore[arg-type]
-            required_roles={},
-            required_skills={},
-            roster=[],
-        )
-
-
 def test_calculated_result_cannot_be_mutated() -> None:
     result = calculate_gap(
         shift_id=1,
-        patient_count=10,
-        patients_per_nurse=2,
+        required_staff=5,
+        minimum_staff=0,
+        preserve_minimum_staffing=True,
         required_roles={RN: 5},
         required_skills={ICU: 2},
         roster=golden_roster(),

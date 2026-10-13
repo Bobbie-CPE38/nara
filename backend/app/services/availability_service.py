@@ -1,96 +1,61 @@
 """
-Can a staff member take a shift at all? (docs/workflow.md, section 8)
+Offer cap of a staff member (docs/workflow.md, section 6.7).
 
-One rule set for the steps that pick or confirm a replacement: the Solver drops
-candidates that break it, and Safety re-checks the accepted candidate, because
-the situation can change while the offer waits for an answer. A staff member is
-unavailable for a shift when they:
-  1. are not ACTIVE,
-  2. already have a roster row on that shift in COMMITTED_ROSTER_STATUSES,
-  3. have STAFF_UNAVAILABILITY overlapping the shift (no end_at = from start_at on).
+The three Skeleton availability rules (not ACTIVE, already on the shift, on leave) were
+replaced by the Hard Rules of domain/constraints (hard_rule_service) and removed in
+round 1 PR 3. Only the offer cap is left here: it needs CANDIDATE_OUTREACH, so it is not
+a Hard Rule.
 
 Rules:
   * Read-only. Nothing here adds, flushes or commits.
-  * Clashes with other shifts (rest time, double booking) are left to the real
-    hard rules after the skeleton.
-  * Open offers are not a rule here. The Solver's rule 4 lives in
-    optimization_service, because the accepted candidate Safety re-checks always
-    holds their own ACCEPTED offer.
-  * PENDING_APPROVAL counts as committed. Nothing writes it in the skeleton; a
-    later step that writes it for the accepted candidate before Safety must
-    exclude that row, or rule 2 blocks the candidate on their own assignment.
+  * Safety never calls staff_at_offer_limit(): the accepted candidate Safety checks
+    always holds their own ACCEPTED offer.
 """
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import RosterAssignment, Shift, Staff, StaffUnavailability
-from app.domain.enums import COMMITTED_ROSTER_STATUSES, StaffStatus
+from app.core import clock
+from app.db.models import CandidateItem, CandidateOutreach, StaffingCase
+from app.domain.enums import AUTOMATION_STOPPED_STATUSES, OutreachStatus
+from app.services import policy_service
 
 
-class CandidateNotAvailableError(ValueError):
-    """The staff member cannot take the shift. The subclass names the rule."""
+def staff_at_offer_limit(db: Session, staff_ids: list[int]) -> set[int]:
+    """Return requested staff IDs with SENT + ACCEPTED offers at or above the cap.
 
+    Count unexpired SENT and ACCEPTED rows across running cases/plans,
+    including accepted reserves (which never expire). Offers on automation-stopped
+    cases do not count. Read-only: the caller must flush changes it wants counted
+    and own transaction control.
 
-class StaffNotActiveError(CandidateNotAvailableError):
-    """Rule 1: the staff member is not ACTIVE."""
-
-
-class StaffAlreadyOnShiftError(CandidateNotAvailableError):
-    """Rule 2: the staff member is already rostered on the shift."""
-
-
-class StaffUnavailableError(CandidateNotAvailableError):
-    """Rule 3: STAFF_UNAVAILABILITY overlaps the shift."""
-
-
-def unavailable_staff(
-    db: Session, shift: Shift, staff_ids: list[int]
-) -> dict[int, type[CandidateNotAvailableError]]:
-    """Map each staff ID that cannot take the shift to the first rule it breaks.
-
-    Staff IDs that are absent from the result are available.
+    Callers allocating offers must first lock the relevant STAFF rows in ID
+    order (workflow.md 6.11), then recheck here in the same transaction. This
+    query alone does not reserve capacity. The Solver calls it since PR 2a; wave
+    selection follows in PR 2b. Safety must not call this helper on its own
+    accepted offer.
     """
-    active = set(
-        db.scalars(
-            select(Staff.id).where(Staff.id.in_(staff_ids), Staff.status == StaffStatus.ACTIVE)
-        )
-    )
-    on_shift = set(
-        db.scalars(
-            select(RosterAssignment.staff_id).where(
-                RosterAssignment.staff_id.in_(staff_ids),
-                RosterAssignment.shift_id == shift.id,
-                RosterAssignment.status.in_(list(COMMITTED_ROSTER_STATUSES)),
+    if not staff_ids:
+        return set()
+    with db.no_autoflush:
+        policy = policy_service.get_outreach_policy(db)
+        return set(
+            db.scalars(
+                select(CandidateItem.staff_id)
+                .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+                .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
+                .where(
+                    CandidateItem.staff_id.in_(staff_ids),
+                    or_(
+                        CandidateOutreach.status == OutreachStatus.ACCEPTED,
+                        (CandidateOutreach.status == OutreachStatus.SENT)
+                        & (CandidateOutreach.expires_at > clock.now()),
+                    ),
+                    StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
+                )
+                .group_by(CandidateItem.staff_id)
+                .having(
+                    func.count(CandidateOutreach.id) >= policy.maximum_concurrent_offers_per_staff
+                )
             )
         )
-    )
-    on_leave = set(
-        db.scalars(
-            select(StaffUnavailability.staff_id).where(
-                StaffUnavailability.staff_id.in_(staff_ids),
-                StaffUnavailability.start_at < shift.end_at,
-                or_(
-                    StaffUnavailability.end_at.is_(None),
-                    StaffUnavailability.end_at > shift.start_at,
-                ),
-            )
-        )
-    )
-
-    blocked: dict[int, type[CandidateNotAvailableError]] = {}
-    for staff_id in staff_ids:
-        if staff_id not in active:
-            blocked[staff_id] = StaffNotActiveError
-        elif staff_id in on_shift:
-            blocked[staff_id] = StaffAlreadyOnShiftError
-        elif staff_id in on_leave:
-            blocked[staff_id] = StaffUnavailableError
-    return blocked
-
-
-def assert_available(db: Session, shift: Shift, staff_id: int) -> None:
-    """Raise the error of the first rule the staff member breaks for the shift."""
-    error = unavailable_staff(db, shift, [staff_id]).get(staff_id)
-    if error is not None:
-        raise error(f"Staff {staff_id} cannot take shift {shift.id}")

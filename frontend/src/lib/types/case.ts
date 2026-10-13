@@ -15,6 +15,8 @@ export type GapCount = {
 
 export type GapView = {
   id: number;
+  /** The headcount target the gap was measured against */
+  effective_minimum: number;
   headcount_gap: number;
   computed_at: string;
   roles: GapCount[];
@@ -30,19 +32,24 @@ export type CandidateView = {
   source: string;
   /** null until an offer was created for this candidate */
   outreach_status: string | null;
+  /** Where the candidate is in the case (docs/workflow.md, section 4.1) */
+  stage: string;
 };
 
 /** GET /cases/{id} */
 export type CaseDetail = {
   id: number;
   status: string;
-  event_id: number;
+  /** Every event of the case, by ID. One merge window can put several into one case */
+  event_ids: number[];
   shift_id: number;
   required_replacement_time: string;
   created_at: string;
   updated_at: string;
   /** null until the ASSESSING step stored a gap */
   gap: GapView | null;
+  /** People this case already put on the roster */
+  assigned_count: number;
   /** Empty until the solver stored a plan. Ordered by rank */
   candidates: CandidateView[];
 };

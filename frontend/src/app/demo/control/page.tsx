@@ -3,16 +3,55 @@
 import Link from "next/link";
 import { useState } from "react";
 import { ApiError, apiRequest, createDemoApi } from "@/lib/api";
-import type { EventResult } from "@/lib/types/event";
+import type { ClockAdvanceResult, EventResult } from "@/lib/types/event";
 
-// Golden Case IDs (docs/workflow.md, section 10)
-const LEAVES = [
-  { label: "105 reports leave (shift 1)", staffId: 105, shiftId: 1 },
-  { label: "203 reports leave (shift 2, no gap)", staffId: 203, shiftId: 2 },
+// Golden Case IDs (docs/workflow.md, section 10). 900 is the head nurse, the
+// only one who may report the last three event types (section 3.4)
+const EVENTS = [
+  {
+    label: "105 reports leave (shift 1)",
+    staffId: 105,
+    json: { event_type: "STAFF_UNAVAILABLE", shift_id: 1 },
+  },
+  {
+    label: "203 reports leave (shift 2, no gap)",
+    staffId: 203,
+    json: { event_type: "STAFF_UNAVAILABLE", shift_id: 2 },
+  },
+  {
+    label: "900 cancels the assignment of 104 (shift 1)",
+    staffId: 900,
+    json: {
+      event_type: "ASSIGNMENT_CANCELLED",
+      shift_id: 1,
+      staff_id: 104,
+      reason: "Cancelled from demo control",
+    },
+  },
+  {
+    label: "900 reports 12 patients (shift 1)",
+    staffId: 900,
+    json: { event_type: "PATIENT_SURGE", shift_id: 1, patient_count: 12 },
+  },
+  {
+    label: "900 requires 3 ICU nurses (shift 1)",
+    staffId: 900,
+    json: {
+      event_type: "REQUIREMENT_CHANGED",
+      shift_id: 1,
+      skills: [{ skill_id: 1, required_count: 3 }],
+    },
+  },
 ];
+
+// Moving the frozen demo clock also runs what became due, like the job does with
+// real time (section 3.8): offers time out after 300 seconds, waiting cases are
+// rechecked and merge windows close
+const ADVANCE = { label: "Advance clock 10 minutes", seconds: 600 };
 
 type Outcome =
   | { kind: "reset"; clock: string }
+  | { kind: "clock"; result: ClockAdvanceResult }
   | { kind: "event"; label: string; result: EventResult }
   | { kind: "error"; label: string; message: string };
 
@@ -20,6 +59,14 @@ function errorMessage(cause: unknown) {
   return cause instanceof ApiError
     ? `${cause.message} (HTTP ${cause.status})`
     : "Cannot reach the API. Check that the backend is running.";
+}
+
+function CaseLink({ id, status }: { id: number; status: string | null }) {
+  return (
+    <Link className="underline" href={`/cases/${id}`}>
+      {id} ({status})
+    </Link>
+  );
 }
 
 export default function DemoControl() {
@@ -47,11 +94,20 @@ export default function DemoControl() {
       return { kind: "reset", clock };
     });
 
-  const reportLeave = ({ label, staffId, shiftId }: (typeof LEAVES)[number]) =>
+  const advanceClock = () =>
+    run(ADVANCE.label, async () => {
+      const result = await apiRequest<ClockAdvanceResult>("/demo/clock/advance", {
+        method: "POST",
+        json: { seconds: ADVANCE.seconds },
+      });
+      return { kind: "clock", result };
+    });
+
+  const reportEvent = ({ label, staffId, json }: (typeof EVENTS)[number]) =>
     run(label, async () => {
       const result = await createDemoApi(staffId)<EventResult>("/events", {
         method: "POST",
-        json: { event_type: "STAFF_UNAVAILABLE", shift_id: shiftId },
+        json,
       });
       return { kind: "event", label, result };
     });
@@ -65,15 +121,18 @@ export default function DemoControl() {
         <button type="button" className={button} disabled={busy} onClick={reset}>
           Reset demo
         </button>
-        {LEAVES.map((leave) => (
+        <button type="button" className={button} disabled={busy} onClick={advanceClock}>
+          {ADVANCE.label}
+        </button>
+        {EVENTS.map((event) => (
           <button
-            key={leave.staffId}
+            key={event.label}
             type="button"
             className={button}
             disabled={busy}
-            onClick={() => reportLeave(leave)}
+            onClick={() => reportEvent(event)}
           >
-            {leave.label}
+            {event.label}
           </button>
         ))}
       </div>
@@ -87,6 +146,43 @@ export default function DemoControl() {
           {outcome.label}: {outcome.message}
         </p>
       )}
+      {outcome?.kind === "clock" && (
+        <div className="mt-4">
+          <p className="text-green-700">Clock: {outcome.result.clock}</p>
+          {outcome.result.closed_windows.length === 0 ? (
+            <p>No merge window was due.</p>
+          ) : (
+            <ul className="list-disc pl-5">
+              {outcome.result.closed_windows.map((window) => (
+                <li key={window.shift_id}>
+                  Shift {window.shift_id}, events {window.event_ids.join(", ")}:{" "}
+                  {window.case_id === null ? (
+                    "no case opened"
+                  ) : (
+                    <CaseLink id={window.case_id} status={window.case_status} />
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {outcome.result.timed_out_outreach_ids.length > 0 && (
+            <p>Offers timed out: {outcome.result.timed_out_outreach_ids.join(", ")}</p>
+          )}
+          {outcome.result.recovered_case_ids.length > 0 && (
+            <p>
+              Waiting cases rechecked:{" "}
+              {outcome.result.recovered_case_ids.map((id, index) => (
+                <span key={id}>
+                  {index > 0 && ", "}
+                  <Link className="underline" href={`/cases/${id}`}>
+                    {id}
+                  </Link>
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+      )}
       {outcome?.kind === "event" && (
         <dl className="mt-4 grid grid-cols-2 gap-2">
           <dt>Action</dt>
@@ -97,12 +193,13 @@ export default function DemoControl() {
           </dd>
           <dt>Case</dt>
           <dd>
-            {outcome.result.case_id === null ? (
-              "No case opened"
+            {outcome.result.case_id !== null ? (
+              <CaseLink id={outcome.result.case_id} status={outcome.result.case_status} />
+            ) : outcome.result.event_status === "RECEIVED" ? (
+              // Its shift has an open merge window, or a case that is still running
+              "Not decided yet. The event is waiting."
             ) : (
-              <Link className="underline" href={`/cases/${outcome.result.case_id}`}>
-                {outcome.result.case_id} ({outcome.result.case_status})
-              </Link>
+              "No case opened"
             )}
           </dd>
         </dl>

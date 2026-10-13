@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../src/lib/api";
-import { isCaseId, loadCase } from "../../../src/lib/cases";
-import { caseDetail, waitingResponseAudit } from "../../fixtures/case";
+import { collectSkips, isCaseId, loadCase } from "../../../src/lib/cases";
+import { auditEntry, caseDetail, waitingResponseAudit } from "../../fixtures/case";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -103,5 +103,48 @@ describe("loadCase", () => {
     const early = caseDetail({ status: "OPEN", gap: null, candidates: [] });
     vi.stubGlobal("fetch", vi.fn(async (url: string) => json(url.endsWith("/audit") ? [] : early)));
     expect(await loadCase("1", new AbortController().signal)).toEqual({ detail: early, audit: [] });
+  });
+});
+
+describe("collectSkips", () => {
+  const skip = (staff_id: number, reason: string) => ({ staff_id, reason });
+
+  it("keeps the audit order across entries", () => {
+    expect(collectSkips([
+      auditEntry(1, "OFFER_SENT", { payload: { wave: 1, skipped: [skip(202, "UNAVAILABLE")] } }),
+      auditEntry(2, "OFFER_SENT", { payload: { wave: 1 } }),
+      auditEntry(3, "OFFER_SENT", { payload: { wave: 2, skipped: [skip(203, "SHIFT_CONFLICT"), skip(204, "ROLE_MISMATCH")] } }),
+      auditEntry(4, "MANUAL_HANDOFF", { payload: { skipped: [skip(205, "OFFER_LIMIT_REACHED")] } }),
+    ])).toEqual([
+      { key: "1-0", origin: "Wave 1", staffId: 202, reason: "UNAVAILABLE" },
+      { key: "3-0", origin: "Wave 2", staffId: 203, reason: "SHIFT_CONFLICT" },
+      { key: "3-1", origin: "Wave 2", staffId: 204, reason: "ROLE_MISMATCH" },
+      { key: "4-0", origin: "Handoff", staffId: 205, reason: "OFFER_LIMIT_REACHED" },
+    ]);
+  });
+
+  it("names an offer without a numeric wave just Wave", () => {
+    expect(collectSkips([
+      auditEntry(1, "OFFER_SENT", { payload: { wave: "2", skipped: [skip(202, "UNAVAILABLE")] } }),
+    ])[0].origin).toBe("Wave");
+  });
+
+  it("ignores skipped lists on other actions", () => {
+    expect(collectSkips([
+      auditEntry(1, "SOLVER_EXECUTED", { payload: { skipped: [skip(202, "UNAVAILABLE")] } }),
+    ])).toEqual([]);
+  });
+
+  it("ignores a skipped value that is not a list and malformed elements", () => {
+    expect(collectSkips([
+      auditEntry(1, "OFFER_SENT", { payload: { skipped: "UNAVAILABLE" } }),
+      auditEntry(2, "OFFER_SENT", {
+        payload: { skipped: [null, 5, [], { staff_id: "202", reason: "X" }, { staff_id: 202 }, skip(203, "UNAVAILABLE")] },
+      }),
+    ])).toEqual([{ key: "2-5", origin: "Wave", staffId: 203, reason: "UNAVAILABLE" }]);
+  });
+
+  it("returns nothing for an empty audit", () => {
+    expect(collectSkips([])).toEqual([]);
   });
 });

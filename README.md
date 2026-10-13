@@ -48,6 +48,9 @@ Code changes reload automatically. The backend runs `uvicorn --reload`, and the 
 | Redis 8 | `nara-staffing-redis` | 6379 | `REDIS_PORT` |
 | Backend (FastAPI) | `nara-staffing-backend` | 8000 | `BACKEND_PORT` |
 | Frontend (Next.js) | `nara-staffing-frontend` | 3000 | `FRONTEND_PORT` |
+| Job (timer) | `nara-staffing-job` | none | `INTERNAL_JOB_SECRET`, `JOB_INTERVAL_SECONDS` |
+
+The job service has no port. Every 30 seconds it calls `POST /internal/merge-windows/close-due` on the backend, which closes the merge windows that are due (`docs/workflow.md`, section 3.8). The call carries `INTERNAL_JOB_SECRET`. The value in `.env.example` is a placeholder for local development: set your own value of 8 characters or more anywhere else, and never commit it.
 
 If a port is already in use on your machine, change its value in `.env` and run `make up` again. That is the only edit you need. The API URL the browser uses follows `BACKEND_PORT`, and the CORS origin the backend allows follows `FRONTEND_PORT`. Set `NEXT_PUBLIC_API_BASE_URL` or `CORS_ORIGINS` in `.env` only for a non-localhost setup. A value you set there replaces the automatic one.
 

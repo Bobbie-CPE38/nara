@@ -12,7 +12,8 @@ import app.db.models  # noqa: F401  registers all tables on Base.metadata
 from app.db.base import Base
 from app.db.session import engine
 
-EXPECTED_TABLE_COUNT = 30  # docs/database-schema.md
+# docs/database-schema.md (OUTREACH_POLICY and CANDIDATE_ITEM_TARGET added in round 1)
+EXPECTED_TABLE_COUNT = 32
 
 
 def test_models_cover_every_table_in_the_schema_document() -> None:

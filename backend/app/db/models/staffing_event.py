@@ -23,6 +23,11 @@ class StaffingEvent(Base):
             f"(event_type IN ({_STAFF_EVENT_TYPES_SQL})) = (staff_id IS NOT NULL)",
             name="staff_id_matches_event_group",
         ),
+        # A waiting event has no close time; a closed one always has
+        CheckConstraint(
+            "(status = 'RECEIVED') = (processed_at IS NULL)",
+            name="processed_at_matches_status",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -33,3 +38,8 @@ class StaffingEvent(Base):
     # {} when there are no details
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     status: Mapped[EventStatus] = mapped_column(StrEnumText(EventStatus))
+    # When the merge window of this event closed. NULL while RECEIVED. Events of
+    # one shift with the same value were judged together (workflow.md section 3.2)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The case this event is part of. Set when the window closes as PROCESSED
+    case_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("staffing_cases.id"))

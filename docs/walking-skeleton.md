@@ -105,22 +105,24 @@
 `gap_calculator` ทำจริงตั้งแต่ตอนนี้ เพราะทั้ง `POST /events` และขั้น `ASSESSING` ใช้ตัวเดียวกัน
 
 สัญญาที่ใช้ร่วมกัน: `domain/staffing/gap_calculator.py` มี
-`calculate_gap(*, shift_id, patient_count, patients_per_nurse, required_roles, required_skills, roster) -> GapResult`
+`calculate_gap(*, shift_id, required_staff, minimum_staff, preserve_minimum_staffing, required_roles, required_skills, roster) -> GapResult`
+(Signature นี้เปลี่ยนในรอบ 1 PR 1b เดิมรับ `patient_count` และ `patients_per_nurse`)
 โดย `required_roles` / `required_skills` เป็น Mapping ของ ID → จำนวนที่ต้องการ
 และ `roster` เป็นรายการ `RosterMember` จาก `domain/staffing/coverage.py`
 (`staff_id`, `shift_id`, `status`, `role_id`, `skill_ids` เป็นชุด Skill ทั้งหมดของคนนั้น)
 ผู้เรียกโหลดข้อมูลจาก DB; Calculator นับคนไม่ซ้ำเฉพาะ `ASSIGNED` ในเวรเป้าหมาย
-ใช้ `minimum_required_staff = ceil(patient_count / patients_per_nurse)` เป็นเป้าหมายจำนวนคน
-โดย `patient_count` มาจาก Shift; ทั้ง `event_service` และ `assess_staffing` โหลด Policy
-ด้วย `services/policy_service.py::get_hard_constraint_policy(db)` (Skeleton ตรึง `id=1`)
-แล้วส่ง `patients_per_nurse=policy.maximum_patients_per_nurse` ค่า Seed คือ 2 ใช้ทั้งโรงพยาบาล
-Calculator รับ `int` หรือ `Decimal` ที่มากกว่า 0 และเป็นค่าจำกัด โดยไม่มี Default
+เป้าหมายจำนวนคนคือ `effective_minimum`: `max(minimum_staff, required_staff)` เมื่อธง `preserve_minimum_staffing` เปิด
+และ `required_staff` เมื่อปิด โดย `required_staff` และ `minimum_staff` มาจาก `STAFFING_REQUIREMENTS` ของเวร
+ทั้ง `event_service` และ `assess_staffing` เรียกผ่าน `gap_service.assess_shift()` ซึ่งโหลด Policy
+ด้วย `services/policy_service.py::get_hard_constraint_policy(db)` (ตรึง `id=1`) แล้วส่งธงนั้นให้ Calculator
+สูตร `ceil(patient_count / patients_per_nurse)` แยกเป็น `required_staff_for()` ใช้ตอนเขียน `required_staff`
+รับ `int` หรือ `Decimal` ที่มากกว่า 0 และเป็นค่าจำกัด โดยไม่มี Default ค่า Seed ของ Ratio คือ 2 ใช้ทั้งโรงพยาบาล
 ถ้าไม่มี Policy ให้ Error แทนการเดาค่า; ไม่แก้ Policy กลาง Demo
-เพิ่มคอลัมน์ด้วย Migration `a73d9e2c4b10` ซึ่ง Backfill Policy เดิมด้วยค่า Demo 2
-อัปเกรด DB เดิมด้วย `docker compose exec -T backend alembic upgrade head` โดยไม่ต้อง Reset ข้อมูล
+คอลัมน์ Ratio เพิ่มด้วย Migration `a73d9e2c4b10` ซึ่ง Backfill Policy เดิมด้วยค่า Demo 2
+ส่วน Migration `d5e8f20b63a4` ของ PR 1b ไม่ Backfill ต้อง `make reset`
 ห้ามใช้ `APPROVAL_POLICY.ratio` ซึ่งเป็นตัวคูณ Auto-approval
-ไม่ใช้ `STAFFING_REQUIREMENTS.required_staff` / `minimum_staff` เป็นเป้าหมาย และไม่เขียน DB / Audit
-ผลมี `minimum_required_staff`, `headcount_gap`, `role_gaps` / `skill_gaps` (ID → `required_count`, `current_count`,
+Calculator ไม่เขียน DB / Audit
+ผลมี `effective_minimum`, `headcount_gap`, `role_gaps` / `skill_gaps` (ID → `required_count`, `current_count`,
 `gap_count`) โดย Gap ต่ำสุดคือ 0 และเก็บรายการที่ไม่ขาดไว้ด้วย
 ใช้ `result.has_gap` ตรวจว่าขาดจำนวนคน **หรือ** Role **หรือ** Skill; ห้ามบวก Gap ทั้งสามชนิดเข้าด้วยกัน
 
@@ -279,3 +281,15 @@ Branch ที่แตกก่อน PR #29 ต้อง Merge `staging` เข
 | 6 | LLM Node สรุปสถานการณ์ (ถ้าทีมเลือกทางเลือก 4) | | LLM ตีความคำตอบอิสระ (ถ้าทีมเลือกทางเลือก 4) |
 
 ทุกครั้งที่ทำกรณีใหม่ เปิดใช้ Seed Scenario และ Integration Test ของกรณีนั้นไปด้วย Golden Path ต้องเขียวตลอด
+
+### สถานะหลังรอบ 1
+
+ตารางข้างบนคือแผนแรก รอบ 1 เสร็จแล้ว และดึงงานจากหลายลำดับมาทำพร้อมกัน ตารางใน `docs/round1/next-move.md` เอางานที่รอบ 1 ทำไปแล้วออกจากรอบเดิม แต่รอบ 2 ถึง 6 ในตารางนั้นยังเป็นแผนเดิมที่ทีมยังไม่ได้จัดใหม่ รายชื่อ PR อยู่ที่ `docs/workflow.md` ส่วน "สถานะของรอบ 1"
+
+| ลำดับในตารางข้างบน | ทำแล้วในรอบ 1 | ยังไม่ได้ทำ |
+|---|---|---|
+| 1 | ทั้งสามช่อง: Coverage, Hard Rules ตัวเดียวทั้ง Solver, Wave และ Safety, Reject และ Head Nurse ไม่อนุมัติ | |
+| 2 | กติกาตรวจความพร้อมตัวเดียวทั้งระบบ, Soft Constraint แบบใช้ Weight, Timeout ของผู้สมัคร (ใช้ Service ของ Job ไม่ใช้ Celery + Redis) | OR-Tools |
+| 3 | เคสหยุดที่ `MANUAL_HANDOFF` พร้อมเหตุผล, Working Time Snapshot | การจัดการเคสหลัง `MANUAL_HANDOFF`, Escalation, Score Breakdown และคำอธิบายอันดับ, LINE จริง |
+| 4 | รวม Event ของเวรเดียวกันเป็นเคสเดียว และ Lock ต่อ Shift (Merge Gap) | Cross-Ward, ผู้อนุมัติเป็น Supervisor, Approval Timeout, Auto-Approval |
+| 5, 6 | | ทั้งหมด |

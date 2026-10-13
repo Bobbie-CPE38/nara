@@ -39,6 +39,19 @@ class EventStatus(StrEnum):
     IGNORED = "IGNORED"  # no gap, no case was opened
 
 
+class EventIgnoredReason(StrEnum):
+    """Why an event opened no case: `reason` in the EVENT_IGNORED payload (workflow.md 3.7)."""
+
+    # No event of the window passed the threshold
+    THRESHOLD_NOT_PASSED = "THRESHOLD_NOT_PASSED"
+    # An event passed, but the shift is covered again after the last event
+    NO_GAP = "NO_GAP"
+    # Only this event: its person has no ASSIGNED roster row left to cancel
+    NO_ASSIGNED_ROSTER = "NO_ASSIGNED_ROSTER"
+    # Only this event: a role or skill it changes is not in the requirement
+    REQUIREMENT_ITEM_NOT_FOUND = "REQUIREMENT_ITEM_NOT_FOUND"
+
+
 # --------------------------------------------------------------------------- #
 # Case
 # --------------------------------------------------------------------------- #
@@ -148,6 +161,32 @@ class OptimizationObjective(StrEnum):
     MIN_PROJECTED_OVERTIME = "MIN_PROJECTED_OVERTIME"
 
 
+class TargetType(StrEnum):
+    """CANDIDATE_ITEM_TARGET.target_type: what a candidate was selected to fill."""
+
+    HEADCOUNT = "HEADCOUNT"
+    ROLE = "ROLE"
+    SKILL = "SKILL"
+
+
+class SelectionType(StrEnum):
+    """CANDIDATE_ITEM_TARGET.selection_type.
+
+    RESERVE is the extra 10% of a wave target. It is not the reserve of Q28, a
+    candidate who accepted after the gap was already closed.
+    """
+
+    PRIMARY = "PRIMARY"
+    RESERVE = "RESERVE"
+
+
+class ManualHandoffReason(StrEnum):
+    """`reason` in the payload of a MANUAL_HANDOFF audit row."""
+
+    NO_CANDIDATE_LEFT = "NO_CANDIDATE_LEFT"  # T5, written by contact_candidate
+    NO_FEASIBLE_PLAN = "NO_FEASIBLE_PLAN"  # T6, written by optimize
+
+
 # --------------------------------------------------------------------------- #
 # Outreach
 # --------------------------------------------------------------------------- #
@@ -220,6 +259,8 @@ class EntityType(StrEnum):
     ROSTER_ASSIGNMENT = "ROSTER_ASSIGNMENT"
     STRUCTURED_HANDOVER = "STRUCTURED_HANDOVER"
     STAFF_UNAVAILABILITY = "STAFF_UNAVAILABILITY"
+    SHIFT = "SHIFT"
+    STAFFING_REQUIREMENTS = "STAFFING_REQUIREMENTS"
 
 
 class AuditAction(StrEnum):
@@ -249,15 +290,22 @@ class AuditAction(StrEnum):
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
     UNAVAILABILITY_UPDATED = "UNAVAILABILITY_UPDATED"
+    # Event side effects written when a merge window closes
+    ASSIGNMENT_CANCELLED = "ASSIGNMENT_CANCELLED"
+    PATIENT_COUNT_UPDATED = "PATIENT_COUNT_UPDATED"
+    REQUIREMENT_UPDATED = "REQUIREMENT_UPDATED"
 
 
-# Actions the golden-path E2E test expects to find, in order of first appearance.
+# Exact non-transition audit sequence expected by the Golden Case E2E test.
+# Its one-person gap has ceil(1.1 * 1) = 2 candidates: wave 1 sends to
+# both 201 and 202, hence two consecutive OFFER_SENT rows.
 GOLDEN_PATH_AUDIT_ACTIONS: tuple[AuditAction, ...] = (
     AuditAction.EVENT_RECEIVED,
     AuditAction.UNAVAILABILITY_CREATED,
     AuditAction.CASE_OPENED,
     AuditAction.GAP_ASSESSED,
     AuditAction.SOLVER_EXECUTED,
+    AuditAction.OFFER_SENT,
     AuditAction.OFFER_SENT,
     AuditAction.OFFER_ACCEPTED,
     AuditAction.SAFETY_PASSED,

@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     # Origins allowed to call the API from a browser (JSON list in .env).
     # Required and non-empty, so a missing value stops startup instead of blocking the browser
     cors_origins: list[str] = Field(min_length=1)
+    # Shared with the job service that calls the /internal routes. Unset = those
+    # routes answer 503. The value comes from the environment, never from the repo
+    internal_job_secret: str | None = Field(default=None, min_length=8)
 
 
 settings = Settings()

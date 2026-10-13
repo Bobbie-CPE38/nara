@@ -11,6 +11,7 @@ from app.db.models import (
     Actor,
     ApprovalPolicy,
     HardConstraintPolicy,
+    OutreachPolicy,
     Role,
     RosterAssignment,
     Shift,
@@ -22,6 +23,7 @@ from app.db.models import (
     StaffSkill,
 )
 from app.domain.enums import ActorName, ActorType, RosterStatus, StaffStatus
+from app.domain.staffing.gap_calculator import required_staff_for
 from app.seed import base_data, load
 from app.seed.scenarios import golden_case
 from tests.integration.conftest import DEMO_NOW
@@ -49,12 +51,34 @@ def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
         assert staff.status is StaffStatus.ACTIVE
         assert staff.password_hash == "!"
         assert staff.created_at == DEMO_NOW
-    for model in (HardConstraintPolicy, SoftConstraintPolicy, ApprovalPolicy):
+    for model in (HardConstraintPolicy, SoftConstraintPolicy, ApprovalPolicy, OutreachPolicy):
         assert seeded.scalar(select(func.count()).select_from(model)) == 1
     approval = seeded.get(ApprovalPolicy, 1)
     assert approval is not None
     assert approval.ratio == 2
     assert approval.incoming_count == 10
+    outreach = seeded.get(OutreachPolicy, 1)
+    assert outreach is not None
+    assert outreach.maximum_concurrent_offers_per_staff == 3
+    assert outreach.effective_from == outreach.created_at == DEMO_NOW
+    soft = seeded.get(SoftConstraintPolicy, 1)
+    assert soft is not None
+    assert (
+        soft.candidate_count_weight,
+        soft.consecutive_shift_weight,
+        soft.workload_imbalance_weight,
+        soft.projected_overtime_weight,
+        soft.roster_change_weight,
+        soft.candidate_source_weight,
+    ) == (1000, 5, 1, 2, 300, 200)
+    assert soft.candidate_source_priority == ["SAME_WARD", "FLOAT_POOL", "CROSS_WARD"]
+    assert soft.optimization_priority == [
+        "MIN_CANDIDATE_COUNT",
+        "CANDIDATE_SOURCE",
+        "WEEKLY_WORKLOAD_FAIRNESS",
+        "MIN_CONSECUTIVE_SHIFT",
+        "MIN_PROJECTED_OVERTIME",
+    ]
     hard = seeded.get(HardConstraintPolicy, 1)
     assert hard is not None
     assert hard.maximum_patients_per_nurse == 2
@@ -63,6 +87,7 @@ def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
         12,
         52,
     )
+    assert hard.maximum_consecutive_shifts == 7
 
 
 def test_roster_supports_the_gap_and_no_gap_demo_paths(seeded: Session) -> None:
@@ -122,6 +147,7 @@ def test_seed_loaders_leave_transaction_control_to_caller(db: Session) -> None:
     assert db.scalar(select(func.count()).select_from(Staff)) == 0
     assert db.scalar(select(func.count()).select_from(Actor)) == 0
     assert db.scalar(select(func.count()).select_from(HardConstraintPolicy)) == 0
+    assert db.scalar(select(func.count()).select_from(OutreachPolicy)) == 0
 
 
 def test_golden_case_requires_demo_clock(db: Session) -> None:
@@ -135,3 +161,19 @@ def test_seed_command_refuses_existing_data_without_modifying_it(seeded: Session
         load(seeded)
     assert seeded.scalar(select(func.count()).select_from(Staff)) == 9
     assert seeded.scalar(select(func.count()).select_from(Actor)) == 15
+
+
+def test_required_staff_of_every_seeded_shift_matches_the_workload_formula(
+    seeded: Session,
+) -> None:
+    """Nothing rewrites required_staff before the merge window exists, so the seed must be right."""
+    hard = seeded.get(HardConstraintPolicy, 1)
+    assert hard is not None
+    requirements = seeded.scalars(select(StaffingRequirement)).all()
+    assert len(requirements) == 2
+    for requirement in requirements:
+        shift = seeded.get(Shift, requirement.shift_id)
+        assert shift is not None
+        assert requirement.required_staff == required_staff_for(
+            shift.patient_count, hard.maximum_patients_per_nurse
+        )

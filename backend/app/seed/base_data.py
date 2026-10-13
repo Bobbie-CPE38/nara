@@ -1,12 +1,16 @@
 """System actors and stub policies for the walking skeleton.
 
-Soft weights (all 1) are demo placeholders: the repository does not contain the
-referenced v5 example values. The team's approval thresholds are ratio 2 and
+Soft weights are the round 1 seed values (round 1 contract, section 8.3): one more
+candidate costs 1000, far more than any workload term, so the smallest group wins.
+The team's approval thresholds are ratio 2 and
 incoming count 10. Auto-approval activates above twice the ward's required
 nurse-to-patient ratio; incoming count refers to staff awaiting head nurse or
 nurse supervisor approval. The count's comparison rule is still deferred.
-The skeleton uses fixed candidates and MANUAL approval, not these parameters.
-Hard policy maximum_patients_per_nurse (2) is used by the real gap calculator.
+Approval is still MANUAL, so the approval thresholds are not used yet.
+Hard policy maximum_patients_per_nurse (2) is the ratio behind the seeded
+required_staff of each shift. The gap reads required_staff, not the ratio;
+required_staff_for() applies the ratio and has no caller in app code until the
+merge window (round 1 PR M). preserve_minimum_staffing is read by the gap.
 """
 
 from decimal import Decimal
@@ -14,7 +18,13 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.db.models import Actor, ApprovalPolicy, HardConstraintPolicy, SoftConstraintPolicy
+from app.db.models import (
+    Actor,
+    ApprovalPolicy,
+    HardConstraintPolicy,
+    OutreachPolicy,
+    SoftConstraintPolicy,
+)
 from app.domain.enums import ActorName, ActorType, CandidateSource, OptimizationObjective
 from app.seed import sync_sequences
 
@@ -38,6 +48,7 @@ def seed(db: Session) -> None:
                 minimum_rest_hours=Decimal(11),
                 maximum_daily_hours=Decimal(12),
                 maximum_weekly_hours=Decimal(52),
+                maximum_consecutive_shifts=7,
                 maximum_patients_per_nurse=Decimal(2),
                 prevent_shift_conflict=True,
                 require_matching_role=True,
@@ -51,13 +62,20 @@ def seed(db: Session) -> None:
             SoftConstraintPolicy(
                 id=1,
                 version="demo-stub-v1",
-                candidate_count_weight=Decimal(1),
-                consecutive_shift_weight=Decimal(1),
+                candidate_count_weight=Decimal(1000),
+                consecutive_shift_weight=Decimal(5),
                 workload_imbalance_weight=Decimal(1),
-                projected_overtime_weight=Decimal(1),
-                roster_change_weight=Decimal(1),
+                projected_overtime_weight=Decimal(2),
+                roster_change_weight=Decimal(300),
+                candidate_source_weight=Decimal(200),
                 candidate_source_priority=[source.value for source in CandidateSource],
-                optimization_priority=[objective.value for objective in OptimizationObjective],
+                optimization_priority=[
+                    OptimizationObjective.MIN_CANDIDATE_COUNT.value,
+                    OptimizationObjective.CANDIDATE_SOURCE.value,
+                    OptimizationObjective.WEEKLY_WORKLOAD_FAIRNESS.value,
+                    OptimizationObjective.MIN_CONSECUTIVE_SHIFT.value,
+                    OptimizationObjective.MIN_PROJECTED_OVERTIME.value,
+                ],
                 effective_from=now,
                 created_at=now,
             ),
@@ -68,6 +86,14 @@ def seed(db: Session) -> None:
                 version="demo-stub-v1",
                 created_at=now,
             ),
+            OutreachPolicy(
+                id=1,
+                maximum_concurrent_offers_per_staff=3,
+                offer_timeout_seconds=300,
+                version="demo-outreach-v1",
+                effective_from=now,
+                created_at=now,
+            ),
         ]
     )
     sync_sequences(
@@ -76,5 +102,6 @@ def seed(db: Session) -> None:
             HardConstraintPolicy.__tablename__,
             SoftConstraintPolicy.__tablename__,
             ApprovalPolicy.__tablename__,
+            OutreachPolicy.__tablename__,
         ],
     )

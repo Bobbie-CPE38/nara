@@ -50,16 +50,18 @@ def _make_case(db: Session, status: CaseStatus) -> StaffingCase:
         occurred_at=DEMO_NOW,
         staff_id=LEAVING_STAFF_ID,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=SHIFT_ID,
         status=status,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     return case
 
@@ -103,6 +105,8 @@ def _use_handler(
 # --------------------------------------------------------------------------- #
 def test_every_automatic_status_has_exactly_one_handler() -> None:
     automatic = set(CaseStatus) - WAITING_CASE_STATUSES - AUTOMATION_STOPPED_STATUSES
+    # Stays in the enum, but no case enters it since round 1 PR 3 (Q31)
+    automatic -= {CaseStatus.SAFETY_VALIDATION}
 
     assert set(orchestrator.HANDLERS) == automatic
 
@@ -146,7 +150,7 @@ def test_full_golden_path_through_both_wait_points(seeded: Session, make_case: C
     case = make_case()
 
     orchestrator.advance(seeded, case.id)
-    orchestrator.resume(seeded, case.id, CaseStatus.SAFETY_VALIDATION)
+    orchestrator.resume(seeded, case.id, CaseStatus.WAITING_APPROVAL)
     assert _status(seeded, case) is CaseStatus.WAITING_APPROVAL
     orchestrator.resume(seeded, case.id, CaseStatus.EXECUTING)
 
@@ -156,8 +160,7 @@ def test_full_golden_path_through_both_wait_points(seeded: Session, make_case: C
         ("ASSESSING", "OPTIMIZING"),
         ("OPTIMIZING", "OUTREACH"),
         ("OUTREACH", "WAITING_RESPONSE"),
-        ("WAITING_RESPONSE", "SAFETY_VALIDATION"),
-        ("SAFETY_VALIDATION", "WAITING_APPROVAL"),
+        ("WAITING_RESPONSE", "WAITING_APPROVAL"),
         ("WAITING_APPROVAL", "EXECUTING"),
         ("EXECUTING", "RESOLVED"),
     ]
@@ -216,6 +219,7 @@ def test_unknown_case_raises(seeded: Session) -> None:
         # At a wait point, but not an allowed transition
         (CaseStatus.WAITING_RESPONSE, CaseStatus.EXECUTING),
         (CaseStatus.WAITING_APPROVAL, CaseStatus.SAFETY_VALIDATION),
+        (CaseStatus.WAITING_RESPONSE, CaseStatus.SAFETY_VALIDATION),
         (CaseStatus.WAITING_RESPONSE, CaseStatus.WAITING_RESPONSE),
         # FAILED is an allowed transition, but only the orchestrator's D11 path sets it
         (CaseStatus.WAITING_RESPONSE, CaseStatus.FAILED),
@@ -239,10 +243,10 @@ def test_a_repeated_resume_is_rejected_and_does_not_fail_the_case(
 ) -> None:
     """A second ACCEPT arrives after the case already moved on."""
     case = make_case(CaseStatus.WAITING_RESPONSE)
-    orchestrator.resume(seeded, case.id, CaseStatus.SAFETY_VALIDATION)
+    orchestrator.resume(seeded, case.id, CaseStatus.WAITING_APPROVAL)
 
     with pytest.raises(InvalidTransitionError):
-        orchestrator.resume(seeded, case.id, CaseStatus.SAFETY_VALIDATION)
+        orchestrator.resume(seeded, case.id, CaseStatus.WAITING_APPROVAL)
 
     assert _status(seeded, case) is CaseStatus.WAITING_APPROVAL
 
@@ -294,7 +298,7 @@ def test_failure_keeps_the_callers_earlier_work(
         action=AuditAction.CASE_OPENED,
         entity_type=EntityType.STAFFING_CASES,
         entity_id=case.id,
-        payload={"event_id": case.event_id},
+        payload={"shift_id": case.shift_id},
     )
 
     def failing_intake(db: Session, case: StaffingCase) -> HandlerResult:
@@ -309,7 +313,9 @@ def test_failure_keeps_the_callers_earlier_work(
         AuditAction.CASE_STATUS_CHANGED,
         AuditAction.WORKFLOW_FAILED,
     ]
-    assert seeded.get(StaffingEvent, case.event_id) is not None
+    assert (
+        seeded.scalar(select(StaffingEvent.id).where(StaffingEvent.case_id == case.id)) is not None
+    )
 
 
 def test_database_error_inside_a_handler_still_records_the_failure(
@@ -343,20 +349,20 @@ def test_database_error_inside_a_handler_still_records_the_failure(
 def test_failure_after_a_wait_point_keeps_the_resume_transition(
     seeded: Session, make_case: CaseFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The candidate did accept: that stays on the timeline even though safety crashed."""
-    case = make_case(CaseStatus.WAITING_RESPONSE)
+    """The approver did approve: that stays on the timeline even though execution crashed."""
+    case = make_case(CaseStatus.WAITING_APPROVAL)
 
-    def failing_safety(db: Session, case: StaffingCase) -> HandlerResult:
-        raise RuntimeError("rule engine down")
+    def failing_execute(db: Session, case: StaffingCase) -> HandlerResult:
+        raise RuntimeError("roster down")
 
-    _use_handler(monkeypatch, CaseStatus.SAFETY_VALIDATION, failing_safety)
+    _use_handler(monkeypatch, CaseStatus.EXECUTING, failing_execute)
 
-    orchestrator.resume(seeded, case.id, CaseStatus.SAFETY_VALIDATION)
+    orchestrator.resume(seeded, case.id, CaseStatus.EXECUTING)
 
     assert _status(seeded, case) is CaseStatus.FAILED
     assert _status_changes(seeded, case) == [
-        ("WAITING_RESPONSE", "SAFETY_VALIDATION"),
-        ("SAFETY_VALIDATION", "FAILED"),
+        ("WAITING_APPROVAL", "EXECUTING"),
+        ("EXECUTING", "FAILED"),
     ]
 
 
@@ -446,11 +452,11 @@ def test_golden_path_with_production_session_settings(production_seeded: Session
     case = _make_case(db, CaseStatus.OPEN)
 
     orchestrator.advance(db, case.id)
-    orchestrator.resume(db, case.id, CaseStatus.SAFETY_VALIDATION)
+    orchestrator.resume(db, case.id, CaseStatus.WAITING_APPROVAL)
     orchestrator.resume(db, case.id, CaseStatus.EXECUTING)
 
     assert _status(db, case) is CaseStatus.RESOLVED
-    assert len(_status_changes(db, case)) == 8
+    assert len(_status_changes(db, case)) == 7
 
 
 def test_failure_with_production_session_settings(
@@ -559,7 +565,7 @@ def test_two_requests_that_wrote_audit_rows_do_not_deadlock_on_resume(
                     payload={"staff_id": ACCEPTING_STAFF_ID},
                 )
                 both_hold_key_share.wait()
-                orchestrator.resume(db, case_id, CaseStatus.SAFETY_VALIDATION)
+                orchestrator.resume(db, case_id, CaseStatus.WAITING_APPROVAL)
             outcomes.append("ok")
         except Exception as error:
             outcomes.append(type(error).__name__)
@@ -579,4 +585,4 @@ def test_two_requests_that_wrote_audit_rows_do_not_deadlock_on_resume(
         actions = [row.action for row in _audit(db, case)]
     # The rejected request rolled back, so its OFFER_ACCEPTED row is gone too
     assert actions.count(AuditAction.OFFER_ACCEPTED) == 1
-    assert actions.count(AuditAction.CASE_STATUS_CHANGED) == 2
+    assert actions.count(AuditAction.CASE_STATUS_CHANGED) == 1

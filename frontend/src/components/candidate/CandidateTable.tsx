@@ -1,8 +1,24 @@
+import { CANDIDATE_STAGE_INFO, TONE_CLASS } from "@/lib/constants";
 import type { CandidateView } from "@/lib/types/case";
 
+/** A stage the map does not know is shown as it is. */
+function StageLabel({ stage }: { stage: string }) {
+  const info = CANDIDATE_STAGE_INFO.get(stage);
+  return <span className={TONE_CLASS[info?.tone ?? "neutral"]}>{info?.label ?? stage}</span>;
+}
+
 /** Candidates in the order the API sends them, which is by rank. */
-export function CandidateTable({ candidates }: { candidates: CandidateView[] }) {
-  if (candidates.length === 0) return <p className="mt-2">No candidates yet.</p>;
+export function CandidateTable({
+  candidates,
+  stopped = false,
+}: {
+  candidates: CandidateView[];
+  /** The case will not get a plan any more, so an empty list is final */
+  stopped?: boolean;
+}) {
+  if (candidates.length === 0) {
+    return <p className="mt-2">{stopped ? "No candidates." : "No candidates yet."}</p>;
+  }
   return (
     <table aria-label="Candidates" className="mt-2 w-full text-left">
       <thead>
@@ -11,7 +27,7 @@ export function CandidateTable({ candidates }: { candidates: CandidateView[] }) 
           <th className="py-1 pr-4">Staff ID</th>
           <th className="py-1 pr-4">Name</th>
           <th className="py-1 pr-4">Source</th>
-          <th className="py-1 pr-4">Offer</th>
+          <th className="py-1 pr-4">Status</th>
         </tr>
       </thead>
       <tbody>
@@ -22,7 +38,7 @@ export function CandidateTable({ candidates }: { candidates: CandidateView[] }) 
             <td className="py-1 pr-4">{candidate.first_name} {candidate.last_name}</td>
             <td className="py-1 pr-4">{candidate.source}</td>
             <td className="py-1 pr-4">
-              {candidate.outreach_status ?? <span className="text-gray-500">Not contacted</span>}
+              <StageLabel stage={candidate.stage} />
             </td>
           </tr>
         ))}

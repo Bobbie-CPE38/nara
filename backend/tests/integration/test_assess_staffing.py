@@ -3,7 +3,6 @@
 
 from collections.abc import Iterator
 from datetime import timedelta
-from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -17,7 +16,6 @@ from app.db.models import (
     AuditLog,
     HardConstraintPolicy,
     RosterAssignment,
-    Shift,
     StaffingCase,
     StaffingEvent,
     StaffingGap,
@@ -63,16 +61,18 @@ def _make_case(db: Session, status: CaseStatus = CaseStatus.ASSESSING) -> Staffi
         occurred_at=DEMO_NOW,
         staff_id=LEAVING_STAFF_ID,
         status=EventStatus.PROCESSED,
+        processed_at=DEMO_NOW,
     )
     db.add(event)
     db.flush()
     case = StaffingCase(
-        event_id=event.id,
         shift_id=NIGHT_SHIFT,
         status=status,
         required_replacement_time=DEMO_NOW + timedelta(hours=2),
     )
     db.add(case)
+    db.flush()
+    event.case_id = case.id
     db.flush()
     return case
 
@@ -136,10 +136,9 @@ def test_handler_stores_the_gap_with_the_inputs_it_was_computed_from(
 
     (gap,) = _gaps(db, case)
     assert gap.staffing_requirement_id == requirement.id
-    # ceil(10 patients / 2 per nurse) = 5 needed, 4 left after 105
+    # Target max(required_staff 5, minimum_staff 4) = 5, 4 left after 105
     assert gap.headcount_gap == 1
-    assert gap.patient_count == 10
-    assert gap.patients_per_nurse == Decimal(2)
+    assert gap.effective_minimum == 5
     assert gap.computed_at == DEMO_NOW
 
 
@@ -204,17 +203,18 @@ def test_snapshot_keeps_the_values_of_the_calculation_when_the_sources_change_la
     db = production_seeded
     assess_staffing.handle(db, case)
 
-    shift = db.get(Shift, NIGHT_SHIFT)
+    # The requirement row is updated in place and the flag can be switched later
+    requirement = requirement_service.get_current_requirement(db, NIGHT_SHIFT).requirement
     policy = db.get(HardConstraintPolicy, 1)
-    assert shift is not None
     assert policy is not None
-    shift.patient_count = 40
-    policy.maximum_patients_per_nurse = Decimal(4)
+    requirement.required_staff = 9
+    requirement.minimum_staff = 8
+    policy.preserve_minimum_staffing = False
     db.flush()
     db.expire_all()
 
     (gap,) = _gaps(db, case)
-    assert (gap.patient_count, gap.patients_per_nurse) == (10, Decimal(2))
+    assert (gap.effective_minimum, gap.headcount_gap) == (5, 1)
 
 
 def test_covered_shift_raises_and_writes_nothing(production_seeded: Session) -> None:

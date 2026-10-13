@@ -1,6 +1,6 @@
 """Answers of the case read routes (docs/workflow.md, section 9.3)."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -27,10 +27,31 @@ class GapCount(BaseModel):
 
 class GapView(BaseModel):
     id: int
+    # The headcount target the gap was measured against, stored with the gap row
+    effective_minimum: int
     headcount_gap: int
     computed_at: AppDatetime
     roles: list[GapCount]
     skills: list[GapCount]
+
+
+# Where a candidate is in the case (docs/workflow.md, section 4.1). Computed
+# from the candidate's rows when the case is read, never stored
+CandidateStage = Literal[
+    "NOT_CONTACTED",
+    "OFFER_PENDING",
+    "OFFER_SENT",
+    "OFFER_REJECTED",
+    "OFFER_TIMEOUT",
+    "OFFER_FAILED",
+    "OFFER_CANCELLED",
+    "ACCEPTED",
+    "SAFETY_FAILED",
+    "WAITING_APPROVAL",
+    "APPROVAL_REJECTED",
+    "APPROVED",
+    "ASSIGNED",
+]
 
 
 class CandidateView(BaseModel):
@@ -42,6 +63,7 @@ class CandidateView(BaseModel):
     source: CandidateSource
     # null until an offer was created for this candidate
     outreach_status: OutreachStatus | None
+    stage: CandidateStage
 
 
 class CaseDetail(BaseModel):
@@ -49,13 +71,17 @@ class CaseDetail(BaseModel):
 
     id: int
     status: CaseStatus
-    event_id: int
+    # Every event of the case, by ID. One window can merge several
+    event_ids: list[int]
     shift_id: int
     required_replacement_time: AppDatetime
     created_at: AppDatetime
     updated_at: AppDatetime
     # null until the ASSESSING step stored a gap
     gap: GapView | None
+    # People this case already put on the roster. The case is still short of
+    # max(gap.headcount_gap - assigned_count, 0) people
+    assigned_count: int
     # Empty until the solver stored a plan. Ordered by rank
     candidates: list[CandidateView]
 

@@ -47,10 +47,12 @@ def respond(body: ResponseRequest, db: DbSession, user: DemoUser) -> ResponseRes
             outreach_id=body.outreach_id,
             response=body.response,
         )
+    except outreach_service.OutreachLockRetryError as error:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error), headers={"Retry-After": "1"}
+        ) from error
     except outreach_service.OpenOfferConflictError as error:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error)) from error
-    except outreach_service.UnsupportedResponseError as error:
-        raise HTTPException(422, detail=str(error)) from error
     return ResponseResult(
         outreach_id=outreach.id,
         outreach_status=outreach.status,

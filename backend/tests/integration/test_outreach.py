@@ -1,251 +1,307 @@
-"""Seam 2: real PostgreSQL offer creation and orchestrator transaction ownership."""
+"""Wave selection, target credits and atomic delivery against PostgreSQL."""
 
-from datetime import timedelta
-from typing import Any
 from unittest.mock import patch
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.exc import MultipleResultsFound, NoResultFound
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
     AuditLog,
     CandidateItem,
+    CandidateItemTarget,
     CandidateOutreach,
-    CandidatePlan,
-    StaffingCase,
-    StaffingEvent,
+    Shift,
+    Staff,
 )
 from app.domain.enums import (
-    ActorName,
     AuditAction,
-    CandidateSource,
     CaseStatus,
-    Channel,
-    EntityType,
-    EventStatus,
-    EventType,
     OutreachStatus,
-    SolverStatus,
+    SelectionType,
+    StaffStatus,
+    TargetType,
 )
-from app.services import actor_service, audit_service, outreach_service
+from app.domain.staffing.wave_targets import fill_targets
+from app.domain.workflow.case_status import GapFiller
+from app.services import optimization_service, outreach_service, wave_service
 from app.workflow import orchestrator
 from app.workflow.handlers import contact_candidate
-from tests.integration.conftest import DEMO_NOW
+from tests.integration.case_rows import make_case, make_plan, offer, short_case
 
 
-@pytest.fixture
-def case(production_seeded: Session) -> StaffingCase:
+def _setup(db: Session):
+    case, items = short_case(db, status=CaseStatus.OUTREACH)
+    credits = fill_targets(
+        headcount_gap=1,
+        role_gaps={1: 1},
+        skill_gaps={},
+        candidates=[GapFiller(201, 1, frozenset({1, 2})), GapFiller(202, 1, frozenset({2}))],
+    )
+    for staff_id, targets in credits.items():
+        optimization_service.record_item_targets(db, items[staff_id], targets)
+    return case, items
+
+
+def _recipients(db: Session, case_id: int) -> list[int]:
+    return list(
+        db.scalars(
+            select(CandidateItem.staff_id)
+            .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+            .where(CandidateOutreach.case_id == case_id)
+            .order_by(CandidateOutreach.id)
+        )
+    )
+
+
+def test_first_wave_uses_solver_group_and_one_timestamp(production_seeded: Session) -> None:
     db = production_seeded
-    event = StaffingEvent(
-        event_type=EventType.STAFF_UNAVAILABLE,
-        shift_id=1,
-        staff_id=105,
-        occurred_at=DEMO_NOW,
-        status=EventStatus.PROCESSED,
-    )
-    db.add(event)
-    db.flush()
-    case = StaffingCase(
-        event_id=event.id,
-        shift_id=1,
-        status=CaseStatus.OUTREACH,
-        required_replacement_time=DEMO_NOW + timedelta(hours=2),
-    )
-    db.add(case)
-    db.flush()
-    return case
-
-
-def _plan(db: Session, case: StaffingCase) -> CandidatePlan:
-    plan = CandidatePlan(
-        case_id=case.id,
-        solver_status=SolverStatus.FEASIBLE,
-        generated_at=DEMO_NOW,
-        execution_time_ms=0,
-        solver_version="stub",
-        hard_constraint_policy_id=1,
-        soft_constraint_policy_id=1,
-        input_snapshot={},
-    )
-    db.add(plan)
-    db.flush()
-    return plan
-
-
-def _item(db: Session, plan: CandidatePlan, *, rank: int = 1, staff_id: int = 201) -> CandidateItem:
-    item = CandidateItem(
-        plan_id=plan.id,
-        staff_id=staff_id,
-        rank=rank,
-        source=CandidateSource.FLOAT_POOL,
-        proposed_shift_id=1,
-    )
-    db.add(item)
-    return item
-
-
-def test_offer_contract_and_no_commit(production_seeded: Session, case: StaffingCase) -> None:
-    db = production_seeded
-    item = _item(db, _plan(db, case))  # Pending item must be seen with autoflush=False.
-    with (
-        patch.object(db, "commit", wraps=db.commit) as commit,
-        patch("app.integrations.line.mock.send_offer") as send,
-    ):
+    case, items = _setup(db)
+    with patch.object(db, "commit", side_effect=AssertionError("Handler must not commit")):
         result = contact_candidate.handle(db, case)
-        commit.assert_not_called()
-    offer = db.scalars(select(CandidateOutreach)).one()
-    send.assert_called_once_with(staff_id=201, outreach_id=offer.id)
-    assert result.next_status is CaseStatus.WAITING_RESPONSE
-    assert result.wait is True
-    assert case.status is CaseStatus.OUTREACH
-    assert offer.case_id == case.id
-    assert offer.candidate_item_id == item.id
-    assert offer.channel is Channel.LINE
-    assert offer.status is OutreachStatus.SENT
-    assert offer.sent_at == DEMO_NOW
-    assert offer.response_at is None
-    audit = db.scalars(select(AuditLog)).one()
-    assert audit.action is AuditAction.OFFER_SENT
-    assert audit.actor_id == actor_service.component_id(db, ActorName.OUTREACH_AGENT)
-    assert audit.case_id == case.id
-    assert audit.entity_type is EntityType.CANDIDATE_OUTREACH
-    assert audit.entity_id == offer.id
-    assert audit.created_at == DEMO_NOW
-    assert audit.payload == {"outreach_id": offer.id, "staff_id": 201, "channel": "LINE"}
-    db.rollback()
-    assert db.scalar(select(CandidateOutreach.id)) is None
-    assert db.scalar(select(AuditLog.id)) is None
-
-
-def test_latest_plan_by_id_and_rank_one(production_seeded: Session, case: StaffingCase) -> None:
-    db = production_seeded
-    older = _plan(db, case)
-    older.generated_at = DEMO_NOW + timedelta(days=1)
-    _item(db, older, staff_id=105)
-    latest = _plan(db, case)
-    _item(db, latest, rank=2, staff_id=105)
-    selected = _item(db, latest)
-    contact_candidate.handle(db, case)
-    assert db.scalars(select(CandidateOutreach)).one().candidate_item_id == selected.id
-
-
-def test_service_sends_a_flushed_sent_offer_without_audit_or_commit(
-    production_seeded: Session, case: StaffingCase
-) -> None:
-    db = production_seeded
-    item = _item(db, _plan(db, case))
-
-    def check_delivery(*, staff_id: int, outreach_id: int) -> None:
-        row = db.scalars(select(CandidateOutreach).where(CandidateOutreach.id == outreach_id)).one()
-        assert row.status is OutreachStatus.SENT
-        assert row.sent_at == DEMO_NOW
-        assert staff_id == 201
-
-    with (
-        patch("app.integrations.line.mock.send_offer", side_effect=check_delivery) as send,
-        patch.object(db, "commit", wraps=db.commit) as commit,
-        patch.object(audit_service, "log", wraps=audit_service.log) as audit,
-    ):
-        offer, staff_id = outreach_service.send_offer(db, case)
-    send.assert_called_once_with(staff_id=201, outreach_id=offer.id)
-    commit.assert_not_called()
-    audit.assert_not_called()
-    assert offer.candidate_item_id == item.id
-    assert staff_id == 201
-    assert case.status is CaseStatus.OUTREACH
-    assert db.scalar(select(AuditLog.id)) is None
-
-
-@pytest.mark.parametrize("count", [0, 2])
-def test_rank_one_must_be_exactly_one(
-    production_seeded: Session, case: StaffingCase, count: int
-) -> None:
-    db = production_seeded
-    plan = _plan(db, case)
-    for _ in range(count):
-        _item(db, plan)
-    with patch("app.integrations.line.mock.send_offer") as send:
-        with pytest.raises(NoResultFound if count == 0 else MultipleResultsFound):
-            contact_candidate.handle(db, case)
-        send.assert_not_called()
-    assert db.scalar(select(CandidateOutreach.id)) is None
-    assert db.scalar(select(AuditLog.id)) is None
-
-
-def test_no_plan_does_not_send(production_seeded: Session, case: StaffingCase) -> None:
-    with patch("app.integrations.line.mock.send_offer") as send:
-        with pytest.raises(LookupError, match="No candidate plan"):
-            contact_candidate.handle(production_seeded, case)
-        send.assert_not_called()
-
-
-def test_does_not_fall_back_to_older_plan(production_seeded: Session, case: StaffingCase) -> None:
-    db = production_seeded
-    _item(db, _plan(db, case))
-    _plan(db, case)
-    with pytest.raises(NoResultFound):
-        contact_candidate.handle(db, case)
-
-
-def test_plan_selection_is_scoped_to_case(production_seeded: Session, case: StaffingCase) -> None:
-    db = production_seeded
-    selected = _item(db, _plan(db, case))
-    other = StaffingCase(
-        event_id=case.event_id,
-        shift_id=1,
-        status=CaseStatus.OUTREACH,
-        required_replacement_time=case.required_replacement_time,
+    assert result.next_status == CaseStatus.WAITING_RESPONSE
+    assert _recipients(db, case.id) == [201, 202]
+    rows = list(db.scalars(select(CandidateOutreach).where(CandidateOutreach.case_id == case.id)))
+    assert len({row.sent_at for row in rows}) == 1
+    audits = list(
+        db.scalars(
+            select(AuditLog).where(AuditLog.action == AuditAction.OFFER_SENT).order_by(AuditLog.id)
+        )
     )
-    db.add(other)
-    db.flush()
-    _item(db, _plan(db, other), staff_id=105)
-    contact_candidate.handle(db, case)
-    assert db.scalars(select(CandidateOutreach)).one().candidate_item_id == selected.id
+    assert len(audits) == 2
+    assert audits[0].payload["wave"] == audits[1].payload["wave"] == 1
+    assert audits[0].payload["skipped"] == []
+    assert "skipped" not in audits[1].payload
+    assert items[203].id not in {row.candidate_item_id for row in rows}
 
 
-def test_real_round_sends_once_and_waits(production_seeded: Session, case: StaffingCase) -> None:
-    db = production_seeded
-    _item(db, _plan(db, case))
-    with patch.object(db, "commit", wraps=db.commit) as commit:
-        orchestrator.advance(db, case.id)
-        commit.assert_called_once()
-    assert case.status is CaseStatus.WAITING_RESPONSE
-    orchestrator.advance(db, case.id)
-    assert len(list(db.scalars(select(CandidateOutreach)))) == 1
-    actions = list(db.scalars(select(AuditLog.action).order_by(AuditLog.id)))
-    assert actions == [AuditAction.OFFER_SENT, AuditAction.CASE_STATUS_CHANGED]
+def test_first_wave_replaces_only_vacant_target_not_whole_group(seeded: Session) -> None:
+    case, items = _setup(seeded)
+    member = seeded.get(Staff, 201)
+    assert member is not None
+    member.status = StaffStatus.INACTIVE
+    seeded.flush()
+    contact_candidate.handle(seeded, case)
+    assert _recipients(seeded, case.id) == [202, 203]
+    assert (
+        seeded.scalar(
+            select(CandidateItemTarget.id).where(
+                CandidateItemTarget.candidate_item_id == items[203].id
+            )
+        )
+        is not None
+    )
+    audit = seeded.scalar(
+        select(AuditLog).where(AuditLog.action == AuditAction.OFFER_SENT).order_by(AuditLog.id)
+    )
+    assert audit is not None
+    assert audit.payload["skipped"] == [{"staff_id": 201, "reason": "STAFF_NOT_ACTIVE"}]
 
 
-@pytest.mark.parametrize("failure", ["no_plan", "duplicate", "delivery", "audit"])
-def test_round_failure_rolls_back_offer_and_records_failed(
-    production_seeded: Session, case: StaffingCase, failure: str
+def test_later_wave_does_not_contact_any_answered_staff_again(seeded: Session) -> None:
+    case, items = _setup(seeded)
+    offer(seeded, case, items[201], OutreachStatus.REJECTED)
+    offer(seeded, case, items[202], OutreachStatus.TIMEOUT)
+    contact_candidate.handle(seeded, case)
+    assert _recipients(seeded, case.id) == [201, 202, 203]
+    audit = seeded.scalar(select(AuditLog).where(AuditLog.action == AuditAction.OFFER_SENT))
+    assert audit is not None and audit.payload["wave"] == 2
+
+
+def test_current_limit_replaces_solver_candidate(seeded: Session) -> None:
+    case, _ = _setup(seeded)
+    for _ in range(3):
+        other = make_case(seeded)
+        item = make_plan(seeded, other, (201,))[201]
+        offer(seeded, other, item)
+    selected = wave_service.select_wave(seeded, case_id=case.id, shift=seeded.get(Shift, 1))
+    assert [item.staff_id for item in selected.items] == [202, 203]
+    assert {"staff_id": 201, "reason": "OFFER_LIMIT_REACHED"} in selected.skipped
+
+
+def test_no_plan_is_an_error_not_a_fallback(seeded: Session) -> None:
+    case = make_case(seeded, CaseStatus.OUTREACH)
+    with pytest.raises(LookupError, match="No candidate plan"):
+        contact_candidate.handle(seeded, case)
+
+
+def test_latest_plan_is_used_even_if_it_has_no_items(seeded: Session) -> None:
+    case, _ = _setup(seeded)
+    make_plan(seeded, case, ())
+    result = contact_candidate.handle(seeded, case)
+    assert result.next_status == CaseStatus.MANUAL_HANDOFF
+    assert _recipients(seeded, case.id) == []
+
+
+@pytest.mark.parametrize("failure", ["delivery", "audit"])
+def test_round_failure_rolls_back_entire_wave_and_targets(
+    production_seeded: Session, failure: str
 ) -> None:
     db = production_seeded
-    if failure != "no_plan":
-        plan = _plan(db, case)
-        _item(db, plan)
-        if failure == "duplicate":
-            _item(db, plan)
+    case, _ = _setup(db)
+    inactive = db.get(Staff, 201)
+    assert inactive is not None
+    inactive.status = StaffStatus.INACTIVE
+    db.flush()
+    before = db.scalar(select(func.count()).select_from(CandidateItemTarget))
+    target = (
+        "app.integrations.line.mock.send_offer"
+        if failure == "delivery"
+        else "app.services.audit_service.log"
+    )
+    from app.services import audit_service
+
     real_log = audit_service.log
-    with (
-        patch("app.integrations.line.mock.send_offer") as send,
-        # Patches the shared audit module, including the handler and orchestrator.
-        patch.object(audit_service, "log", wraps=real_log) as audit,
+
+    def log(*args, **kwargs):
+        if kwargs["action"] == AuditAction.OFFER_SENT:
+            raise RuntimeError("audit failed")
+        return real_log(*args, **kwargs)
+
+    with patch(
+        target, side_effect=RuntimeError("delivery failed") if failure == "delivery" else log
     ):
-        if failure == "delivery":
-            send.side_effect = RuntimeError("mock delivery failed")
-        if failure == "audit":
-
-            def fail_offer_audit(*args: Any, **kwargs: Any) -> None:
-                if kwargs.get("action") is AuditAction.OFFER_SENT:
-                    raise RuntimeError("offer audit failed")
-                real_log(*args, **kwargs)
-
-            audit.side_effect = fail_offer_audit
         orchestrator.advance(db, case.id)
-    assert case.status is CaseStatus.FAILED
-    assert db.scalar(select(CandidateOutreach.id)) is None
-    actions = list(db.scalars(select(AuditLog.action).order_by(AuditLog.id)))
-    assert actions == [AuditAction.CASE_STATUS_CHANGED, AuditAction.WORKFLOW_FAILED]
+    assert case.status == CaseStatus.FAILED
+    assert db.scalar(select(func.count()).select_from(CandidateOutreach)) == 0
+    assert db.scalar(select(func.count()).select_from(CandidateItemTarget)) == before
+
+
+def test_cancel_keeps_response_timestamp(seeded: Session) -> None:
+    case, items = _setup(seeded)
+    row = offer(seeded, case, items[201], OutreachStatus.ACCEPTED)
+    from tests.integration.conftest import DEMO_NOW
+
+    row.response_at = DEMO_NOW
+    outreach_service.cancel_offer(seeded, row)
+    seeded.flush()
+    assert row.status == OutreachStatus.CANCELLED
+    assert row.response_at == DEMO_NOW
+
+
+def test_send_service_leaves_audit_and_commit_to_handler(production_seeded: Session) -> None:
+    db = production_seeded
+    case, items = _setup(db)
+    with patch.object(db, "commit", side_effect=AssertionError("Service must not commit")):
+        rows = outreach_service.send_offer(db, case, [items[201], items[202]])
+    assert len(rows) == 2
+    assert rows[0].sent_at == rows[1].sent_at
+    assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
+
+
+def test_a_missing_plan_does_not_use_another_cases_plan(seeded: Session) -> None:
+    _setup(seeded)
+    other = make_case(seeded, CaseStatus.OUTREACH)
+    with pytest.raises(LookupError, match="No candidate plan"):
+        contact_candidate.handle(seeded, other)
+
+
+def test_send_service_rejects_items_of_another_case(seeded: Session) -> None:
+    case, _ = _setup(seeded)
+    other = make_case(seeded, CaseStatus.OUTREACH)
+    foreign = make_plan(seeded, other, (201,))[201]
+    with pytest.raises(ValueError, match="different case"):
+        outreach_service.send_offer(seeded, case, [foreign])
+    assert seeded.scalar(select(func.count()).select_from(CandidateOutreach)) == 0
+
+
+def test_exhausted_case_waits_for_paused_offer_instead_of_handoff(seeded: Session) -> None:
+    case, items = _setup(seeded)
+    paused = offer(seeded, case, items[201])
+    other = make_case(seeded, CaseStatus.WAITING_APPROVAL)
+    other_item = make_plan(seeded, other, (201,))[201]
+    accepted = offer(seeded, other, other_item, OutreachStatus.ACCEPTED)
+    for staff_id in (202, 203):
+        member = seeded.get(Staff, staff_id)
+        assert member is not None
+        member.status = StaffStatus.INACTIVE
+    seeded.flush()
+    result = contact_candidate.handle(seeded, case)
+    assert result.next_status == CaseStatus.WAITING_RESPONSE
+    assert paused.status == OutreachStatus.SENT
+    assert (
+        seeded.scalar(select(AuditLog.id).where(AuditLog.action == AuditAction.MANUAL_HANDOFF))
+        is None
+    )
+    outreach_service.cancel_offer(seeded, accepted)
+    seeded.flush()
+    from app.services import case_facts_service
+
+    assert case_facts_service.has_open_offer(seeded, case.id)
+
+
+def test_skipped_solver_reserve_gets_new_primary_targets_in_later_wave(seeded: Session) -> None:
+    case, items = short_case(seeded, status=CaseStatus.OUTREACH)
+    credits = fill_targets(
+        headcount_gap=1,
+        role_gaps={1: 1},
+        skill_gaps={},
+        candidates=[GapFiller(202, 1, frozenset({2})), GapFiller(201, 1, frozenset({1, 2}))],
+    )
+    for staff_id, targets in credits.items():
+        optimization_service.record_item_targets(seeded, items[staff_id], targets)
+    limited_offers = []
+    for _ in range(3):
+        other = make_case(seeded)
+        item = make_plan(seeded, other, (201,))[201]
+        limited_offers.append(offer(seeded, other, item))
+    assert set(
+        seeded.scalars(
+            select(CandidateItemTarget.selection_type).where(
+                CandidateItemTarget.candidate_item_id == items[201].id
+            )
+        )
+    ) == {SelectionType.RESERVE}
+    contact_candidate.handle(seeded, case)
+    assert _recipients(seeded, case.id) == [202, 203]
+    for row in seeded.scalars(
+        select(CandidateOutreach).where(CandidateOutreach.case_id == case.id)
+    ):
+        row.status = OutreachStatus.REJECTED
+    for row in limited_offers:
+        row.status = OutreachStatus.REJECTED
+    seeded.flush()
+    contact_candidate.handle(seeded, case)
+    assert _recipients(seeded, case.id) == [202, 203, 201]
+    targets = list(
+        seeded.scalars(
+            select(CandidateItemTarget).where(
+                CandidateItemTarget.candidate_item_id == items[201].id
+            )
+        )
+    )
+    assert {(row.target_type, row.selection_type) for row in targets} == {
+        (TargetType.ROLE, SelectionType.PRIMARY),
+        (TargetType.HEADCOUNT, SelectionType.PRIMARY),
+    }
+    assert len(targets) == 2
+
+
+@pytest.mark.parametrize("with_legacy_audit", [False, True])
+def test_legacy_history_without_wave_number_advances_to_wave_two(
+    seeded: Session, with_legacy_audit: bool
+) -> None:
+    case, items = _setup(seeded)
+    row = offer(seeded, case, items[201], OutreachStatus.REJECTED)
+    if with_legacy_audit:
+        from app.domain.enums import EntityType
+        from app.services import actor_service, audit_service
+
+        audit_service.log(
+            seeded,
+            case_id=case.id,
+            actor_id=actor_service.user_id(seeded, 201),
+            action=AuditAction.OFFER_SENT,
+            entity_type=EntityType.CANDIDATE_OUTREACH,
+            entity_id=row.id,
+            payload={"outreach_id": row.id, "staff_id": 201},
+        )
+    contact_candidate.handle(seeded, case)
+    payloads = list(
+        seeded.scalars(
+            select(AuditLog.payload).where(
+                AuditLog.case_id == case.id, AuditLog.action == AuditAction.OFFER_SENT
+            )
+        )
+    )
+    assert [p["wave"] for p in payloads if "wave" in p] == [2, 2]

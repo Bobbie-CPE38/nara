@@ -5,14 +5,18 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    HardConstraintPolicy,
     RosterAssignment,
     Shift,
+    StaffingCase,
+    StaffingEvent,
     StaffingRequirement,
     StaffingRequirementRole,
     StaffingRequirementSkill,
 )
-from app.domain.enums import RosterStatus
+from app.domain.enums import CaseStatus, EventStatus, EventType, RosterStatus
 from app.services import gap_service, requirement_service
+from app.services.gap_service import GapNotFoundError
 from app.services.requirement_service import RequirementNotFoundError
 
 RN, ICU = 1, 1
@@ -82,9 +86,7 @@ def test_night_shift_has_no_gap_before_anyone_leaves(seeded: Session) -> None:
     assessment = gap_service.assess_shift(seeded, _shift(seeded, NIGHT_SHIFT))
 
     assert assessment.result.has_gap is False
-    assert assessment.result.minimum_required_staff == 5
-    assert assessment.patient_count == 10
-    assert assessment.patients_per_nurse == 2
+    assert assessment.result.effective_minimum == 5
 
 
 def test_night_shift_is_one_nurse_short_after_105_is_cancelled(seeded: Session) -> None:
@@ -130,3 +132,164 @@ def test_assessment_works_with_production_session_settings(production_seeded: Se
     assessment = gap_service.assess_shift(db, _shift(db, NIGHT_SHIFT))
 
     assert assessment.result.headcount_gap == 1
+
+
+# --------------------------------------------------------------------------- #
+# Headcount target: required_staff, minimum_staff and the policy flag
+# (workflow.md section 3.6)
+# --------------------------------------------------------------------------- #
+def _set_requirement(db: Session, shift_id: int, *, required: int, minimum: int) -> None:
+    requirement = requirement_service.get_current_requirement(db, shift_id).requirement
+    requirement.required_staff = required
+    requirement.minimum_staff = minimum
+
+
+def _policy(db: Session) -> HardConstraintPolicy:
+    policy = db.get(HardConstraintPolicy, 1)
+    assert policy is not None
+    return policy
+
+
+def test_headcount_target_is_the_stored_required_staff_not_the_patient_count(
+    seeded: Session,
+) -> None:
+    """The gap reads the requirement. Changing patients alone does not move it."""
+    shift = _shift(seeded, NIGHT_SHIFT)
+    shift.patient_count = 40  # would need 20 nurses at ratio 2
+
+    assessment = gap_service.assess_shift(seeded, shift)
+
+    assert assessment.result.effective_minimum == 5
+    assert assessment.result.headcount_gap == 0
+
+
+def test_minimum_staff_above_required_staff_is_a_gap_while_the_flag_is_on(
+    seeded: Session,
+) -> None:
+    """Day shift: 2 patients need 1 nurse, 2 are assigned, but the floor is raised to 3."""
+    _set_requirement(seeded, DAY_SHIFT, required=1, minimum=3)
+    assert _policy(seeded).preserve_minimum_staffing is True
+
+    assessment = gap_service.assess_shift(seeded, _shift(seeded, DAY_SHIFT))
+
+    assert assessment.result.effective_minimum == 3
+    assert assessment.result.headcount_gap == 1
+    assert assessment.result.has_gap is True
+
+
+def test_minimum_staff_is_ignored_while_the_flag_is_off(seeded: Session) -> None:
+    _set_requirement(seeded, DAY_SHIFT, required=1, minimum=3)
+    _policy(seeded).preserve_minimum_staffing = False
+
+    assessment = gap_service.assess_shift(seeded, _shift(seeded, DAY_SHIFT))
+
+    assert assessment.result.effective_minimum == 1
+    assert assessment.result.has_gap is False
+
+
+def test_assessment_reads_the_flag_with_production_session_settings(
+    production_seeded: Session,
+) -> None:
+    """Autoflush is off: the unflushed requirement and policy edits must still be seen."""
+    db = production_seeded
+    _set_requirement(db, DAY_SHIFT, required=1, minimum=3)
+    _policy(db).preserve_minimum_staffing = False
+
+    assessment = gap_service.assess_shift(db, _shift(db, DAY_SHIFT))
+
+    assert assessment.result.effective_minimum == 1
+
+
+# --------------------------------------------------------------------------- #
+# get_case_gap: the one loader for the Solver and Safety (workflow.md 6.4, seam 11)
+# --------------------------------------------------------------------------- #
+def _case_with_gap(db: Session, *cancelled_staff: int) -> StaffingCase:
+    """A case on the night shift whose gap was recorded after the given staff left."""
+    for staff_id in cancelled_staff:
+        _cancel(db, staff_id, NIGHT_SHIFT)
+    shift = _shift(db, NIGHT_SHIFT)
+    event = StaffingEvent(
+        event_type=EventType.STAFF_UNAVAILABLE,
+        shift_id=NIGHT_SHIFT,
+        occurred_at=shift.start_at,
+        staff_id=cancelled_staff[0],
+        status=EventStatus.PROCESSED,
+        processed_at=shift.start_at,
+    )
+    db.add(event)
+    db.flush()
+    case = StaffingCase(
+        shift_id=NIGHT_SHIFT,
+        status=CaseStatus.ASSESSING,
+        required_replacement_time=shift.start_at,
+    )
+    db.add(case)
+    db.flush()
+    event.case_id = case.id
+    db.flush()
+    gap_service.record_gap(db, case, gap_service.assess_shift(db, shift))
+    return case
+
+
+def test_case_gap_returns_only_the_roles_and_skills_that_are_short(seeded: Session) -> None:
+    """105 has no ICU skill: the case is short one RN, and ICU is still covered."""
+    case = _case_with_gap(seeded, 105)
+
+    case_gap = gap_service.get_case_gap(seeded, case.id)
+
+    assert case_gap.headcount_gap == 1
+    assert case_gap.gap.effective_minimum == 5
+    assert case_gap.role_gaps == {RN: 1}
+    assert case_gap.skill_gaps == {}
+
+
+def test_case_gap_includes_a_skill_shortage(seeded: Session) -> None:
+    """101 holds ICU: losing 101 leaves one RN and one ICU nurse missing."""
+    case = _case_with_gap(seeded, 101)
+
+    case_gap = gap_service.get_case_gap(seeded, case.id)
+
+    assert case_gap.headcount_gap == 1
+    assert case_gap.role_gaps == {RN: 1}
+    assert case_gap.skill_gaps == {ICU: 1}
+
+
+def test_case_gap_is_the_highest_id_and_keeps_its_own_counts(seeded: Session) -> None:
+    case = _case_with_gap(seeded, 105)
+    _cancel(seeded, 101, NIGHT_SHIFT)
+    newer = gap_service.record_gap(
+        seeded, case, gap_service.assess_shift(seeded, _shift(seeded, NIGHT_SHIFT))
+    )
+
+    case_gap = gap_service.get_case_gap(seeded, case.id)
+
+    assert case_gap.gap.id == newer.id
+    assert case_gap.headcount_gap == 2
+    assert case_gap.role_gaps == {RN: 2}
+    assert case_gap.skill_gaps == {ICU: 1}
+
+
+def test_case_gap_does_not_read_another_case(seeded: Session) -> None:
+    first = _case_with_gap(seeded, 105)
+    second = _case_with_gap(seeded, 101)
+
+    assert gap_service.get_case_gap(seeded, first.id).skill_gaps == {}
+    assert gap_service.get_case_gap(seeded, second.id).skill_gaps == {ICU: 1}
+
+
+def test_case_without_a_gap_raises(seeded: Session) -> None:
+    with pytest.raises(GapNotFoundError, match="999"):
+        gap_service.get_case_gap(seeded, 999)
+
+
+def test_case_gap_works_with_production_session_settings(production_seeded: Session) -> None:
+    db = production_seeded
+    case = _case_with_gap(db, 101)
+
+    case_gap = gap_service.get_case_gap(db, case.id)
+
+    assert (case_gap.headcount_gap, case_gap.role_gaps, case_gap.skill_gaps) == (
+        1,
+        {RN: 1},
+        {ICU: 1},
+    )
