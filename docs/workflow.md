@@ -3,7 +3,7 @@
 > ข้อตกลงร่วมของทีม ใช้คู่กับ `backend/app/domain/enums.py` และ `docs/database-schema.md`
 > ถ้าจะเปลี่ยนอะไรในไฟล์นี้ แจ้งทั้งทีมก่อน และแก้ใน PR เดียวกับโค้ดที่เกี่ยวข้อง
 >
-> ขอบเขต: Walking Skeleton และรอบ 1 (Merge Gap, เคสรับหลายคน, Wave)
+> ขอบเขต: Walking Skeleton, รอบ 1 (Merge Gap, เคสรับหลายคน, Wave) และ Contract ของรอบ 2 (เส้นออกจาก `MANUAL_HANDOFF`, Timeout ของการอนุมัติ, OR-Tools) ซึ่งโค้ดยังเข้าไม่ครบ ดู "สถานะของรอบ 2"
 > อัปเดตล่าสุด: 2026-10-13
 
 ## สถานะของรอบ 1
@@ -42,6 +42,41 @@
 | ข้อ 12 | คำถาม Q1 ถึง Q56 พร้อมคำตอบ |
 
 ส่วนที่ย้ายเข้าไฟล์นี้แล้วคือร่างรอบ 1 ข้อ 2, 3, 4, 5, 6.1 และ 8.2 (ข้อ 8.2 อยู่ที่ข้อ 3.6 ของไฟล์นี้) ถ้าเรื่องพวกนั้นในไฟล์นี้ไม่ตรงกับร่างรอบ 1 ให้ยึดไฟล์นี้
+
+---
+
+## สถานะของรอบ 2
+
+Contract ของรอบ 2 ตกลงแล้ว (PR #50) ไฟล์นี้รับเฉพาะกติกาที่ข้ามคน ส่วน Spec เต็มของรอบ รวมการออกแบบข้างในของ OR-Tools อยู่ที่ `docs/round2/round2-contract-draft.md` (ในไฟล์นี้เรียกว่า "ร่างรอบ 2") รอบ 2 ไม่มีไฟล์ Spec แยกรายคน (R2-Q38) เลข R2-Q ที่อ้างในไฟล์นี้คือคำถามในร่างรอบ 2 ข้อ 7
+
+**โค้ดของรอบ 2 ยังเข้าไม่ครบ** PR 0 ของรอบ 2 เพิ่มแค่เส้น T8 กับ T9 ใน `transitions.py` และค่าใหม่ใน `enums.py` ไม่เปลี่ยนพฤติกรรมของระบบ ข้อความในไฟล์นี้ที่ขึ้นต้นด้วย **[รอบ 2]** คือกติกาที่ตกลงแล้วแต่โค้ดยังไม่ทำตาม จนกว่า PR ที่ระบุจะ merge ข้อความที่ไม่มีป้ายนี้ยังตรงกับโค้ดปัจจุบัน
+
+| PR ของรอบ 2 | ใคร | เรื่อง | ข้อของไฟล์นี้ | PR บน GitHub |
+|---|---|---|---|---|
+| เอกสาร | คน 1 | ร่างรอบ 2 และไฟล์คำถามสามชุด | | #50 |
+| A | คน 2 | Test ที่ตรึงผลของ Solver รอบ 1 | 6.14 | #51 |
+| 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, Transition T8 และ T9, ค่าใหม่ใน Enum | 4, 5.1, 6.12 ถึง 6.14, 7.1, 9.4 | |
+| W | คน 1 | การอนุมัติจำกัดหอ | 6.12 | |
+| T | คน 3 | Approval Timeout (Migration ตัวที่ 1) | 6.13 | |
+| T2 | คน 1 | หน้า `approvals` แสดงเส้นตาย | 9.4 | |
+| B | คน 2 | OR-Tools (Migration ตัวที่ 2) | 6.14 | |
+| H | คน 1 | เส้นออกจาก `MANUAL_HANDOFF` (Migration ตัวที่ 3) | 6.12 | |
+
+ลำดับ merge: 0 ก่อนทุกตัว, W ก่อน H, T ก่อน B ก่อน H ตามสาย Migration (`a4b8c2d6e9f1` → T → B → H), T2 หลัง T รายละเอียดอยู่ร่างรอบ 2 ข้อ 6 รอบ 2 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R2-Q10)
+
+เรื่องที่ยังอยู่ในร่างรอบ 2 ไม่ได้ย้ายเข้าไฟล์นี้
+
+| ร่างรอบ 2 | เรื่อง |
+|---|---|
+| ข้อ 3.2 | Test ที่เป็นเกณฑ์เสร็จของ PR H และ PR T ทีละข้อ และเหตุผลของแต่ละกติกา |
+| ข้อ 4.5 | เกณฑ์เสร็จของ PR B |
+| ข้อ 4.6 | ผลวัดเวลาของโมเดลต้นแบบ |
+| ข้อ 4.7 | การออกแบบข้างในของโมเดล OR-Tools: การคูณสเกล และการเลือกกลุ่มสามขั้น |
+| ข้อ 5 | จุดที่เสี่ยงพังเงียบ |
+| ข้อ 6 | ลำดับ PR |
+| ข้อ 7 | คำถาม R2-Q1 ถึง R2-Q56 พร้อมคำตอบ |
+
+ถ้ากติกาที่ย้ายเข้าไฟล์นี้แล้วไม่ตรงกับร่างรอบ 2 ให้ยึดไฟล์นี้
 
 ---
 
@@ -380,8 +415,8 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 | `WAITING_APPROVAL` | รอผู้อนุมัติ | **จุดรอ** | ✅ |
 | `EXECUTING` | ปิดงานของเคสเมื่อ Gap ถูกปิด: ยกเลิก Offer ที่เหลือและเขียน `CASE_RESOLVED` การจัดเวรรายคนเกิดไปแล้วตอนอนุมัติ (Q45) | อัตโนมัติ | ✅ |
 | `RESOLVED` | คนที่ได้เข้าเวรจากเคสนี้ปิด Gap ของเคสครบ | สิ้นสุด | ✅ |
-| `MANUAL_HANDOFF` | ไม่เหลือผู้สมัคร ส่งต่อให้คนจัดการ Workflow อัตโนมัติหยุด | หยุดอัตโนมัติ | ✅ (หยุดที่สถานะนี้ การจัดการต่อเป็นงานรอบ 3) |
-| `UNRESOLVED` | คนจัดการแล้วแต่แก้ไม่ได้ | สิ้นสุด | ภายหลัง |
+| `MANUAL_HANDOFF` | ไม่เหลือผู้สมัคร ส่งต่อให้คนจัดการ Workflow อัตโนมัติหยุด | หยุดอัตโนมัติ | ✅ (หยุดที่สถานะนี้) **[รอบ 2 · PR H]** Head Nurse พาเคสออกได้สองทาง คือ T8 และ T9 (ข้อ 6.12) |
+| `UNRESOLVED` | คนจัดการแล้วแต่แก้ไม่ได้ | สิ้นสุด | ยังไม่มีโค้ดใดเขียนค่านี้ **[รอบ 2 · PR H]** เป็นปลายทางของ T9 |
 | `FAILED` | ระบบหรือบริการขัดข้อง | สิ้นสุด | ✅ (ตาม D11) |
 
 **จุดรอ** คือ State ที่ Orchestrator หยุด เคสออกจากจุดรอเมื่อ Service ของ API ภายนอกหรือ Job เรียก `orchestrator.recompute(db, case_id)` ซึ่งคำนวณสถานะใหม่จาก Gap ที่เหลือและ Offer ที่ค้าง (ข้อ 5.3) Service ไม่แก้ `case.status` เอง (D3) `orchestrator.resume(db, case_id, next_status)` ของ Skeleton ยังอยู่จนกว่าผู้เรียกทุกตัวเปลี่ยนไปใช้ `recompute()`
@@ -403,6 +438,8 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 | ได้เข้าเวรแล้ว | มีแถว `ROSTER_ASSIGNMENT` แบบ `REPLACEMENT` | `ASSIGNED` |
 
 `GET /cases/{id}` คืนขั้นนี้เป็น `candidates[].stage` (ข้อ 9.3) Offer ที่จบแบบอื่นใช้ `OFFER_TIMEOUT`, `OFFER_CANCELLED`, `OFFER_PENDING` และ `OFFER_FAILED`
+
+**[รอบ 2 · PR T]** เพิ่ม `stage` ค่าใหม่ `APPROVAL_TIMEOUT` สำหรับผู้สมัครที่คำขออนุมัติหมดเวลา แยกจาก `APPROVAL_REJECTED` และเมื่อผู้สมัครถูกติดต่อรอบที่สองได้ `stage` อ่านจาก Offer ที่ `id` มากสุดของผู้สมัครคนนั้น (ข้อ 6.13)
 
 ### 4.2 สถานะเคส
 
@@ -462,6 +499,19 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 
 เส้นเดิมที่เลิกใช้: `WAITING_RESPONSE → SAFETY_VALIDATION` และ `SAFETY_VALIDATION → WAITING_APPROVAL` เพราะ Safety ตรวจรายคนตอนตอบรับ เคสไม่หยุดที่สถานะนี้ (Q31) สองเส้นนี้ลบออกจาก `transitions.py` แล้วใน PR 3 พร้อม Handler ของสถานะนี้ ค่า `SAFETY_VALIDATION` ยังอยู่ใน Enum และเหลือเส้นไป `FAILED` เส้นเดียวเหมือนทุกสถานะที่ไม่ใช่สิ้นสุด
 
+เส้นใหม่ของรอบ 2
+
+รอบ 1 หยุดเคสไว้ที่ `MANUAL_HANDOFF` โดยไม่มีทางไปต่อ รอบ 2 เพิ่มสองเส้นออก ทั้งสองเส้นเป็นการกระทำของ Head Nurse ไม่มี Handler และ `recompute()` ไม่เดินเส้นนี้เอง เส้นทั้งสองอยู่ใน `transitions.py` แล้วตั้งแต่ PR 0 ของรอบ 2 แต่ยังไม่มีโค้ดใดเรียกจนกว่า PR H จะเข้า
+
+| # | จาก | ไป | เกิดเมื่อ |
+|---|---|---|---|
+| T8 | `MANUAL_HANDOFF` | `RESOLVED` | **[รอบ 2 · PR H]** Head Nurse จัดคนเข้าเวรเองจนคนที่ได้เข้าเวรปิด Gap ของเคสครบทั้งจำนวนคน, Role และ Skill (ข้อ 6.12) ระบบเปลี่ยนสถานะเองเมื่อครบ ไม่ต้องกดปิด |
+| T9 | `MANUAL_HANDOFF` | `UNRESOLVED` | **[รอบ 2 · PR H]** Head Nurse ปิดเคสโดยไม่มีคนแทนพร้อมเหตุผล หรือระบบปิดเคสเดิมเมื่อเคสใหม่ของเวรเดียวกันเปิด (ข้อ 6.12) |
+
+* ไม่มีเส้นจาก `MANUAL_HANDOFF` กลับเข้าเส้นทางอัตโนมัติ เช่น กลับไป `OPTIMIZING` หรือ `OUTREACH` Solver ยังรันครั้งเดียวต่อเคส (Q37, R2-Q8)
+* `FAILED` ยังเป็นจุดจบ ไม่มีเส้นออก เคส `FAILED` แสดงในรายการของ Head Nurse แต่กดจัดการไม่ได้ (R2-Q22)
+* **[รอบ 2 · PR B]** เคสเข้า `MANUAL_HANDOFF` ทาง T6 ได้อีกเหตุหนึ่ง คือ Solver หมดเวลาโดยยังไม่มีแผน (สถานะ `UNKNOWN`) เหตุผลใน Audit คือ `SOLVER_TIMEOUT` (ข้อ 6.14)
+
 คำที่ใช้ในตาราง
 
 * **Gap ถูกปิด** = Gap ของจำนวนคน, Role และ Skill เป็น 0 ทุกตัว เมื่อนับคนกลุ่มที่ระบุ (Q46)
@@ -482,7 +532,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
             → ไม่มี: MANUAL_HANDOFF
 ```
 
-* เคสไม่ไป `MANUAL_HANDOFF` ตอนที่ยังมีคนรออนุมัติที่เติม Gap ได้ เพราะยังมีทางแก้ผ่าน Workflow ปกติ รอจนผู้อนุมัติตัดสิน การอนุมัติไม่มี Timeout (ข้อ 6.9)
+* เคสไม่ไป `MANUAL_HANDOFF` ตอนที่ยังมีคนรออนุมัติที่เติม Gap ได้ เพราะยังมีทางแก้ผ่าน Workflow ปกติ รอจนผู้อนุมัติตัดสิน การอนุมัติไม่มี Timeout (ข้อ 6.9) **[รอบ 2 · PR T]** การรอนี้จะมีเส้นตาย (ข้อ 6.13)
 * ระหว่างรอ ถ้ายังมีผู้สมัครที่ติดต่อได้ เคสส่ง Wave ต่อได้ตามปกติ การรออนุมัติไม่หยุดการหาคน
 * หลังตัดสินครบแล้ว Gap ยังเหลือ และไม่มีอะไรให้ทำต่อ เคสจึงไป `MANUAL_HANDOFF` ผ่าน T4 แล้ว T5
 * เคสที่รอ Offer ที่ถูกพักจะถูกปลุกสามทาง ทุกทางเรียก `recompute()` ของเคสนี้ (ข้อ 5.3): เคสที่ผู้สมัครไปรับไม่อนุมัติเขาหรือ Safety ไม่ผ่าน (Offer กลับมากดรับได้), เคสนั้นอนุมัติเขา (Offer ที่ขัดกับเวรใหม่ถูกยกเลิก) หรือ Offer หมดเวลา การรอนี้จึงนานสุดไม่เกินอายุของ Offer (ข้อ 6.9)
@@ -500,7 +550,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 | ทุก State ที่ไม่ใช่สิ้นสุด | `FAILED` | Exception ระหว่าง Workflow (D11) |
 
 * `FAILED` ยังตั้งได้จากเส้นทาง D11 เท่านั้น (Exception) Handler ห้ามคืน `FAILED`
-* `MANUAL_HANDOFF` → `FAILED` มีอยู่แล้ว ยังไม่เพิ่มเส้นออกจาก `MANUAL_HANDOFF` เส้นอื่น (เป็นงานรอบ 3)
+* `MANUAL_HANDOFF` → `FAILED` มีอยู่แล้ว รอบ 2 เพิ่มเส้นออกอีกสองเส้น คือ T8 และ T9 (ข้อ 5.1) ทั้งสองเส้นเป็นของคน ระบบอัตโนมัติไม่เดินเอง
 * จุดรอของเคสยังมีสองจุด: `WAITING_RESPONSE`, `WAITING_APPROVAL`
 * `CASE_STATUS_CHANGED` ยังเขียนโดย Orchestrator เท่านั้น
 
@@ -521,7 +571,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
   * ข้อที่ยังวนได้: Plan ยังมีผู้สมัครที่ไม่เคยติดต่อ (ข้อ 4) แต่ทุกคนถูกข้ามเพราะ Hard Rules หรือเต็มเพดาน Offer เคสจะเข้า `OUTREACH` แล้วกลับมาจุดรอทุกครั้งที่ถูกเรียก จนกว่าจะส่งได้หรือสิ่งที่รอจบลง ตรงกับที่ Job เก็บตกลองใหม่ทุกรอบ
   * เส้นที่ข้อ 5 และ 6 ใช้: จาก `WAITING_RESPONSE` ไป `WAITING_APPROVAL` ใช้เส้นของ T2 และจาก `WAITING_APPROVAL` ไป `WAITING_RESPONSE` ใช้เส้นของ T3 ไม่มีเส้นใหม่ใน `transitions.py`
   * **เคสที่ได้คนครบตอนอยู่ `WAITING_RESPONSE`:** ไม่มีเส้น `WAITING_RESPONSE → EXECUTING` `recompute()` จึงพาเคสผ่าน `WAITING_APPROVAL` (T2) แล้วไป `EXECUTING` เขียน `CASE_STATUS_CHANGED` ทั้งสองช่วง เคสที่มีคนเข้าเวรครบแล้วต้องไม่เป็น `FAILED` เกิดได้เมื่อ Gap ถูกปิดโดยไม่มี `recompute()` คั่นที่ `WAITING_APPROVAL` เช่น การอนุมัติที่ตัดสินใน Transaction เดียวกับการตอบรับ
-  * ชั้นลงมือ: `orchestrator.recompute(db: Session, case_id: int) -> CaseStatus` ล็อกเคสแบบเดียวกับ `resume()` ถ้าเคสอยู่ใน `AUTOMATION_STOPPED_STATUSES` (`RESOLVED`, `UNRESOLVED`, `FAILED`, `MANUAL_HANDOFF`) ไม่ทำอะไร คืนสถานะเดิม เพราะเคสที่หยุดแล้วไม่มีเส้นออก นอกนั้นโหลดข้อมูลมาสร้าง `CaseFacts` ถ้าสถานะที่ได้เท่าเดิมไม่เขียนอะไร ถ้าต่างจึงเปลี่ยนสถานะผ่าน `assert_transition()` เขียน `CASE_STATUS_CHANGED` แล้วเดินต่อถ้าสถานะใหม่ไม่ใช่จุดรอ Commit เหมือน `resume()`
+  * ชั้นลงมือ: `orchestrator.recompute(db: Session, case_id: int) -> CaseStatus` ล็อกเคสแบบเดียวกับ `resume()` ถ้าเคสอยู่ใน `AUTOMATION_STOPPED_STATUSES` (`RESOLVED`, `UNRESOLVED`, `FAILED`, `MANUAL_HANDOFF`) ไม่ทำอะไร คืนสถานะเดิม เพราะเคสที่หยุดแล้วไม่มีเส้นออกที่ระบบอัตโนมัติเดินเอง (T8 และ T9 เป็นการกระทำของ Head Nurse ข้อ 6.12) นอกนั้นโหลดข้อมูลมาสร้าง `CaseFacts` ถ้าสถานะที่ได้เท่าเดิมไม่เขียนอะไร ถ้าต่างจึงเปลี่ยนสถานะผ่าน `assert_transition()` เขียน `CASE_STATUS_CHANGED` แล้วเดินต่อถ้าสถานะใหม่ไม่ใช่จุดรอ Commit เหมือน `resume()`
   * **ที่อยู่ของโค้ด (PR S):** ชั้นตัดสินอยู่ใน `domain/workflow/case_status.py` พร้อม `gap_closed(*, headcount_gap, role_gaps, skill_gaps, fillers)` ซึ่งตัดสินว่า "Gap ถูกปิด" โดยคนหนึ่งคนนับให้จำนวนคน, Role ของเขา และทุก Skill ที่เขามี ส่วนการอ่าน DB มาสร้าง `CaseFacts` อยู่ใน `services/case_facts_service.py` (`load_case_facts()`) อ่านอย่างเดียว ไม่ Flush ไม่ Commit ไม่ล็อก และปิด Autoflush ระหว่างอ่านเอง จึงไม่ส่งงานค้างของผู้เรียกลง DB ไม่ว่า Session ตั้งค่าแบบไหน Offer และ Plan ถูกอ่านเฉพาะตอน Gap ยังไม่ถูกปิด
   * **ใครนับเป็นอะไร:** "ได้เข้าเวรแล้ว" = คำขออนุมัติของเคสนี้ที่อนุมัติแล้ว และผู้สมัครมีแถว Roster แบบ `REPLACEMENT` ในเวรที่เสนอ ที่สถานะเป็น `ASSIGNED` หรือ `COMPLETED` (อนุมัติแล้วแต่ไม่มีแถว Roster ไม่นับ แถวที่ `CANCELLED` ไม่นับ) "รออนุมัติ" = คำขอของเคสนี้ที่ `is_pending = true` และมี Offer ACCEPTED ของเคส / Item เดียวกัน สำรองที่ตอบรับแล้วแต่ยังไม่มีคำขออนุมัติไม่นับทั้งสองกลุ่ม Gap ที่เทียบคือแถว `STAFFING_GAP` ของเคสเอง ผ่าน `gap_service.get_case_gap()` (Q19)
   * **ข้อจำกัดที่รู้ของการนับ:** (1) `ROSTER_ASSIGNMENT` ไม่มีคอลัมน์ที่ชี้ไปเคส แถว `REPLACEMENT` ของคนเดียวกันในเวรเดียวกันที่เส้นทางอื่นสร้าง จึงถูกนับให้เคสนี้ด้วย ตราบที่เคสนี้อนุมัติคนนั้น (2) Role และ Skill ของผู้สมัครอ่านค่าปัจจุบัน แต่ Gap เป็นค่าที่จดไว้ตอนเปิดเคส ถ้ามีคนแก้ Role หรือ Skill ของคนที่เข้าเวรแล้วกลางเคส Gap ของเคสเปิดใหม่ได้และเคสจะส่ง Wave เพิ่ม ไม่ทำให้เคส `FAILED` รอบ 1 ไม่มี Route แก้ Role หรือ Skill ของพนักงาน
@@ -751,7 +801,7 @@ PR O ตามรีวิว: recovery อ่าน facts โดยไม่ล
 
 
 
-Offer มี Timeout ส่วนการอนุมัติ**ไม่มี** Timeout หรือ Deadline เคสที่รออนุมัติรอจนผู้อนุมัติตัดสิน (Q56)
+Offer มี Timeout ส่วนการอนุมัติ**ไม่มี** Timeout หรือ Deadline เคสที่รออนุมัติรอจนผู้อนุมัติตัดสิน (Q56) **[รอบ 2 · PR T]** การอนุมัติจะมีเส้นตาย กติกาอยู่ข้อ 6.13 ประโยคนี้ยังตรงกับโค้ดจนกว่า PR T จะเข้า
 
 | หัวข้อ | กติกา |
 |---|---|
@@ -790,7 +840,7 @@ Offer มี Timeout ส่วนการอนุมัติ**ไม่มี
 | | สำรองคนแรก (ถ้ามี) | เข้า Safety ต่อ เขียนแบบเดียวกับแถว "ตอบรับ" | `safety_service` |
 | Gap ถูกปิด (เคสผ่าน `EXECUTING`) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` และ `clock.now() < expires_at` และของสำรอง; SENT ที่หมดเวลาคงไว้ให้ Job | `status = CANCELLED` | Handler ของ `EXECUTING` ผ่าน `outreach_service` |
 | Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และ `clock.now() >= expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 6.9) | `offer_timeout_service` เรียกจาก Job |
-| เคสเข้า `MANUAL_HANDOFF` (T5) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` เฉพาะแถวที่ยังไม่หมดเวลา; แถวที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 5.1) | `status = CANCELLED` เพราะเคสไม่มีเส้นออกจาก `MANUAL_HANDOFF` | `contact_candidate` ผ่าน `outreach_service` |
+| เคสเข้า `MANUAL_HANDOFF` (T5) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` เฉพาะแถวที่ยังไม่หมดเวลา; แถวที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 5.1) | `status = CANCELLED` เพราะระบบอัตโนมัติไม่เดินเคสต่อจาก `MANUAL_HANDOFF` | `contact_candidate` ผ่าน `outreach_service` |
 | Solver ไม่ได้ใครเลย (T6) | ไม่มีแถวใหม่นอกจาก Audit | | Handler |
 
 ### 6.11 ลำดับ Lock
@@ -808,7 +858,142 @@ Offer มี Timeout ส่วนการอนุมัติ**ไม่มี
 * **Safety ไม่ผ่าน:** ตั้ง Offer ของผู้ตอบเป็น `CANCELLED` ใน Transaction ของการตอบรับ ซึ่งถือ Lock ของแถวนั้นอยู่แล้ว
 * **เลือกคนของ Wave:** `contact_candidate` ล็อกแถว `STAFF` ของทั้ง Plan เรียงตาม `id` (ข้อ 6.7) ถ้าถูกเรียกต่อจากการตอบ Offer, การอนุมัติ หรือ Job แถวพวกนี้ถูกล็อกไว้แล้วตั้งแต่ต้น Transaction จึงไม่มีการรอเพิ่ม
 * **ปิด Window (ข้อ 3):** ล็อก `SHIFT` ก่อน แล้วจึงแก้ Roster ตรงลำดับเดิม
+* **[รอบ 2 · PR H] จัดคนเองจาก `MANUAL_HANDOFF`:** สร้าง Roster และอาจยกเลิก Offer ของคนที่ถูกเลือกในเคสอื่น จึงใช้ลำดับเดียวกับการตัดสินอนุมัติ: `SHIFT` → Offer ที่ยังไม่จบของคนนั้นในเคสอื่น → เคส → แถว `STAFF` ของคนที่ถูกเลือก ซึ่งต้องล็อกแม้เขาไม่อยู่ใน Plan แล้วตรวจ Hard Rules ซ้ำหลังได้ Lock (ข้อ 6.12)
+* **[รอบ 2 · PR T] คำขออนุมัติหมดเวลา (Job):** ยกเลิก Offer และอาจทำให้เคสส่ง Wave ถัดไป จึงใช้ลำดับของการตัดสินอนุมัติ
+* **[รอบ 2 · PR B] Solver:** `create_plan()` ยังล็อก `STAFF` ของทั้ง Pool ก่อนตรวจกติกาและถือจน Commit เพดานเวลาของ Solver จำกัดเวลาค้น ไม่ได้จำกัดเวลาที่ถือ Lock นี้ (ข้อ 6.14)
 * ลำดับ Lock ในข้อนี้ยังเป็นการวิเคราะห์ ไม่มี Test พิสูจน์ PR ที่ลงมือเส้นทางนั้นต้องมี Test สอง Connection อย่างน้อยสี่กรณี: สองคนตอบรับเคสเดียวกันพร้อมกัน, คนเดียวตอบรับสองเคสพร้อมกัน, ตอบรับกับอนุมัติคนสุดท้ายพร้อมกัน, สองเคสที่ใช้ผู้สมัครชุดเดียวกันตอบ Offer แล้วส่ง Wave ถัดไปพร้อมกัน (รายการ Test อยู่ร่างรอบ 1 ข้อ 9.2)
+
+### 6.12 เส้นออกจาก `MANUAL_HANDOFF`
+
+**[รอบ 2 · PR H และ PR W]** ทั้งข้อนี้เป็นกติกาที่ตกลงแล้ว โค้ดยังไม่มี ยกเว้นเส้น T8 กับ T9 ใน `transitions.py` และค่าใน `enums.py` Test ที่เป็นเกณฑ์เสร็จอยู่ร่างรอบ 2 ข้อ 3.2
+
+**ใครกดได้**
+
+* ผู้กดต้องเป็น Head Nurse ของหอเดียวกับเวร เทียบ `STAFF.home_ward_id` ของผู้กดกับ `SHIFT.ward_id` (R2-Q21)
+* การอนุมัติใช้กติกาเดียวกัน ตัวตรวจตัวเดียวใช้ทั้งสองเส้นทาง PR W แก้ `approval_service.decide()` ซึ่งตอนนี้ตรวจแค่ Role ข้อนี้เปลี่ยนพฤติกรรมที่ merge แล้วในรอบ 1 Test เดิมที่ใช้ Head Nurse 900 ต้องอยู่หอเดียวกับเวรทุกข้อ (R2-Q53)
+
+**หาเคสที่ไหน**
+
+* หน้า `/handoff` และ API `GET /cases?status=MANUAL_HANDOFF,FAILED` คืนเฉพาะเคสของหอที่ผู้เรียกเป็น Head Nurse (R2-Q12, R2-Q55) รูปของคำตอบอยู่ข้อ 9.4
+* เคส `FAILED` แสดงในรายการเพื่อให้เห็นเวรที่ระบบจัดไม่สำเร็จ แต่กดจัดการไม่ได้ (R2-Q22)
+
+**จัดคนเอง (T8)**
+
+| หัวข้อ | กติกา |
+|---|---|
+| เลือกใครได้ | พนักงานที่ Active ของหอเดียวกับเวรทุกคน ไม่จำกัดเฉพาะคนใน Plan (R2-Q13) |
+| Hard Rules | **ต้องผ่านทุกข้อ ไม่มีการข้าม** รวมกฎความล้าสี่ข้อ (`INSUFFICIENT_REST`, `DAILY_HOURS_EXCEEDED`, `WEEKLY_HOURS_EXCEEDED`, `CONSECUTIVE_SHIFTS_EXCEEDED`) เหตุผลที่ Head Nurse พิมพ์ไม่ทำให้คนที่ไม่ผ่านกลายเป็นจัดได้ (R2-Q14) |
+| ตรวจเมื่อไหร่ | ด้วยตัวตรวจกลางใน `hard_rule_service` กับ Roster ล่าสุดรวมเวรที่จะจัด **หลัง**ได้ Lock ครบ ไม่ผ่านข้อใด ระบบปฏิเสธ ไม่สร้างแถว Roster ไม่สร้างแถว `manual_assignment` และบอกรหัสกฎที่ติด |
+| หน้าเว็บ | รายการให้เลือกแสดงรหัสกฎที่ทำให้จัดไม่ได้ของแต่ละคน ผลในรายการคำนวณตอนอ่าน การตรวจตอนกดเป็นตัวตัดสิน |
+| การตอบรับและการอนุมัติ | คนที่ถูกเลือกไม่ต้องกดตอบรับ ไม่สร้าง `APPROVAL_REQUEST` (R2-Q15, R2-Q16) |
+| แถวที่เขียน | `ROSTER_ASSIGNMENT` แบบ `REPLACEMENT` สถานะ `ASSIGNED`, แถว `manual_assignment` ที่ผูกเวรนั้นกับเคส (R2-Q40 คอลัมน์อยู่ `database-schema.md`) และ Audit `MANUAL_ASSIGNMENT_CREATED` |
+| การนับว่าปิด Gap | `case_facts_service._assigned_staff_ids()` รวมคนจาก `manual_assignment` ที่แถว Roster ยังเป็น `ASSIGNED` หรือ `COMPLETED` ตัวอ่านยังมีจุดเดียว เวรที่จัดเองแล้วถูกยกเลิกจึงไม่ถูกนับ |
+| เคสที่ขาดหลายคน | จัดทีละคนได้ เคสอยู่ที่ `MANUAL_HANDOFF` จนคนที่ได้เข้าเวรปิด Gap ครบทั้งจำนวนคน, Role และ Skill ตามกติกา "Gap ถูกปิด" ของข้อ 5.1 แล้วระบบเปลี่ยนเป็น `RESOLVED` เอง (R2-Q17, R2-Q18) เคสเป็น `RESOLVED` ไม่ได้เพียงเพราะ Head Nurse เห็นว่าคนพอ |
+
+**คนที่ถูกเลือกมี Offer ค้างในเคสอื่น (R2-Q46)**
+
+* ตัวตรวจ Hard Rules ดูเวรใน Roster จึงไม่เห็นคนที่ตอบรับ Offer ของเคสอื่นแล้วแต่ยังรออนุมัติ ระบบแสดงคำเตือนว่าคนนี้มี Offer ในเคสอื่นที่ขัดกับเวรนี้ และ Head Nurse ต้องยืนยันก่อน การยืนยันเป็นการรับรู้ว่าจะดึงคนออกจากเคสอื่น ไม่ใช่การข้ามกฎ
+* หลังสร้างเวร ระบบยกเลิก Offer ของคนเดียวกันในเคสอื่นที่ขัดกับ Roster ใหม่ ด้วยตัวยกเลิกตัวเดียวกับที่การอนุมัติใช้ (`approval_service._cancel_conflicting_offers()`) การตัดสินว่าใบไหนขัดทำตอนยืนยันด้วยข้อมูลปัจจุบันขณะถือ Lock ไม่ใช้รายการในคำเตือน
+* ตัวยกเลิกที่ใช้ร่วมกันทำตามนี้ และแก้เส้นทางอนุมัติของรอบ 1 ไปพร้อมกัน
+
+| Offer ของคนนั้นในเคสอื่น | สิ่งที่ทำ |
+|---|---|
+| `SENT` ยังไม่เลยเส้นตาย (`clock.now() < expires_at`) และขัดกับเวรใหม่ | ยกเลิก |
+| `SENT` เลยเส้นตายแล้ว | ไม่แตะ ปล่อยให้ Job เขียน `TIMEOUT` พร้อม Audit `OFFER_TIMEOUT` (แบบเดียวกับข้อ 6.10 แถว "Gap ถูกปิด") ตอนนี้ตัวยกเลิกไม่ดูเส้นตาย เป็นบั๊กที่มีอยู่บน `main` |
+| `ACCEPTED` และขัด | ยกเลิก คำขออนุมัติที่ผูกอยู่จึงกดตัดสินไม่ได้อีก |
+
+* ทุก Offer ที่ถูกยกเลิก เขียน Audit `OFFER_CANCELLED_BY_ASSIGNMENT` ในเคสที่เสีย Offer ทั้งเมื่อเสียให้การจัดคนเองและเมื่อเสียให้การอนุมัติ (R2-Q56) แล้วเรียก `recompute()` ให้เคสเหล่านั้นหลัง Commit ตามข้อ 5.3
+* `outreach_service._cancellation_reasons()` ซึ่งเติม `cancellation_reason` ในรายการ Offer ต้องยังคืน `CONFLICTING_ASSIGNMENT` ทั้งสองเส้นทาง ชื่อช่องใน payload ของ Audit สองตัวใหม่กำหนดในข้อ 7.1 เพื่อการนี้
+
+**ปิดเคสโดยไม่มีคนแทน (T9)**
+
+* Head Nurse ปิดเคสเป็น `UNRESOLVED` ต้องใส่เหตุผล ไม่ว่าง ไม่เกิน 500 ตัวอักษร ตัดช่องว่างหัวท้าย กติกาเดียวกับเหตุผลของการไม่อนุมัติ (R2-Q20) เขียน Audit `CASE_CLOSED_UNRESOLVED`
+* ถ้าไม่มีใครผ่าน Hard Rules เคสอยู่ที่ `MANUAL_HANDOFF` ต่อ หรือถูกปิดด้วยเส้นนี้
+* เวรที่จัดเองไปแล้วในเคสที่ถูกปิดยังอยู่ใน Roster
+* **เคสใหม่ของเวรเดียวกัน (R2-Q19):** `MANUAL_HANDOFF` นับว่าเคสก่อนหน้าจบแล้ว เคสใหม่ของเวรจึงเปิดได้ (Q49) และ Gap ของเคสใหม่คำนวณจาก Roster ของทั้งเวร ช่องว่างของเคสเดิมจึงอยู่ในเคสใหม่ด้วย เมื่อเคสใหม่เปิด ระบบปิดเคสเดิมที่ยัง `MANUAL_HANDOFF` เป็น `UNRESOLVED` พร้อมเหตุผลตายตัวและเลขเคสใหม่ งานนี้อยู่ในขั้นปิด Window
+
+**การเปลี่ยนสถานะและ Lock**
+
+* T8 และ T9 เปลี่ยนสถานะผ่าน Orchestrator เท่านั้น เพื่อให้ `assert_transition()` ตรวจ และ `CASE_STATUS_CHANGED` ยังมีผู้เขียนคนเดียว (ข้อ 7.2) `recompute()` ยังไม่แตะเคสที่ `MANUAL_HANDOFF` PR H เพิ่มทางเข้าใหม่ใน Orchestrator สำหรับสองเส้นนี้ และเขียน Signature ลงข้อ 6.2
+* เส้นทางจัดคนเองล็อกแถว `STAFF` ของคนที่ถูกเลือกแม้เขาไม่อยู่ใน Plan ตรวจซ้ำหลังได้ Lock และใช้ลำดับ Lock ของข้อ 6.11
+
+### 6.13 Timeout ของการอนุมัติ
+
+**[รอบ 2 · PR T]** ทั้งข้อนี้เป็นกติกาที่ตกลงแล้ว โค้ดยังไม่มี จนกว่า PR T จะเข้า การอนุมัติยังไม่มีเส้นตายตามข้อ 6.9 Test ที่เป็นเกณฑ์เสร็จอยู่ร่างรอบ 2 ข้อ 3.2
+
+| หัวข้อ | กติกา |
+|---|---|
+| ค่าระยะเวลา | คอลัมน์ใหม่ `APPROVAL_POLICY.approval_timeout_seconds` Seed = 900 วินาที ยาวกว่า Timeout ของ Offer (300) และ Window ของ Scenario การ Merge (600) (R2-Q9, R2-Q23) |
+| เส้นตายของแต่ละคำขอ | คอลัมน์ใหม่ `APPROVAL_REQUEST.expires_at` ตั้งตอนสร้างคำขอ = `requested_at` + ค่าใน Policy ไม่เปลี่ยนทีหลัง |
+| ขอบเขตเวลา | คำขอหมดเวลาเมื่อ `clock.now() >= expires_at` และกดตัดสินได้ขณะ `clock.now() < expires_at` สูตรเดียวกับ Offer (R2-Q50) |
+| กดตัดสินหลังเส้นตาย | ตอบ `409` ไม่เขียน DB แม้ Job ยังไม่มา (R2-Q26) |
+| ใครเขียนผลหมดเวลา | Job เท่านั้น เลือกคำขอที่ `is_pending = true` และผ่าน `case_facts_service.accepted_offer_for_request()` และ `clock.now() >= expires_at` ไม่ใช้ `is_pending` อย่างเดียว คำขอของเคสที่หยุดแล้วไม่ถูกเลือก |
+| ค่าที่เขียน | `is_pending = false`, `is_approved = false`, `approver_id` ว่าง, `is_timed_out = true`, `reason` เป็นข้อความตายตัว, `decided_at` แล้วยกเลิก Offer ของคำขอนั้น และเขียน Audit `APPROVAL_TIMEOUT` (R2-Q24) |
+| สถานะรายคน | `stage` ค่าใหม่ `APPROVAL_TIMEOUT` แยก "Head Nurse ไม่ได้ตอบ" ออกจาก `APPROVAL_REJECTED` (R2-Q25) |
+| ลำดับใน `run_due_work()` | ปิด Offer ที่หมดเวลา → ปิดคำขออนุมัติที่หมดเวลา → เก็บตก → ปิด Window (R2-Q27) แทนลำดับสามขั้นของข้อ 3.8 |
+| คำตอบของ `POST /demo/clock/advance` | เพิ่ม `timed_out_approval_request_ids` และหน้า `demo/control` แสดงตาม |
+| Auto-Approval | ไม่ทำในรอบ 2 |
+
+**ผู้สมัครกลับไปต่อท้ายคิวได้หนึ่งครั้ง (R2-Q29)**
+
+* หมดเวลาครั้งแรก คำขอนั้นจบแบบไม่อนุมัติและเคสไปหาคนถัดไป แต่ผู้สมัครไม่หลุดถาวร หมดเวลาครั้งที่สองจึงหลุดถาวรในเคสนั้น
+* เขาถูกติดต่อใหม่เมื่อการเลือก Wave ครั้งนั้นไม่เหลือคนที่ไม่เคยถูกติดต่อและส่ง Offer ได้ คนที่ถูกข้ามเพราะ Hard Rules หรือเพดาน Offer ไม่ทำให้คิวนี้รอ (R2-Q48) ข้อนี้เปลี่ยนข้อ 6.6 ขั้นที่ 4 ซึ่งตอนนี้ไม่ติดต่อคนเดิมซ้ำ และเปลี่ยนเงื่อนไขของ T5
+* รอบที่สองคือ Offer ใบใหม่ ผ่านการตรวจ Hard Rules และเพดาน Offer แบบเดียวกับใบแรกขณะถือ Lock ตอบรับแล้วเข้า Safety ใหม่ และได้คำขออนุมัติใหม่พร้อมเส้นตายใหม่
+* ถึงคิวแล้วแต่ติดเพดานหรือไม่ผ่าน Hard Rules ยังไม่นับว่าใช้สิทธิ์ สิทธิ์หมดเมื่อ Offer ใบที่สองถูกส่งจริง (R2-Q47)
+
+**หนึ่งรอบคือหนึ่ง Offer (R2-Q41)**
+
+* โค้ดรอบ 1 ผูก Offer, ผล Safety และคำขออนุมัติด้วย `candidate_item_id` อย่างเดียว ซึ่งถูกเมื่อหนึ่งคนมีหนึ่งรอบต่อเคส PR T เพิ่มคอลัมน์ `outreach_id` ใน `SAFETY_VALIDATION` และ `APPROVAL_REQUEST` และให้ตัวอ่านจับคู่ด้วย Offer
+* ตัวอ่านที่ต้องแก้มีอย่างน้อยสี่จุด: `case_facts_service._waiting_acceptances()`, `outreach_service.promote_reserves()`, `case_facts_service.accepted_offer_for_request()` และ `case_facts_service._has_uncontacted_candidate()` คนทำ PR T ต้องค้นทุกที่ที่จับคู่ด้วย `candidate_item_id`
+* สิทธิ์รอบที่สองคำนวณตอนอ่าน ไม่เก็บตัวนับ: Item มีสิทธิ์เมื่อมี Offer ของเคสนี้แถวเดียว และคำขอของ Offer นั้นมี `is_timed_out = true` Item หนึ่งมี Offer ของเคสได้ไม่เกินสองแถว
+* สถานะรายคนอ่านจาก Offer ที่ `id` มากสุดของ Item แถวของรอบแรกเป็นประวัติ ต้องไม่ทำให้เคสหยุดรอ ไม่นับว่าปิด Gap ไม่นับว่าถูกปฏิเสธ และไม่กันรอบที่สอง
+
+**Migration**
+
+* เติมเส้นตายให้**ทุกแถว**ที่มีอยู่ด้วย `requested_at` + ค่าใน Policy คอลัมน์เป็น NOT NULL (R2-Q28) เส้นตายของแถวที่ไม่ได้รออยู่จริงเป็นแค่ประวัติ
+* เติม `outreach_id` ให้แถวเดิมจาก Offer ของเคสกับ Item เดียวกัน ตาราง `candidate_outreach` ไม่มี Unique Constraint Migration จึงตรวจก่อน ถ้าคู่ไหนมี Offer มากกว่าหนึ่งแถวให้หยุดพร้อมข้อความบอกสาเหตุ (R2-Q52)
+* รันได้กับฐานข้อมูลที่มีข้อมูลอยู่โดยไม่ต้อง Reset คำขอที่ค้างมานานกว่า 900 วินาทีจะหมดเวลาในรอบแรกที่ Job ทำงานหลัง Migration
+
+**เหตุที่ยกเลิกในรายการ Offer:** `outreach_service._cancellation_reasons()` คืน `APPROVAL_TIMEOUT` สำหรับ Offer ที่ถูกยกเลิกเพราะคำขอหมดเวลา ไม่ใช่ค่ากลาง `CANCELLED`
+
+### 6.14 Solver แบบ OR-Tools
+
+**[รอบ 2 · PR B]** ทั้งข้อนี้เป็นกติกาที่ตกลงแล้ว โค้ดยังเป็นการค้นของรอบ 1 จนกว่า PR B จะเข้า PR A (#51) ตรึงผลของ Solver รอบ 1 ไว้เป็นตัวเทียบแล้ว การออกแบบข้างในของโมเดลอยู่ร่างรอบ 2 ข้อ 4.7 และเกณฑ์เสร็จอยู่ข้อ 4.5
+
+**สิ่งที่ไม่เปลี่ยน**
+
+* Hard Rules ยังคัดรายคนใน `hard_rule_service` ก่อนเรียก `solve()` OR-Tools ทำแค่ Soft (R2-Q2) ตัวตรวจ Hard Rules ยังมีตัวเดียวทั้ง Solver, Wave และ Safety
+* Argument ห้าตัวเดิมของ `solve()` และสามค่าเดิมของ `SolverResult` ความหมายไม่เปลี่ยน `rank` เรียง 1 ถึง n, `first_wave` มาจาก `fill_targets()` ตัวเดิม และ Target ที่ผู้สมัครมีไม่พอถูกลดเท่าจำนวนคนที่ตรง
+* `objective_score` ที่เก็บเป็นค่า `plan_penalty` จริง คำนวณใหม่จากกลุ่มที่ได้ด้วย `penalties.plan_penalty()` ไม่ใช่ค่าที่คูณสเกลแล้ว
+* `solver.py` ไม่อ่าน DB ไม่เขียน และไม่อ่าน Clock ของระบบ
+* ผลต้องเท่ากับ Solver รอบ 1 ทุกกรณี รวมกรณีคะแนนเท่ากัน เมื่อสถานะเป็น `OPTIMAL` (R2-Q3) Golden Path ยังได้ Wave แรกเป็น 201 กับ 202 (R2-Q7)
+* การค้นแบบเดิมเก็บไว้เป็นตัวเทียบใน Test เท่านั้น ไม่ใช่ตัวสำรองในระบบจริง (R2-Q6)
+
+**สิ่งที่เพิ่มใน Interface (R2-Q42)**
+
+* `solve()` รับเพดานเวลาเป็น Argument แบบ keyword ตัวใหม่ `create_plan()` อ่านค่าจากคอลัมน์ใหม่ `SOFT_CONSTRAINT_POLICY.solver_time_limit_seconds` (Seed = 3) แล้วส่งเข้ามา
+* `SolverResult` มีช่องสถานะเพิ่มหนึ่งช่อง เป็นค่าของ `SolverStatus` `create_plan()` เขียน `CANDIDATE_PLANS.solver_status` จากช่องนี้ แทนการเดาจากว่ามีผู้สมัครหรือไม่
+* `SOLVER_VERSION` เปลี่ยนจาก `"weighted-v1"` เป็นค่าใหม่
+
+**สถานะและผลต่อเคส (R2-Q4, R2-Q43)**
+
+| `solver_status` | ความหมาย | เคสเป็น |
+|---|---|---|
+| `OPTIMAL` | พิสูจน์ครบทั้งคะแนน จำนวนคน และชุด `staff_id` | `OUTREACH` ตามปกติ |
+| `FEASIBLE` | มีแผนที่ผ่านข้อบังคับ แต่หมดเวลาก่อนพิสูจน์ครบ ผลอาจไม่ซ้ำเดิมและอาจต่างจากรอบ 1 | `OUTREACH` ตามปกติ บันทึกใน Audit `SOLVER_EXECUTED` อย่างเดียว (R2-Q32) |
+| `INFEASIBLE` | ไม่มีผู้สมัครผ่าน Hard Rules เลย `solve()` คืนค่านี้โดยไม่สร้างโมเดล เหมือนรอบ 1 | `MANUAL_HANDOFF` ด้วยเหตุผล `NO_FEASIBLE_PLAN` (T6) |
+| `UNKNOWN` | หมดเวลาโดยยังไม่มีแผนเลย เป็นผลที่เกิดได้ตามปกติ ไม่ใช่ระบบทำงานผิด Handler ไม่โยน Exception และแถว Plan ถูกเก็บ | `MANUAL_HANDOFF` ด้วยเหตุผล `SOLVER_TIMEOUT` (T6) |
+| `MODEL_INVALID` | โมเดลผิดรูป หรือ OR-Tools รายงาน `INFEASIBLE` ทั้งที่มีผู้สมัคร ซึ่งเกิดไม่ได้ถ้าโมเดลถูก เพราะการเลือกทุกคนผ่านข้อบังคับเสมอ Handler โยน Exception | `FAILED` ผ่าน D11 |
+
+* Audit `SOLVER_EXECUTED` ของ Golden Path เปลี่ยนจาก `FEASIBLE` เป็น `OPTIMAL` ไฟล์ Test ที่ต้องแก้ใน PR B อยู่ร่างรอบ 2 ข้อ 5
+* แผนที่เก็บไว้จากขั้นก่อนหน้าคืนเป็น `FEASIBLE` ได้เฉพาะเมื่อขั้นหลังหมดเวลา ไม่ใช้กลบข้อผิดพลาดของโมเดล
+
+**เพดานเวลาและการตั้งค่า**
+
+* 3 วินาทีเป็นงบรวมของการเรียก `solve()` หนึ่งครั้ง ทุกรอบของการ Solve ใช้งบก้อนเดียวกัน (R2-Q5, R2-Q44) ค่านี้อาจเปลี่ยนหลังผลวัดของโมเดลจริงใน PR B
+* เพดานนี้จำกัดเวลาค้นอย่างเดียว ไม่ได้จำกัดเวลาที่ถือ Lock ของ `STAFF` ทั้ง Pool (ข้อ 6.11) ซึ่งรวมการโหลดข้อมูล การสร้างโมเดล และการเขียน Plan
+* ใช้ `num_workers = 1` และ `random_seed = 0` เป็นข้อตกลงกลาง ไม่ใช่ทางเลือกของผู้ทำ (R2-Q33)
+* PR B เพิ่ม Dependency `ortools` หลัง merge ทุกคนต้องสร้าง container ของ Backend ใหม่ (R2-Q11)
 
 ---
 
@@ -843,13 +1028,22 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 | `CASE_RESOLVED` | Handler ของ `EXECUTING` | `workflow_orchestrator` | STAFFING_CASES | `assignment_ids`, `cancelled_outreach_ids` |
 | `MANUAL_HANDOFF` | Handler ที่หยุดเคส (`contact_candidate` หรือ `optimize`) | Actor ของ Handler นั้น | STAFFING_CASES | `reason` (รหัส), `stopped_at` (State ที่หยุด), `cancelled_outreach_ids` (Offer ที่ยัง `SENT` ซึ่งถูกยกเลิกตอนเคสหยุด ว่างได้), `skipped` (List ของ `{staff_id, reason}` ของคนที่ถูกข้ามในการเลือกครั้งสุดท้าย ข้อ 6.7 ว่างได้) |
 | `WORKFLOW_FAILED` | Orchestrator (D11) | `workflow_orchestrator` | STAFFING_CASES | `from`, `failed_at`, `error_type` |
+| `APPROVAL_TIMEOUT` **[รอบ 2 · PR T]** | Service ของคำขอที่หมดเวลา เรียกจาก Job | `workflow_orchestrator` | APPROVAL_REQUEST | `approval_id`, `staff_id` (ผู้สมัคร), `outreach_id` (Offer ที่ถูกยกเลิก), `reason` (ข้อความตายตัว) |
+| `MANUAL_ASSIGNMENT_CREATED` **[รอบ 2 · PR H]** | เส้นทางจัดคนเอง | user (Head Nurse) | ROSTER_ASSIGNMENT | `assignment_id`, `manual_assignment_id`, `staff_id`, `assignment_type`, `reason` (ว่างได้), `cancelled_outreach_ids` (Offer ของเคสอื่นที่ขัดกับเวรใหม่ ว่างได้) |
+| `CASE_CLOSED_UNRESOLVED` **[รอบ 2 · PR H]** | เส้นทางปิดเคสโดยไม่มีคนแทน หรือขั้นปิด Window เมื่อเคสใหม่ของเวรเปิด | user (Head Nurse) หรือ `workflow_orchestrator` เมื่อระบบปิด | STAFFING_CASES | `reason`, `closed_by` (`HEAD_NURSE` หรือ `SUCCESSOR_CASE`), `successor_case_id` (มีเมื่อระบบปิด) |
+| `OFFER_CANCELLED_BY_ASSIGNMENT` **[รอบ 2 · PR H]** | ตัวยกเลิก Offer ที่ขัดกับเวรใหม่ เขียนใน**เคสที่เสีย Offer** หนึ่งแถวต่อ Offer | ผู้กระทำของการจัดนั้น | CANDIDATE_OUTREACH | `cancelled_outreach_id` (เอกพจน์), `staff_id`, `by_case_id` (เคสที่เอาคนไป), `assignment_id` (Roster ที่ทำให้ขัด), `source` (`MANUAL_ASSIGNMENT` หรือ `APPROVAL`) |
 
 * `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` เพิ่มใน `AuditAction` แล้ว และ `SHIFT`, `STAFFING_REQUIREMENTS` เพิ่มใน `EntityType` แล้ว (PR 0) และ PART B เขียนแถวพวกนี้ตั้งแต่ PR M
 * Actor ของ `OFFER_TIMEOUT` คือ `outreach_agent` และผู้เขียนคือ `offer_timeout_service` (PR O); Actor และชื่อ Key ใน payload ของ Action สามตัวของ Event ชนิดใหม่ และ Key `reason` ของ `EVENT_IGNORED` กำหนดแล้วใน PR M ตามตารางข้างบน
 * `EVENT_RECEIVED`: `staff_id` ใน payload คือคนที่ Event พูดถึง (`STAFFING_EVENTS.staff_id`) จึงเป็น `null` สำหรับ `PATIENT_SURGE` และ `REQUIREMENT_CHANGED` ผู้แจ้งดูจาก Actor ของแถว
 * หกแถวแรกของตารางเป็นแถวของ Event: มี `event_id` และ `case_id = NULL` เสมอ ส่วน `CASE_OPENED` เป็นแถวของเคส: มี `case_id` และ `event_id = NULL` โดยบอก Event ไว้ใน payload
 
-รหัส `reason` ของ `MANUAL_HANDOFF`: `NO_CANDIDATE_LEFT` (T5), `NO_FEASIBLE_PLAN` (T6)
+รหัส `reason` ของ `MANUAL_HANDOFF`: `NO_CANDIDATE_LEFT` (T5), `NO_FEASIBLE_PLAN` (T6) และ **[รอบ 2 · PR B]** `SOLVER_TIMEOUT` (T6 เมื่อ Solver หมดเวลาโดยยังไม่มีแผน ข้อ 6.14)
+
+* แถวที่มีป้าย **[รอบ 2]** ในตารางข้างบน: ค่าอยู่ใน `AuditAction` แล้วตั้งแต่ PR 0 ของรอบ 2 แต่ยังไม่มีโค้ดใดเขียน
+* ชื่อช่องของ `OFFER_CANCELLED_BY_ASSIGNMENT` ต้องเป็น `cancelled_outreach_id` ห้ามใช้ `cancelled_outreach_ids` หรือ `outreach_id` เพราะ `outreach_service._cancellation_reasons()` ใช้สองชื่อนั้นหาเหตุที่ยกเลิก และแถว Audit ล่าสุดชนะ ถ้าใช้ชื่อซ้ำ `cancellation_reason` ของรายการ Offer จะเปลี่ยนจาก `CONFLICTING_ASSIGNMENT` เป็น `CANCELLED` โดยไม่มี Error
+* `MANUAL_ASSIGNMENT_CREATED` ใช้ `cancelled_outreach_ids` เหมือน `ASSIGNMENT_CREATED` และ PR H ต้องเพิ่ม Action นี้ในตารางของ `_cancellation_reasons()` ให้ได้ `CONFLICTING_ASSIGNMENT`
+* `APPROVAL_TIMEOUT` มี `outreach_id` และ PR T ต้องให้ `_cancellation_reasons()` คืน `APPROVAL_TIMEOUT` สำหรับ Offer นั้น
 
 * `MANUAL_HANDOFF` ของ T6 เขียนโดย Handler `optimize` ด้วย Actor `constraint_fair_scheduling_agent` ต่อจาก `SOLVER_EXECUTED` ในรอบเดียวกัน `cancelled_outreach_ids` ว่างเสมอ และ `skipped` คือทุกคนใน Pool ที่ Solver ตัดออก เรียงตาม `staff_id` รหัสของแต่ละคนคือเหตุผลแรกตามลำดับ: Hard Rules (ลำดับตารางในร่างรอบ 1 ข้อ 7.2), ปิด Gap ไม่ได้สักอย่าง, เพดาน Offer ค่าของ `reason` อยู่ใน `ManualHandoffReason` ของ `domain/enums.py`
 
@@ -865,6 +1059,7 @@ payload ที่เปลี่ยนจาก Skeleton เพราะ Wave
 
 * `CASE_STATUS_CHANGED` ยังเขียนโดย Orchestrator เท่านั้น ทุกเส้นใหม่จะมีแถวนี้เอง
 * ไม่เพิ่ม Action สำหรับการตั้ง Offer เป็น `CANCELLED` ให้ `outreach_id` ใน payload ของ `SAFETY_FAILED` / `APPROVAL_REJECTED` บอกแทน ส่วน Offer ที่ถูกยกเลิกเพราะเคสได้คนครบ, เพราะเคสเข้า `MANUAL_HANDOFF` หรือเพราะขัดกับเวรใหม่ของผู้สมัคร ให้ `cancelled_outreach_ids` ของ Action ในจังหวะนั้นบอก (ข้อ 7.1, Q28)
+  * **[รอบ 2 · PR H]** ข้อยกเว้นหนึ่งข้อ: Offer ที่ถูกยกเลิกเพราะเคสอื่นเอาคนไป ได้แถว `OFFER_CANCELLED_BY_ASSIGNMENT` ในเคสของ Offer นั้นด้วย เพราะ `cancelled_outreach_ids` อยู่ในเคสที่ได้คนไป คนที่เปิดเคสที่เสีย Offer จึงไม่เห็นเหตุ (R2-Q56) ช่อง `cancelled_outreach_ids` ในเคสที่ได้คนไปคงไว้ตามเดิม
 * `payload` ยังห้ามมีข้อมูลผู้ป่วยรายบุคคลและ `password_hash` `reason` ของการไม่อนุมัติเป็นข้อความที่ผู้อนุมัติพิมพ์ ตอนนี้ `APPROVAL_APPROVED` ก็เก็บ `reason` อยู่แล้ว คงแบบเดียวกัน
 * `GOLDEN_PATH_AUDIT_ACTIONS` **เปลี่ยน**: Golden Case ขาดจำนวนคน 1 และขาด Role RN 1 Target = จำนวนคน 2, RN 2 ผู้สมัครทุกคนเป็น RN คนหนึ่งคนจึงนับให้ทั้งสอง Target Wave แรก = 201, 202 มี `OFFER_SENT` สองแถว (จำลองกติกาเติม Target ด้วยโค้ดแล้ว) E2E เทียบลำดับแบบตรงตัวทุกแถว จึงต้องแก้ค่าคงที่และ E2E ใน PR เดียวกับที่เปิด Wave (PR 2b) Merge Gap ไม่เปลี่ยนค่าคงที่นี้ เพราะเวรใน Golden Case ใช้ Window = 0
 
@@ -1288,6 +1483,26 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
   อ่านได้เฉพาะข้อมูลที่ Commit แล้ว แถวของผู้มาแทนจึงปรากฏพร้อมกับเคสเป็น `RESOLVED`
 
 ---
+
+### 9.4 API และหน้าเว็บที่รอบ 2 จะเปลี่ยน
+
+**[รอบ 2]** ทุกแถวเป็นกติกาที่ตกลงแล้ว ยังไม่มีโค้ด PR ที่ทำแถวไหนต้องเติมรูปของคำตอบลงข้อ 9.3 ใน PR เดียวกัน
+
+| Route หรือหน้า | สิ่งที่เปลี่ยน | PR |
+|---|---|---|
+| `GET /cases?status=MANUAL_HANDOFF,FAILED` (ใหม่) | รายการเคสที่รอรับช่วง คืนเฉพาะเคสของหอที่ผู้เรียกเป็น Head Nurse เคส `FAILED` อยู่ในรายการแต่กดจัดการไม่ได้ ผลเมื่อไม่ส่ง `status` กำหนดใน PR H | H |
+| Route จัดคนเอง และ Route ปิดเคสโดยไม่มีคนแทน (ใหม่) | Path และรูปของคำขอยังไม่ได้ตั้ง PR H ตั้งแล้วเขียนลงข้อนี้ ผู้เรียกที่ไม่ใช่ Head Nurse ของหอเดียวกับเวรได้ `403` การจัดที่ไม่ผ่าน Hard Rules ถูกปฏิเสธพร้อมรหัสกฎ | H |
+| หน้า `/handoff` (ใหม่) | รายการเคส, รายการคนให้เลือกพร้อมรหัสกฎที่ทำให้จัดไม่ได้ของแต่ละคน, คำเตือนเมื่อคนที่เลือกมี Offer ค้างในเคสอื่น, ช่องเหตุผลของการปิดเคส เจ้าของหน้าคือคน 1 | H |
+| `POST /approvals/{id}/decision` | ผู้กดที่ไม่ใช่ Head Nurse ของหอเดียวกับเวรได้ `403` | W |
+| `POST /approvals/{id}/decision` | กดเมื่อ `clock.now() >= expires_at` ได้ `409` | T |
+| `GET /approvals` | เพิ่มเส้นตายของคำขอ (`expires_at`) | T |
+| หน้า `approvals` | แสดงเส้นตาย | T2 |
+| `POST /demo/clock/advance` และหน้า `demo/control` | เพิ่ม `timed_out_approval_request_ids` | T |
+| `GET /cases/{id}` และหน้า `cases/[id]` | `candidates[].stage` มีค่าใหม่ `APPROVAL_TIMEOUT` และอ่านจากรอบล่าสุดของผู้สมัคร คนที่ได้เข้าเวรจากการจัดเองถูกนับใน `assigned_count` | T และ H |
+| รายการ Offer ของหน้า `line-sim` | `cancellation_reason` มีค่าใหม่ `APPROVAL_TIMEOUT` และยังเป็น `CONFLICTING_ASSIGNMENT` เมื่อเสียให้การจัดคนเอง | T และ H |
+
+---
+
 ## 10. Golden Case
 
 ### 10.1 สถานการณ์
@@ -1401,10 +1616,19 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | `GET /roster?staff_id=` | ตารางเวรของพนักงานหนึ่งคน เพิ่มเป็น Filter ของ Route เดิม ไม่ใช่ Path ใหม่ |
 | `NO_SHOW` | ตรวจ check-in ใน `ATTENDANCE` หลัง `SHIFT.start_at` + เวลาผ่อนผัน (สมมติ 15 นาที) แล้วสร้าง `STAFF_UNAVAILABILITY` + Event `STAFF_UNAVAILABLE` ทีละเวร |
 | แก้ `end_at` ของ `STAFF_UNAVAILABILITY` | กลับเร็ว / หยุดนานกว่าที่บันทึก / ใส่วันกลับเมื่อเคยเป็น NULL → Audit `UNAVAILABILITY_UPDATED` |
-| Timeout ของการอนุมัติ | ยังไม่มี ข้อ 6.9 ซึ่งเป็นข้อของ Timeout ของ Offer เขียนไว้ในบรรทัดแรกว่าการอนุมัติไม่มี Timeout หรือ Deadline เคสที่รออนุมัติจึงรอจนผู้อนุมัติตัดสิน ยังไม่มีการออกแบบของเรื่องนี้ ถ้าทีมตัดสินใจทำ จุดที่ต่อได้คือ `job_service.run_due_work()` ซึ่งรัน Timeout ของ Offer อยู่แล้ว |
 | Auto-Approval | Future feature: activate when the nurse-to-patient ratio exceeds twice the ward's required ratio (`ratio = 2`). `incoming_count` refers to staff awaiting approval by the head nurse or nurse supervisor (policy value = 10); its comparison rule remains to be defined. Skeleton uses MANUAL approval. |
 | รูปแบบ `required_approver_role` | Skeleton เก็บ `ROLE.id` ของ HEAD_NURSE ไปก่อน |
 | LangGraph | ดูทางเลือกในเอกสารแยก |
+
+เรื่องที่ย้ายออกเพราะรอบ 2 ตกลง Contract แล้ว (โค้ดเข้าตาม PR ที่ระบุ)
+
+| เรื่อง | ทำใน | ตอนนี้อยู่ข้อ |
+|---|---|---|
+| Timeout ของการอนุมัติ | รอบ 2 PR T | 6.13 |
+| การจัดการเคสหลัง `MANUAL_HANDOFF` | รอบ 2 PR H | 6.12 |
+| Solver แบบ OR-Tools | รอบ 2 PR B | 6.14 |
+
+Escalation ไม่มีเป็นฟีเจอร์แยก การส่งเคสไป `MANUAL_HANDOFF` ให้ Head Nurse รับช่วงคือ Escalation ของระบบนี้ (R2-Q8) ส่วน Auto-Approval ยังอยู่ในตารางข้างบน ไม่ทำในรอบ 2
 
 เรื่องที่ย้ายออกเพราะรอบ 1 ทำแล้ว
 
@@ -1482,3 +1706,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-13 | `POST /demo/clock/advance` คืน `timed_out_outreach_ids` และ `recovered_case_ids` เพิ่มจาก `closed_windows` และหน้า `demo/control` แสดงสองรายการนี้หลังเลื่อน Clock เพราะตั้งแต่ PR O การเลื่อน Clock ทำให้ Offer หมดเวลาได้ แต่หน้าเดิมบอกแค่เรื่อง Window; Route ของ Job ไม่เปลี่ยน | คน 1 |
 | 2026-10-13 | รอบ 1 PR 6: `GET /cases/{id}` เพิ่ม `candidates[].stage` (ข้อ 4.1, 9.3) คำนวณตอนอ่านด้วยเงื่อนไขเดียวกับ `case_facts_service`; หน้า `cases/[id]` แสดงสถานะรายคน, ตารางผู้สมัครที่ถูกข้ามจาก `skipped` ใน Audit และ `effective_minimum` ของ Gap ไม่มี Migration | คน 2 |
 | 2026-10-13 | ปิดรอบ 1: ส่วน "สถานะของรอบ 1" เปลี่ยนเป็นตาราง PR ที่เข้าครบแล้วพร้อมเลข PR; ข้อ 8 เปลี่ยนชื่อจาก "Stub ของแต่ละขั้น" เป็น "สิ่งที่แต่ละขั้นทำ" เพราะไม่เหลือ Stub นอกจาก LINE Mock; ข้อ 12 ย้ายเรื่องที่รอบ 1 ทำแล้วออก (รวม Event, Event กลุ่มภาระงาน, Timeout ของ Offer) เหลือ Approval Timeout; ตามรีวิว: เอาคำว่า "ไม่ใช่ Stub" ออกจากแถวของข้อ 8 และเขียนแถว Timeout ของการอนุมัติในข้อ 12 ให้ชัดว่ายังไม่มีการออกแบบ; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
+| 2026-10-13 | รอบ 2 PR 0: ย้าย Contract ของรอบ 2 เข้าไฟล์นี้ตามร่างรอบ 2 (PR #50): เพิ่มส่วน "สถานะของรอบ 2", เส้น T8 (`MANUAL_HANDOFF` → `RESOLVED`) และ T9 (`MANUAL_HANDOFF` → `UNRESOLVED`) ในข้อ 5.1 และใน `transitions.py` พร้อม Test, ข้อ 6.12 เส้นออกจาก `MANUAL_HANDOFF`, ข้อ 6.13 Timeout ของการอนุมัติ, ข้อ 6.14 Solver แบบ OR-Tools, ข้อ 9.4 API ที่จะเปลี่ยน, Audit Action ใหม่สี่ตัว (`APPROVAL_TIMEOUT`, `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT`) และเหตุผล `SOLVER_TIMEOUT` ใน `enums.py`; ข้อ 12 ย้ายสามเรื่องออก; กติกาที่มีป้าย **[รอบ 2]** ยังไม่มีโค้ด; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |

@@ -2,7 +2,8 @@
 
 The orchestrator validates every transition here before changing case.status.
 T1 to T7 are the round 1 edges of section 5.1. The two SAFETY_VALIDATION edges of the
-Skeleton were removed in round 1 PR 3.
+Skeleton were removed in round 1 PR 3. T8 and T9 are the round 2 edges out of
+MANUAL_HANDOFF: a head nurse takes them, never a handler or recompute().
 """
 
 from app.domain.enums import TERMINAL_CASE_STATUSES, CaseStatus
@@ -44,7 +45,13 @@ ALLOWED_TRANSITIONS: dict[CaseStatus, frozenset[CaseStatus]] = {
     ),
     CaseStatus.EXECUTING: frozenset({CaseStatus.RESOLVED, CaseStatus.FAILED}),
     # MANUAL_HANDOFF stops automation, but is not a terminal case status (section 5.2).
-    CaseStatus.MANUAL_HANDOFF: frozenset({CaseStatus.FAILED}),
+    CaseStatus.MANUAL_HANDOFF: frozenset(
+        {
+            CaseStatus.RESOLVED,  # T8
+            CaseStatus.UNRESOLVED,  # T9
+            CaseStatus.FAILED,
+        }
+    ),
     **{status: frozenset() for status in TERMINAL_CASE_STATUSES},
 }
 

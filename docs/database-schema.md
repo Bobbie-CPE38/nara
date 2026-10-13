@@ -570,7 +570,7 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | `OptimizationObjective` | SOFT_CONSTRAINT_POLICY.optimization_priority (ใน JSON) | `MIN_CANDIDATE_COUNT`, `MIN_CONSECUTIVE_SHIFT`, `CANDIDATE_SOURCE`, `WEEKLY_WORKLOAD_FAIRNESS`, `MIN_PROJECTED_OVERTIME` |
 | `TargetType` | CANDIDATE_ITEM_TARGET.target_type | `HEADCOUNT`, `ROLE`, `SKILL` |
 | `SelectionType` | CANDIDATE_ITEM_TARGET.selection_type | `PRIMARY`, `RESERVE` |
-| `ManualHandoffReason` | `reason` ใน payload ของ `MANUAL_HANDOFF` (ไม่เก็บเป็นคอลัมน์) | `NO_CANDIDATE_LEFT`, `NO_FEASIBLE_PLAN` |
+| `ManualHandoffReason` | `reason` ใน payload ของ `MANUAL_HANDOFF` (ไม่เก็บเป็นคอลัมน์) | `NO_CANDIDATE_LEFT`, `NO_FEASIBLE_PLAN`, `SOLVER_TIMEOUT` (รอบ 2 ยังไม่มีโค้ดเขียน) |
 | `OutreachStatus` | CANDIDATE_OUTREACH.status | `PENDING`, `SENT`, `ACCEPTED`, `REJECTED`, `TIMEOUT`, `FAILED`, `CANCELLED` |
 | `CandidateResponse` | API ของ LINE / LINE Sim (ไม่เก็บใน DB) | `ACCEPT`, `REJECT` |
 | `Channel` | CANDIDATE_OUTREACH.channel | `LINE` |
@@ -579,7 +579,7 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | `ActorType` | ACTORS.actor_type | `user`, `system`, `component` |
 | `ActorName` | ACTORS.name (ที่ไม่ใช่ user) | `system`, `workflow_orchestrator`, `staffing_gap_assessment_agent`, `constraint_fair_scheduling_agent`, `outreach_agent`, `safety_rule_engine` |
 | `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` |
-| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` |
+| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าของรอบ 2 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_TIMEOUT`, `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` |
 
 
 **กลุ่มของ EventType**
@@ -594,10 +594,38 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 
 * จุดรอ: `WAITING_RESPONSE`, `WAITING_APPROVAL`
 * สิ้นสุด: `RESOLVED`, `UNRESOLVED`, `FAILED`
-* หยุดอัตโนมัติแต่ยังเปิดให้คนจัดการ: `MANUAL_HANDOFF`
+* หยุดอัตโนมัติแต่ยังเปิดให้คนจัดการ: `MANUAL_HANDOFF` ตั้งแต่รอบ 2 ออกได้ไป `RESOLVED` (T8) หรือ `UNRESOLVED` (T9) ด้วยการกระทำของ Head Nurse (`docs/workflow.md` ข้อ 6.12)
 
 
 ---
+
+
+## Schema ที่รอบ 2 จะเพิ่ม (ยังไม่มี Migration)
+
+ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `a4b8c2d6e9f1`) ข้อนี้คือของที่ Contract รอบ 2 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบนใน PR เดียวกัน ลำดับ Migration คือ T → B → H กติกาอยู่ `docs/workflow.md` ข้อ 6.12 ถึง 6.14
+
+| ตาราง | คอลัมน์ | Type | Null | หมายเหตุ | PR |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| `APPROVAL_POLICY` | `approval_timeout_seconds` | integer | NOT NULL | Seed = 900 | T |
+| `APPROVAL_REQUEST` | `expires_at` | timestamptz | NOT NULL | เส้นตาย = `requested_at` + ค่าใน Policy Migration เติมให้ทุกแถวที่มีอยู่ | T |
+| `APPROVAL_REQUEST` | `is_timed_out` | boolean | NOT NULL | ค่าเริ่มต้น false มีแต่ Job ที่ตั้งเป็น true ใช้แยกคำขอที่หมดเวลาออกจากคำขอที่ถูกปฏิเสธ | T |
+| `APPROVAL_REQUEST` | `outreach_id` | bigint | NOT NULL | FK ไป `CANDIDATE_OUTREACH.id` Offer ของรอบที่สร้างคำขอนี้ Migration เติมจาก Offer ของเคสกับ Item เดียวกัน และหยุดถ้าเจอมากกว่าหนึ่งแถว | T |
+| `SAFETY_VALIDATION` | `outreach_id` | bigint | NOT NULL | FK ไป `CANDIDATE_OUTREACH.id` เติมแบบเดียวกัน | T |
+| `SOFT_CONSTRAINT_POLICY` | `solver_time_limit_seconds` | integer | NOT NULL | Seed = 3 งบเวลารวมของ `solve()` หนึ่งครั้ง | B |
+
+ตารางใหม่ `MANUAL_ASSIGNMENT` (PR H) หนึ่งแถวต่อการที่ Head Nurse จัดคนหนึ่งคนเข้าเวรของเคสที่อยู่ `MANUAL_HANDOFF`
+
+| Field | Type | Null | Key | หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `case_id` | bigint | NOT NULL | FK STAFFING_CASES.id | เคสที่เวรนี้ปิด Gap ให้ |
+| `roster_assignment_id` | bigint | NOT NULL | FK ROSTER_ASSIGNMENT.id, UNIQUE | เวรหนึ่งแถวปิด Gap ให้ได้เคสเดียว ผู้ถูกจัด เวร และสถานะอ่านจากแถวนี้ ไม่เก็บซ้ำ |
+| `assigned_by` | bigint | NOT NULL | FK STAFF.id | Head Nurse ที่กด |
+| `reason` | text | NULL |  | หมายเหตุของการจัด ไม่เกิน 500 ตัวอักษร ไม่มีผลต่อการตรวจกฎ |
+| `created_at` | timestamptz | NOT NULL |  |  |
+
+* ไม่มีคอลัมน์รหัสกฎที่ข้าม เพราะการจัดคนเองต้องผ่าน Hard Rules ทุกข้อ (R2-Q14)
+* ไม่ผูกกับ `CANDIDATE_ITEMS` เพราะคนที่ถูกเลือกอาจไม่อยู่ใน Plan
 
 
 ## Constraint ที่ควรใส่ใน Migration แรก

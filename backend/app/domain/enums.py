@@ -185,6 +185,8 @@ class ManualHandoffReason(StrEnum):
 
     NO_CANDIDATE_LEFT = "NO_CANDIDATE_LEFT"  # T5, written by contact_candidate
     NO_FEASIBLE_PLAN = "NO_FEASIBLE_PLAN"  # T6, written by optimize
+    # Round 2: the solver hit its time limit without a plan (UNKNOWN). Not written yet
+    SOLVER_TIMEOUT = "SOLVER_TIMEOUT"
 
 
 # --------------------------------------------------------------------------- #
@@ -272,6 +274,7 @@ class AuditAction(StrEnum):
     CASE_STATUS_CHANGED = "CASE_STATUS_CHANGED"  # written only by the orchestrator
     CASE_RESOLVED = "CASE_RESOLVED"
     MANUAL_HANDOFF = "MANUAL_HANDOFF"
+    CASE_CLOSED_UNRESOLVED = "CASE_CLOSED_UNRESOLVED"  # round 2, T9. Not written yet
     WORKFLOW_FAILED = "WORKFLOW_FAILED"
     # Steps
     GAP_ASSESSED = "GAP_ASSESSED"
@@ -280,12 +283,17 @@ class AuditAction(StrEnum):
     OFFER_ACCEPTED = "OFFER_ACCEPTED"
     OFFER_REJECTED = "OFFER_REJECTED"
     OFFER_TIMEOUT = "OFFER_TIMEOUT"
+    # Round 2, in the case that lost the offer to another case. Not written yet
+    OFFER_CANCELLED_BY_ASSIGNMENT = "OFFER_CANCELLED_BY_ASSIGNMENT"
     SAFETY_PASSED = "SAFETY_PASSED"
     SAFETY_FAILED = "SAFETY_FAILED"
     APPROVAL_REQUESTED = "APPROVAL_REQUESTED"
     APPROVAL_APPROVED = "APPROVAL_APPROVED"
     APPROVAL_REJECTED = "APPROVAL_REJECTED"
+    APPROVAL_TIMEOUT = "APPROVAL_TIMEOUT"  # round 2, written by the job. Not written yet
     ASSIGNMENT_CREATED = "ASSIGNMENT_CREATED"
+    # Round 2: a head nurse staffed a MANUAL_HANDOFF case directly. Not written yet
+    MANUAL_ASSIGNMENT_CREATED = "MANUAL_ASSIGNMENT_CREATED"
     HANDOVER_GENERATED = "HANDOVER_GENERATED"
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
