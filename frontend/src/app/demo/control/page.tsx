@@ -44,8 +44,9 @@ const EVENTS = [
   },
 ];
 
-// Moving the frozen demo clock also closes the merge windows that became due,
-// like the job does with real time (section 3.8)
+// Moving the frozen demo clock also runs what became due, like the job does with
+// real time (section 3.8): offers time out after 300 seconds, waiting cases are
+// rechecked and merge windows close
 const ADVANCE = { label: "Advance clock 10 minutes", seconds: 600 };
 
 type Outcome =
@@ -163,6 +164,22 @@ export default function DemoControl() {
                 </li>
               ))}
             </ul>
+          )}
+          {outcome.result.timed_out_outreach_ids.length > 0 && (
+            <p>Offers timed out: {outcome.result.timed_out_outreach_ids.join(", ")}</p>
+          )}
+          {outcome.result.recovered_case_ids.length > 0 && (
+            <p>
+              Waiting cases rechecked:{" "}
+              {outcome.result.recovered_case_ids.map((id, index) => (
+                <span key={id}>
+                  {index > 0 && ", "}
+                  <Link className="underline" href={`/cases/${id}`}>
+                    {id}
+                  </Link>
+                </span>
+              ))}
+            </p>
           )}
         </div>
       )}

@@ -55,7 +55,16 @@ class ClockAdvanceResult(BaseModel):
 
     clock: AppDatetime
     closed_windows: list[ClosedWindowView]
+    # Offers the new time set to TIMEOUT, and waiting cases the sweep moved on
+    # (section 6.9). Both by ID, so the demo shows why a case left its wait
+    timed_out_outreach_ids: list[int]
+    recovered_case_ids: list[int]
 
     @classmethod
     def of(cls, now: datetime, work: DueWork) -> "ClockAdvanceResult":
-        return cls(clock=now, closed_windows=_views(work))
+        return cls(
+            clock=now,
+            closed_windows=_views(work),
+            timed_out_outreach_ids=sorted(work.timed_out_outreach_ids),
+            recovered_case_ids=sorted(work.recovered_case_ids),
+        )

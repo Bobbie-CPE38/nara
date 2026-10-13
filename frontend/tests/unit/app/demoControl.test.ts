@@ -116,6 +116,8 @@ describe("demo control page", () => {
         { shift_id: 1, event_ids: [3, 4], case_id: 7, case_status: "WAITING_RESPONSE" },
         { shift_id: 3, event_ids: [5], case_id: null, case_status: null },
       ],
+      timed_out_outreach_ids: [],
+      recovered_case_ids: [],
     });
     render(createElement(DemoControl));
     click("Advance clock 10 minutes");
@@ -136,12 +138,36 @@ describe("demo control page", () => {
   });
 
   it("says so when advancing the clock closed no merge window", async () => {
-    stubFetch({ clock: "2026-10-09T21:10:00+07:00", closed_windows: [] });
+    stubFetch({
+      clock: "2026-10-09T21:10:00+07:00",
+      closed_windows: [],
+      timed_out_outreach_ids: [],
+      recovered_case_ids: [],
+    });
     render(createElement(DemoControl));
     click("Advance clock 10 minutes");
 
     expect(await screen.findByText("No merge window was due.")).toBeTruthy();
     expect(screen.queryByRole("listitem")).toBeNull();
+    expect(screen.queryByText(/Offers timed out/)).toBeNull();
+    expect(screen.queryByText(/Waiting cases rechecked/)).toBeNull();
+  });
+
+  it("shows the offers that timed out and the cases that were rechecked", async () => {
+    stubFetch({
+      clock: "2026-10-09T21:10:00+07:00",
+      closed_windows: [],
+      timed_out_outreach_ids: [1, 2],
+      recovered_case_ids: [7, 9],
+    });
+    render(createElement(DemoControl));
+    click("Advance clock 10 minutes");
+
+    expect(await screen.findByText("Offers timed out: 1, 2")).toBeTruthy();
+    expect(screen.getByText(/Waiting cases rechecked/).textContent).toBe(
+      "Waiting cases rechecked: 7, 9",
+    );
+    expect(screen.getByRole("link", { name: "9" }).getAttribute("href")).toBe("/cases/9");
   });
 
   it("shows why the clock cannot be advanced before a reset", async () => {

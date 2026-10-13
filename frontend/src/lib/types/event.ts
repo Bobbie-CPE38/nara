@@ -20,4 +20,8 @@ export type ClosedWindow = {
 export type ClockAdvanceResult = {
   clock: string;
   closed_windows: ClosedWindow[];
+  /** Offers the new time set to TIMEOUT */
+  timed_out_outreach_ids: number[];
+  /** Waiting cases the recovery sweep moved on */
+  recovered_case_ids: number[];
 };
