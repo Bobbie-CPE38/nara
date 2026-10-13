@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Approvals from "../../../src/app/approvals/page";
@@ -21,6 +21,8 @@ const PENDING = {
   staff_id: 201,
   proposed_shift_id: 1,
   requested_at: "2026-10-09T21:00:00+07:00",
+  // 900 seconds after the request (docs/workflow.md, section 6.13)
+  expires_at: "2026-10-09T21:15:00+07:00",
 };
 
 /** The part of GET /cases/{id} the page reads: a gap of two with one person assigned. */
@@ -61,6 +63,30 @@ describe("approvals page", () => {
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/approvals\?pending=true$/);
     expect(request.headers.get("X-Demo-User")).toBe("900");
+  });
+
+  it("shows each deadline in the Decide by cell of its own row, in Bangkok time", async () => {
+    // The second deadline arrives in UTC: 14:20Z is 21:20 in Bangkok
+    stubFetch([PENDING, { ...PENDING, id: 5, staff_id: 202, expires_at: "2026-10-09T14:20:00Z" }]);
+    render(createElement(Approvals));
+
+    await screen.findByRole("columnheader", { name: "Decide by" });
+    const [header, ...rows] = screen.getAllByRole("row");
+    const headers = within(header).getAllByRole("columnheader").map((cell) => cell.textContent);
+    const column = headers.indexOf("Decide by");
+    // Right after the request time, and exactly once
+    expect(column).toBe(headers.indexOf("Requested at") + 1);
+    expect(headers.filter((name) => name === "Decide by")).toHaveLength(1);
+
+    const cellsOf = (row: HTMLElement) => within(row).getAllByRole("cell");
+    const byStaff = new Map(
+      rows.map((row) => [cellsOf(row)[headers.indexOf("Staff")].textContent, cellsOf(row)]),
+    );
+    expect(byStaff.get("201")?.[column].textContent).toBe("2026-10-09 21:15:00");
+    expect(byStaff.get("202")?.[column].textContent).toBe("2026-10-09 21:20:00");
+    // Each deadline appears once: no other column repeats it
+    expect(screen.getAllByText("2026-10-09 21:15:00")).toHaveLength(1);
+    expect(screen.getAllByText("2026-10-09 21:20:00")).toHaveLength(1);
   });
 
   it("says so when nothing is pending", async () => {
