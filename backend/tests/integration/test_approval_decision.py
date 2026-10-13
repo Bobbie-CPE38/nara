@@ -13,15 +13,21 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_db
 from app.db.base import Base
 from app.db.models import (
+    Actor,
     ApprovalRequest,
     AuditLog,
+    Shift,
+    Staff,
     StaffingCase,
+    Ward,
 )
 from app.db.session import SessionLocal, engine
 from app.domain.enums import (
+    ActorType,
     AuditAction,
     CaseStatus,
     EntityType,
+    StaffStatus,
 )
 from app.main import app
 from app.seed import load
@@ -32,6 +38,32 @@ from app.workflow.handlers.base import HandlerResult
 from tests.integration.conftest import DEMO_NOW
 
 HEADERS = {"X-Demo-User": "900"}
+# A head nurse whose home ward is not the ward of the seeded shifts
+OTHER_WARD_HEADERS = {"X-Demo-User": "901"}
+
+
+def _add_other_ward_head_nurse(db: Session) -> None:
+    template = db.get(Staff, 900)
+    assert template is not None
+    db.add(Ward(id=2, name="ER", is_active=True, created_at=DEMO_NOW, updated_at=DEMO_NOW))
+    db.flush()
+    db.add(
+        Staff(
+            id=901,
+            first_name="Other",
+            last_name="Ward",
+            email="901@demo.local",
+            password_hash="!",
+            role_id=template.role_id,
+            home_ward_id=2,
+            status=StaffStatus.ACTIVE,
+            created_at=DEMO_NOW,
+            updated_at=DEMO_NOW,
+        )
+    )
+    db.flush()
+    db.add(Actor(name="901", actor_type=ActorType.USER, staff_id=901))
+    db.flush()
 
 
 def _make_request(db: Session) -> ApprovalRequest:
@@ -170,6 +202,57 @@ def test_wrong_role_is_403_before_pending_and_answer(
     assert production_seeded.scalar(select(AuditLog.id)) is None
 
 
+@pytest.mark.parametrize("pending", [True, False])
+@pytest.mark.parametrize("approved", [True, False])
+def test_head_nurse_of_another_ward_is_403_before_pending_and_answer(
+    client: TestClient,
+    production_seeded: Session,
+    request_row: ApprovalRequest,
+    pending: bool,
+    approved: bool,
+) -> None:
+    """The approver must be a head nurse of the shift's ward (workflow.md 6.12, R2-Q21)."""
+    _add_other_ward_head_nurse(production_seeded)
+    request_row.is_pending = pending
+    production_seeded.commit()
+    response = client.post(
+        _url(request_row),
+        headers=OTHER_WARD_HEADERS,
+        json={"approved": approved, "reason": "Not my ward"},
+    )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "The staff member is not a head nurse of the shift's ward"}
+    production_seeded.expire_all()
+    assert request_row.is_pending is pending
+    assert request_row.is_approved is None
+    assert request_row.approver_id is None
+    assert production_seeded.scalar(select(AuditLog.id)) is None
+
+
+def test_the_ward_rule_follows_the_shift_not_a_fixed_ward(
+    client: TestClient, production_seeded: Session, request_row: ApprovalRequest
+) -> None:
+    """Move the shift to the other ward: its head nurse may decide, the old one may not."""
+    db = production_seeded
+    _add_other_ward_head_nurse(db)
+    case = db.get(StaffingCase, request_row.case_id)
+    assert case is not None
+    shift = db.get(Shift, case.shift_id)
+    assert shift is not None
+    shift.ward_id = 2
+    db.commit()
+
+    refused = client.post(_url(request_row), headers=HEADERS, json={"approved": True})
+    assert refused.status_code == 403
+    _unchanged(db, request_row)
+
+    decided = client.post(_url(request_row), headers=OTHER_WARD_HEADERS, json={"approved": True})
+    assert decided.status_code == 200, decided.text
+    db.expire_all()
+    assert request_row.is_approved is True
+    assert request_row.approver_id == 901
+
+
 @pytest.mark.parametrize("approved", [True, False])
 def test_not_pending_is_409_before_answer(
     client: TestClient, production_seeded: Session, request_row: ApprovalRequest, approved: bool
@@ -289,6 +372,7 @@ def test_service_delegates_commit_and_status_to_orchestrator(
             approval_id=request_row.id,
             staff_id=900,
             role_id=2,
+            home_ward_id=1,
             actor_id=actor_service.user_id(db, 900),
             approved=True,
         )
@@ -404,6 +488,7 @@ def test_concurrent_decisions_write_one_approval(committed_request: int) -> None
     [
         ("missing", 404),
         ("wrong_role", 403),
+        ("wrong_ward", 403),
         ("decided", 409),
         ("stopped", 409),
         ("cancelled_offer", 409),
@@ -428,6 +513,9 @@ def test_overlong_reason_does_not_override_decision_error_order(
         headers = {"X-Demo-User": "105"}
     elif problem == "wrong_role":
         headers = {"X-Demo-User": "105"}
+    elif problem == "wrong_ward":
+        _add_other_ward_head_nurse(db)
+        headers = OTHER_WARD_HEADERS
     elif problem == "decided":
         request_row.is_pending = False
     elif problem == "stopped":
