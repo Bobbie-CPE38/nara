@@ -87,7 +87,19 @@ def _request(
     )
     db.add(item)
     db.flush()
+    outreach = CandidateOutreach(
+        case_id=case.id,
+        candidate_item_id=item.id,
+        channel=Channel.LINE,
+        status=OutreachStatus.ACCEPTED,
+        expires_at=DEMO_NOW + timedelta(seconds=300),
+        sent_at=DEMO_NOW,
+    )
+    db.add(outreach)
+    db.flush()
     request = ApprovalRequest(
+        outreach_id=outreach.id,
+        expires_at=DEMO_NOW + timedelta(seconds=900),
         case_id=case.id,
         candidate_item_id=item.id,
         required_approver_role=2,
@@ -101,17 +113,7 @@ def _request(
     )
     db.add(request)
     db.flush()
-    db.add(
-        CandidateOutreach(
-            case_id=case.id,
-            candidate_item_id=item.id,
-            channel=Channel.LINE,
-            status=OutreachStatus.ACCEPTED,
-            expires_at=DEMO_NOW + timedelta(seconds=300),
-            sent_at=DEMO_NOW,
-        )
-    )
-    db.flush()
+
     return request
 
 
@@ -146,6 +148,7 @@ def test_pending_response_contract(client: TestClient, production_seeded: Sessio
             "staff_id": 201,
             "proposed_shift_id": 1,
             "requested_at": DEMO_NOW.isoformat(),
+            "expires_at": (DEMO_NOW + timedelta(seconds=900)).isoformat(),
         }
     ]
 

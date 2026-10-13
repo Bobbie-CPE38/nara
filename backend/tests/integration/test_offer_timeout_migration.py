@@ -78,7 +78,7 @@ def test_offline_upgrade_contains_guard_and_backfill():
     sql = output.getvalue()
     assert sql.index("repair SENT offers missing sent_at") < sql.index("ADD COLUMN expires_at")
     assert "INTERVAL '300 seconds'" in sql
-    assert ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_heads() == [REVISION]
+    assert ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_heads() == ["b7d2f8a1c6e4"]
 
 
 @pytest.mark.parametrize("seconds", [0, -1])

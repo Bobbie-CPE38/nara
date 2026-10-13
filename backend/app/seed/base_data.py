@@ -80,6 +80,7 @@ def seed(db: Session) -> None:
                 created_at=now,
             ),
             ApprovalPolicy(
+                approval_timeout_seconds=900,
                 id=1,
                 ratio=Decimal(2),
                 incoming_count=10,

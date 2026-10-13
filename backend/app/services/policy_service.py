@@ -9,7 +9,7 @@ overrides are future work. Callers must not edit a policy mid-case.
 
 from sqlalchemy.orm import Session
 
-from app.db.models import HardConstraintPolicy, OutreachPolicy, SoftConstraintPolicy
+from app.db.models import ApprovalPolicy, HardConstraintPolicy, OutreachPolicy, SoftConstraintPolicy
 
 
 def get_hard_constraint_policy(db: Session) -> HardConstraintPolicy:
@@ -33,4 +33,12 @@ def get_outreach_policy(db: Session) -> OutreachPolicy:
     policy = db.get(OutreachPolicy, 1)
     if policy is None:
         raise LookupError("Outreach policy id=1 is missing; load the demo seed")
+    return policy
+
+
+def get_approval_policy(db: Session) -> ApprovalPolicy:
+    """Read the seeded approval policy; no implicit fallback duration."""
+    policy = db.get(ApprovalPolicy, 1)
+    if policy is None:
+        raise LookupError("Approval policy id=1 is missing; load the demo seed")
     return policy

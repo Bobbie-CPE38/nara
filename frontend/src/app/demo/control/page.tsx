@@ -96,10 +96,13 @@ export default function DemoControl() {
 
   const advanceClock = () =>
     run(ADVANCE.label, async () => {
-      const result = await apiRequest<ClockAdvanceResult>("/demo/clock/advance", {
-        method: "POST",
-        json: { seconds: ADVANCE.seconds },
-      });
+      const result = await apiRequest<ClockAdvanceResult>(
+        "/demo/clock/advance",
+        {
+          method: "POST",
+          json: { seconds: ADVANCE.seconds },
+        },
+      );
       return { kind: "clock", result };
     });
 
@@ -118,10 +121,20 @@ export default function DemoControl() {
     <main className="mx-auto max-w-xl p-8">
       <h1 className="text-2xl font-semibold">Demo control</h1>
       <div className="mt-4 flex flex-col gap-2">
-        <button type="button" className={button} disabled={busy} onClick={reset}>
+        <button
+          type="button"
+          className={button}
+          disabled={busy}
+          onClick={reset}
+        >
           Reset demo
         </button>
-        <button type="button" className={button} disabled={busy} onClick={advanceClock}>
+        <button
+          type="button"
+          className={button}
+          disabled={busy}
+          onClick={advanceClock}
+        >
           {ADVANCE.label}
         </button>
         {EVENTS.map((event) => (
@@ -139,7 +152,9 @@ export default function DemoControl() {
 
       {busy && <p className="mt-4">Working…</p>}
       {outcome?.kind === "reset" && (
-        <p className="mt-4 text-green-700">Demo reset. Clock: {outcome.clock}</p>
+        <p className="mt-4 text-green-700">
+          Demo reset. Clock: {outcome.clock}
+        </p>
       )}
       {outcome?.kind === "error" && (
         <p className="mt-4 text-red-700">
@@ -165,8 +180,17 @@ export default function DemoControl() {
               ))}
             </ul>
           )}
+          {outcome.result.timed_out_approval_request_ids.length > 0 && (
+            <p>
+              Approvals timed out:{" "}
+              {outcome.result.timed_out_approval_request_ids.join(", ")}
+            </p>
+          )}
           {outcome.result.timed_out_outreach_ids.length > 0 && (
-            <p>Offers timed out: {outcome.result.timed_out_outreach_ids.join(", ")}</p>
+            <p>
+              Offers timed out:{" "}
+              {outcome.result.timed_out_outreach_ids.join(", ")}
+            </p>
           )}
           {outcome.result.recovered_case_ids.length > 0 && (
             <p>
@@ -194,7 +218,10 @@ export default function DemoControl() {
           <dt>Case</dt>
           <dd>
             {outcome.result.case_id !== null ? (
-              <CaseLink id={outcome.result.case_id} status={outcome.result.case_status} />
+              <CaseLink
+                id={outcome.result.case_id}
+                status={outcome.result.case_status}
+              />
             ) : outcome.result.event_status === "RECEIVED" ? (
               // Its shift has an open merge window, or a case that is still running
               "Not decided yet. The event is waiting."

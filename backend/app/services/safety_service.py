@@ -95,6 +95,7 @@ def validate_accepted_candidate(
     validation = SafetyValidation(
         case_id=case.id,
         candidate_item_id=item.id,
+        outreach_id=outreach.id,
         hard_constraint_policy_id=policy_id,
         is_passed=result.passed,
         failure_reason=",".join(failed_rules) or None,
@@ -124,7 +125,7 @@ def validate_accepted_candidate(
         payload=payload,
     )
     if result.passed:
-        approval = approval_service.create_request(db, case=case, item=item)
+        approval = approval_service.create_request(db, case=case, item=item, outreach=outreach)
         return SafetyResult(validation=validation, approval=approval, candidate=item)
     # Q7, Q8: a dropped candidate's offer is CANCELLED by the one shared function.
     # This transaction already holds the lock of that row (workflow.md 6.11)

@@ -10,18 +10,42 @@ export const TERMINAL_CASE_STATUSES: ReadonlySet<string> = new Set([
 export type StatusTone = "ok" | "bad" | "waiting" | "neutral";
 
 /** Meaning of each case status (docs/workflow.md, section 4). A Map, so an unknown status is undefined. */
-export const CASE_STATUS_INFO: ReadonlyMap<string, { meaning: string; tone: StatusTone }> = new Map([
+export const CASE_STATUS_INFO: ReadonlyMap<
+  string,
+  { meaning: string; tone: StatusTone }
+> = new Map([
   ["OPEN", { meaning: "Case opened, a gap was found", tone: "neutral" }],
   ["ASSESSING", { meaning: "Assessing the staffing gap", tone: "neutral" }],
   ["OPTIMIZING", { meaning: "Building the candidate list", tone: "neutral" }],
-  ["OUTREACH", { meaning: "Sending offers to a wave of candidates", tone: "neutral" }],
-  ["WAITING_RESPONSE", { meaning: "Waiting for candidates to reply", tone: "waiting" }],
-  ["SAFETY_VALIDATION", { meaning: "Rechecking hard constraints", tone: "neutral" }],
-  ["WAITING_APPROVAL", { meaning: "Waiting for the approver", tone: "waiting" }],
+  [
+    "OUTREACH",
+    { meaning: "Sending offers to a wave of candidates", tone: "neutral" },
+  ],
+  [
+    "WAITING_RESPONSE",
+    { meaning: "Waiting for candidates to reply", tone: "waiting" },
+  ],
+  [
+    "SAFETY_VALIDATION",
+    { meaning: "Rechecking hard constraints", tone: "neutral" },
+  ],
+  [
+    "WAITING_APPROVAL",
+    { meaning: "Waiting for the approver", tone: "waiting" },
+  ],
   ["EXECUTING", { meaning: "Closing the case", tone: "neutral" }],
-  ["RESOLVED", { meaning: "Gap closed by the assigned replacements", tone: "ok" }],
-  ["MANUAL_HANDOFF", { meaning: "Handed to a person, automation stopped", tone: "waiting" }],
-  ["UNRESOLVED", { meaning: "Handled by a person but not solved", tone: "bad" }],
+  [
+    "RESOLVED",
+    { meaning: "Gap closed by the assigned replacements", tone: "ok" },
+  ],
+  [
+    "MANUAL_HANDOFF",
+    { meaning: "Handed to a person, automation stopped", tone: "waiting" },
+  ],
+  [
+    "UNRESOLVED",
+    { meaning: "Handled by a person but not solved", tone: "bad" },
+  ],
   ["FAILED", { meaning: "System or service error", tone: "bad" }],
 ]);
 
@@ -33,7 +57,10 @@ export const TONE_CLASS: Record<StatusTone, string> = {
 };
 
 /** Where a candidate is in a case (docs/workflow.md, section 4.1). A Map, so an unknown stage is undefined. */
-export const CANDIDATE_STAGE_INFO: ReadonlyMap<string, { label: string; tone: StatusTone }> = new Map([
+export const CANDIDATE_STAGE_INFO: ReadonlyMap<
+  string,
+  { label: string; tone: StatusTone }
+> = new Map([
   ["NOT_CONTACTED", { label: "Not contacted", tone: "neutral" }],
   ["OFFER_PENDING", { label: "Offer queued", tone: "neutral" }],
   ["OFFER_SENT", { label: "Offer sent, waiting for reply", tone: "waiting" }],
@@ -42,9 +69,16 @@ export const CANDIDATE_STAGE_INFO: ReadonlyMap<string, { label: string; tone: St
   ["OFFER_FAILED", { label: "Offer could not be delivered", tone: "bad" }],
   ["OFFER_CANCELLED", { label: "Offer cancelled", tone: "neutral" }],
   ["ACCEPTED", { label: "Accepted, on reserve", tone: "waiting" }],
-  ["SAFETY_FAILED", { label: "Accepted, failed the safety check", tone: "bad" }],
-  ["WAITING_APPROVAL", { label: "Accepted, waiting for approval", tone: "waiting" }],
+  [
+    "SAFETY_FAILED",
+    { label: "Accepted, failed the safety check", tone: "bad" },
+  ],
+  [
+    "WAITING_APPROVAL",
+    { label: "Accepted, waiting for approval", tone: "waiting" },
+  ],
   ["APPROVAL_REJECTED", { label: "Not approved", tone: "bad" }],
+  ["APPROVAL_TIMEOUT", { label: "Approval timed out", tone: "neutral" }],
   ["APPROVED", { label: "Approved, not on the roster", tone: "waiting" }],
   ["ASSIGNED", { label: "Assigned to the shift", tone: "ok" }],
 ]);
@@ -61,6 +95,9 @@ export const SKIP_REASON_INFO: ReadonlyMap<string, string> = new Map([
   ["DAILY_HOURS_EXCEEDED", "Would exceed the daily hours limit"],
   ["WEEKLY_HOURS_EXCEEDED", "Would exceed the weekly hours limit"],
   ["CONSECUTIVE_SHIFTS_EXCEEDED", "Would exceed the consecutive shifts limit"],
-  ["SOURCE_WARD_MINIMUM_VIOLATION", "Their own ward would fall below its minimum"],
+  [
+    "SOURCE_WARD_MINIMUM_VIOLATION",
+    "Their own ward would fall below its minimum",
+  ],
   ["OFFER_LIMIT_REACHED", "Already holds the maximum number of open offers"],
 ]);

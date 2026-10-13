@@ -131,6 +131,7 @@ def test_advancing_the_clock_closes_the_windows_that_became_due(
                 "case_status": "WAITING_RESPONSE",
             }
         ],
+        "timed_out_approval_request_ids": [],
         "timed_out_outreach_ids": [],
         "recovered_case_ids": [],
     }
@@ -147,6 +148,7 @@ def test_advancing_too_little_moves_the_clock_and_closes_nothing(
     assert response.json() == {
         "clock": "2026-10-09T21:09:59+07:00",
         "closed_windows": [],
+        "timed_out_approval_request_ids": [],
         "timed_out_outreach_ids": [],
         "recovered_case_ids": [],
     }
@@ -172,6 +174,7 @@ def test_advancing_the_clock_reports_timed_out_offers_and_rechecked_cases(
     assert response.json() == {
         "clock": "2026-10-09T21:05:00+07:00",
         "closed_windows": [],
+        "timed_out_approval_request_ids": [],
         "timed_out_outreach_ids": [2, 5],
         "recovered_case_ids": [4, 9],
     }

@@ -22,6 +22,7 @@ export type ClockAdvanceResult = {
   closed_windows: ClosedWindow[];
   /** Offers the new time set to TIMEOUT */
   timed_out_outreach_ids: number[];
+  timed_out_approval_request_ids: number[];
   /** Waiting cases the recovery sweep moved on */
   recovered_case_ids: number[];
 };

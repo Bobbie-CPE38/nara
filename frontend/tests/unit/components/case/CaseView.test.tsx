@@ -401,6 +401,7 @@ describe("CaseView", () => {
     ["SAFETY_FAILED", "Accepted, failed the safety check"],
     ["WAITING_APPROVAL", "Accepted, waiting for approval"],
     ["APPROVAL_REJECTED", "Not approved"],
+    ["APPROVAL_TIMEOUT", "Approval timed out"],
     ["APPROVED", "Approved, not on the roster"],
     ["ASSIGNED", "Assigned to the shift"],
   ])("shows the candidate stage %s as %j", async (stage, label) => {

@@ -11,9 +11,11 @@ afterEach(() => {
 });
 
 function stubFetch(body: unknown, status = 200) {
-  const fetchMock = vi.fn().mockImplementation(async () =>
-    new Response(JSON.stringify(body), { status }),
-  );
+  const fetchMock = vi
+    .fn()
+    .mockImplementation(
+      async () => new Response(JSON.stringify(body), { status }),
+    );
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -25,25 +27,40 @@ function click(name: string) {
 describe("demo control page", () => {
   it("reports the leave of 105 as that staff member and links to the opened case", async () => {
     const fetchMock = stubFetch(
-      { event_id: 3, event_status: "PROCESSED", case_id: 7, case_status: "WAITING_RESPONSE" },
+      {
+        event_id: 3,
+        event_status: "PROCESSED",
+        case_id: 7,
+        case_status: "WAITING_RESPONSE",
+      },
       201,
     );
     render(createElement(DemoControl));
     click("105 reports leave (shift 1)");
 
-    const link = await screen.findByRole("link", { name: "7 (WAITING_RESPONSE)" });
+    const link = await screen.findByRole("link", {
+      name: "7 (WAITING_RESPONSE)",
+    });
     expect(link.getAttribute("href")).toBe("/cases/7");
     expect(screen.getByText("3 (PROCESSED)")).toBeTruthy();
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/events$/);
     expect(request.method).toBe("POST");
     expect(request.headers.get("X-Demo-User")).toBe("105");
-    expect(JSON.parse(request.body)).toEqual({ event_type: "STAFF_UNAVAILABLE", shift_id: 1 });
+    expect(JSON.parse(request.body)).toEqual({
+      event_type: "STAFF_UNAVAILABLE",
+      shift_id: 1,
+    });
   });
 
   it("shows that the leave of 203 on shift 2 opened no case", async () => {
     const fetchMock = stubFetch(
-      { event_id: 4, event_status: "IGNORED", case_id: null, case_status: null },
+      {
+        event_id: 4,
+        event_status: "IGNORED",
+        case_id: null,
+        case_status: null,
+      },
       201,
     );
     render(createElement(DemoControl));
@@ -54,18 +71,28 @@ describe("demo control page", () => {
     expect(screen.queryByRole("link")).toBeNull();
     const request = fetchMock.mock.calls[0][1];
     expect(request.headers.get("X-Demo-User")).toBe("203");
-    expect(JSON.parse(request.body)).toEqual({ event_type: "STAFF_UNAVAILABLE", shift_id: 2 });
+    expect(JSON.parse(request.body)).toEqual({
+      event_type: "STAFF_UNAVAILABLE",
+      shift_id: 2,
+    });
   });
 
   it("says that an event is waiting when its merge window is still open", async () => {
     stubFetch(
-      { event_id: 5, event_status: "RECEIVED", case_id: null, case_status: null },
+      {
+        event_id: 5,
+        event_status: "RECEIVED",
+        case_id: null,
+        case_status: null,
+      },
       201,
     );
     render(createElement(DemoControl));
     click("105 reports leave (shift 1)");
 
-    expect(await screen.findByText("Not decided yet. The event is waiting.")).toBeTruthy();
+    expect(
+      await screen.findByText("Not decided yet. The event is waiting."),
+    ).toBeTruthy();
     expect(screen.getByText("5 (RECEIVED)")).toBeTruthy();
     expect(screen.queryByText("No case opened")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
@@ -95,13 +122,20 @@ describe("demo control page", () => {
     ],
   ])("sends '%s' as the head nurse", async (label, body) => {
     const fetchMock = stubFetch(
-      { event_id: 6, event_status: "PROCESSED", case_id: 8, case_status: "WAITING_RESPONSE" },
+      {
+        event_id: 6,
+        event_status: "PROCESSED",
+        case_id: 8,
+        case_status: "WAITING_RESPONSE",
+      },
       201,
     );
     render(createElement(DemoControl));
     click(label);
 
-    const link = await screen.findByRole("link", { name: "8 (WAITING_RESPONSE)" });
+    const link = await screen.findByRole("link", {
+      name: "8 (WAITING_RESPONSE)",
+    });
     expect(link.getAttribute("href")).toBe("/cases/8");
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/events$/);
@@ -113,17 +147,27 @@ describe("demo control page", () => {
     const fetchMock = stubFetch({
       clock: "2026-10-09T21:10:00+07:00",
       closed_windows: [
-        { shift_id: 1, event_ids: [3, 4], case_id: 7, case_status: "WAITING_RESPONSE" },
+        {
+          shift_id: 1,
+          event_ids: [3, 4],
+          case_id: 7,
+          case_status: "WAITING_RESPONSE",
+        },
         { shift_id: 3, event_ids: [5], case_id: null, case_status: null },
       ],
+      timed_out_approval_request_ids: [],
       timed_out_outreach_ids: [],
       recovered_case_ids: [],
     });
     render(createElement(DemoControl));
     click("Advance clock 10 minutes");
 
-    expect(await screen.findByText("Clock: 2026-10-09T21:10:00+07:00")).toBeTruthy();
-    const items = screen.getAllByRole("listitem").map((item) => item.textContent);
+    expect(
+      await screen.findByText("Clock: 2026-10-09T21:10:00+07:00"),
+    ).toBeTruthy();
+    const items = screen
+      .getAllByRole("listitem")
+      .map((item) => item.textContent);
     expect(items).toEqual([
       "Shift 1, events 3, 4: 7 (WAITING_RESPONSE)",
       "Shift 3, events 5: no case opened",
@@ -141,6 +185,7 @@ describe("demo control page", () => {
     stubFetch({
       clock: "2026-10-09T21:10:00+07:00",
       closed_windows: [],
+      timed_out_approval_request_ids: [],
       timed_out_outreach_ids: [],
       recovered_case_ids: [],
     });
@@ -157,6 +202,7 @@ describe("demo control page", () => {
     stubFetch({
       clock: "2026-10-09T21:10:00+07:00",
       closed_windows: [],
+      timed_out_approval_request_ids: [],
       timed_out_outreach_ids: [1, 2],
       recovered_case_ids: [7, 9],
     });
@@ -167,7 +213,9 @@ describe("demo control page", () => {
     expect(screen.getByText(/Waiting cases rechecked/).textContent).toBe(
       "Waiting cases rechecked: 7, 9",
     );
-    expect(screen.getByRole("link", { name: "9" }).getAttribute("href")).toBe("/cases/9");
+    expect(screen.getByRole("link", { name: "9" }).getAttribute("href")).toBe(
+      "/cases/9",
+    );
   });
 
   it("shows why the clock cannot be advanced before a reset", async () => {
@@ -185,12 +233,30 @@ describe("demo control page", () => {
     ).toBeTruthy();
   });
 
+  it("shows approvals that timed out after advancing the clock", async () => {
+    stubFetch({
+      clock: "2026-10-09T21:15:00+07:00",
+      closed_windows: [],
+      timed_out_outreach_ids: [],
+      timed_out_approval_request_ids: [4, 8],
+      recovered_case_ids: [],
+    });
+    render(createElement(DemoControl));
+    click("Advance clock 10 minutes");
+    expect(await screen.findByText("Approvals timed out: 4, 8")).toBeTruthy();
+  });
+
   it("resets the demo without a demo user and shows the new clock", async () => {
-    const fetchMock = stubFetch({ status: "ok", clock: "2026-10-09T21:00:00+07:00" });
+    const fetchMock = stubFetch({
+      status: "ok",
+      clock: "2026-10-09T21:00:00+07:00",
+    });
     render(createElement(DemoControl));
     click("Reset demo");
 
-    expect(await screen.findByText("Demo reset. Clock: 2026-10-09T21:00:00+07:00")).toBeTruthy();
+    expect(
+      await screen.findByText("Demo reset. Clock: 2026-10-09T21:00:00+07:00"),
+    ).toBeTruthy();
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/demo\/reset$/);
     expect(request.method).toBe("POST");
@@ -213,7 +279,10 @@ describe("demo control page", () => {
   });
 
   it("says so when the API cannot be reached", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
+    );
     render(createElement(DemoControl));
     click("Reset demo");
 
@@ -228,7 +297,12 @@ describe("demo control page", () => {
     let respond!: (response: Response) => void;
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => new Promise<Response>((resolve) => { respond = resolve; })),
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            respond = resolve;
+          }),
+      ),
     );
     render(createElement(DemoControl));
     click("Reset demo");

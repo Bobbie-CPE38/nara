@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from app.services import merge_window_service, offer_timeout_service
+from app.services import approval_timeout_service, merge_window_service, offer_timeout_service
 from app.services.merge_window_service import ClosedWindow
 
 
@@ -22,11 +22,12 @@ from app.services.merge_window_service import ClosedWindow
 class DueWork:
     closed_windows: list[ClosedWindow]
     timed_out_outreach_ids: list[int] = field(default_factory=list)
+    timed_out_approval_request_ids: list[int] = field(default_factory=list)
     recovered_case_ids: list[int] = field(default_factory=list)
 
 
 def run_due_work(db: Session) -> DueWork:
-    """Expire offers, recover missed notifications, then close due merge windows.
+    """Expire offers and approvals, recover notifications, then close merge windows.
 
     Case work commits per case; window work commits per shift. Releasing a case
     first lets its queued window close in this same tick. The job route still
@@ -34,11 +35,13 @@ def run_due_work(db: Session) -> DueWork:
     and recovery IDs.
     """
     expired = offer_timeout_service.expire_due_offers(db)
+    approvals = approval_timeout_service.expire_due_approvals(db)
     recovered = offer_timeout_service.recover_waiting_cases(
-        db, excluded_case_ids=expired.failed_case_ids
+        db, excluded_case_ids=expired.failed_case_ids | approvals.failed_case_ids
     )
     return DueWork(
         closed_windows=merge_window_service.close_due_windows(db),
         timed_out_outreach_ids=expired.outreach_ids,
         recovered_case_ids=recovered,
+        timed_out_approval_request_ids=approvals.approval_ids,
     )

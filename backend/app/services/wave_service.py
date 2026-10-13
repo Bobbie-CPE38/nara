@@ -22,6 +22,7 @@ from app.domain.staffing.wave_targets import fill_targets
 from app.domain.workflow.case_status import GapFiller
 from app.services import availability_service, case_facts_service, gap_service, hard_rule_service
 from app.services.optimization_service import record_item_targets
+from app.services.outreach_attempt_service import contactable_item
 
 
 @dataclass(frozen=True)
@@ -64,7 +65,14 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
     contacted_staff_ids = set(
         db.scalars(select(CandidateItem.staff_id).where(CandidateItem.id.in_(contacted_item_ids)))
     )
-    remaining = [item for item in items if item.staff_id not in contacted_staff_ids]
+    contactable = set(
+        db.scalars(
+            select(CandidateItem.id).where(
+                CandidateItem.id.in_([item.id for item in items]), contactable_item(case_id)
+            )
+        )
+    )
+    remaining = [item for item in items if item.id in contactable]
     checks = hard_rule_service.check_items(db, shift=shift, items=remaining)
     limited = availability_service.staff_at_offer_limit(db, [item.staff_id for item in remaining])
     skipped: list[dict[str, int | str]] = []
@@ -80,6 +88,12 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
             eligible.append(item)
         else:
             skipped.append({"staff_id": item.staff_id, "reason": reason})
+
+    # First contacts that can be sent now take priority over retries. Blocked
+    # first contacts do not strand the retry queue. Rank within each phase stays fixed.
+    first_contacts = [item for item in eligible if item.staff_id not in contacted_staff_ids]
+    if first_contacts:
+        eligible = first_contacts
 
     gap = gap_service.get_case_gap(db, case_id)
     fillers = case_facts_service.get_case_fillers(db, case_id, include_reserves=True)
@@ -115,13 +129,14 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
             # Uncontacted Solver members may be selected for different targets in
             # a later wave. Replace their provisional credits before first send;
             # targets of anyone already contacted remain immutable.
-            if item.id in target_item_ids:
+            if item.id in target_item_ids and item.id not in contacted_item_ids:
                 db.execute(
                     delete(CandidateItemTarget).where(
                         CandidateItemTarget.candidate_item_id == item.id
                     )
                 )
-            record_item_targets(db, item, credits[item.staff_id])
+            if item.id not in contacted_item_ids:
+                record_item_targets(db, item, credits[item.staff_id])
     chosen = [item for item in eligible if item in kept or item.staff_id in credits]
     # Every new wave writes its number on all OFFER_SENT audit rows in the
     # same transaction as the offers. Legacy history without this field is

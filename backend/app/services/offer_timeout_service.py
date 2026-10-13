@@ -164,7 +164,7 @@ def recover_waiting_cases(db: Session, *, excluded_case_ids: set[int]) -> list[i
     Also recover coverage already closed by pending/assigned candidates, whose
     missed notification left the case at WAITING_RESPONSE. Stale WAITING_APPROVAL
     cases with no actionable pending request are recovered too; a real pending
-    approval never times out.
+    approval is handled separately by approval_timeout_service.
     """
     case_ids = list(
         db.scalars(

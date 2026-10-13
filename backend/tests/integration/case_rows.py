@@ -185,9 +185,24 @@ def approval(
 ) -> ApprovalRequest:
     """An approval request: pending by default, decided when `approved` is given."""
     head_nurse = db.scalars(select(Role.id).where(Role.name == "HEAD_NURSE")).one()
+    outreach = db.scalar(
+        select(CandidateOutreach)
+        .where(CandidateOutreach.case_id == case.id, CandidateOutreach.candidate_item_id == item.id)
+        .order_by(CandidateOutreach.id.desc())
+        .limit(1)
+    )
+    if outreach is None:
+        outreach = offer(
+            db,
+            case,
+            item,
+            OutreachStatus.ACCEPTED if approved is not False else OutreachStatus.CANCELLED,
+        )
     request = ApprovalRequest(
         case_id=case.id,
         candidate_item_id=item.id,
+        outreach_id=outreach.id,
+        expires_at=DEMO_NOW + timedelta(seconds=900),
         required_approver_role=head_nurse,
         approval_mode=ApprovalMode.MANUAL,
         is_pending=approved is None,
@@ -198,20 +213,6 @@ def approval(
     )
     db.add(request)
     db.flush()
-    if (
-        db.scalar(
-            select(CandidateOutreach.id).where(
-                CandidateOutreach.case_id == case.id, CandidateOutreach.candidate_item_id == item.id
-            )
-        )
-        is None
-    ):
-        offer(
-            db,
-            case,
-            item,
-            OutreachStatus.ACCEPTED if approved is not False else OutreachStatus.CANCELLED,
-        )
     return request
 
 
@@ -239,7 +240,16 @@ def safety(
     db: Session, case: StaffingCase, item: CandidateItem, *, passed: bool
 ) -> SafetyValidation:
     """The Safety row written when the candidate accepted."""
+    outreach = db.scalars(
+        select(CandidateOutreach)
+        .where(CandidateOutreach.case_id == case.id, CandidateOutreach.candidate_item_id == item.id)
+        .order_by(CandidateOutreach.id.desc())
+        .limit(1)
+    ).first()
+    if outreach is None:
+        outreach = offer(db, case, item, OutreachStatus.ACCEPTED)
     row = SafetyValidation(
+        outreach_id=outreach.id,
         case_id=case.id,
         candidate_item_id=item.id,
         hard_constraint_policy_id=1,
