@@ -214,6 +214,37 @@ describe("LINE simulator", () => {
       expect(screen.queryByText(/Wait for head-nurse approval/)).toBeNull();
     },
   );
+  it("explains a TIMEOUT offer after the job runs", async () => {
+    replies(() => [
+      {
+        ...offer,
+        status: "TIMEOUT",
+        blocked_reason: null,
+        can_accept: false,
+        can_reject: false,
+      },
+    ]);
+    render(<LineSimulatorPage />);
+    await screen.findByText("TIMEOUT");
+    await screen.findByText(/This offer has expired/);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Accept offer 1",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Reject offer 1",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(request.mock.calls.some(([path]) => path.endsWith("/respond"))).toBe(
+      false,
+    );
+  });
   it("shows a confirmed assignment before the multi-person case has finished", async () => {
     replies(() => [
       {

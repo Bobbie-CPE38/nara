@@ -7,9 +7,9 @@ Base: `staging` at `53459ce`, after the integration of #40, #41 and #42.
 - Seed `OUTREACH_POLICY.offer_timeout_seconds = 300`, integer > 0. Sending reads that policy once and stores each wave's immutable `expires_at = sent_at + duration` from one backend-clock reading.
 - Answerable interval: `clock.now() < expires_at`. Both ACCEPT and REJECT at or after the deadline return 409 without changing the offer or audit. Only the job writes TIMEOUT.
 - Reads, open/paused-offer facts and offer-cap checks exclude overdue SENT offers even before the job tick. Accepted candidates, reserves and approvals do not time out.
-- LINE simulator displays the stored deadline and trusts backend action flags. It does not compare browser real time with the frozen demo clock.
+- LINE simulator explains both overdue SENT and TIMEOUT offers and displays the stored deadline and trusts backend action flags. It does not compare browser real time with the frozen demo clock.
 - `job_service.run_due_work()` expires SENT offers first, runs the recovery sweep, then closes due merge windows. A case ending through timeout can release its queued window in the same tick. Existing demo/internal route response shapes stay unchanged.
-- Each expired offer gets one OFFER_TIMEOUT audit (`outreach_id`, `staff_id`, Outreach Agent). Timeout does not fill response_at. Whole-wave expiry occurs before recomputing; next waves never resend already contacted staff.
+- Each expired offer gets one OFFER_TIMEOUT audit (`outreach_id`, `staff_id`, Outreach Agent). Timeout does not fill response_at. Case completion cancels only unexpired SENT offers and unused ACCEPTED reserves. Overdue SENT offers remain for the job to write TIMEOUT and its audit, including after RESOLVED or MANUAL_HANDOFF. Whole-wave expiry occurs before recomputing; next waves never resend already contacted staff.
 
 ## Recovery and transactions
 
@@ -37,4 +37,6 @@ Approval deadlines are intentionally absent. Real LINE delivery still requires a
 
 ## Validation
 
-Backend: 1,423 tests passed, including E2E, existing case-flow regressions, upgrade/backfill/refusal tests two-connection races, lock-set retries/exhaustion, unlocked healthy waits and locked rechecks. Frontend: 187 tests passed. Ruff, formatting, mypy, TypeScript typecheck and production build and Prettier checks for the changed frontend files passed. No frontend lint script/configuration is currently provided by the project. The migration was exercised only on the guarded test database; the developer database was not reset or migrated.
+Backend: 1,427 tests passed, including E2E, existing case-flow regressions, upgrade/backfill/refusal tests two-connection races, lock-set retries/exhaustion, unlocked healthy waits and locked rechecks. Frontend: 188 tests passed. Ruff, formatting, mypy, TypeScript typecheck and production build and Prettier checks for the changed frontend files passed. No frontend lint script/configuration is currently provided by the project. The migration was exercised only on the guarded test database; the developer database was not reset or migrated.
+
+Review correction: the initial CI at 58e6d15 failed E501 in the availability docstring. That line was reflowed in 3331e26. The validation above refers to the current local tree, not a claim that the initial GitHub CI passed. New tests cover approval at/after expiry followed by RESOLVED or MANUAL_HANDOFF before a job tick, then exactly one timeout audit per overdue offer.

@@ -662,3 +662,68 @@ def test_repeated_failure_logging_is_bounded():
         assert offer_timeout_service._failure_counts[("Recovery", 999)] == 120
     finally:
         offer_timeout_service._failure_counts.clear()
+
+
+@pytest.mark.parametrize(
+    "leaving,final_status",
+    [
+        ((104, 105), CaseStatus.MANUAL_HANDOFF),
+        ((105,), CaseStatus.RESOLVED),
+    ],
+)
+@pytest.mark.parametrize("elapsed", [300, 301])
+def test_case_completion_preserves_overdue_sent_for_timeout_job(
+    client, production_seeded, leaving, final_status, elapsed
+):
+    db = production_seeded
+    case, items = short_case(db, *leaving)
+    rows = [offer(db, case, items[staff]) for staff in (201, 202, 203)]
+    db.commit()
+    assert answer(client, rows[0]).status_code == 200
+    request_id = db.scalars(
+        select(ApprovalRequest.id).where(
+            ApprovalRequest.candidate_item_id == rows[0].candidate_item_id
+        )
+    ).one()
+    db.commit()
+    # Advance only the clock: deliberately do NOT tick the job before approval.
+    clock.advance(timedelta(seconds=elapsed))
+    response = client.post(
+        f"/approvals/{request_id}/decision", headers={"X-Demo-User": "900"}, json={"approved": True}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["case_status"] == final_status.value
+    db.expire_all()
+    assert rows[0].status == OutreachStatus.ACCEPTED
+    assert [row.status for row in rows[1:]] == [OutreachStatus.SENT] * 2
+    final_audit = db.scalars(
+        select(AuditLog).where(
+            AuditLog.case_id == case.id,
+            AuditLog.action
+            == (
+                AuditAction.CASE_RESOLVED
+                if final_status == CaseStatus.RESOLVED
+                else AuditAction.MANUAL_HANDOFF
+            ),
+        )
+    ).one()
+    assert final_audit.payload["cancelled_outreach_ids"] == []
+    db.commit()
+    result = job_service.run_due_work(db)
+    assert result.timed_out_outreach_ids == [row.id for row in rows[1:]]
+    db.expire_all()
+    assert case.status == final_status
+    assert rows[0].status == OutreachStatus.ACCEPTED
+    assert [row.status for row in rows[1:]] == [OutreachStatus.TIMEOUT] * 2
+    audits = list(
+        db.scalars(
+            select(AuditLog)
+            .where(AuditLog.case_id == case.id, AuditLog.action == AuditAction.OFFER_TIMEOUT)
+            .order_by(AuditLog.id)
+        )
+    )
+    assert [audit.entity_id for audit in audits] == [row.id for row in rows[1:]]
+    assert all(audit.payload["staff_id"] in {202, 203} for audit in audits)
+    assert all(row.response_at is None for row in rows[1:])
+    db.commit()
+    assert job_service.run_due_work(db).timed_out_outreach_ids == []

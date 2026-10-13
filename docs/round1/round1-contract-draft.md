@@ -574,9 +574,9 @@ PR O ใช้ขอบเขต `clock.now() < expires_at` สำหรับ�
 | ไม่อนุมัติ | `APPROVAL_REQUEST` | `approver_id`, `is_approved = false`, `is_pending = false`, `reason`, `decided_at` | `approval_service.decide()` |
 | | `CANDIDATE_OUTREACH` (ของคนที่ไม่ได้รับอนุมัติ) | `status = CANCELLED` | `outreach_service` (Q8) |
 | | สำรองคนแรก (ถ้ามี) | เข้า Safety ต่อ เขียนแบบเดียวกับแถว "ตอบรับ" | `safety_service` |
-| Gap ถูกปิด (เคสผ่าน `EXECUTING`) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` และของสำรอง | `status = CANCELLED` | Handler ของ `EXECUTING` ผ่าน `outreach_service` |
-| Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และ `clock.now() >= expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 2.7) | `outreach_service` เรียกจาก Job |
-| เคสเข้า `MANUAL_HANDOFF` (T5) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` ทุกแถว ตอนนี้เหลือได้แต่ Offer ที่ `clock.now() >= expires_at`แต่ Job ยังไม่ได้เปลี่ยนเป็น `TIMEOUT` เพราะ Offer ที่ถูกพักและยังไม่หมดเวลากันไม่ให้เคสมาถึงจุดนี้ (ข้อ 2.1) | `status = CANCELLED` เพราะเคสไม่มีเส้นออกจาก `MANUAL_HANDOFF` | `contact_candidate` ผ่าน `outreach_service` |
+| Gap ถูกปิด (เคสผ่าน `EXECUTING`) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` และ `clock.now() < expires_at` และของสำรอง; SENT ที่หมดเวลาคงไว้ให้ Job | `status = CANCELLED` | Handler ของ `EXECUTING` ผ่าน `outreach_service` |
+| Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และ `clock.now() >= expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 2.7) | `offer_timeout_service` เรียกจาก Job |
+| เคสเข้า `MANUAL_HANDOFF` (T5) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` เฉพาะแถวที่ยังไม่หมดเวลา; แถวที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 2.1) | `status = CANCELLED` เพราะเคสไม่มีเส้นออกจาก `MANUAL_HANDOFF` | `contact_candidate` ผ่าน `outreach_service` |
 | Solver ไม่ได้ใครเลย (T6) | ไม่มีแถวใหม่นอกจาก Audit | | Handler |
 
 ### 4.3 ลำดับ Lock
@@ -743,7 +743,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 2.7 
 
 * รูปแบบ Body ของคำตอบไม่เปลี่ยน มีแค่ค่าใหม่ จึงไม่ต้องแก้ Type ฝั่ง Frontend
 * `case_status` ในคำตอบเป็นค่าที่คำนวณจากตารางสถานะเคส (ข้อ 2.6 ก): `WAITING_RESPONSE`, `WAITING_APPROVAL`, `RESOLVED`, `MANUAL_HANDOFF` หรือ `FAILED` (D11)
-* `respond` รับคำตอบได้เมื่อ Offer ยัง `SENT` และ`clock.now() < expires_at` (24.3, ข้อ 2.7) แทนกติกาเดิมที่เคสต้องอยู่ `WAITING_RESPONSE` เคสที่จบที่ `RESOLVED` หรือ `MANUAL_HANDOFF` ไม่มี Offer `SENT` เหลือ เพราะถูกยกเลิกตอนเคสจบ (ข้อ 4.2)
+* `respond` รับคำตอบได้เมื่อ Offer ยัง `SENT` และ`clock.now() < expires_at` (24.3, ข้อ 2.7) แทนกติกาเดิมที่เคสต้องอยู่ `WAITING_RESPONSE` เคสที่จบที่ `RESOLVED` หรือ `MANUAL_HANDOFF` ยกเลิกเฉพาะ Offer `SENT` ที่ยังไม่หมดเวลา ส่วน `SENT` ที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 4.2)
 * Offer ที่ถูก `CANCELLED` หรือ `TIMEOUT` แล้ว กดตอบได้ `409` ตามการตรวจเดิม
 * เคสที่หยุดแล้ว: ถ้าเคสอยู่ใน `AUTOMATION_STOPPED_STATUSES` (`RESOLVED`, `UNRESOLVED`, `FAILED`, `MANUAL_HANDOFF`) ทั้ง `respond` และ `decision` ตอบ `409` ไม่เขียน DB กรณีที่เกิดจริงคือเคส `FAILED`: เคสล้มจาก Exception (D11) จึงไม่มีขั้นยกเลิก Offer และคำขออนุมัติที่เหลือ ถ้าไม่กันไว้ ผู้สมัครกดรับได้ และผู้อนุมัติกดอนุมัติแล้วได้ Roster ของเคสที่ล้มไปแล้ว Offer ของเคสแบบนี้ค้างเป็น `SENT` จนหมดเวลาตามข้อ 2.7 (ตอนหมดเวลา `recompute()` ไม่ทำอะไรกับเคสที่หยุดแล้ว ข้อ 2.3)
 * Offer ที่ยัง `SENT` แต่กดรับไม่ได้ เพราะผู้ตอบรับ Offer ของเคสอื่นค้างอยู่ (ข้อ 2.6 ค): ตอบ `409` (Q39) ข้อความต้องต่างจาก `409` ของ Offer ที่ถูกยกเลิก เพื่อให้หน้า `line-sim` บอกเหตุผลได้

@@ -27,7 +27,10 @@ function offerSnapshot(offer: Offer) {
 }
 
 const STOPPED_CASE_STATUSES = new Set([
-  "FAILED", "RESOLVED", "UNRESOLVED", "MANUAL_HANDOFF",
+  "FAILED",
+  "RESOLVED",
+  "UNRESOLVED",
+  "MANUAL_HANDOFF",
 ]);
 
 type Feedback = {
@@ -80,10 +83,7 @@ function StaffOffers({
     );
   }, [data]);
   const openOffers =
-    data?.filter(
-      (offer) =>
-        offer.status === "SENT" && offer.can_reject,
-    ) ?? [];
+    data?.filter((offer) => offer.status === "SENT" && offer.can_reject) ?? [];
 
   async function respond(offerId: number, response: "ACCEPT" | "REJECT") {
     // A ref also prevents a second click before React paints the pending state.
@@ -162,7 +162,9 @@ function StaffOffers({
               : offerSnapshot(offer) === offerSnapshot(selected),
           ),
         message:
-          cause instanceof Error ? cause.message : "Could not send your response.",
+          cause instanceof Error
+            ? cause.message
+            : "Could not send your response.",
       });
       if (cause instanceof ApiError && cause.status === 409) {
         setAnsweredSnapshot(offerSnapshot(selected));
@@ -269,8 +271,12 @@ function StaffOffers({
                           Reject
                         </button>
                       </div>
-                      {offer.blocked_reason === "OFFER_EXPIRED" && (
-                        <p>This offer has expired. You can no longer accept or reject it.</p>
+                      {(offer.blocked_reason === "OFFER_EXPIRED" ||
+                        offer.status === "TIMEOUT") && (
+                        <p>
+                          This offer has expired. You can no longer accept or
+                          reject it.
+                        </p>
                       )}
                       {offer.blocked_reason === "AWAITING_OTHER_CASE" && (
                         <p>
