@@ -17,9 +17,12 @@ targets each of them fills, the rank of every candidate, and a status.
 
 The group comes from a CP-SAT model with one 0/1 variable per candidate and three
 stages, each fixed before the next starts: (1) minimize the penalty, scaled to
-integers exactly, (2) minimize the number of people, (3) one candidate at a time
-in staff ID order, maximize that candidate's variable. Every round shares one
-time budget (time_limit_seconds, read from policy by the caller). Status:
+integers exactly, (2) minimize the number of people, (3) the lowest staff IDs: in
+staff ID order, blocks of _BLOCK candidates, each block one round that maximizes
+the sum of x * 2^(place in the block, counted from the end). That sum is larger
+for the set that has the earliest ID at the first place where two sets differ, so
+one round gives the same choice as deciding the candidates one by one. Every
+round shares one time budget (time_limit_seconds, read from policy by the caller). Status:
 OPTIMAL when every round was proved; FEASIBLE when time ran out or a round ended
 unproved after a plan was kept, and that plan is returned; UNKNOWN when time ran
 out before any plan; INFEASIBLE when there are no candidates; MODEL_INVALID when
@@ -46,6 +49,9 @@ from app.domain.workflow.case_status import GapFiller
 
 # The largest sum of scaled costs the model accepts: CP-SAT works in 64-bit integers
 _MAX_SCALED_TOTAL = 2**60
+# Candidates decided by one stage 3 round. The weights 2^0 to 2^(_BLOCK - 1) add up
+# to less than 2^_BLOCK, far below the 64-bit limit
+_BLOCK = 40
 
 
 class SolverScalingOverflowError(RuntimeError):
@@ -285,18 +291,17 @@ def _cheapest_covering_group(
     size = sum(kept)
     model.add(count_sum == size)
 
-    # Stage 3: the smallest staff IDs, one person at a time in ID order
+    # Stage 3: the smallest staff IDs, a block of candidates in ID order per round
     chosen = 0
-    for index, variable in enumerate(variables):
-        if chosen == size or size - chosen == len(variables) - index:
+    for start in range(0, len(variables), _BLOCK):
+        if chosen == size or size - chosen == len(variables) - start:
             break
-        if kept[index] == 1:
-            model.add(variable == 1)
-            chosen += 1
-            continue
-        stop = run(variable, maximize=True)
+        block = variables[start : start + _BLOCK]
+        weights_of_block = [2 ** (len(block) - 1 - place) for place in range(len(block))]
+        stop = run(cp_model.LinearExpr.weighted_sum(block, weights_of_block), maximize=True)
         if stop is not None:
             return stop
-        model.add(variable == kept[index])
-        chosen += kept[index]
+        for variable, value in zip(block, kept[start : start + _BLOCK], strict=True):
+            model.add(variable == value)
+        chosen += sum(kept[start : start + _BLOCK])
     return _Selection(group_of(kept), SolverStatus.OPTIMAL)

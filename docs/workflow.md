@@ -1018,7 +1018,7 @@ Expired requests disappear from `GET /approvals` immediately (`expires_at > now`
 
 * การค้นแบบตัดกิ่งของรอบ 1 ย้ายไปอยู่ที่ `tests/unit/optimization/round1_search.py` ใช้เป็นตัวเทียบใน Test เท่านั้น โค้ดใน `app/` ไม่ import
 * จุดสลับ Solver ใน Test มีสองชั้น (R2-Q49): `optimization_service.solve` สำหรับ Test ว่าสถานะแต่ละค่าพาเคสไปสถานะไหน และ `solver._run_cp_sat` ซึ่งเป็นฟังก์ชันเดียวที่เรียก OR-Tools สำหรับ Test ของสามขั้นและงบเวลา
-* ขั้นที่ 3 ข้ามการ Solve ในสามกรณีที่ไม่เปลี่ยนคำตอบ: แผนที่เก็บไว้มีคนนั้นอยู่แล้ว, คนที่ตรึงเป็น 1 ครบจำนวนแล้ว และคนที่เหลือเท่ากับจำนวนที่ยังขาดพอดี
+* ขั้นที่ 3 ตัดสิน `staff_id` เป็นกลุ่มละ 40 คนตามลำดับ `staff_id` กลุ่มละหนึ่งรอบ (Maximize `Σ x × 2^(ตำแหน่งจากท้ายกลุ่ม)`) ได้คำตอบเดียวกับการตัดสินทีละคน และข้ามกลุ่มที่เหลือเมื่อคนที่ตรึงเป็น 1 ครบจำนวนแล้ว หรือคนที่เหลือเท่ากับจำนวนที่ยังขาดพอดี ผู้สมัคร 300 คนใช้ราว 10 รอบแทนราว 280 รอบ
 * ผลรวมของคะแนนจำนวนเต็มหลังคูณสเกลเกิน 2^60: `solve()` โยน `SolverScalingOverflowError` เคสเป็น `FAILED` ผ่าน D11 ส่วน `MODEL_INVALID`: `create_plan()` โยน `SolverModelInvalidError` ก่อนเขียนแถวใด
 * วัดเวลาซ้ำได้ด้วย `SOLVER_TIMING=1 pytest tests/perf -s -q` (ชุด Test ปกติข้ามไฟล์นี้) และ Workflow `Solver timing` บน GitHub ซึ่งรันเมื่อ PR แตะไฟล์ของ Solver หรือสั่งรันเอง ไม่ใช่ Check ที่บังคับ
 
