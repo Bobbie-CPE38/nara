@@ -9,13 +9,15 @@ export function SkippedTable({
   skips: SkipRecord[];
   candidates: CandidateView[];
 }) {
+  // A case that stopped without a plan has no candidate to name
+  const named = skips.some(skip => candidates.some(candidate => candidate.staff_id === skip.staffId));
   return (
     <table aria-label="Skipped" className="mt-2 w-full text-left">
       <thead>
         <tr>
           <th className="py-1 pr-4">When</th>
           <th className="py-1 pr-4">Staff ID</th>
-          <th className="py-1 pr-4">Name</th>
+          {named && <th className="py-1 pr-4">Name</th>}
           <th className="py-1 pr-4">Reason</th>
         </tr>
       </thead>
@@ -27,7 +29,9 @@ export function SkippedTable({
             <tr key={skip.key}>
               <td className="py-1 pr-4">{skip.origin}</td>
               <td className="py-1 pr-4">{skip.staffId}</td>
-              <td className="py-1 pr-4">{person ? `${person.first_name} ${person.last_name}` : "—"}</td>
+              {named && (
+                <td className="py-1 pr-4">{person ? `${person.first_name} ${person.last_name}` : "—"}</td>
+              )}
               <td className="py-1 pr-4">
                 {skip.reason}
                 {meaning && <span className="ml-2 text-sm text-gray-500">{meaning}</span>}

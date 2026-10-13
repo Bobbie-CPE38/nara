@@ -38,6 +38,7 @@ from app.domain.enums import (
 )
 from app.main import app
 from app.services import audit_service
+from app.services.case_service import _OFFER_STAGES
 from tests.integration import case_rows
 from tests.integration.conftest import DEMO_NOW
 
@@ -308,6 +309,11 @@ def test_candidate_shows_its_newest_outreach_status(
 def _stages(client: TestClient, case: StaffingCase) -> list[str]:
     body = client.get(f"/cases/{case.id}").json()
     return [c["stage"] for c in body["candidates"]]
+
+
+def test_every_offer_status_but_accepted_has_a_stage() -> None:
+    # A status without a stage would make GET /cases/{id} answer 500
+    assert set(_OFFER_STAGES) == set(OutreachStatus) - {OutreachStatus.ACCEPTED}
 
 
 def test_candidate_stage_follows_the_offer(

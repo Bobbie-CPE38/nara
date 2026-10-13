@@ -178,7 +178,7 @@ describe("CaseView", () => {
     expect(status()).toBe("FAILED");
     expect(screen.getByText("Failed at ASSESSING: NoGapError")).toBeTruthy();
     expect(screen.getByText("Not assessed yet.")).toBeTruthy();
-    expect(screen.getByText("No candidates yet.")).toBeTruthy();
+    expect(screen.getByText("No candidates.")).toBeTruthy();
     expect(screen.queryByRole("table", { name: "Gap" })).toBeNull();
     expect(screen.queryByRole("table", { name: "Candidates" })).toBeNull();
   });
@@ -424,7 +424,7 @@ describe("CaseView", () => {
     await tick();
     const text = screen.getByText("Headcount:").textContent;
     expect(text).toContain("Short by 1");
-    expect(text).toContain("Minimum 5, 4 on shift");
+    expect(text).toContain("Minimum 5, 4 on shift when assessed");
   });
 
   it("lists every event of the case", async () => {
@@ -464,6 +464,30 @@ describe("CaseView", () => {
     ]);
     await tick(4000);
     expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("lists skipped people without names when the case stopped without a plan", async () => {
+    serve(caseDetail({ status: "MANUAL_HANDOFF", candidates: [] }), [
+      auditEntry(1, "MANUAL_HANDOFF", {
+        payload: {
+          reason: "NO_FEASIBLE_PLAN",
+          skipped: [
+            { staff_id: 201, reason: "STAFF_NOT_ACTIVE" },
+            { staff_id: 202, reason: "STAFF_NOT_ACTIVE" },
+          ],
+        },
+      }),
+    ]);
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(screen.getByText("No candidates.")).toBeTruthy();
+    expect(screen.queryByText("No candidates yet.")).toBeNull();
+    const skipped = screen.getByRole("table", { name: "Skipped" });
+    expect(within(skipped).queryByRole("columnheader", { name: "Name" })).toBeNull();
+    expect(rows("Skipped")).toEqual([
+      ["Handoff", "201", "STAFF_NOT_ACTIVENot an active staff member"],
+      ["Handoff", "202", "STAFF_NOT_ACTIVENot an active staff member"],
+    ]);
   });
 
   it("shows an unknown status as it is, without a meaning", async () => {

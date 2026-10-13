@@ -74,7 +74,10 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
       </section>
       <section className="mt-6">
         <h2 className="text-xl font-semibold">Candidates</h2>
-        <CandidateTable candidates={detail.candidates} />
+        <CandidateTable
+          candidates={detail.candidates}
+          stopped={isFinal({ detail, audit }) || detail.status === "MANUAL_HANDOFF"}
+        />
         {skips.length > 0 && (
           <>
             <h3 className="mt-4 font-semibold">Skipped</h3>
