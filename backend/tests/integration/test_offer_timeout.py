@@ -657,9 +657,9 @@ def test_repeated_failure_logging_is_bounded():
     try:
         with patch.object(offer_timeout_service.logger, "exception") as log:
             for _ in range(120):
-                offer_timeout_service._log_failure("Recovery", 999)
+                offer_timeout_service._log_failure("Recovery", 999, RuntimeError("retry"))
         assert log.call_count == 2
-        assert offer_timeout_service._failure_counts[("Recovery", 999)] == 120
+        assert offer_timeout_service._failure_counts[("Recovery", 999, RuntimeError)] == 120
     finally:
         offer_timeout_service._failure_counts.clear()
 
@@ -727,3 +727,17 @@ def test_case_completion_preserves_overdue_sent_for_timeout_job(
     assert all(row.response_at is None for row in rows[1:])
     db.commit()
     assert job_service.run_due_work(db).timed_out_outreach_ids == []
+
+
+def test_new_exception_type_is_logged_and_success_clears_all_types():
+    offer_timeout_service._failure_counts.clear()
+    try:
+        with patch.object(offer_timeout_service.logger, "exception") as log:
+            offer_timeout_service._log_failure("Recovery", 999, RuntimeError("first"))
+            offer_timeout_service._log_failure("Recovery", 999, RuntimeError("repeat"))
+            offer_timeout_service._log_failure("Recovery", 999, ValueError("new failure"))
+        assert log.call_count == 2
+        offer_timeout_service._clear_failures("Recovery", 999)
+        assert offer_timeout_service._failure_counts == {}
+    finally:
+        offer_timeout_service._failure_counts.clear()

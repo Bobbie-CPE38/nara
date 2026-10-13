@@ -675,7 +675,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
    * คนที่ถูกเลือกโดยขั้นนี้ (ไม่ใช่โดย Solver) ต้องได้แถว `CANDIDATE_ITEM_TARGET` ก่อนส่ง Offer Safety จึงมีแถวอ่านทุกคน ไม่ว่าอยู่ Wave ไหน
 6. เลือกได้อย่างน้อยหนึ่งคน → ส่ง Offer ทุกคนพร้อมกัน เคสไป `WAITING_RESPONSE` เลือกไม่ได้เลย ตรวจตามลำดับนี้
    * มีคนรออนุมัติที่เติม Gap ได้ → เคสไป `WAITING_APPROVAL` (T7)
-   * มี Offer ที่ถูกพักและยังไม่เลย `expires_at` → เคสไป `WAITING_RESPONSE` รอผลของเคสที่ผู้สมัครไปรับ หรือรอ Offer หมดเวลา (ข้อ 5.1)
+   * มี Offer ที่ถูกพักและ`clock.now() < expires_at` → เคสไป `WAITING_RESPONSE` รอผลของเคสที่ผู้สมัครไปรับ หรือรอ Offer หมดเวลา (ข้อ 5.1)
    * ไม่มีทั้งสองอย่าง → `MANUAL_HANDOFF` (T5)
 
 Target ของ Wave, สูตรจัดอันดับ และลำดับการเติม Target อยู่ร่างรอบ 1 ข้อ 8.3
@@ -733,7 +733,7 @@ Migration สร้างตารางว่าง ไม่สร้าง Po
 
 ### 6.9 Timeout ของ Offer
 
-PR O ตามรีวิว: recovery อ่าน facts โดยไม่ล็อกก่อน แล้วล็อกและตรวจซ้ำเฉพาะเคสที่ดูค้าง; healthy waits ไม่ล็อก Offer/Case/Staff ทุก tick. Lock retry ครบ 5 รอบตอบ `503` พร้อม `Retry-After: 1` แยกจาก Offer conflict `409`; ผู้เรียก lock helper ต้องไม่มี uncommitted writes เพราะ retry rollback. เคสสถานะเก่าที่ไม่ใช่ wait/stopped ยังปิด Offer เป็น TIMEOUT พร้อม audit ได้ แต่ไม่เรียก recompute หรือเปลี่ยนสถานะเคส และ log ให้ซ่อมด้วยมือ. ความล้มเหลวซ้ำ log stack trace ครั้งแรกและทุก 120 ครั้งต่อ operation/case (counter ใน process จำกัด 1,024 entries; ล้างเมื่อสำเร็จ).
+PR O ตามรีวิว: recovery อ่าน facts โดยไม่ล็อกก่อน แล้วล็อกและตรวจซ้ำเฉพาะเคสที่ดูค้าง; healthy waits ไม่ล็อก Offer/Case/Staff ทุก tick. Lock retry ครบ 5 รอบตอบ `503` พร้อม `Retry-After: 1` แยกจาก Offer conflict `409`; ผู้เรียก lock helper ต้องไม่มี uncommitted writes เพราะ retry rollback. เคสสถานะเก่าที่ไม่ใช่ wait/stopped ยังปิด Offer เป็น TIMEOUT พร้อม audit ได้ แต่ไม่เรียก recompute หรือเปลี่ยนสถานะเคส และ log ให้ซ่อมด้วยมือ. ความล้มเหลวซ้ำ log stack trace ครั้งแรกและทุก 120 ครั้งต่อ operation/case/exception type (counter ใน process จำกัด 1,024 entries; ล้างเมื่อสำเร็จ).
 
 
 
@@ -775,7 +775,7 @@ Offer มี Timeout ส่วนการอนุมัติ**ไม่มี
 | | `CANDIDATE_OUTREACH` (ของคนที่ไม่ได้รับอนุมัติ) | `status = CANCELLED` | `outreach_service` (Q8) |
 | | สำรองคนแรก (ถ้ามี) | เข้า Safety ต่อ เขียนแบบเดียวกับแถว "ตอบรับ" | `safety_service` |
 | Gap ถูกปิด (เคสผ่าน `EXECUTING`) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` และ `clock.now() < expires_at` และของสำรอง; SENT ที่หมดเวลาคงไว้ให้ Job | `status = CANCELLED` | Handler ของ `EXECUTING` ผ่าน `outreach_service` |
-| Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และเลย `expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 6.9) | `offer_timeout_service` เรียกจาก Job |
+| Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และ `clock.now() >= expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 6.9) | `offer_timeout_service` เรียกจาก Job |
 | เคสเข้า `MANUAL_HANDOFF` (T5) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` เฉพาะแถวที่ยังไม่หมดเวลา; แถวที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 5.1) | `status = CANCELLED` เพราะเคสไม่มีเส้นออกจาก `MANUAL_HANDOFF` | `contact_candidate` ผ่าน `outreach_service` |
 | Solver ไม่ได้ใครเลย (T6) | ไม่มีแถวใหม่นอกจาก Audit | | Handler |
 
@@ -1054,7 +1054,7 @@ Handler นี้เป็นตาข่ายชั้นสุดท้าย
 
 * รูปแบบ Body ของคำตอบไม่เปลี่ยน มีแค่ค่าใหม่ จึงไม่ต้องแก้ Type ฝั่ง Frontend
 * `case_status` ในคำตอบเป็นค่าที่คำนวณจากตารางสถานะเคส (ข้อ 4): `WAITING_RESPONSE`, `WAITING_APPROVAL`, `RESOLVED`, `MANUAL_HANDOFF` หรือ `FAILED` (D11)
-* `respond` รับคำตอบได้เมื่อ Offer ยัง `SENT` และยังไม่เลย `expires_at` (Q24, ข้อ 6.9) แทนกติกาเดิมที่เคสต้องอยู่ `WAITING_RESPONSE` เคสที่จบที่ `RESOLVED` หรือ `MANUAL_HANDOFF` ยกเลิกเฉพาะ Offer `SENT` ที่ยังไม่หมดเวลา ส่วน `SENT` ที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 6.10)
+* `respond` รับคำตอบได้เมื่อ Offer ยัง `SENT` และ`clock.now() < expires_at` (Q24, ข้อ 6.9) แทนกติกาเดิมที่เคสต้องอยู่ `WAITING_RESPONSE` เคสที่จบที่ `RESOLVED` หรือ `MANUAL_HANDOFF` ยกเลิกเฉพาะ Offer `SENT` ที่ยังไม่หมดเวลา ส่วน `SENT` ที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 6.10)
 * Offer ที่ถูก `CANCELLED` หรือ `TIMEOUT` แล้ว กดตอบได้ `409` ตามการตรวจเดิม
 * เคสที่หยุดแล้ว: ถ้าเคสอยู่ใน `AUTOMATION_STOPPED_STATUSES` (`RESOLVED`, `UNRESOLVED`, `FAILED`, `MANUAL_HANDOFF`) ทั้ง `respond` และ `decision` ตอบ `409` ไม่เขียน DB กรณีที่เกิดจริงคือเคส `FAILED`: เคสล้มจาก Exception (D11) จึงไม่มีขั้นยกเลิก Offer และคำขออนุมัติที่เหลือ ถ้าไม่กันไว้ ผู้สมัครกดรับได้ และผู้อนุมัติกดอนุมัติแล้วได้ Roster ของเคสที่ล้มไปแล้ว Offer ของเคสแบบนี้ค้างเป็น `SENT` จนหมดเวลาตามข้อ 6.9 (ตอนหมดเวลา `recompute()` ไม่ทำอะไรกับเคสที่หยุดแล้ว ข้อ 5.3)
 * Offer ที่ยัง `SENT` แต่กดรับไม่ได้ เพราะผู้ตอบรับ Offer ของเคสอื่นค้างอยู่ (ข้อ 6.8): ตอบ `409` (Q39) ข้อความต้องต่างจาก `409` ของ Offer ที่ถูกยกเลิก เพื่อให้หน้า `line-sim` บอกเหตุผลได้
@@ -1194,7 +1194,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 * คืน JSON List ของ Outreach ที่ Item อ้าง Staff คนนั้น เรียง `id` จากน้อยไปมาก; ไม่มี Offer หรือไม่มี Staff ID นั้นคืน `[]`
 * คืนทุก Status รวมประวัติ: `id`, `case_id`, `candidate_item_id`, `staff_id`, `proposed_shift_id`,
   `status`, `case_status`, `channel`, `sent_at`, `response_at`; เวลาที่มีค่าใช้ `+07:00`, เวลาที่ยังไม่มีเป็น `null`
-* Offer ที่ตอบได้ต้องเป็น `SENT`, ยังไม่เลย `expires_at` และเคสไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` (ข้อ 9.2)
+* Offer ที่ตอบได้ต้องเป็น `SENT`, `clock.now() < expires_at` และเคสไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` (ข้อ 9.2)
   การอ่านไม่เปลี่ยน Status ของ Offer หรือเคส ผู้สมัครคนเดียวมี Offer ที่ตอบได้จากหลายเคสพร้อมกันได้ (ข้อ 6.8)
   `PENDING` ยังไม่ถูกใช้ Wave ของรอบ 1 เขียนแถวเป็น `SENT` ตอนส่งเลย
 * Route / `outreach_service.list_offers()` ไม่เขียน DB, Audit, Commit, Explicit Flush หรือ Row Lock

@@ -28,11 +28,17 @@ from app.workflow import orchestrator
 logger = logging.getLogger(__name__)
 
 # Per-process, bounded diagnostic suppression; retries still run every tick.
-_failure_counts: dict[tuple[str, int], int] = {}
+_failure_counts: dict[tuple[str, int, type[Exception]], int] = {}
 
 
-def _log_failure(operation: str, case_id: int) -> None:
-    key = (operation, case_id)
+def _clear_failures(operation: str, case_id: int) -> None:
+    for key in list(_failure_counts):
+        if key[:2] == (operation, case_id):
+            del _failure_counts[key]
+
+
+def _log_failure(operation: str, case_id: int, error: Exception) -> None:
+    key = (operation, case_id, type(error))
     if key not in _failure_counts and len(_failure_counts) >= 1024:
         del _failure_counts[next(iter(_failure_counts))]
     count = _failure_counts.get(key, 0) + 1
@@ -141,11 +147,11 @@ def expire_due_offers(db: Session) -> ExpiredOffers:
                     case.status.value,
                 )
                 db.commit()
-            _failure_counts.pop(("Offer expiry", case_id), None)
+            _clear_failures("Offer expiry", case_id)
             result.outreach_ids.extend(ids)
-        except Exception:
+        except Exception as error:
             db.rollback()
-            _log_failure("Offer expiry", case_id)
+            _log_failure("Offer expiry", case_id, error)
             result.failed_case_ids.add(case_id)
     return result
 
@@ -181,17 +187,17 @@ def recover_waiting_cases(db: Session, *, excluded_case_ids: set[int]) -> list[i
                 needs_retry = case is not None and _needs_recovery(db, case)
             db.rollback()
             if not needs_retry:
-                _failure_counts.pop(("Recovery", case_id), None)
+                _clear_failures("Recovery", case_id)
                 continue
             case = outreach_service.lock_case_for_outreach(db, case_id)
             if not _needs_recovery(db, case):
                 db.rollback()
-                _failure_counts.pop(("Recovery", case_id), None)
+                _clear_failures("Recovery", case_id)
                 continue
             orchestrator.recompute(db, case_id, prepare=outreach_service.promote_reserves)
-            _failure_counts.pop(("Recovery", case_id), None)
+            _clear_failures("Recovery", case_id)
             recovered.append(case_id)
-        except Exception:
+        except Exception as error:
             db.rollback()
-            _log_failure("Recovery", case_id)
+            _log_failure("Recovery", case_id, error)
     return recovered
