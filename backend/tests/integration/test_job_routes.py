@@ -18,6 +18,8 @@ from app.jobs import ticker
 from app.main import app
 from app.schemas.job import MAX_ADVANCE_SECONDS
 from app.seed.scenarios import merge_gap
+from app.services import job_service
+from app.services.job_service import DueWork
 from tests.integration.conftest import DEMO_NOW
 
 NIGHT_SHIFT = 1
@@ -129,6 +131,8 @@ def test_advancing_the_clock_closes_the_windows_that_became_due(
                 "case_status": "WAITING_RESPONSE",
             }
         ],
+        "timed_out_outreach_ids": [],
+        "recovered_case_ids": [],
     }
     assert clock.now() == DEMO_NOW + timedelta(seconds=WINDOW)
 
@@ -140,10 +144,37 @@ def test_advancing_too_little_moves_the_clock_and_closes_nothing(
 
     response = client.post("/demo/clock/advance", json={"seconds": WINDOW - 1})
 
-    assert response.json() == {"clock": "2026-10-09T21:09:59+07:00", "closed_windows": []}
+    assert response.json() == {
+        "clock": "2026-10-09T21:09:59+07:00",
+        "closed_windows": [],
+        "timed_out_outreach_ids": [],
+        "recovered_case_ids": [],
+    }
     event = seeded.get(StaffingEvent, event_id)
     assert event is not None
     assert event.status is EventStatus.RECEIVED
+
+
+def test_advancing_the_clock_reports_timed_out_offers_and_rechecked_cases(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The route only passes on what the job round did, in ID order."""
+    monkeypatch.setattr(
+        job_service,
+        "run_due_work",
+        lambda db: DueWork(
+            closed_windows=[], timed_out_outreach_ids=[5, 2], recovered_case_ids=[9, 4]
+        ),
+    )
+
+    response = client.post("/demo/clock/advance", json={"seconds": 300})
+
+    assert response.json() == {
+        "clock": "2026-10-09T21:05:00+07:00",
+        "closed_windows": [],
+        "timed_out_outreach_ids": [2, 5],
+        "recovered_case_ids": [4, 9],
+    }
 
 
 def test_two_small_steps_close_the_window_like_one_large_step(client: TestClient) -> None:
