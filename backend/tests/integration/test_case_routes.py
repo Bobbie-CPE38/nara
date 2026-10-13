@@ -16,6 +16,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    RosterAssignment,
     StaffingCase,
     StaffingEvent,
     StaffingGap,
@@ -26,6 +27,7 @@ from app.db.models import (
 from app.domain.enums import (
     GOLDEN_PATH_AUDIT_ACTIONS,
     ActorName,
+    AssignmentType,
     AuditAction,
     CandidateSource,
     CaseStatus,
@@ -34,12 +36,14 @@ from app.domain.enums import (
     EventStatus,
     EventType,
     OutreachStatus,
+    RosterStatus,
     SolverStatus,
 )
 from app.main import app
 from app.services import audit_service
 from app.services.case_service import _OFFER_STAGES
 from tests.integration import case_rows
+from tests.integration.case_rows import approval
 from tests.integration.conftest import DEMO_NOW
 
 NIGHT_SHIFT = 1
@@ -211,6 +215,7 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
         "created_at",
         "updated_at",
         "gap",
+        "assigned_count",
         "candidates",
     }
     assert (body["id"], body["event_ids"], body["shift_id"]) == (
@@ -290,6 +295,34 @@ def test_candidates_come_from_the_latest_plan_in_rank_order(
         "stage",
     }
     assert (first["first_name"], first["source"]) == ("Arunee", "SAME_WARD")
+
+
+def test_assigned_count_is_the_approved_candidates_on_the_roster(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    _add_gap(seeded, case, headcount_gap=2)
+    first, second, third = _add_plan(seeded, case, [201, 202, 203])
+    assert client.get(f"/cases/{case.id}").json()["assigned_count"] == 0
+
+    # Approved and on the roster: the only one that counts
+    approval(seeded, case, first, approved=True)
+    seeded.add(
+        RosterAssignment(
+            staff_id=201,
+            shift_id=NIGHT_SHIFT,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REPLACEMENT,
+            candidate_source=CandidateSource.SAME_WARD,
+        )
+    )
+    # Still waiting for the head nurse, and rejected
+    approval(seeded, case, second)
+    approval(seeded, case, third, approved=False)
+    seeded.flush()
+
+    body = client.get(f"/cases/{case.id}").json()
+    assert body["assigned_count"] == 1
+    assert body["gap"]["headcount_gap"] == 2
 
 
 def test_candidate_shows_its_newest_outreach_status(

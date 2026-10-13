@@ -48,6 +48,8 @@ export type CaseDetail = {
   updated_at: string;
   /** null until the ASSESSING step stored a gap */
   gap: GapView | null;
+  /** People this case already put on the roster */
+  assigned_count: number;
   /** Empty until the solver stored a plan. Ordered by rank */
   candidates: CandidateView[];
 };

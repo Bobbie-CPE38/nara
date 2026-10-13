@@ -1146,6 +1146,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
     "roles": [{"id": 1, "name": "RN", "required_count": 5, "current_count": 4, "gap_count": 1}],
     "skills": [{"id": 1, "name": "ICU", "required_count": 2, "current_count": 2, "gap_count": 0}]
   },
+  "assigned_count": 0,
   "candidates": [
     {"candidate_item_id": 1, "rank": 1, "staff_id": 201, "first_name": "Arunee", "last_name": "Demo",
      "source": "SAME_WARD", "outreach_status": "SENT", "stage": "OFFER_SENT"}
@@ -1158,9 +1159,10 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
   เพราะ Requirement ถูก UPDATE ในแถวเดิม ค่าที่อ่านได้อาจไม่ใช่ค่าตอนคิด (Q20)
 * `gap` เป็น `null` จนกว่าขั้น `ASSESSING` จะบันทึก `STAFFING_GAP` ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
   ใน `roles` / `skills` ฟิลด์ `id` คือ Role ID / Skill ID
+* `assigned_count` คือจำนวนคนที่เคสนี้จัดเข้าเวรแล้ว นับแบบเดียวกับ "ได้เข้าเวรแล้ว" ของข้อ 5.3 (`case_facts_service.assigned_staff_ids()`) เคสยังขาดคนอีก `max(gap.headcount_gap - assigned_count, 0)` หน้า `approvals` ใช้ค่านี้บอกว่าเคสของแต่ละคำขอยังขาดกี่คน (PR 5) ค่านี้นับเฉพาะจำนวนคน เคสที่ได้ 0 ยังรออนุมัติอยู่ได้เมื่อยังขาด Role หรือ Skill
 * `candidates` เป็น `[]` จนกว่า Solver จะบันทึก Plan ใช้ Plan ที่ `id` มากสุดของเคส (Seam 1) เรียงตาม `rank`
 * `outreach_status` เป็น `null` จนกว่าจะมี Outreach ของผู้สมัครคนนั้น ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
-* `stage` คือขั้นของผู้สมัครในเคสนี้ตามข้อ 4.1 คำนวณตอนอ่าน ไม่มีคอลัมน์เก็บ ใช้ข้อแรกที่ตรงตามลำดับ: ได้เข้าเวรแล้ว (`ASSIGNED`), อนุมัติแล้ว (`APPROVED`), ไม่อนุมัติ (`APPROVAL_REJECTED`), Safety ไม่ผ่าน (`SAFETY_FAILED`), ไม่มี Offer (`NOT_CONTACTED`), Offer `ACCEPTED` และรออนุมัติ (`WAITING_APPROVAL`), Offer `ACCEPTED` อย่างเดียว (`ACCEPTED` คือสำรองตาม Q28), นอกนั้น `OFFER_` ตามด้วยสถานะของ Offer "ได้เข้าเวรแล้ว" กับ "รออนุมัติ" ใช้เงื่อนไขเดียวกับ `case_facts_service` คำขอที่ยัง Pending แต่ Offer ถูกยกเลิกจึงเป็น `OFFER_CANCELLED`
+* `stage` คือขั้นของผู้สมัครในเคสนี้ตามข้อ 4.1 คำนวณตอนอ่าน ไม่มีคอลัมน์เก็บ ใช้ข้อแรกที่ตรงตามลำดับ: ได้เข้าเวรแล้ว (`ASSIGNED`), อนุมัติแล้ว (`APPROVED`), ไม่อนุมัติ (`APPROVAL_REJECTED`), Safety ไม่ผ่าน (`SAFETY_FAILED`), ไม่มี Offer (`NOT_CONTACTED`), Offer `ACCEPTED` และรออนุมัติ (`WAITING_APPROVAL`), Offer `ACCEPTED` อย่างเดียว (`ACCEPTED` คือสำรองตาม Q28), นอกนั้น `OFFER_` ตามด้วยสถานะของ Offer "ได้เข้าเวรแล้ว" กับ "รออนุมัติ" ใช้เงื่อนไขเดียวกับ `case_facts_service` คำขอที่ยัง Pending แต่ Offer ถูกยกเลิกจึงเป็น `OFFER_CANCELLED` Offer ที่ยัง `SENT` เลย `expires_at` แล้วแต่ Job ยังไม่ตั้ง `TIMEOUT` ยังเป็น `OFFER_SENT` ทั้งที่เคสไม่รอ Offer นั้นแล้ว (ข้อ 6.9) `stage` อ่านสถานะที่เก็บ ไม่ได้เทียบ `clock.now()`
 
 **`GET /cases/{id}/audit`** (คน 1) ไม่ต้องมี `X-Demo-User` ไม่มีเคส ID นั้น → `404` ID นอกช่วง `bigint` (1 ถึง 9223372036854775807) → `422`
 
@@ -1453,4 +1455,5 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-13 | ตามรีวิว PR 4 รอบเพิ่มเติม: คำขอใช้งานได้และนับ Pending Coverage เฉพาะเมื่อ Offer ของเคส / Item เดียวกันยัง ACCEPTED; ยกเลิก Offer แล้วเก็บคำขอเป็นประวัติ แต่กดตัดสินได้ 409 และเคสต่างหอเดินต่อได้; แยก Offer Conflict / Lock Retry Error, ใช้ query lock ร่วมกับ phantom check, ย้าย scheduling codes ขึ้น module และแจ้งเฉพาะผู้สมัครที่ยกเลิกในรอบนี้ | คน 3 |
 | 2026-10-13 | ตามรีวิว PR 4 รอบ Minor: ตรวจความยาวเหตุผลใน Service แทน Schema เพื่อคง 404 → 403 → 409 → 422; เหตุผลปฏิเสธตัดช่องว่างก่อนตรวจ 500 ตัวอักษร; รายงานหรือผู้ใช้อื่นที่นับคำขอค้างต้องใช้ accepted_offer_for_request ไม่ใช่ is_pending อย่างเดียว; เพิ่ม Test ลำดับ error และเหตุผล 500 ตัวอักษรพร้อม whitespace | คน 3 |
 | 2026-10-13 | รอบ 1 PR O: Migration a4b8c2d6e9f1 เพิ่ม offer_timeout_seconds (Seed 300) และ expires_at; backfill จาก sent_at + 300 วินาที ตรวจ SENT ต้องมี expiry; ส่ง Wave snapshot deadline เดียวกัน, ตอบหลัง deadline ได้ 409 ไม่เขียน, SENT ที่หมดเวลาไม่เติม open/paused offer และไม่นับ cap; Job ปิด TIMEOUT/Audit ราย Offer แล้ว recompute, recovery sweep และปล่อย Window ต่อใน tick เดียวกัน; LINE simulator แสดง deadline; tests ครอบคลุมขอบเขตเวลา migration failure-isolation และ race กับ Job | คน 3 |
+| 2026-10-13 | รอบ 1 PR 5: หน้า `approvals` มีช่องกรอกเหตุผลตอนไม่อนุมัติ (ไม่ว่าง ไม่เกิน 500 ตัวอักษร ส่งค่าที่ตัดช่องว่างหัวท้ายแล้ว) และคอลัมน์บอกว่าเคสของคำขอยังขาดกี่คน; `GET /cases/{id}` เพิ่ม `assigned_count` จาก `case_facts_service.assigned_staff_ids()` | คน 1 |
 | 2026-10-13 | รอบ 1 PR 6: `GET /cases/{id}` เพิ่ม `candidates[].stage` (ข้อ 4.1, 9.3) คำนวณตอนอ่านด้วยเงื่อนไขเดียวกับ `case_facts_service`; หน้า `cases/[id]` แสดงสถานะรายคน, ตารางผู้สมัครที่ถูกข้ามจาก `skipped` ใน Audit และ `effective_minimum` ของ Gap ไม่มี Migration | คน 2 |

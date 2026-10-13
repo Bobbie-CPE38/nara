@@ -1,6 +1,12 @@
 import { CANDIDATE_STAGE_INFO, TONE_CLASS } from "@/lib/constants";
 import type { CandidateView } from "@/lib/types/case";
 
+/** A stage the map does not know is shown as it is. */
+function StageLabel({ stage }: { stage: string }) {
+  const info = CANDIDATE_STAGE_INFO.get(stage);
+  return <span className={TONE_CLASS[info?.tone ?? "neutral"]}>{info?.label ?? stage}</span>;
+}
+
 /** Candidates in the order the API sends them, which is by rank. */
 export function CandidateTable({
   candidates,
@@ -32,14 +38,7 @@ export function CandidateTable({
             <td className="py-1 pr-4">{candidate.first_name} {candidate.last_name}</td>
             <td className="py-1 pr-4">{candidate.source}</td>
             <td className="py-1 pr-4">
-              {(() => {
-                const info = CANDIDATE_STAGE_INFO.get(candidate.stage);
-                return (
-                  <span className={TONE_CLASS[info?.tone ?? "neutral"]}>
-                    {info?.label ?? candidate.stage}
-                  </span>
-                );
-              })()}
+              <StageLabel stage={candidate.stage} />
             </td>
           </tr>
         ))}

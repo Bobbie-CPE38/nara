@@ -21,6 +21,7 @@ export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
       roles: [{ id: 1, name: "RN", required_count: 5, current_count: 4, gap_count: 1 }],
       skills: [{ id: 1, name: "ICU", required_count: 2, current_count: 2, gap_count: 0 }],
     },
+    assigned_count: 0,
     candidates: [
       { candidate_item_id: 1, rank: 1, staff_id: 201, first_name: "Arunee", last_name: "Demo",
         source: "SAME_WARD", outreach_status: "SENT", stage: "OFFER_SENT" },
