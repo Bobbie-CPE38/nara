@@ -216,6 +216,96 @@ describe("approvals page", () => {
     expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
   });
 
+  describe("a rejection reason being typed", () => {
+    // After a demo reset the sequence restarts: same ID, another candidate
+    const REUSED = { ...PENDING, case_id: 9, candidate_item_id: 12, staff_id: 203 };
+    let list: unknown[];
+    const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+
+    async function openAndType(text: string) {
+      vi.useFakeTimers();
+      list = [PENDING];
+      const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+        new Response(JSON.stringify(/\/cases\/\d+$/.test(url) ? CASE : list)),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      render(createElement(Approvals));
+      await tick(0);
+      fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: text } });
+      return fetchMock;
+    }
+
+    function expectNoInheritedReason() {
+      expect(screen.queryByRole("textbox")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Confirm rejection" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+      expect(
+        screen.getByLabelText<HTMLTextAreaElement>(
+          "Reason for rejecting approval 4 (staff 203, case 9)",
+        ).value,
+      ).toBe("");
+    }
+
+    it("stays while the polls still list the same request", async () => {
+      await openAndType("Reason intended only for staff 201");
+      await tick(4000);
+
+      expect(screen.getByRole<HTMLTextAreaElement>("textbox").value).toBe(
+        "Reason intended only for staff 201",
+      );
+    });
+
+    it("is dropped when the request leaves the list and its ID is used again", async () => {
+      const fetchMock = await openAndType("Reason intended only for staff 201");
+      list = [];
+      await tick(2000);
+      expect(screen.queryByRole("textbox")).toBeNull();
+
+      list = [REUSED];
+      await tick(2000);
+
+      expectNoInheritedReason();
+      expect(posts(fetchMock)).toHaveLength(0);
+    });
+
+    it("is dropped when another request takes the ID with no empty list in between", async () => {
+      const fetchMock = await openAndType("Reason intended only for staff 201");
+      list = [REUSED];
+      await tick(2000);
+
+      expectNoInheritedReason();
+      expect(posts(fetchMock)).toHaveLength(0);
+    });
+
+    it("blocks Reject on the other rows until it is cancelled", async () => {
+      await openAndType("Needs rest");
+      list = [PENDING, { ...PENDING, id: 5, candidate_item_id: 12, staff_id: 202 }];
+      await tick(2000);
+
+      const rejects = () => screen.getAllByRole<HTMLButtonElement>("button", { name: "Reject" });
+      expect(rejects().map((button) => button.disabled)).toEqual([true, true]);
+      expect(screen.getByRole<HTMLTextAreaElement>("textbox").value).toBe("Needs rest");
+
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      expect(rejects().map((button) => button.disabled)).toEqual([false, false]);
+    });
+  });
+
+  it("sends a reason of exactly 500 characters whole", async () => {
+    const fetchMock = stubFetch([PENDING], {
+      body: { approval_id: 4, is_approved: false, case_id: 7, case_status: "WAITING_RESPONSE" },
+    });
+    render(createElement(Approvals));
+    fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "x".repeat(500) } });
+    expect(screen.getByText(/^500 \/ 500\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm rejection" }));
+
+    await screen.findByText("Approval 4 rejected. Case 7: WAITING_RESPONSE");
+    expect(JSON.parse(posts(fetchMock)[0][1].body).reason).toHaveLength(500);
+  });
+
   it("reports a failed execution in red with a link to the case, and drops the row", async () => {
     stubFetch([PENDING], {
       body: { approval_id: 4, is_approved: true, case_id: 7, case_status: "FAILED" },

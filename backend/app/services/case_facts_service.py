@@ -78,12 +78,6 @@ def get_case_fillers(
         return list(_fillers(db, staff_ids).values())
 
 
-def count_assigned(db: Session, case_id: int) -> int:
-    """How many people this case already put on the roster. Read-only."""
-    with db.no_autoflush:
-        return len(_assigned_staff_ids(db, case_id))
-
-
 def load_case_facts(db: Session, case: StaffingCase) -> CaseFacts:
     """Read the gap, the assigned and pending candidates and the offers of one case.
 
@@ -178,6 +172,12 @@ def staff_waiting_case_ids(db: Session, staff_id: int) -> set[int]:
     """Batch offer reads: running cases holding this staff's unresolved acceptance."""
     with db.no_autoflush:
         return {case_id for _, case_id in _waiting_acceptances(db, {staff_id})}
+
+
+def assigned_staff_ids(db: Session, case_id: int) -> set[int]:
+    """Staff the case counts as assigned (module docstring). For read models."""
+    with db.no_autoflush:
+        return _assigned_staff_ids(db, case_id)
 
 
 def _waiting_acceptances(db: Session, staff_ids: set[int]) -> set[tuple[int, int]]:
