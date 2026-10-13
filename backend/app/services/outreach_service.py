@@ -6,6 +6,7 @@ foreign-case notifications run after that commit in separate transactions.
 
 import logging
 from collections.abc import Collection, Sequence
+from datetime import timedelta
 
 from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
@@ -35,7 +36,7 @@ from app.domain.enums import (
 )
 from app.integrations.line import mock as line_mock
 from app.schemas.outreach import OfferView
-from app.services import audit_service, case_facts_service, hard_rule_service
+from app.services import audit_service, case_facts_service, hard_rule_service, policy_service
 from app.services.wave_service import plan_items
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,10 @@ logger = logging.getLogger(__name__)
 
 class OpenOfferConflictError(ValueError):
     """The selected offer is not answerable by this staff member."""
+
+
+class OutreachLockRetryError(ValueError):
+    """Concurrent waves prevented acquiring a stable offer lock set; retry."""
 
 
 def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
@@ -80,6 +85,7 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                     CandidateOutreach.channel,
                     CandidateOutreach.sent_at,
                     CandidateOutreach.response_at,
+                    CandidateOutreach.expires_at,
                     Shift.ward_id,
                     Ward.name.label("ward_name"),
                     Shift.start_at.label("shift_start_at"),
@@ -118,15 +124,22 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
         cancelled = {row["id"] for row in rows if row["status"] == OutreachStatus.CANCELLED}
         reasons = _cancellation_reasons(db, cancelled)
         result = []
+        now = clock.now()
         for row in rows:
             live = row["status"] is OutreachStatus.SENT and (
                 row["case_status"] not in AUTOMATION_STOPPED_STATUSES
+                and row["expires_at"] is not None
+                and row["expires_at"] > now
             )
             paused = live and bool(waiting_cases - {row["case_id"]})
             blocked = (
-                "AWAITING_OTHER_CASE"
+                "CASE_STOPPED"
+                if row["case_status"] in AUTOMATION_STOPPED_STATUSES
+                else "OFFER_EXPIRED"
+                if row["status"] == OutreachStatus.SENT and not live
+                else "AWAITING_OTHER_CASE"
                 if paused
-                else ("CASE_STOPPED" if row["case_status"] in AUTOMATION_STOPPED_STATUSES else None)
+                else None
             )
             reason = reasons.get(row["id"]) if row["status"] == OutreachStatus.CANCELLED else None
             reserve = (
@@ -206,6 +219,7 @@ def send_offer(
     )
     if any(item.plan_id not in plan_ids for item in items):
         raise ValueError("A Wave item belongs to a different case")
+    timeout = policy_service.get_outreach_policy(db).offer_timeout_seconds
     now = clock.now()
     offers = [
         CandidateOutreach(
@@ -214,6 +228,7 @@ def send_offer(
             channel=Channel.LINE,
             status=OutreachStatus.SENT,
             sent_at=now,
+            expires_at=now + timedelta(seconds=timeout),
         )
         for item in items
     ]
@@ -239,32 +254,41 @@ def cancel_offer(db: Session, outreach: CandidateOutreach) -> None:
 def lock_case_for_outreach(db: Session, case_id: int) -> StaffingCase:
     """Offer rows → case → whole-plan Staff, in the agreed global order.
 
+    Caller must have no uncommitted writes: retries roll back the transaction.
     Must be called before making response/foreign-case recompute writes. Lock
     every offer in one query, including the selected row on replay, then refresh
     cached state after waiting. NO KEY UPDATE permits FK audit inserts.
     """
-    db.flush()
-    list(
-        db.scalars(
-            select(CandidateOutreach)
-            .where(CandidateOutreach.case_id == case_id)
-            .order_by(CandidateOutreach.id)
-            .with_for_update(key_share=True, of=CandidateOutreach)
+    for _ in range(5):
+        db.flush()
+        offers = list(
+            db.scalars(
+                select(CandidateOutreach)
+                .where(CandidateOutreach.case_id == case_id)
+                .order_by(CandidateOutreach.id)
+                .with_for_update(key_share=True, of=CandidateOutreach)
+                .execution_options(populate_existing=True)
+            )
+        )
+        case = db.scalar(
+            select(StaffingCase)
+            .where(StaffingCase.id == case_id)
+            .with_for_update(key_share=True)
             .execution_options(populate_existing=True)
         )
-    )
-    case = db.scalar(
-        select(StaffingCase)
-        .where(StaffingCase.id == case_id)
-        .with_for_update(key_share=True)
-        .execution_options(populate_existing=True)
-    )
-    if case is None:
-        raise LookupError(f"No case {case_id}")
-    if case.status not in AUTOMATION_STOPPED_STATUSES:
+        if case is None:
+            raise LookupError(f"No case {case_id}")
+        if case.status in AUTOMATION_STOPPED_STATUSES:
+            return case
         items = plan_items(db, case_id)
         hard_rule_service.lock_staff(db, [item.staff_id for item in items])
-    return case
+        current_ids = set(
+            db.scalars(select(CandidateOutreach.id).where(CandidateOutreach.case_id == case_id))
+        )
+        if current_ids <= {row.id for row in offers}:
+            return case
+        db.rollback()
+    raise OutreachLockRetryError("Could not lock a stable offer set; retry the response")
 
 
 def promote_reserves(db: Session, case: StaffingCase) -> None:
@@ -354,9 +378,7 @@ def recompute_affected_cases(
         except Exception:
             db.rollback()
             logger.exception("Foreign case %s needs recompute retry", case_id)
-            # PR O recovery tracking: docs/round1/round1-contract-draft.md, section 10.
-            # Until the sweep lands, this log signals a foreign case needing
-            # a manual recompute retry.
+            # job_service recovery sweep retries missed notifications each round.
 
 
 def record_response(
@@ -379,6 +401,9 @@ def record_response(
         raise OpenOfferConflictError("This case has stopped; the offer cannot be answered")
     if outreach.status is not OutreachStatus.SENT:
         raise OpenOfferConflictError("The selected offer is no longer SENT; refresh offers")
+    now = clock.now()
+    if outreach.expires_at is None or outreach.expires_at <= now:
+        raise OpenOfferConflictError("The selected offer has expired; refresh offers")
     if response is CandidateResponse.ACCEPT and case_facts_service.staff_waiting_on_another_case(
         db, case.id, {staff_id}
     ):
@@ -388,7 +413,7 @@ def record_response(
     outreach.status = (
         OutreachStatus.ACCEPTED if response is CandidateResponse.ACCEPT else OutreachStatus.REJECTED
     )
-    outreach.response_at = clock.now()
+    outreach.response_at = now
     audit_service.log(
         db,
         case_id=case.id,

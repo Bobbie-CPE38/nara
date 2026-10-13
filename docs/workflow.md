@@ -12,11 +12,11 @@ PR 0 ของรอบ 1 ย้ายกติกาที่ทีมรีว
 
 | ข้อ | เรื่อง | โค้ดตรงกับข้อนี้เมื่อ PR ไหนเข้า |
 |---|---|---|
-| 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | ตรงแล้ว (PR 1b และ PR M) ยกเว้นข้อ 3.8 บรรทัดสุดท้าย: รอบของ Job ยังปิดแค่ Window การปิด Offer ที่หมดเวลาและการเก็บตกเคสที่ค้างมากับ PR O |
+| 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | ตรงแล้ว (PR 1b และ PR M) รวมการปิด Offer ที่หมดเวลาและ recovery sweep แล้ว (PR O) |
 | 4, 5 | สถานะเคส, Transition, ฟังก์ชันคำนวณสถานะเคส | ตาราง Transition มี T1 ถึง T7 แล้วใน PR 0 `decide_status()` และ `orchestrator.recompute()` มีแล้วใน PR S และเส้นทางตอบ Offer เรียก `recompute()` แล้วใน PR 2b Handler `optimize` ใช้ T6 แล้ว (PR 2a) Safety รายคนด้วย Hard Rules เต็มและการลบสองเส้นของ `SAFETY_VALIDATION` ตรงแล้ว (PR 3) การอนุมัติ/จัดเวรรายคนและปิดเคสเมื่อ Assigned ครบตรงแล้ว (PR 4) |
-| 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c เพิ่มตาราง Policy, Seed และฟังก์ชันเพดานแล้ว; 2a ให้ Solver เรียกฟังก์ชันเพดาน เขียน `CANDIDATE_ITEM_TARGET` และเพิ่ม Seam 12 ถึง 14 แล้ว; 2b และ 4 ทำ Wave/Response/Approval/Execution แล้ว ที่เหลือ: O (Timeout และ Recovery) |
-| 7 | Audit | แถวของ Event และ `AUDIT_LOG.event_id` ตรงแล้ว (PR M) `SOLVER_EXECUTED` และ `MANUAL_HANDOFF` ของ T6 ตรงแล้ว (PR 2a) Wave/Response/Safety/Approval/Assignment/Resolution ตรงแล้ว (PR 2b, 3, 4) ที่เหลือ: O |
-| 9 | API | `gap.effective_minimum` ตรงแล้ว (PR 1b) Route ของ Event, `event_ids`, Timeline ผ่าน `event_id`, Route เลื่อน Clock และ Route ของ Job ตรงแล้ว (PR M) Accept/Reject และการตัดสินรายคนตรงแล้ว (PR 2b, 4) ที่เหลือ: O (กติกา `expires_at` ของการตอบ Offer) |
+| 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c เพิ่มตาราง Policy, Seed และฟังก์ชันเพดานแล้ว; 2a ให้ Solver เรียกฟังก์ชันเพดาน เขียน `CANDIDATE_ITEM_TARGET` และเพิ่ม Seam 12 ถึง 14 แล้ว; 2b และ 4 ทำ Wave/Response/Approval/Execution แล้ว Timeout และ Recovery ตรงแล้ว (PR O) |
+| 7 | Audit | แถวของ Event และ `AUDIT_LOG.event_id` ตรงแล้ว (PR M) `SOLVER_EXECUTED` และ `MANUAL_HANDOFF` ของ T6 ตรงแล้ว (PR 2a) Wave/Response/Safety/Approval/Assignment/Resolution ตรงแล้ว (PR 2b, 3, 4) OFFER_TIMEOUT ตรงแล้ว (PR O) |
+| 9 | API | `gap.effective_minimum` ตรงแล้ว (PR 1b) Route ของ Event, `event_ids`, Timeline ผ่าน `event_id`, Route เลื่อน Clock และ Route ของ Job ตรงแล้ว (PR M) Accept/Reject และการตัดสินรายคนตรงแล้ว (PR 2b, 4) deadline และการตอบหลังหมดเวลาตรงแล้ว (PR O) |
 
 เรื่องที่ยังอยู่ในร่างรอบ 1 ไม่ได้ย้ายเข้าไฟล์นี้ เลข Q ที่อ้างในไฟล์นี้คือคำถามในร่างรอบ 1 ข้อ 12
 
@@ -326,7 +326,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 * Backend เป็นคนตัดสินว่าเวรไหนถึงเวลาปิด ด้วยนาฬิกาของ Backend เอง เพราะเวลาของ Demo ที่ถูกหยุดไว้อยู่ในหน่วยความจำของ Process ของ Backend (`core/clock.py`) Service แยกเห็นแต่เวลาจริง
 * `POST /demo/clock/advance` เลื่อน Clock ของ Demo แล้วเรียกฟังก์ชันปิด Window ตัวเดียวกับ Job เพราะเลื่อนนาฬิกาอย่างเดียว Job ไม่รันเอง
 * ทั้ง Route ของ Job และ Route เลื่อน Clock เรียก `job_service.run_due_work(db)` ตัวเดียวกัน ซึ่งปิด Window ที่ถึงเวลาทีละเวร หนึ่ง Transaction ต่อเวร เวรที่ปิดไม่สำเร็จถูก Rollback และข้ามไป เวรอื่นไม่ได้รับผล
-* รอบเดียวกันของ Job ยังปิด Offer ที่หมดเวลา (ข้อ 6.9) และเก็บตกเคสที่ค้าง (ข้อ 5.3) สองอย่างนี้ยังไม่มีในโค้ด PR O เพิ่มเข้า `run_due_work()`
+* PR O ให้ `run_due_work()` ปิด Offer ที่หมดเวลา → recovery sweep → ปิด Window ที่ถึงเวลา ตามลำดับนี้ เพื่อให้เคสที่หยุดจาก timeout ปล่อย Window ที่รออยู่ได้ใน tick เดียวกัน ปิด Offer / recovery เคสละ Transaction และ Window เวรละ Transaction หนึ่งเคสที่ผิดพลาดไม่หยุดเคสอื่น แต่ลองใหม่รอบถัดไป
 
 ### 3.9 ข้อจำกัดที่รู้
 
@@ -509,9 +509,9 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
   * **เคสที่ได้คนครบตอนอยู่ `WAITING_RESPONSE`:** ไม่มีเส้น `WAITING_RESPONSE → EXECUTING` `recompute()` จึงพาเคสผ่าน `WAITING_APPROVAL` (T2) แล้วไป `EXECUTING` เขียน `CASE_STATUS_CHANGED` ทั้งสองช่วง เคสที่มีคนเข้าเวรครบแล้วต้องไม่เป็น `FAILED` เกิดได้เมื่อ Gap ถูกปิดโดยไม่มี `recompute()` คั่นที่ `WAITING_APPROVAL` เช่น การอนุมัติที่ตัดสินใน Transaction เดียวกับการตอบรับ
   * ชั้นลงมือ: `orchestrator.recompute(db: Session, case_id: int) -> CaseStatus` ล็อกเคสแบบเดียวกับ `resume()` ถ้าเคสอยู่ใน `AUTOMATION_STOPPED_STATUSES` (`RESOLVED`, `UNRESOLVED`, `FAILED`, `MANUAL_HANDOFF`) ไม่ทำอะไร คืนสถานะเดิม เพราะเคสที่หยุดแล้วไม่มีเส้นออก นอกนั้นโหลดข้อมูลมาสร้าง `CaseFacts` ถ้าสถานะที่ได้เท่าเดิมไม่เขียนอะไร ถ้าต่างจึงเปลี่ยนสถานะผ่าน `assert_transition()` เขียน `CASE_STATUS_CHANGED` แล้วเดินต่อถ้าสถานะใหม่ไม่ใช่จุดรอ Commit เหมือน `resume()`
   * **ที่อยู่ของโค้ด (PR S):** ชั้นตัดสินอยู่ใน `domain/workflow/case_status.py` พร้อม `gap_closed(*, headcount_gap, role_gaps, skill_gaps, fillers)` ซึ่งตัดสินว่า "Gap ถูกปิด" โดยคนหนึ่งคนนับให้จำนวนคน, Role ของเขา และทุก Skill ที่เขามี ส่วนการอ่าน DB มาสร้าง `CaseFacts` อยู่ใน `services/case_facts_service.py` (`load_case_facts()`) อ่านอย่างเดียว ไม่ Flush ไม่ Commit ไม่ล็อก และปิด Autoflush ระหว่างอ่านเอง จึงไม่ส่งงานค้างของผู้เรียกลง DB ไม่ว่า Session ตั้งค่าแบบไหน Offer และ Plan ถูกอ่านเฉพาะตอน Gap ยังไม่ถูกปิด
-  * **ใครนับเป็นอะไร:** "ได้เข้าเวรแล้ว" = คำขออนุมัติของเคสนี้ที่อนุมัติแล้ว และผู้สมัครมีแถว Roster แบบ `REPLACEMENT` ในเวรที่เสนอ ที่สถานะเป็น `ASSIGNED` หรือ `COMPLETED` (อนุมัติแล้วแต่ไม่มีแถว Roster ไม่นับ แถวที่ `CANCELLED` ไม่นับ) "รออนุมัติ" = คำขอของเคสนี้ที่ `is_pending = true` สำรองที่ตอบรับแล้วแต่ยังไม่มีคำขออนุมัติไม่นับทั้งสองกลุ่ม Gap ที่เทียบคือแถว `STAFFING_GAP` ของเคสเอง ผ่าน `gap_service.get_case_gap()` (Q19)
+  * **ใครนับเป็นอะไร:** "ได้เข้าเวรแล้ว" = คำขออนุมัติของเคสนี้ที่อนุมัติแล้ว และผู้สมัครมีแถว Roster แบบ `REPLACEMENT` ในเวรที่เสนอ ที่สถานะเป็น `ASSIGNED` หรือ `COMPLETED` (อนุมัติแล้วแต่ไม่มีแถว Roster ไม่นับ แถวที่ `CANCELLED` ไม่นับ) "รออนุมัติ" = คำขอของเคสนี้ที่ `is_pending = true` และมี Offer ACCEPTED ของเคส / Item เดียวกัน สำรองที่ตอบรับแล้วแต่ยังไม่มีคำขออนุมัติไม่นับทั้งสองกลุ่ม Gap ที่เทียบคือแถว `STAFFING_GAP` ของเคสเอง ผ่าน `gap_service.get_case_gap()` (Q19)
   * **ข้อจำกัดที่รู้ของการนับ:** (1) `ROSTER_ASSIGNMENT` ไม่มีคอลัมน์ที่ชี้ไปเคส แถว `REPLACEMENT` ของคนเดียวกันในเวรเดียวกันที่เส้นทางอื่นสร้าง จึงถูกนับให้เคสนี้ด้วย ตราบที่เคสนี้อนุมัติคนนั้น (2) Role และ Skill ของผู้สมัครอ่านค่าปัจจุบัน แต่ Gap เป็นค่าที่จดไว้ตอนเปิดเคส ถ้ามีคนแก้ Role หรือ Skill ของคนที่เข้าเวรแล้วกลางเคส Gap ของเคสเปิดใหม่ได้และเคสจะส่ง Wave เพิ่ม ไม่ทำให้เคส `FAILED` รอบ 1 ไม่มี Route แก้ Role หรือ Skill ของพนักงาน
-  * **Offer ที่ถูกพักในโค้ด:** `case_facts_service.staff_waiting_on_another_case(db, case_id, staff_ids)` คืนผู้สมัครที่มี Offer `ACCEPTED` บนเคสอื่นที่ยังไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` โดย Offer นั้นยังไม่มีคำขออนุมัติที่ตัดสินแล้ว (ไม่ว่าอนุมัติหรือไม่อนุมัติ) และยังไม่มีผล Safety ที่ไม่ผ่าน (ครอบคลุมคนที่กำลังตรวจ Safety, รออนุมัติ และสำรอง) Offer `SENT` ของคนกลุ่มนี้ไม่นับเป็น Offer ค้าง ฟังก์ชันนี้ไม่พึ่งว่าเคสอื่นตั้ง Offer เป็น `CANCELLED` แล้วหรือยัง ถ้าการเขียนนั้นหลุด ผู้สมัครที่ถูกปัดตกก็ยังกลับมากดรับ Offer นี้ได้ PR 2b ใช้ฟังก์ชันเดียวกันนี้ตอบ `409` เมื่อผู้สมัครกดรับ Offer ที่ถูกพัก และ PR O ใช้ใน Job เก็บตก การเทียบ `expires_at` ยังไม่อยู่ในฟังก์ชันนี้ เพราะคอลัมน์เพิ่มใน PR O
+  * **Offer ที่ถูกพักในโค้ด:** `case_facts_service.staff_waiting_on_another_case(db, case_id, staff_ids)` คืนผู้สมัครที่มี Offer `ACCEPTED` บนเคสอื่นที่ยังไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` โดย Offer นั้นยังไม่มีคำขออนุมัติที่ตัดสินแล้ว (ไม่ว่าอนุมัติหรือไม่อนุมัติ) และยังไม่มีผล Safety ที่ไม่ผ่าน (ครอบคลุมคนที่กำลังตรวจ Safety, รออนุมัติ และสำรอง) Offer `SENT` ของคนกลุ่มนี้ไม่นับเป็น Offer ค้าง ฟังก์ชันนี้ไม่พึ่งว่าเคสอื่นตั้ง Offer เป็น `CANCELLED` แล้วหรือยัง ถ้าการเขียนนั้นหลุด ผู้สมัครที่ถูกปัดตกก็ยังกลับมากดรับ Offer นี้ได้ PR 2b ใช้ฟังก์ชันเดียวกันนี้ตอบ `409` เมื่อผู้สมัครกดรับ Offer ที่ถูกพัก และ PR O ใช้ใน Job เก็บตก Offer SENT ที่เลย deadline ไม่ถูกนับเป็น Offer ค้างหรือ Offer ที่ถูกพักตั้งแต่ PR O ส่วน ACCEPTED ไม่ถูกตรวจ deadline เพราะตอบแล้ว
   * **ความล้มเหลวใน `recompute()`:** ต่างจาก `resume()` ตรงที่ไม่มีสถานะที่ผู้เรียกขอมา สถานะคำนวณภายใต้ Lock ของเคส จึงไม่มีกรณีแพ้ Race ถ้าการอ่านข้อมูลล้มเหลว (เช่น เคสไม่มีแถว Gap) ถือเป็นระบบผิด เคสเป็น `FAILED` ตาม D11 เหมือน Handler ที่พัง งานของผู้เรียกใน Transaction เดียวกันยังอยู่ เคสที่ไม่ได้อยู่ที่จุดรอและไม่ได้หยุด `recompute()` โยน `InvalidTransitionError` โดยไม่แตะเคส เคสที่หยุดแล้ว `recompute()` ไม่อ่านอะไรและไม่เขียนอะไรกับเคส แต่ยัง Commit งานของผู้เรียก (เช่น Job ที่เพิ่งตั้ง Offer เป็น `TIMEOUT`)
   * **PR 2b เรียก `recompute()` กับ Handler จริงแล้ว:** `contact_candidate` ส่ง Wave โดยไม่ติดต่อคนเดิมซ้ำ และเส้นตอบ Offer ตรวจ Safety รายคนด้วย Hard Rules เต็มตั้งแต่ PR 3 PR 4 จัดเวรรายคนใน Transaction ของการอนุมัติและให้ `execute_assignment` ปิดเคสเฉพาะเมื่อคนที่ได้เข้าเวรปิด Gap ครบ Branch รวมต้องผ่าน Test ร่วมกันก่อน merge เข้า staging
   * ผู้เรียก: `outreach_service` (หลังตอบรับ, ปฏิเสธ, Offer หมดเวลา) และ `approval_service` (หลังตัดสิน) เรียก `recompute()` แทนการส่ง `next_status` เอง
@@ -649,7 +649,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | `APPROVAL_REQUEST.requested_at` | NOT NULL | `approval_service.create_request()` | `IntegrityError` → เคส `FAILED` |
 | `CANDIDATE_OUTREACH.sent_at` | NULL | Outreach | ไม่ Error แต่ข้อมูลหาย |
 | `CANDIDATE_OUTREACH.response_at` | NULL | Respond | ไม่ Error แต่ข้อมูลหาย |
-| `CANDIDATE_OUTREACH.expires_at` | NULL | Outreach (PR O) | Offer ไม่มีวันหมดเวลา (ข้อ 6.9) |
+| `CANDIDATE_OUTREACH.expires_at` | NULL | Outreach (PR O) | NULL ได้ในแถวที่ยังไม่ส่งหรือประวัติที่ไม่มี sent_at; ประวัติที่มี sent_at backfill เป็น sent_at + 300 วินาทีด้วย; SENT ต้องมี deadline (CHECK) ส่วน ACCEPTED ไม่หมดเวลาแม้พ้น deadline |
 | `APPROVAL_REQUEST.decided_at` | NULL | Decide | ไม่ Error แต่ข้อมูลหาย |
 
 คอลัมน์เวลาอีกสองชนิดไม่ต้องใส่ตามตารางนี้
@@ -675,7 +675,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
    * คนที่ถูกเลือกโดยขั้นนี้ (ไม่ใช่โดย Solver) ต้องได้แถว `CANDIDATE_ITEM_TARGET` ก่อนส่ง Offer Safety จึงมีแถวอ่านทุกคน ไม่ว่าอยู่ Wave ไหน
 6. เลือกได้อย่างน้อยหนึ่งคน → ส่ง Offer ทุกคนพร้อมกัน เคสไป `WAITING_RESPONSE` เลือกไม่ได้เลย ตรวจตามลำดับนี้
    * มีคนรออนุมัติที่เติม Gap ได้ → เคสไป `WAITING_APPROVAL` (T7)
-   * มี Offer ที่ถูกพักและยังไม่เลย `expires_at` → เคสไป `WAITING_RESPONSE` รอผลของเคสที่ผู้สมัครไปรับ หรือรอ Offer หมดเวลา (ข้อ 5.1)
+   * มี Offer ที่ถูกพักและ`clock.now() < expires_at` → เคสไป `WAITING_RESPONSE` รอผลของเคสที่ผู้สมัครไปรับ หรือรอ Offer หมดเวลา (ข้อ 5.1)
    * ไม่มีทั้งสองอย่าง → `MANUAL_HANDOFF` (T5)
 
 Target ของ Wave, สูตรจัดอันดับ และลำดับการเติม Target อยู่ร่างรอบ 1 ข้อ 8.3
@@ -726,12 +726,16 @@ Migration สร้างตารางว่าง ไม่สร้าง Po
 | รับหอ 2 แล้วหอ 2 ไม่อนุมัติ | หอ 1 ไม่ต้องส่ง Offer ใหม่ Offer เดิมของหอ 1 กลับมากดได้ |
 | เมื่อไหร่ยกเลิก Offer ของหอ 1 | ไม่ยกเลิกตอน A กดรับหอ 2 ยกเลิกหลังหอ 2 จัดเวรให้ A สำเร็จ และเฉพาะ Offer ที่ขัดกับ Assignment ใหม่ |
 | "ขัดกัน" | ใช้ Hard Rules ชุดเดียวกัน: เวลาทับ, พักไม่พอ, ชั่วโมงรวมเกิน ไม่ใช่แค่เวลาทับ |
-| สิ่งที่ผู้สมัครเห็น | หอ, เวร, เส้นตาย และเหตุผลที่ยกเลิก เส้นตายแสดงได้เมื่อมี `expires_at` คือหลัง PR O |
+| สิ่งที่ผู้สมัครเห็น | หอ, เวร, เส้นตาย และเหตุผลที่ยกเลิก เส้นตายแสดงด้วย `expires_at` แล้วตั้งแต่ PR O |
 | จำกัดจำนวน | ตารางใหม่ `OUTREACH_POLICY` |
 
 คอลัมน์ของ `OUTREACH_POLICY` อยู่ใน `docs/database-schema.md`
 
 ### 6.9 Timeout ของ Offer
+
+PR O ตามรีวิว: recovery อ่าน facts โดยไม่ล็อกก่อน แล้วล็อกและตรวจซ้ำเฉพาะเคสที่ดูค้าง; healthy waits ไม่ล็อก Offer/Case/Staff ทุก tick. Lock retry ครบ 5 รอบตอบ `503` พร้อม `Retry-After: 1` แยกจาก Offer conflict `409`; ผู้เรียก lock helper ต้องไม่มี uncommitted writes เพราะ retry rollback. เคสสถานะเก่าที่ไม่ใช่ wait/stopped ยังปิด Offer เป็น TIMEOUT พร้อม audit ได้ แต่ไม่เรียก recompute หรือเปลี่ยนสถานะเคส และ log ให้ซ่อมด้วยมือ. ความล้มเหลวซ้ำ log stack trace ครั้งแรกและทุก 120 ครั้งต่อ operation/case/exception type (counter ใน process จำกัด 1,024 entries; ล้างเมื่อสำเร็จ).
+
+
 
 Offer มี Timeout ส่วนการอนุมัติ**ไม่มี** Timeout หรือ Deadline เคสที่รออนุมัติรอจนผู้อนุมัติตัดสิน (Q56)
 
@@ -740,13 +744,13 @@ Offer มี Timeout ส่วนการอนุมัติ**ไม่มี
 | ค่าระยะเวลา | คอลัมน์ `OUTREACH_POLICY.offer_timeout_seconds` (integer, NOT NULL, CHECK > 0) Seed = 300 วินาที |
 | เวลาหมดอายุของแต่ละ Offer | คอลัมน์ใหม่ `CANDIDATE_OUTREACH.expires_at` ตั้งตอนส่ง = `sent_at` + ค่าใน Policy ไม่เปลี่ยนทีหลัง Offer ใน Wave เดียวกันจึงหมดพร้อมกัน |
 | หมดเวลาแล้วยังไม่ตอบ | Offer ที่ยัง `SENT` เป็น `TIMEOUT` เขียน `OFFER_TIMEOUT` หนึ่งแถวต่อ Offer แล้วคำนวณสถานะเคสใหม่ (ไม่มี Offer ค้างแล้ว เคสจึงไป `OUTREACH` ส่ง Wave ถัดไป หรือจบตามข้อ 5.1) |
-| ผู้สมัครที่ Timeout | นับว่าเคสนี้ติดต่อไปแล้ว ไม่ส่งซ้ำในเคสเดียวกัน (ข้อ 6.6 ขั้นที่ 4) และ Offer นั้นเลิกนับในเพดานของเขา |
+| ผู้สมัครที่ Timeout | นับว่าเคสนี้ติดต่อไปแล้ว ไม่ส่งซ้ำในเคสเดียวกัน (ข้อ 6.6 ขั้นที่ 4) และ SENT ที่พ้น deadline เลิกนับในเพดานทันทีแม้ Job ยังไม่ได้ตั้ง TIMEOUT; ACCEPTED ยังนับตามปกติ |
 | Offer ที่กดรับไม่ได้เพราะรับของเคสอื่นค้างอยู่ (Q29) | หมดเวลาตามปกติ ไม่หยุดนาฬิกา |
 | Offer ที่ตอบรับแล้ว (รวมสำรอง) | ไม่มี Timeout เพราะตอบแล้ว |
-| กดตอบหลังหมดเวลา | `409` ไม่เขียน DB `respond` เทียบ `expires_at` กับ `clock.now()` เอง ไม่รอ Job เพราะ Job รันทุก 30 วินาที ช่วงนั้น Offer ที่เลยเวลาแล้วยังเป็น `SENT` การเปลี่ยนเป็น `TIMEOUT` ยังเป็นหน้าที่ของ Job ที่เดียว |
+| กดตอบหลังหมดเวลา | ช่วงที่ตอบได้คือ `clock.now() < expires_at`; เท่ากับ deadline ถือว่าหมดเวลาและตอบ `409` ไม่เขียน DB `respond` เทียบ `expires_at` กับ `clock.now()` เอง ไม่รอ Job เพราะ Job รันทุก 30 วินาที ช่วงนั้น Offer ที่เลยเวลาแล้วยังเป็น `SENT` การเปลี่ยนเป็น `TIMEOUT` ยังเป็นหน้าที่ของ Job ที่เดียว |
 | ใครสั่ง | Service ของ Job ตัวเดียวกับ Merge Gap (ข้อ 3) ทุกรอบให้ Backend ปิด Offer ที่หมดเวลา ปุ่มเลื่อน Clock ของ Demo ทำงานเดียวกัน |
 
-* ผลต่อ Demo: Clock ของ Demo เป็นตัวเดียวทั้งระบบ เลื่อน Clock เกิน 300 วินาที Offer ที่ยัง `SENT` และส่งไว้ก่อนหน้านั้นจะ `TIMEOUT` ทุกแถว ไม่ว่าเป็นของเคสไหน เรื่องนี้เป็นคนละส่วนกับการปิด Window ซึ่งยังเป็นไปตาม Q43 (Window ปิดเมื่อครบ `merge_window_seconds` และเคสก่อนหน้าของเวรจบแล้ว) Scenario และการสาธิตที่เลื่อน Clock เพื่อปิด Window จึงต้องรู้ว่า Offer ที่ค้างอยู่จะหมดเวลาไปพร้อมกัน
+* ผลต่อ Demo: Clock ของ Demo เป็นตัวเดียวทั้งระบบ เลื่อน Clock ตั้งแต่ 300 วินาที Offer ที่ยัง `SENT` และส่งไว้ก่อนหน้านั้นจะ `TIMEOUT` ทุกแถว ไม่ว่าเป็นของเคสไหน เรื่องนี้เป็นคนละส่วนกับการปิด Window ซึ่งยังเป็นไปตาม Q43 (Window ปิดเมื่อครบ `merge_window_seconds` และเคสก่อนหน้าของเวรจบแล้ว) Scenario และการสาธิตที่เลื่อน Clock เพื่อปิด Window จึงต้องรู้ว่า Offer ที่ค้างอยู่จะหมดเวลาไปพร้อมกัน
 
 ### 6.10 แถวที่แต่ละเส้นทางเขียน
 
@@ -770,9 +774,9 @@ Offer มี Timeout ส่วนการอนุมัติ**ไม่มี
 | ไม่อนุมัติ | `APPROVAL_REQUEST` | `approver_id`, `is_approved = false`, `is_pending = false`, `reason`, `decided_at` | `approval_service.decide()` |
 | | `CANDIDATE_OUTREACH` (ของคนที่ไม่ได้รับอนุมัติ) | `status = CANCELLED` | `outreach_service` (Q8) |
 | | สำรองคนแรก (ถ้ามี) | เข้า Safety ต่อ เขียนแบบเดียวกับแถว "ตอบรับ" | `safety_service` |
-| Gap ถูกปิด (เคสผ่าน `EXECUTING`) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` และของสำรอง | `status = CANCELLED` | Handler ของ `EXECUTING` ผ่าน `outreach_service` |
-| Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และเลย `expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 6.9) | `outreach_service` เรียกจาก Job |
-| เคสเข้า `MANUAL_HANDOFF` (T5) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` ทุกแถว ตอนนี้เหลือได้แต่ Offer ที่เลย `expires_at` แล้วแต่ Job ยังไม่ได้เปลี่ยนเป็น `TIMEOUT` เพราะ Offer ที่ถูกพักและยังไม่หมดเวลากันไม่ให้เคสมาถึงจุดนี้ (ข้อ 5.1) | `status = CANCELLED` เพราะเคสไม่มีเส้นออกจาก `MANUAL_HANDOFF` | `contact_candidate` ผ่าน `outreach_service` |
+| Gap ถูกปิด (เคสผ่าน `EXECUTING`) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` และ `clock.now() < expires_at` และของสำรอง; SENT ที่หมดเวลาคงไว้ให้ Job | `status = CANCELLED` | Handler ของ `EXECUTING` ผ่าน `outreach_service` |
+| Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และ `clock.now() >= expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 6.9) | `offer_timeout_service` เรียกจาก Job |
+| เคสเข้า `MANUAL_HANDOFF` (T5) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` เฉพาะแถวที่ยังไม่หมดเวลา; แถวที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 5.1) | `status = CANCELLED` เพราะเคสไม่มีเส้นออกจาก `MANUAL_HANDOFF` | `contact_candidate` ผ่าน `outreach_service` |
 | Solver ไม่ได้ใครเลย (T6) | ไม่มีแถวใหม่นอกจาก Audit | | Handler |
 
 ### 6.11 ลำดับ Lock
@@ -815,7 +819,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 | `OFFER_SENT` | `contact_candidate` | `outreach_agent` | CANDIDATE_OUTREACH | `outreach_id`, `staff_id`, `channel`, `wave` แถวแรกของ Wave มี `skipped` |
 | `OFFER_ACCEPTED` | `outreach_service` | user (ผู้สมัคร) | CANDIDATE_OUTREACH | `outreach_id`, `staff_id` |
 | `OFFER_REJECTED` | `outreach_service` | user (ผู้สมัคร) | CANDIDATE_OUTREACH | `outreach_id`, `staff_id` |
-| `OFFER_TIMEOUT` | `outreach_service` เรียกจาก Job | กำหนดใน PR O | CANDIDATE_OUTREACH | `outreach_id`, `staff_id` |
+| `OFFER_TIMEOUT` | `offer_timeout_service` เรียกจาก Job | `outreach_agent` | CANDIDATE_OUTREACH | `outreach_id`, `staff_id` |
 | `SAFETY_PASSED` | `safety_service` | `safety_rule_engine` | SAFETY_VALIDATION | `validation_id`, `staff_id` |
 | `SAFETY_FAILED` | `safety_service` | `safety_rule_engine` | SAFETY_VALIDATION | `validation_id`, `staff_id`, `outreach_id`, `failed_rules` (List ของรหัส) |
 | `APPROVAL_REQUESTED` | `approval_service` ตอนสร้างคำขอ หลัง Safety ผ่าน (Seam 5) | `workflow_orchestrator` | APPROVAL_REQUEST | `approval_id`, `approval_mode` |
@@ -827,7 +831,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 | `WORKFLOW_FAILED` | Orchestrator (D11) | `workflow_orchestrator` | STAFFING_CASES | `from`, `failed_at`, `error_type` |
 
 * `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` เพิ่มใน `AuditAction` แล้ว และ `SHIFT`, `STAFFING_REQUIREMENTS` เพิ่มใน `EntityType` แล้ว (PR 0) และ PART B เขียนแถวพวกนี้ตั้งแต่ PR M
-* ช่องที่ร่างรอบ 1 ยังไม่ได้กำหนด เจ้าของ PR กำหนดแล้วเขียนลงตารางนี้ใน PR ของตัวเอง: Actor ของ `OFFER_TIMEOUT` (PR O) ยังเป็นค่าตั้งต้น ส่วน Actor และชื่อ Key ใน payload ของ Action สามตัวของ Event ชนิดใหม่ และ Key `reason` ของ `EVENT_IGNORED` กำหนดแล้วใน PR M ตามตารางข้างบน
+* Actor ของ `OFFER_TIMEOUT` คือ `outreach_agent` และผู้เขียนคือ `offer_timeout_service` (PR O); Actor และชื่อ Key ใน payload ของ Action สามตัวของ Event ชนิดใหม่ และ Key `reason` ของ `EVENT_IGNORED` กำหนดแล้วใน PR M ตามตารางข้างบน
 * `EVENT_RECEIVED`: `staff_id` ใน payload คือคนที่ Event พูดถึง (`STAFFING_EVENTS.staff_id`) จึงเป็น `null` สำหรับ `PATIENT_SURGE` และ `REQUIREMENT_CHANGED` ผู้แจ้งดูจาก Actor ของแถว
 * หกแถวแรกของตารางเป็นแถวของ Event: มี `event_id` และ `case_id = NULL` เสมอ ส่วน `CASE_OPENED` เป็นแถวของเคส: มี `case_id` และ `event_id = NULL` โดยบอก Event ไว้ใน payload
 
@@ -948,7 +952,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 | Response | PR 2b ตอบ Accept / Reject ของ Offer ID ที่ระบุ ล็อก Offer → เคส → Staff ทั้ง Plan; ตอบรับเกินเป็นสำรอง ตรวจ Safety รายคนผ่าน bridge และเรียก `recompute()` แทน `resume()` กติกาเต็มอยู่ข้อ 6.10 และ 9.2 | CANDIDATE_OUTREACH, AUDIT_LOG |
 | Safety | ของจริงตั้งแต่ PR 3 ไม่ใช่ Stub: `safety_service.validate_accepted_candidate(db, case, outreach_id=)` ถูกเรียกรายคนใน Transaction ของการตอบรับ ผ่าน `outreach_service.promote_reserves()` ตรวจด้วย `hard_rule_service.check_items()` ตัวเดียวกับการเลือกคนของ Wave แล้วเขียน `SAFETY_VALIDATION` หนึ่งแถวตามร่างรอบ 1 ข้อ 7.4 ผ่าน: เขียน `SAFETY_PASSED` แล้ว `approval_service.create_request()` สร้างคำขออนุมัติและเขียน `APPROVAL_REQUESTED` ไม่ผ่าน: เขียน `SAFETY_FAILED` พร้อมรหัสทุกข้อ ตั้ง Offer เป็น `CANCELLED` ผ่าน `outreach_service.cancel_offer()` ไม่สร้างคำขอ และเคสเดินต่อตามข้อ 5.3 ข้อมูลผิดรูป (Offer ไม่ใช่ของเคส, Offer ไม่ใช่ `ACCEPTED`, Item ของเคสอื่นหรือเวรอื่น) ยังเป็น `FAILED` ตาม D11 ไม่ตรวจเพดาน Offer | SAFETY_VALIDATION, APPROVAL_REQUEST |
 | Approval | PR 4 ตัดสินรายคน ตรวจ `404 → 403 → 409 → 422` เคสที่หยุดแล้วตอบ `409` ไม่อนุมัติต้องมีเหตุผลไม่ว่าง ยกเลิก Offer ของคนนั้นและเลื่อนสำรอง; อนุมัติสร้าง Roster ทันทีผ่าน `recompute(..., prepare=...)` ใน Savepoint ของ D11 แล้วแจ้งเคสอื่นหลัง Commit | APPROVAL_REQUEST |
-| Roster | PR 4 ใช้ `roster_service.create_replacement(db, case, approval=request)` สร้างแถวของ Request ที่กำลังตัดสินโดยตรง ไม่ค้นหนึ่งแถวจากเคส ไม่ตรวจ Hard Rules ซ้ำ (Q38) การอนุมัติเขียน `ASSIGNMENT_CREATED` และยกเลิก Offer ของเคสอื่นที่ขัดกับเวรใหม่ด้วยกฎเวลา/ชั่วโมงชุดเดียวกับ Safety; `EXECUTING` ตรวจ Assigned Coverage ไม่สร้าง Roster เพิ่ม ยกเลิก Offer ที่ยัง SENT และสำรอง แล้วเขียน `CASE_RESOLVED` พร้อม `assignment_ids` / `cancelled_outreach_ids` | ROSTER_ASSIGNMENT |
+| Roster | PR 4 ใช้ `roster_service.create_replacement(db, case, approval=request)` สร้างแถวของ Request ที่กำลังตัดสินโดยตรง ไม่ค้นหนึ่งแถวจากเคส ไม่ตรวจ Hard Rules ซ้ำ (Q38) การอนุมัติเขียน `ASSIGNMENT_CREATED` และยกเลิก Offer ของเคสอื่นที่ขัดกับเวรใหม่ด้วยกฎเวลา/ชั่วโมงชุดเดียวกับ Safety; `EXECUTING` ตรวจ Assigned Coverage ไม่สร้าง Roster เพิ่ม ยกเลิก Offer SENT ที่ยังไม่หมดเวลาและสำรอง (SENT ที่หมดเวลาคงไว้ให้ Job ตั้ง TIMEOUT) แล้วเขียน `CASE_RESOLVED` พร้อม `assignment_ids` / `cancelled_outreach_ids` | ROSTER_ASSIGNMENT |
 
 `CANDIDATE_PLANS` และ `SAFETY_VALIDATION` อ้าง Policy แบบ NOT NULL จึงต้อง Seed `HARD_CONSTRAINT_POLICY` และ `SOFT_CONSTRAINT_POLICY` อย่างละ 1 แถว Solver ใช้ค่าของทั้งสอง Policy แล้วตั้งแต่ PR 2a
 
@@ -1050,7 +1054,7 @@ Handler นี้เป็นตาข่ายชั้นสุดท้าย
 
 * รูปแบบ Body ของคำตอบไม่เปลี่ยน มีแค่ค่าใหม่ จึงไม่ต้องแก้ Type ฝั่ง Frontend
 * `case_status` ในคำตอบเป็นค่าที่คำนวณจากตารางสถานะเคส (ข้อ 4): `WAITING_RESPONSE`, `WAITING_APPROVAL`, `RESOLVED`, `MANUAL_HANDOFF` หรือ `FAILED` (D11)
-* `respond` รับคำตอบได้เมื่อ Offer ยัง `SENT` และยังไม่เลย `expires_at` (Q24, ข้อ 6.9) แทนกติกาเดิมที่เคสต้องอยู่ `WAITING_RESPONSE` เคสที่จบที่ `RESOLVED` หรือ `MANUAL_HANDOFF` ไม่มี Offer `SENT` เหลือ เพราะถูกยกเลิกตอนเคสจบ (ข้อ 6.10)
+* `respond` รับคำตอบได้เมื่อ Offer ยัง `SENT` และ`clock.now() < expires_at` (Q24, ข้อ 6.9) แทนกติกาเดิมที่เคสต้องอยู่ `WAITING_RESPONSE` เคสที่จบที่ `RESOLVED` หรือ `MANUAL_HANDOFF` ยกเลิกเฉพาะ Offer `SENT` ที่ยังไม่หมดเวลา ส่วน `SENT` ที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 6.10)
 * Offer ที่ถูก `CANCELLED` หรือ `TIMEOUT` แล้ว กดตอบได้ `409` ตามการตรวจเดิม
 * เคสที่หยุดแล้ว: ถ้าเคสอยู่ใน `AUTOMATION_STOPPED_STATUSES` (`RESOLVED`, `UNRESOLVED`, `FAILED`, `MANUAL_HANDOFF`) ทั้ง `respond` และ `decision` ตอบ `409` ไม่เขียน DB กรณีที่เกิดจริงคือเคส `FAILED`: เคสล้มจาก Exception (D11) จึงไม่มีขั้นยกเลิก Offer และคำขออนุมัติที่เหลือ ถ้าไม่กันไว้ ผู้สมัครกดรับได้ และผู้อนุมัติกดอนุมัติแล้วได้ Roster ของเคสที่ล้มไปแล้ว Offer ของเคสแบบนี้ค้างเป็น `SENT` จนหมดเวลาตามข้อ 6.9 (ตอนหมดเวลา `recompute()` ไม่ทำอะไรกับเคสที่หยุดแล้ว ข้อ 5.3)
 * Offer ที่ยัง `SENT` แต่กดรับไม่ได้ เพราะผู้ตอบรับ Offer ของเคสอื่นค้างอยู่ (ข้อ 6.8): ตอบ `409` (Q39) ข้อความต้องต่างจาก `409` ของ Offer ที่ถูกยกเลิก เพื่อให้หน้า `line-sim` บอกเหตุผลได้
@@ -1180,6 +1184,8 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 
 PR 2b เพิ่ม `ward_id`, `ward_name`, `shift_start_at`, `shift_end_at`, `can_accept`, `can_reject`, `blocked_reason`, `cancellation_reason` และ `is_reserve` สถานะ `SENT` ของเคสที่ยังเดินอยู่กด Reject ได้ แม้ Accept ถูกพัก (`AWAITING_OTHER_CASE`) ส่วนเคสที่หยุดแล้วกดทั้งสองอย่างไม่ได้ ไม่ได้ใช้ `case_status == WAITING_RESPONSE` เป็นเงื่อนไขอีกต่อไป
 
+PR O เพิ่ม `expires_at` ในคำตอบและคอลัมน์ Deadline ใน LINE simulator; Offer ที่ยัง SENT แต่หมดเวลาแสดง `blocked_reason = OFFER_EXPIRED`, `can_accept = false`, `can_reject = false` โดยอ่านอย่างเดียว ไม่รอ Job และไม่เทียบเวลาของ Browser ซึ่งต่างจาก Clock ของ Demo
+
 PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุมัติแล้วและมี Roster `REPLACEMENT` ที่ `ASSIGNED` หรือ `COMPLETED` ของคน/เวรนี้ LINE simulator จึงแสดงข้อความยืนยันเวรได้แม้เคสยังรอผู้สมัครคนอื่น ไม่ใช่อ่านจาก `case_status` อย่างเดียว
 
 * ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
@@ -1188,7 +1194,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 * คืน JSON List ของ Outreach ที่ Item อ้าง Staff คนนั้น เรียง `id` จากน้อยไปมาก; ไม่มี Offer หรือไม่มี Staff ID นั้นคืน `[]`
 * คืนทุก Status รวมประวัติ: `id`, `case_id`, `candidate_item_id`, `staff_id`, `proposed_shift_id`,
   `status`, `case_status`, `channel`, `sent_at`, `response_at`; เวลาที่มีค่าใช้ `+07:00`, เวลาที่ยังไม่มีเป็น `null`
-* Offer ที่ตอบได้ต้องเป็น `SENT`, ยังไม่เลย `expires_at` และเคสไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` (ข้อ 9.2)
+* Offer ที่ตอบได้ต้องเป็น `SENT`, `clock.now() < expires_at` และเคสไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` (ข้อ 9.2)
   การอ่านไม่เปลี่ยน Status ของ Offer หรือเคส ผู้สมัครคนเดียวมี Offer ที่ตอบได้จากหลายเคสพร้อมกันได้ (ข้อ 6.8)
   `PENDING` ยังไม่ถูกใช้ Wave ของรอบ 1 เขียนแถวเป็น `SENT` ตอนส่งเลย
 * Route / `outreach_service.list_offers()` ไม่เขียน DB, Audit, Commit, Explicit Flush หรือ Row Lock
@@ -1443,3 +1449,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-13 | ตามรีวิว PR 4: Pending List ไม่แสดงคำขอของเคสที่หยุดแล้ว รวมกรณีอนุมัติคนเดียวปิดทั้ง Headcount/Skill แต่คำขอคนอื่นยังค้างและกรณี D11; เหตุผลการตัดสินยาวได้ไม่เกิน 500 ตัวอักษร (`MAX_APPROVAL_REASON_LENGTH`) ตรวจทั้ง API และ Service ก่อนเขียน พร้อม Test ขอบเขต 500/501 | คน 3 |
 | 2026-10-13 | ตามรีวิว PR 4 รอบเพิ่มเติม: คำขอใช้งานได้และนับ Pending Coverage เฉพาะเมื่อ Offer ของเคส / Item เดียวกันยัง ACCEPTED; ยกเลิก Offer แล้วเก็บคำขอเป็นประวัติ แต่กดตัดสินได้ 409 และเคสต่างหอเดินต่อได้; แยก Offer Conflict / Lock Retry Error, ใช้ query lock ร่วมกับ phantom check, ย้าย scheduling codes ขึ้น module และแจ้งเฉพาะผู้สมัครที่ยกเลิกในรอบนี้ | คน 3 |
 | 2026-10-13 | ตามรีวิว PR 4 รอบ Minor: ตรวจความยาวเหตุผลใน Service แทน Schema เพื่อคง 404 → 403 → 409 → 422; เหตุผลปฏิเสธตัดช่องว่างก่อนตรวจ 500 ตัวอักษร; รายงานหรือผู้ใช้อื่นที่นับคำขอค้างต้องใช้ accepted_offer_for_request ไม่ใช่ is_pending อย่างเดียว; เพิ่ม Test ลำดับ error และเหตุผล 500 ตัวอักษรพร้อม whitespace | คน 3 |
+| 2026-10-13 | รอบ 1 PR O: Migration a4b8c2d6e9f1 เพิ่ม offer_timeout_seconds (Seed 300) และ expires_at; backfill จาก sent_at + 300 วินาที ตรวจ SENT ต้องมี expiry; ส่ง Wave snapshot deadline เดียวกัน, ตอบหลัง deadline ได้ 409 ไม่เขียน, SENT ที่หมดเวลาไม่เติม open/paused offer และไม่นับ cap; Job ปิด TIMEOUT/Audit ราย Offer แล้ว recompute, recovery sweep และปล่อย Window ต่อใน tick เดียวกัน; LINE simulator แสดง deadline; tests ครอบคลุมขอบเขตเวลา migration failure-isolation และ race กับ Job | คน 3 |

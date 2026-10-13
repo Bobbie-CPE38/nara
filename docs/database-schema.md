@@ -328,7 +328,7 @@ CHECK `ck_candidate_item_target_role_id_matches_target_type`: `(target_type = 'R
 | `channel` | text | NOT NULL |  | `Channel` |
 | `sent_at` | timestamptz | NULL |  |  |
 | `response_at` | timestamptz | NULL |  |  |
-| `expires_at` | timestamptz | NULL |  | เวลาหมดอายุของ Offer ตั้งตอนส่ง = `sent_at` + `OUTREACH_POLICY.offer_timeout_seconds` เลยเวลานี้แล้วยัง `SENT` จะเป็น `TIMEOUT` **(รอบ 1 ยังไม่มีใน DB)** |
+| `expires_at` | timestamptz | NULL |  | เวลาหมดอายุของ Offer ตั้งตอนส่ง = `sent_at` + `OUTREACH_POLICY.offer_timeout_seconds` เมื่อ `clock.now() >= expires_at` แล้วยัง `SENT` จะเป็น `TIMEOUT` โดย Job; CHECK `status != SENT OR expires_at IS NOT NULL` |
 | `status` | text | NOT NULL |  | `OutreachStatus` |
 
 
@@ -432,7 +432,7 @@ Model และ Migration `d91a6c8e203f` เพิ่มแล้วใน PR 1c
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `maximum_concurrent_offers_per_staff` | integer | NOT NULL | CHECK | จำนวน Offer ที่ยังเปิดได้พร้อมกันต่อคน นับ Offer ที่ `SENT` หรือ `ACCEPTED` บนเคสที่ยังเดินอยู่ CHECK `> 0` Seed = 3 |
-| `offer_timeout_seconds` | integer | NOT NULL | CHECK | อายุของ Offer เป็นวินาที ใช้ตั้ง `CANDIDATE_OUTREACH.expires_at` ตอนส่ง CHECK `> 0` Seed = 300 **(ยังไม่มีใน DB เพิ่มใน PR O)** |
+| `offer_timeout_seconds` | integer | NOT NULL | CHECK | อายุของ Offer เป็นวินาที ใช้ตั้ง `CANDIDATE_OUTREACH.expires_at` ตอนส่ง CHECK `> 0` Seed = 300 |
 | `version` | text | NOT NULL |  |  |
 | `effective_from` | timestamptz | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |

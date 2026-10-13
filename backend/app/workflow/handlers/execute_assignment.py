@@ -3,6 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import clock
 from app.db.models import (
     ApprovalRequest,
     CandidateItem,
@@ -65,7 +66,14 @@ def handle(db: Session, case: StaffingCase) -> HandlerResult:
         )
     )
     cancelled = []
+    now = clock.now()
     for offer, staff_id in rows:
+        # Only the timeout job may close expired SENT offers, even after the
+        # case resolves. Preserve them here for its per-offer timeout audit.
+        if offer.status == OutreachStatus.SENT and (
+            offer.expires_at is None or offer.expires_at <= now
+        ):
+            continue
         if offer.status == OutreachStatus.SENT or staff_id not in assigned_staff:
             outreach_service.cancel_offer(db, offer)
             cancelled.append(offer.id)

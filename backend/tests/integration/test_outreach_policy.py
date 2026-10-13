@@ -81,6 +81,7 @@ def _offer(
         case_id=case.id,
         candidate_item_id=item.id,
         channel=Channel.LINE,
+        expires_at=DEMO_NOW + timedelta(seconds=300),
         sent_at=DEMO_NOW,
         status=status,
     )
@@ -186,6 +187,7 @@ def test_missing_policy_is_an_error_even_when_no_offers_exist(seeded: Session) -
             maximum_concurrent_offers_per_staff=5,
             version="newer",
             effective_from=DEMO_NOW + timedelta(days=1),
+            offer_timeout_seconds=300,
         )
     )
     seeded.flush()
@@ -204,6 +206,7 @@ def test_database_rejects_nonpositive_limit(db: Session, limit: int) -> None:
                 maximum_concurrent_offers_per_staff=limit,
                 version="test",
                 effective_from=DEMO_NOW,
+                offer_timeout_seconds=300,
             )
         )
         db.flush()

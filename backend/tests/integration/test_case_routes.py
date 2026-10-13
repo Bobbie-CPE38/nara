@@ -180,6 +180,7 @@ def _add_outreach(
             case_id=case.id,
             candidate_item_id=item.id,
             channel=Channel.LINE,
+            expires_at=sent_at + timedelta(seconds=300),
             sent_at=sent_at,
             status=status,
         )

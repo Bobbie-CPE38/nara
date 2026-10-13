@@ -470,6 +470,7 @@ def _open_offer(
             case_id=other.id,
             candidate_item_id=item.id,
             channel=Channel.LINE,
+            expires_at=DEMO_NOW + timedelta(seconds=300),
             sent_at=DEMO_NOW,
             status=offer_status,
         )

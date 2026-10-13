@@ -89,6 +89,7 @@ def seed(db: Session) -> None:
             OutreachPolicy(
                 id=1,
                 maximum_concurrent_offers_per_staff=3,
+                offer_timeout_seconds=300,
                 version="demo-outreach-v1",
                 effective_from=now,
                 created_at=now,

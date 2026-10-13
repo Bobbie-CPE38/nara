@@ -107,6 +107,7 @@ def _request(
             candidate_item_id=item.id,
             channel=Channel.LINE,
             status=OutreachStatus.ACCEPTED,
+            expires_at=DEMO_NOW + timedelta(seconds=300),
             sent_at=DEMO_NOW,
         )
     )

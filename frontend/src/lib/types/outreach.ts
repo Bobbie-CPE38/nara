@@ -32,13 +32,18 @@ export type Offer = {
   channel: "LINE";
   sent_at: string | null;
   response_at: string | null;
+  expires_at: string | null;
   ward_id: number;
   ward_name: string;
   shift_start_at: string;
   shift_end_at: string;
   can_accept: boolean;
   can_reject: boolean;
-  blocked_reason: string | null;
+  blocked_reason:
+    | "CASE_STOPPED"
+    | "OFFER_EXPIRED"
+    | "AWAITING_OTHER_CASE"
+    | null;
   cancellation_reason: string | null;
   is_assigned: boolean;
   is_reserve: boolean;

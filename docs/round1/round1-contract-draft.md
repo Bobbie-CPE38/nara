@@ -437,7 +437,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 | รับหอ 2 แล้วหอ 2 ไม่อนุมัติ | หอ 1 ไม่ต้องส่ง Offer ใหม่ Offer เดิมของหอ 1 กลับมากดได้ |
 | เมื่อไหร่ยกเลิก Offer ของหอ 1 | ไม่ยกเลิกตอน A กดรับหอ 2 ยกเลิกหลังหอ 2 จัดเวรให้ A สำเร็จ และเฉพาะ Offer ที่ขัดกับ Assignment ใหม่ |
 | "ขัดกัน" | ใช้ Hard Rules ชุดเดียวกัน: เวลาทับ, พักไม่พอ, ชั่วโมงรวมเกิน ไม่ใช่แค่เวลาทับ |
-| สิ่งที่ผู้สมัครเห็น | หอ, เวร, เส้นตาย และเหตุผลที่ยกเลิก เส้นตายแสดงได้เมื่อมี `expires_at` คือหลัง PR O |
+| สิ่งที่ผู้สมัครเห็น | หอ, เวร, เส้นตาย และเหตุผลที่ยกเลิก PR O แสดงเส้นตายจาก `expires_at` แล้ว |
 | จำกัดจำนวน | ตารางใหม่ `OUTREACH_POLICY` |
 
 ตาราง `OUTREACH_POLICY` (Migration ใหม่)
@@ -474,7 +474,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 
 ตกลงแล้ว (Q56): Offer มี Timeout ในรอบ 1 ส่วนการอนุมัติ**ไม่มี** Timeout หรือ Deadline เคสที่รออนุมัติรอจนผู้อนุมัติตัดสิน
 
-ค่าที่มีอยู่แล้วคือ `OutreachStatus.TIMEOUT` และ Audit Action `OFFER_TIMEOUT` ต้องเพิ่มคอลัมน์สองตัวตามตาราง ตกลงแล้วทั้งตาราง
+PR O เพิ่มคอลัมน์สองตัวตามตารางแล้ว ใช้ `OutreachStatus.TIMEOUT` และ Audit Action `OFFER_TIMEOUT`
 
 | หัวข้อ | กติกา |
 |---|---|
@@ -484,11 +484,14 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 | ผู้สมัครที่ Timeout | นับว่าเคสนี้ติดต่อไปแล้ว ไม่ส่งซ้ำในเคสเดียวกัน (ข้อ 3.2 ขั้นที่ 4) และ Offer นั้นเลิกนับในเพดานของเขา |
 | Offer ที่กดรับไม่ได้เพราะรับของเคสอื่นค้างอยู่ (Q29) | หมดเวลาตามปกติ ไม่หยุดนาฬิกา |
 | Offer ที่ตอบรับแล้ว (รวมสำรอง) | ไม่มี Timeout เพราะตอบแล้ว |
-| กดตอบหลังหมดเวลา | `409` ไม่เขียน DB `respond` เทียบ `expires_at` กับ `clock.now()` เอง ไม่รอ Job เพราะ Job รันทุก 30 วินาที ช่วงนั้น Offer ที่เลยเวลาแล้วยังเป็น `SENT` การเปลี่ยนเป็น `TIMEOUT` ยังเป็นหน้าที่ของ Job ที่เดียว |
+| กดตอบหลังหมดเวลา | `409` ไม่เขียน DB `respond` เทียบ `expires_at` กับ `clock.now()` เอง ไม่รอ Job เพราะ Job รันทุก 30 วินาที ช่วงนั้น Offer ที่ถึงหรือเลยเวลาแล้วยังเป็น `SENT` การเปลี่ยนเป็น `TIMEOUT` ยังเป็นหน้าที่ของ Job ที่เดียว |
 | ใครสั่ง | Service ของ Job ตัวเดียวกับ Merge Gap (ข้อ 2.5) ทุกรอบให้ Backend ปิด Offer ที่หมดเวลา ปุ่มเลื่อน Clock ของ Demo ทำงานเดียวกัน |
 
 * เจ้าของ: คน 3 เพราะเป็นงาน Outreach การต่อเข้ากับ Service ของ Job ทำร่วมกับคน 1 (PR O ข้อ 10)
-* ผลต่อ Demo: Clock ของ Demo เป็นตัวเดียวทั้งระบบ เลื่อน Clock เกิน 300 วินาที Offer ที่ยัง `SENT` และส่งไว้ก่อนหน้านั้นจะ `TIMEOUT` ทุกแถว ไม่ว่าเป็นของเคสไหน เรื่องนี้เป็นคนละส่วนกับการปิด Window ซึ่งยังเป็นไปตาม Q43 (Window ปิดเมื่อครบ `merge_window_seconds` และเคสก่อนหน้าของเวรจบแล้ว) Scenario และการสาธิตที่เลื่อน Clock เพื่อปิด Window จึงต้องรู้ว่า Offer ที่ค้างอยู่จะหมดเวลาไปพร้อมกัน
+* ผลต่อ Demo: Clock ของ Demo เป็นตัวเดียวทั้งระบบ เลื่อน Clock ตั้งแต่ 300 วินาที Offer ที่ยัง `SENT` และส่งไว้ก่อนหน้านั้นจะ `TIMEOUT` ทุกแถว ไม่ว่าเป็นของเคสไหน เรื่องนี้เป็นคนละส่วนกับการปิด Window ซึ่งยังเป็นไปตาม Q43 (Window ปิดเมื่อครบ `merge_window_seconds` และเคสก่อนหน้าของเวรจบแล้ว) Scenario และการสาธิตที่เลื่อน Clock เพื่อปิด Window จึงต้องรู้ว่า Offer ที่ค้างอยู่จะหมดเวลาไปพร้อมกัน
+
+
+PR O ใช้ขอบเขต `clock.now() < expires_at` สำหรับการตอบ: เท่ากับ deadline ถือว่าหมดเวลาแล้ว Job เดิมทำงานตามลำดับปิด Offer → recovery sweep → ปิด Window เพื่อให้เคสที่หยุดจาก timeout ปล่อย Window ที่รอใน tick เดียวกัน ตอบรับแล้ว / รออนุมัติยังไม่มี timeout ตามกติกาเดิม
 
 
 ---
@@ -514,7 +517,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
    * คนที่ถูกเลือกโดยขั้นนี้ (ไม่ใช่โดย Solver) ต้องได้แถว `CANDIDATE_ITEM_TARGET` ก่อนส่ง Offer Safety จึงมีแถวอ่านทุกคน ไม่ว่าอยู่ Wave ไหน
 6. เลือกได้อย่างน้อยหนึ่งคน → ส่ง Offer ทุกคนพร้อมกัน เคสไป `WAITING_RESPONSE` เลือกไม่ได้เลย ตรวจตามลำดับนี้
    * มีคนรออนุมัติที่เติม Gap ได้ → เคสไป `WAITING_APPROVAL` (T7)
-   * มี Offer ที่ถูกพักและยังไม่เลย `expires_at` → เคสไป `WAITING_RESPONSE` รอผลของเคสที่ผู้สมัครไปรับ หรือรอ Offer หมดเวลา (ข้อ 2.1)
+   * มี Offer ที่ถูกพักและ`clock.now() < expires_at` → เคสไป `WAITING_RESPONSE` รอผลของเคสที่ผู้สมัครไปรับ หรือรอ Offer หมดเวลา (ข้อ 2.1)
    * ไม่มีทั้งสองอย่าง → `MANUAL_HANDOFF` (T5)
 
 ### 3.3 เพดาน Offer ต่อคน (แทนกฎ "Offer ค้าง" เดิม)
@@ -571,9 +574,9 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 | ไม่อนุมัติ | `APPROVAL_REQUEST` | `approver_id`, `is_approved = false`, `is_pending = false`, `reason`, `decided_at` | `approval_service.decide()` |
 | | `CANDIDATE_OUTREACH` (ของคนที่ไม่ได้รับอนุมัติ) | `status = CANCELLED` | `outreach_service` (Q8) |
 | | สำรองคนแรก (ถ้ามี) | เข้า Safety ต่อ เขียนแบบเดียวกับแถว "ตอบรับ" | `safety_service` |
-| Gap ถูกปิด (เคสผ่าน `EXECUTING`) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` และของสำรอง | `status = CANCELLED` | Handler ของ `EXECUTING` ผ่าน `outreach_service` |
-| Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และเลย `expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 2.7) | `outreach_service` เรียกจาก Job |
-| เคสเข้า `MANUAL_HANDOFF` (T5) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` ทุกแถว ตอนนี้เหลือได้แต่ Offer ที่เลย `expires_at` แล้วแต่ Job ยังไม่ได้เปลี่ยนเป็น `TIMEOUT` เพราะ Offer ที่ถูกพักและยังไม่หมดเวลากันไม่ให้เคสมาถึงจุดนี้ (ข้อ 2.1) | `status = CANCELLED` เพราะเคสไม่มีเส้นออกจาก `MANUAL_HANDOFF` | `contact_candidate` ผ่าน `outreach_service` |
+| Gap ถูกปิด (เคสผ่าน `EXECUTING`) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` และ `clock.now() < expires_at` และของสำรอง; SENT ที่หมดเวลาคงไว้ให้ Job | `status = CANCELLED` | Handler ของ `EXECUTING` ผ่าน `outreach_service` |
+| Offer หมดเวลา | `CANDIDATE_OUTREACH` ที่ยัง `SENT` และ `clock.now() >= expires_at` | `status = TIMEOUT`, `response_at` คงเป็น NULL (ข้อ 2.7) | `offer_timeout_service` เรียกจาก Job |
+| เคสเข้า `MANUAL_HANDOFF` (T5) | `CANDIDATE_OUTREACH` ของเคสที่ยัง `SENT` เฉพาะแถวที่ยังไม่หมดเวลา; แถวที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 2.1) | `status = CANCELLED` เพราะเคสไม่มีเส้นออกจาก `MANUAL_HANDOFF` | `contact_candidate` ผ่าน `outreach_service` |
 | Solver ไม่ได้ใครเลย (T6) | ไม่มีแถวใหม่นอกจาก Audit | | Handler |
 
 ### 4.3 ลำดับ Lock
@@ -740,7 +743,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 2.7 
 
 * รูปแบบ Body ของคำตอบไม่เปลี่ยน มีแค่ค่าใหม่ จึงไม่ต้องแก้ Type ฝั่ง Frontend
 * `case_status` ในคำตอบเป็นค่าที่คำนวณจากตารางสถานะเคส (ข้อ 2.6 ก): `WAITING_RESPONSE`, `WAITING_APPROVAL`, `RESOLVED`, `MANUAL_HANDOFF` หรือ `FAILED` (D11)
-* `respond` รับคำตอบได้เมื่อ Offer ยัง `SENT` และยังไม่เลย `expires_at` (24.3, ข้อ 2.7) แทนกติกาเดิมที่เคสต้องอยู่ `WAITING_RESPONSE` เคสที่จบที่ `RESOLVED` หรือ `MANUAL_HANDOFF` ไม่มี Offer `SENT` เหลือ เพราะถูกยกเลิกตอนเคสจบ (ข้อ 4.2)
+* `respond` รับคำตอบได้เมื่อ Offer ยัง `SENT` และ`clock.now() < expires_at` (24.3, ข้อ 2.7) แทนกติกาเดิมที่เคสต้องอยู่ `WAITING_RESPONSE` เคสที่จบที่ `RESOLVED` หรือ `MANUAL_HANDOFF` ยกเลิกเฉพาะ Offer `SENT` ที่ยังไม่หมดเวลา ส่วน `SENT` ที่ถึงหรือเลย deadline คงไว้ให้ Job ตั้ง `TIMEOUT` พร้อม audit (ข้อ 4.2)
 * Offer ที่ถูก `CANCELLED` หรือ `TIMEOUT` แล้ว กดตอบได้ `409` ตามการตรวจเดิม
 * เคสที่หยุดแล้ว: ถ้าเคสอยู่ใน `AUTOMATION_STOPPED_STATUSES` (`RESOLVED`, `UNRESOLVED`, `FAILED`, `MANUAL_HANDOFF`) ทั้ง `respond` และ `decision` ตอบ `409` ไม่เขียน DB กรณีที่เกิดจริงคือเคส `FAILED`: เคสล้มจาก Exception (D11) จึงไม่มีขั้นยกเลิก Offer และคำขออนุมัติที่เหลือ ถ้าไม่กันไว้ ผู้สมัครกดรับได้ และผู้อนุมัติกดอนุมัติแล้วได้ Roster ของเคสที่ล้มไปแล้ว Offer ของเคสแบบนี้ค้างเป็น `SENT` จนหมดเวลาตามข้อ 2.7 (ตอนหมดเวลา `recompute()` ไม่ทำอะไรกับเคสที่หยุดแล้ว ข้อ 2.3)
 * Offer ที่ยัง `SENT` แต่กดรับไม่ได้ เพราะผู้ตอบรับ Offer ของเคสอื่นค้างอยู่ (ข้อ 2.6 ค): ตอบ `409` (Q39) ข้อความต้องต่างจาก `409` ของ Offer ที่ถูกยกเลิก เพื่อให้หน้า `line-sim` บอกเหตุผลได้
@@ -754,7 +757,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 2.7 
 | หน้า | เจ้าของ | ต้องแก้ |
 |---|---|---|
 | `demo/control` | คน 1 | **เปลี่ยน** (1) ปุ่มเลื่อน Clock ที่เรียก Route ใหม่ (2) ผลของการส่ง Event: ตอนนี้ `case_id = null` ขึ้นว่า "No case opened" ซึ่งผิดเมื่อ `event_status = RECEIVED` ต้องขึ้นว่ารอ Window ปิด รอบ 1 ไม่เพิ่มปุ่มโหลด Scenario (Q16) |
-| `demo/line-sim` | คน 3 | เอาข้อความ "Rejection is not supported" ออก ปุ่ม Reject ใช้งานจริง ผู้สมัครคนเดียวเห็น Offer จากหลายเคสพร้อมกัน แต่ละ Offer แสดงหอ, เวร และเส้นตาย (เส้นตายเพิ่มใน PR O พร้อมคอลัมน์ `expires_at` ส่วนอื่นอยู่ PR 2b) Offer ที่กดรับไม่ได้ตอนนี้ต้องบอกว่าทำไม Offer ที่ถูกยกเลิกแสดงเหตุผล (ข้อ 2.6 ค) |
+| `demo/line-sim` | คน 3 | เอาข้อความ "Rejection is not supported" ออก ปุ่ม Reject ใช้งานจริง ผู้สมัครคนเดียวเห็น Offer จากหลายเคสพร้อมกัน แต่ละ Offer แสดงหอ, เวร และเส้นตาย (PR O เพิ่มเส้นตายพร้อมคอลัมน์ `expires_at` แล้ว ส่วนอื่นอยู่ PR 2b) Offer ที่กดรับไม่ได้ตอนนี้ต้องบอกว่าทำไม Offer ที่ถูกยกเลิกแสดงเหตุผล (ข้อ 2.6 ค) |
 | `approvals` | คน 1 | ปุ่ม Reject ตอนนี้แสดง `422` เป็น Error ต้องแสดงผลสำเร็จ และมีช่องกรอก `reason` (Q13) เคสเดียวมีได้หลายแถว หนึ่งแถวต่อผู้สมัคร แต่ละแถวต้องบอกว่าเป็นของเคสไหนและเคสยังขาดกี่คน |
 | `cases/[id]` | คน 2 | (1) ผู้สมัครหลายคนอยู่คนละขั้นพร้อมกัน แสดงสถานะรายคนตามตารางข้อ 2.6 ก (2) เหตุผลที่ผู้สมัครถูกข้าม (Q6) (3) รายการ Event ของเคสแทน `event_id` ตัวเดียว (Q36) (4) Gap แสดง `effective_minimum` กับ `headcount_gap` ของแถวล่าสุด (Q20) (5) Timeline ยาวขึ้น ต้องเช็กว่า `MANUAL_HANDOFF` ยัง Poll ต่อตามที่ออกแบบไว้ |
 | `roster` | คน 3 | ไม่เปลี่ยน |
@@ -1328,7 +1331,7 @@ PR 2b, 3 และ 4 เข้า Branch รวมหนึ่ง Branch ที�
 | 2b | Wave + ตอบ Offer | คน 3 | `contact_candidate` (ข้อ 3.2 รวมการเขียน `CANDIDATE_ITEM_TARGET` ให้ทุกคนที่มันเลือกเอง การรอ Offer ที่ถูกพัก และการยกเลิก Offer ตอนเคสเข้า `MANUAL_HANDOFF`), `outreach_service` (ส่งหลายคน, Reject, ตอบรับหลายคน, สำรอง, หลาย Offer ต่อคน, `409`), หน้า `line-sim` (ยังไม่แสดงเส้นตาย), Scenario `candidate_reject`, `GOLDEN_PATH_AUDIT_ACTIONS` + E2E, เรียก `recompute()` ให้เคสอื่นที่ได้รับผลกระทบหลังตอบรับ (ข้อ 2.3) | เข้า Branch รวม ก่อน 3, 4 |
 | 3 | Safety รายคน | คน 2 | `safety_service` ตรวจตอนตอบรับและบันทึกผลไม่ผ่าน, ย้ายการสร้าง `APPROVAL_REQUEST` และการเขียน `APPROVAL_REQUESTED` ไปเป็นฟังก์ชันใน `approval_service` ที่ `safety_service` เรียกเมื่อ Safety ผ่าน (ไฟล์ของคน 3 แจ้งก่อนแก้), ลบ `assert_available()` และ `unavailable_staff()` พร้อมบรรทัดที่เรียก `assert_available()` ใน `roster_service` เพราะ PR 3 เข้าก่อน PR 4 ที่ย้ายการสร้าง Roster (ไฟล์ของคน 3 แจ้งก่อนแก้), ลบสองเส้นของ `SAFETY_VALIDATION` ออกจาก `transitions.py` + `test_transitions.py` และ Handler ของสถานะนี้ใน Orchestrator, Scenario `safety_failure` | เข้า Branch รวม หลัง 2b ก่อน 4 |
 | 4 | อนุมัติและจัดเวรรายคน | คน 3 | `approval_service` (ไม่อนุมัติ, `reason`, เลื่อนสำรอง), จัดเวรใน Transaction ของการอนุมัติ, ยกเลิก Offer ที่ขัดกับเวรใหม่, Handler ของ `EXECUTING` ปิดเคส, เรียก `recompute()` ให้เคสอื่นที่ได้รับผลกระทบหลังตัดสิน (ข้อ 2.3), `409` กับเคสที่หยุดแล้ว, Scenario `head_nurse_reject` | เข้า Branch รวม หลัง 3 แล้ว merge Branch รวมเข้า `staging` ก่อน O, 5, 6 |
-| O | Timeout ของ Offer | คน 3 | คอลัมน์ `OUTREACH_POLICY.offer_timeout_seconds` (Seed 300) และ `CANDIDATE_OUTREACH.expires_at`, การปิด Offer ที่หมดเวลา, แสดงเส้นตายของ Offer ในหน้า `line-sim`, ต่อเข้ากับ Service ของ Job (ข้อ 2.7), Job เก็บตกเคสที่ไม่มี Offer ค้าง (ข้อ 2.3) | หลัง M, 1c และ Branch รวมเข้า `staging` |
+| O | Timeout ของ Offer (ทำแล้วใน branch PR O; รอ merge) | คน 3 | คอลัมน์ `OUTREACH_POLICY.offer_timeout_seconds` (Seed 300) และ `CANDIDATE_OUTREACH.expires_at`, การปิด Offer ที่หมดเวลา, แสดงเส้นตายของ Offer ในหน้า `line-sim`, ต่อเข้ากับ Service ของ Job (ข้อ 2.7), Job เก็บตกเคสที่ไม่มี Offer ค้าง (ข้อ 2.3) | หลัง M, 1c และ Branch รวมเข้า `staging` |
 | 5 | หน้า `approvals` | คน 1 | Reject ใช้งานจริง + `reason`, หลายแถวต่อเคส | หลัง Branch รวมเข้า `staging` |
 | 6 | หน้า `cases/[id]` | คน 2 | สถานะรายคน, เหตุผลที่ข้าม, `event_ids`, `effective_minimum` | หลัง Branch รวมเข้า `staging` |
 
@@ -1366,7 +1369,7 @@ PR 2b, 3 และ 4 เข้า Branch รวมหนึ่ง Branch ที�
 | Migration ของ `OUTREACH_POLICY` | ตารางใหม่ (ข้อ 2.6 ค) | PR 1c (คน 3) |
 | Migration ของ `HARD_CONSTRAINT_POLICY`, `ATTENDANCE` | `maximum_consecutive_shifts` และ CHECK `0 <= overtime_minutes <= work_minutes` (ข้อ 7.2) กระทบ Seed ของ Policy | PR 1a (คน 2) แจ้งทีมก่อน และแจ้งให้ Reset หลัง merge |
 | Migration ของ `CANDIDATE_ITEMS`, `CANDIDATE_ITEM_TARGET`, `SOFT_CONSTRAINT_POLICY`, `working_time_service` (ไฟล์ใหม่) | คอลัมน์ `working_time_snapshot_id`, ตารางใหม่ `CANDIDATE_ITEM_TARGET`, คอลัมน์ Weight ของ `CANDIDATE_SOURCE` และผู้เขียน Snapshot จุดเดียว (ข้อ 8.3) | PR 2a |
-| Migration ของ `OUTREACH_POLICY`, `CANDIDATE_OUTREACH` | Timeout ของ Offer (ข้อ 2.7) | PR O |
+| Migration ของ `OUTREACH_POLICY`, `CANDIDATE_OUTREACH` | Timeout ของ Offer (ข้อ 2.7) | PR O — ทำแล้วใน branch; รอ merge |
 | `docker-compose.yml`, ไฟล์ env ตัวอย่าง | Service ของ Job และ Secret ของ Route ภายใน (ค่า Secret จริงไม่ Commit) | PR M |
 | `availability_service` | ลบ `assert_available()`, `unavailable_staff()` และ Exception ที่เกี่ยว (Q17) เพิ่มฟังก์ชันเพดาน Offer (ข้อ 3.3) | PR 3, PR 1c |
 | `tests/integration/conftest.py` `stub_handlers` | เส้น Golden Path ใหม่ที่ไม่ผ่าน `SAFETY_VALIDATION` | PR 3 (ลบพร้อม Handler ของสถานะนี้) |

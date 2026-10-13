@@ -1,6 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core import clock
 from app.db.models import CandidateOutreach, Shift, StaffingCase
 from app.domain.enums import ActorName, AuditAction, CaseStatus, EntityType, OutreachStatus
 from app.services import (
@@ -51,7 +52,9 @@ def handle(db: Session, case: StaffingCase) -> HandlerResult:
     for offer in db.scalars(
         select(CandidateOutreach)
         .where(
-            CandidateOutreach.case_id == case.id, CandidateOutreach.status == OutreachStatus.SENT
+            CandidateOutreach.case_id == case.id,
+            CandidateOutreach.status == OutreachStatus.SENT,
+            CandidateOutreach.expires_at > clock.now(),
         )
         .order_by(CandidateOutreach.id)
     ):

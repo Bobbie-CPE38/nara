@@ -167,6 +167,7 @@ def offer(
         case_id=case.id,
         candidate_item_id=item.id,
         channel=Channel.LINE,
+        expires_at=DEMO_NOW + timedelta(seconds=300),
         sent_at=DEMO_NOW,
         status=status,
     )

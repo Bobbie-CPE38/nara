@@ -17,6 +17,7 @@ function offerSnapshot(offer: Offer) {
     offer.case_status,
     offer.sent_at,
     offer.response_at,
+    offer.expires_at,
     offer.can_accept,
     offer.can_reject,
     offer.blocked_reason,
@@ -26,7 +27,10 @@ function offerSnapshot(offer: Offer) {
 }
 
 const STOPPED_CASE_STATUSES = new Set([
-  "FAILED", "RESOLVED", "UNRESOLVED", "MANUAL_HANDOFF",
+  "FAILED",
+  "RESOLVED",
+  "UNRESOLVED",
+  "MANUAL_HANDOFF",
 ]);
 
 type Feedback = {
@@ -79,10 +83,7 @@ function StaffOffers({
     );
   }, [data]);
   const openOffers =
-    data?.filter(
-      (offer) =>
-        offer.status === "SENT" && offer.can_reject,
-    ) ?? [];
+    data?.filter((offer) => offer.status === "SENT" && offer.can_reject) ?? [];
 
   async function respond(offerId: number, response: "ACCEPT" | "REJECT") {
     // A ref also prevents a second click before React paints the pending state.
@@ -161,7 +162,9 @@ function StaffOffers({
               : offerSnapshot(offer) === offerSnapshot(selected),
           ),
         message:
-          cause instanceof Error ? cause.message : "Could not send your response.",
+          cause instanceof Error
+            ? cause.message
+            : "Could not send your response.",
       });
       if (cause instanceof ApiError && cause.status === 409) {
         setAnsweredSnapshot(offerSnapshot(selected));
@@ -211,6 +214,7 @@ function StaffOffers({
                   "Case status",
                   "Sent (Bangkok)",
                   "Responded (Bangkok)",
+                  "Deadline (Bangkok)",
                   "Action",
                 ].map((label) => (
                   <th key={label} scope="col" className="p-3">
@@ -245,6 +249,9 @@ function StaffOffers({
                     <td className="whitespace-nowrap p-3">
                       {formatDemoTime(offer.response_at)}
                     </td>
+                    <td className="whitespace-nowrap p-3">
+                      {formatDemoTime(offer.expires_at)}
+                    </td>
                     <td className="p-3">
                       <div className="flex gap-2">
                         <button
@@ -264,6 +271,13 @@ function StaffOffers({
                           Reject
                         </button>
                       </div>
+                      {(offer.blocked_reason === "OFFER_EXPIRED" ||
+                        offer.status === "TIMEOUT") && (
+                        <p>
+                          This offer has expired. You can no longer accept or
+                          reject it.
+                        </p>
+                      )}
                       {offer.blocked_reason === "AWAITING_OTHER_CASE" && (
                         <p>
                           Accept is paused while another case reviews your

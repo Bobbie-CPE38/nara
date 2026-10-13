@@ -20,7 +20,7 @@ def reset() -> dict[str, str]:
 
 @router.post("/clock/advance")
 def advance_clock(body: ClockAdvance, db: DbSession) -> ClockAdvanceResult:
-    """Move the frozen demo clock forward, then close what the new time made due.
+    """Move the frozen demo clock forward, then expire offers, recover cases and close due windows.
 
     Runs the same function as the job service: a frozen clock that moves does
     not wake the job up. 409 when the clock is not frozen (no reset yet since
