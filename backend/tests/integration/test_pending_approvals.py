@@ -271,3 +271,32 @@ def test_candidate_details_come_from_each_requests_item(
         (second.id, 202, 2),
     ]
     assert all(r["requested_at"] == DEMO_NOW.isoformat() for r in rows)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        CaseStatus.RESOLVED,
+        CaseStatus.FAILED,
+        CaseStatus.UNRESOLVED,
+        CaseStatus.MANUAL_HANDOFF,
+    ],
+)
+def test_stopped_cases_do_not_leave_unactionable_requests_in_pending_list(
+    client: TestClient,
+    production_seeded: Session,
+    status: CaseStatus,
+) -> None:
+    db = production_seeded
+    stopped = _request(db)
+    db.get(StaffingCase, stopped.case_id).status = status
+    active = _request(db)
+    db.flush()
+    before = dict(vars(stopped))
+    response = client.get(URL, headers=HEADERS)
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [active.id]
+    # Preserve undecided history; do not record a fake rejection on read.
+    assert stopped.is_pending and stopped.is_approved is None
+    assert vars(stopped) == before
+    assert db.scalar(select(AuditLog.id)) is None

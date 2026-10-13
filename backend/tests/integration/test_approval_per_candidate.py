@@ -14,6 +14,7 @@ from app.api.dependencies import get_db
 from app.db.models import (
     ApprovalRequest,
     AuditLog,
+    CandidateItem,
     CandidateOutreach,
     HardConstraintPolicy,
     RosterAssignment,
@@ -594,3 +595,93 @@ def test_approval_restarts_lock_order_if_a_foreign_wave_commits_while_it_waits(
         assert foreign.status == OutreachStatus.CANCELLED
         assert db.get(StaffingCase, other_id).status == CaseStatus.MANUAL_HANDOFF
         assert [r.staff_id for r in replacements(db)] == [201]
+
+
+def test_skill_covering_approval_resolves_without_leaving_other_request_in_pending_list(
+    client: TestClient,
+    production_seeded: Session,
+) -> None:
+    from sqlalchemy import delete
+
+    from app.db.models import StaffSkill
+
+    db = production_seeded
+    db.execute(delete(StaffSkill).where(StaffSkill.staff_id == 203, StaffSkill.skill_id == 1))
+    db.commit()
+    event = client.post(
+        "/events",
+        headers={"X-Demo-User": "102"},
+        json={"event_type": "STAFF_UNAVAILABLE", "shift_id": 1},
+    )
+    assert event.status_code == 201, event.text
+    case_id = event.json()["case_id"]
+    by_staff = dict(
+        db.execute(
+            select(CandidateItem.staff_id, CandidateOutreach)
+            .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+            .where(CandidateOutreach.case_id == case_id)
+        ).all()
+    )
+    assert set(by_staff) == {201, 202}
+    accept(client, by_staff[202], 202)
+    request_202 = request_for(db, by_staff[202])
+    accept(client, by_staff[201], 201)
+    assert len(client.get("/approvals?pending=true", headers=HEADERS).json()) == 2
+    assert decide(client, request_for(db, by_staff[201])).json()["case_status"] == "RESOLVED"
+    db.expire_all()
+    assert by_staff[202].status == OutreachStatus.CANCELLED
+    assert request_202.is_pending and request_202.is_approved is None
+    assert [row.staff_id for row in replacements(db)] == [201]
+    assert client.get("/approvals?pending=true", headers=HEADERS).json() == []
+    assert (
+        client.post(
+            f"/approvals/{request_202.id}/decision", headers=HEADERS, json={"approved": True}
+        ).status_code
+        == 409
+    )
+
+
+@pytest.mark.parametrize("approved", [True, False])
+def test_approval_reason_accepts_500_characters_and_rejects_501_without_writes(
+    client: TestClient,
+    production_seeded: Session,
+    approved: bool,
+) -> None:
+    db = production_seeded
+    _, rows = two_offers(db)
+    accept(client, rows[0], 201)
+    request = request_for(db, rows[0])
+    count = db.scalar(select(func.count()).select_from(AuditLog))
+    response = client.post(
+        f"/approvals/{request.id}/decision",
+        headers=HEADERS,
+        json={"approved": approved, "reason": "ก" * 501},
+    )
+    assert response.status_code == 422
+    assert db.scalar(select(func.count()).select_from(AuditLog)) == count
+    db.expire_all()
+    assert request.is_pending and request.is_approved is None
+    assert replacements(db) == []
+    decide(client, request, approved, "ก" * 500)
+    db.expire_all()
+    assert request.reason == "ก" * 500
+
+
+def test_direct_service_also_bounds_approval_reason(production_seeded: Session) -> None:
+    db = production_seeded
+    case, items = short_case(db, status=CaseStatus.WAITING_APPROVAL)
+    row = offer(db, case, items[201], OutreachStatus.ACCEPTED)
+    result = safety_service.validate_accepted_candidate(db, case, outreach_id=row.id)
+    count = db.scalar(select(func.count()).select_from(AuditLog))
+    with pytest.raises(approval_service.InvalidApprovalReasonError, match="at most 500"):
+        approval_service.decide(
+            db,
+            approval_id=result.approval.id,
+            staff_id=900,
+            role_id=2,
+            actor_id=actor_service.user_id(db, 900),
+            approved=False,
+            reason="x" * 501,
+        )
+    assert result.approval.is_pending
+    assert db.scalar(select(func.count()).select_from(AuditLog)) == count

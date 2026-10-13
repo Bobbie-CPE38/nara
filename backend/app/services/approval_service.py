@@ -6,7 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.constants import HEAD_NURSE_ROLE
+from app.core.constants import HEAD_NURSE_ROLE, MAX_APPROVAL_REASON_LENGTH
 from app.db.models import (
     ApprovalRequest,
     CandidateItem,
@@ -50,7 +50,7 @@ class ApprovalNotPendingError(ValueError):
 
 
 class InvalidApprovalReasonError(ValueError):
-    """A rejection requires a nonblank reason."""
+    """A rejection needs a nonblank reason; all reasons must fit the length limit."""
 
 
 def create_request(db: Session, *, case: StaffingCase, item: CandidateItem) -> ApprovalRequest:
@@ -111,6 +111,10 @@ def decide(
     case, and rolls back its assignment. Foreign notifications follow commit.
     """
     request, case, item, offers = _lock_decision(db, approval_id, role_id)
+    if reason is not None and len(reason) > MAX_APPROVAL_REASON_LENGTH:
+        raise InvalidApprovalReasonError(
+            f"reason must be at most {MAX_APPROVAL_REASON_LENGTH} characters"
+        )
     if not approved and (reason is None or not reason.strip()):
         raise InvalidApprovalReasonError("A rejection requires a nonblank reason")
     own = [
@@ -316,26 +320,33 @@ def _cancel_conflicting_offers(
 
 
 def list_pending(db: Session) -> list[PendingApproval]:
-    """Read all pending requests by ID, without flushes, commits or locks.
+    """Read pending requests of running cases by ID, without writes or locks.
 
     Do not hide other cases when a case has duplicate pending requests. Any
     uniqueness enforcement belongs at creation, not on this list read.
-    Include the approved candidate's identity and proposed shift for the UI.
+    Include the candidate's identity and proposed shift for the UI. Stopped
+    cases keep undecided requests as history, but those cannot be acted on and
+    are excluded here, including requests left behind by D11 failures.
     """
-    rows = db.execute(
-        select(
-            ApprovalRequest.id,
-            ApprovalRequest.case_id,
-            ApprovalRequest.candidate_item_id,
-            ApprovalRequest.required_approver_role,
-            ApprovalRequest.approval_mode,
-            ApprovalRequest.is_pending,
-            ApprovalRequest.requested_at,
-            CandidateItem.staff_id,
-            CandidateItem.proposed_shift_id,
-        )
-        .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
-        .where(ApprovalRequest.is_pending.is_(True))
-        .order_by(ApprovalRequest.id)
-    ).mappings()
-    return [PendingApproval.model_validate(row) for row in rows]
+    with db.no_autoflush:
+        rows = db.execute(
+            select(
+                ApprovalRequest.id,
+                ApprovalRequest.case_id,
+                ApprovalRequest.candidate_item_id,
+                ApprovalRequest.required_approver_role,
+                ApprovalRequest.approval_mode,
+                ApprovalRequest.is_pending,
+                ApprovalRequest.requested_at,
+                CandidateItem.staff_id,
+                CandidateItem.proposed_shift_id,
+            )
+            .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
+            .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
+            .where(
+                ApprovalRequest.is_pending.is_(True),
+                StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
+            )
+            .order_by(ApprovalRequest.id)
+        ).mappings()
+        return [PendingApproval.model_validate(row) for row in rows]
