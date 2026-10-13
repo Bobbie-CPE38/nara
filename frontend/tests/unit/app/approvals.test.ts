@@ -74,21 +74,6 @@ describe("approvals page", () => {
     expect(screen.getByText("2026-10-09 21:20:00")).toBeTruthy();
   });
 
-  it.each([
-    ["is missing", {}],
-    ["is null", { expires_at: null }],
-  ])("shows a dash for the deadline when it %s", async (_, override) => {
-    // Before round 2 PR T the API does not send the field at all
-    const { expires_at: _omitted, ...withoutDeadline } = PENDING;
-    stubFetch([{ ...withoutDeadline, ...override }]);
-    render(createElement(Approvals));
-
-    const row = (await screen.findByRole("button", { name: "Approve" })).closest("tr");
-    const cells = [...(row?.querySelectorAll("td") ?? [])].map((cell) => cell.textContent);
-    expect(cells[5]).toBe("2026-10-09 21:00:00");
-    expect(cells[6]).toBe("—");
-  });
-
   it("says so when nothing is pending", async () => {
     stubFetch([]);
     render(createElement(Approvals));

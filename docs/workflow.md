@@ -1506,7 +1506,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 
 ### 9.4 API และหน้าเว็บที่รอบ 2 จะเปลี่ยน
 
-**[รอบ 2]** ทุกแถวเป็นกติกาที่ตกลงแล้ว PR T ทำแล้ว ส่วนแถว H/W/T2 ยังรอ PR ของตัวเอง; PR ที่ทำแถวไหนต้องเติมรูปของคำตอบลงข้อ 9.3 ใน PR เดียวกัน
+**[รอบ 2]** ทุกแถวเป็นกติกาที่ตกลงแล้ว PR T, W และ T2 ทำแล้ว ส่วนแถว H ยังรอ PR ของตัวเอง; PR ที่ทำแถวไหนต้องเติมรูปของคำตอบลงข้อ 9.3 ใน PR เดียวกัน
 
 | Route หรือหน้า | สิ่งที่เปลี่ยน | PR |
 |---|---|---|
@@ -1516,7 +1516,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 | `POST /approvals/{id}/decision` | ผู้กดที่ไม่ใช่ Head Nurse ของหอเดียวกับเวรได้ `403` พร้อม `detail` บอกเหตุ | W (ทำแล้ว) |
 | `POST /approvals/{id}/decision` | กดเมื่อ `clock.now() >= expires_at` ได้ `409` | T |
 | `GET /approvals` | เพิ่มเส้นตายของคำขอ (`expires_at`) | T |
-| หน้า `approvals` | แสดงเส้นตาย | T2 |
+| หน้า `approvals` | คอลัมน์ "Decide by" แสดง `expires_at` ของคำขอเป็นเวลา Bangkok หน้าเว็บไม่รู้ Clock ของ Backend จึงไม่ปิดปุ่มเองเมื่อเลยเส้นตาย คำขอที่เลยเส้นตายหายจากรายการในรอบอ่านถัดไป และถ้ากดทันก่อนนั้น API ตอบ `409` ซึ่งหน้าแสดงข้อความ | T2 (ทำแล้ว) |
 | `POST /demo/clock/advance` และหน้า `demo/control` | เพิ่ม `timed_out_approval_request_ids` | T |
 | `GET /cases/{id}` และหน้า `cases/[id]` | `candidates[].stage` มีค่าใหม่ `APPROVAL_TIMEOUT` และอ่านจากรอบล่าสุดของผู้สมัคร คนที่ได้เข้าเวรจากการจัดเองถูกนับใน `assigned_count` | T และ H |
 | รายการ Offer ของหน้า `line-sim` | `cancellation_reason` มีค่าใหม่ `APPROVAL_TIMEOUT` และยังเป็น `CONFLICTING_ASSIGNMENT` เมื่อเสียให้การจัดคนเอง | T และ H |
@@ -1731,3 +1731,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-13 | รอบ 2 PR T: approval timeout 900 วินาที, เส้นตาย snapshot และ offer-specific outreach_id ใน Safety/Approval (migration b7d2f8a1c6e4); Job ตามลำดับ Offer → Approval → Recovery → Window; one retry หลัง first contacts ที่ส่งได้, Safety/Approval ใหม่ทุก attempt, หมดเวลาครั้งที่สองไม่ส่งครั้งที่สาม; API 409 ที่ now >= deadline ไม่เขียน timeout, stage/cancellation_reason APPROVAL_TIMEOUT และ demo result timed_out_approval_request_ids | คน 3 |
 | 2026-10-13 | รอบ 2 PR W: การอนุมัติจำกัดหอ (R2-Q21, R2-Q53) `approval_service.decide()` รับ `home_ward_id` ของผู้กด เทียบกับ `ward_id` ของเวรด้วย `domain/staffing/ward_authority.manages_ward()` ถ้าไม่ตรงตอบ `403` ก่อนการตรวจ `409`; ข้อ 6.12, 9.2 และ 9.4 แก้ตาม; `GET /approvals` ไม่เปลี่ยน; ข้อมูล Seed มีหอเดียว ผลของ Test เดิมจึงไม่เปลี่ยน | คน 1 |
 | 2026-10-13 | ตามรีวิว PR W: การอ่าน `SHIFT` ใน `_lock_decision()` ใช้ `populate_existing` เหมือนการอ่านตัวอื่นในฟังก์ชัน เพื่อไม่ให้ได้ `ward_id` ค่าเก่าจาก Session; เพิ่ม Test ว่าหน้า `approvals` แสดงข้อความของ `403` เมื่อ Head Nurse ต่างหอกด; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
+| 2026-10-14 | รอบ 2 PR T2: หน้า `approvals` เพิ่มคอลัมน์ "Decide by" แสดงเส้นตายของคำขอ (`expires_at` จาก `GET /approvals` ของ PR T) (R2-Q30); ข้อ 9.4 แก้ตาม; ไม่แตะ Backend | คน 1 |
