@@ -23,6 +23,7 @@ class ApprovalDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     approved: StrictBool
+    # Semantic reason validation runs after 404/403/409 checks in the service.
     reason: str | None = None
 
 

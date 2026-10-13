@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import AuditLog, CandidateItem, Role, StaffingCase
+from app.db.models import AuditLog, CandidateItem, CandidateOutreach, Role, StaffingCase
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     WAITING_CASE_STATUSES,
@@ -412,7 +412,12 @@ def test_recompute_flushes_the_callers_pending_rows_before_reading(
     db = production_seeded
     case, items = short_case(db)
     request = approval(db, case, items[201], approved=False)
-    # The caller reopens the request and has not flushed yet
+    # Reopening alone cannot count a cancelled offer. The caller's accepted
+    # offer and request are both unflushed; recompute must flush both before reading.
+    row = db.scalars(
+        select(CandidateOutreach).where(CandidateOutreach.candidate_item_id == items[201].id)
+    ).one()
+    row.status = OutreachStatus.ACCEPTED
     request.is_pending, request.is_approved = True, None
 
     assert orchestrator.recompute(db, case.id) is WAITING_APPROVAL
@@ -549,3 +554,15 @@ def test_wait_point_can_be_both_ends_of_one_round_through_t4_and_t7(
         ("WAITING_APPROVAL", "OUTREACH"),
         ("OUTREACH", "WAITING_APPROVAL"),
     ]
+
+
+def test_preparation_cannot_change_case_status(seeded: Session) -> None:
+    case, _ = short_case(seeded)
+
+    def invalid_prepare(db: Session, case: StaffingCase) -> None:
+        case.status = CaseStatus.RESOLVED
+
+    result = orchestrator.recompute(seeded, case.id, prepare=invalid_prepare)
+    assert result == CaseStatus.FAILED
+    assert _status_changes(seeded, case) == [("WAITING_RESPONSE", "FAILED")]
+    assert _audit(seeded, case)[-1].payload["error_type"] == "WorkflowError"

@@ -40,23 +40,31 @@ def test_offers_of_two_open_cases_can_both_be_answered(client: TestClient, seede
     day = _report_leave(client, 203, 2)
     assert night["case_status"] == day["case_status"] == "WAITING_RESPONSE"
 
-    sent = {
-        case_id: (outreach_id, staff_id)
-        for case_id, outreach_id, staff_id in seeded.execute(
+    sent = list(
+        seeded.execute(
             select(CandidateOutreach.case_id, CandidateOutreach.id, CandidateItem.staff_id)
             .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
             .where(CandidateOutreach.status == OutreachStatus.SENT)
         )
-    }
-    assert set(sent) == {night["case_id"], day["case_id"]}
-    assert sent[night["case_id"]][1] == 201
-    # 201 is the cheapest candidate of the day shift too, but already holds an offer
-    assert sent[day["case_id"]][1] != 201
-
-    for outreach_id, staff_id in sent.values():
-        answer = client.post(
-            "/demo/line-sim/respond",
-            headers={"X-Demo-User": str(staff_id)},
-            json={"outreach_id": outreach_id, "response": "ACCEPT"},
-        )
-        assert answer.status_code == 200, answer.text
+    )
+    night_offer = next(row for row in sent if row[0] == night["case_id"] and row[2] == 201)
+    day_offer = next(row for row in sent if row[0] == day["case_id"] and row[2] == 201)
+    accepted = client.post(
+        "/demo/line-sim/respond",
+        headers={"X-Demo-User": "201"},
+        json={"outreach_id": night_offer[1], "response": "ACCEPT"},
+    )
+    assert accepted.status_code == 200, accepted.text
+    blocked = client.post(
+        "/demo/line-sim/respond",
+        headers={"X-Demo-User": "201"},
+        json={"outreach_id": day_offer[1], "response": "ACCEPT"},
+    )
+    assert blocked.status_code == 409
+    other = next(row for row in sent if row[0] == day["case_id"] and row[2] != 201)
+    accepted = client.post(
+        "/demo/line-sim/respond",
+        headers={"X-Demo-User": str(other[2])},
+        json={"outreach_id": other[1], "response": "ACCEPT"},
+    )
+    assert accepted.status_code == 200, accepted.text

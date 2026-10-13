@@ -12,3 +12,6 @@ HEAD_NURSE_ROLE = "HEAD_NURSE"
 # Longest reason a head nurse can give for cancelling an assignment. The text
 # is copied into the event payload and the audit payload
 MAX_EVENT_REASON_LENGTH = 500
+
+# Bound approval free text stored in requests/audit and shown to candidates.
+MAX_APPROVAL_REASON_LENGTH = 500

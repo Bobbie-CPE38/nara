@@ -54,7 +54,6 @@ from app.workflow.handlers import (
     execute_assignment,
     intake_event,
     optimize,
-    validate_safety,
 )
 from app.workflow.handlers.base import HandlerResult
 
@@ -63,13 +62,13 @@ logger = logging.getLogger(__name__)
 Handler = Callable[[Session, StaffingCase], HandlerResult]
 
 # The handler that runs while a case is in each status (docs/workflow.md 5.1).
-# Wait points and stopped statuses have no handler.
+# Wait points and stopped statuses have no handler. Neither has SAFETY_VALIDATION:
+# it stays in the enum, but Safety runs per candidate and no case enters it (Q31).
 HANDLERS: dict[CaseStatus, Handler] = {
     CaseStatus.OPEN: intake_event.handle,
     CaseStatus.ASSESSING: assess_staffing.handle,
     CaseStatus.OPTIMIZING: optimize.handle,
     CaseStatus.OUTREACH: contact_candidate.handle,
-    CaseStatus.SAFETY_VALIDATION: validate_safety.handle,
     CaseStatus.EXECUTING: execute_assignment.handle,
 }
 
@@ -118,7 +117,12 @@ def resume(db: Session, case_id: int, next_status: CaseStatus) -> None:
     _run_round(db, case)
 
 
-def recompute(db: Session, case_id: int) -> CaseStatus:
+def recompute(
+    db: Session,
+    case_id: int,
+    *,
+    prepare: Callable[[Session, StaffingCase], None] | None = None,
+) -> CaseStatus:
     """Move a waiting case to the status its gap and offers call for, then commit.
 
     Called after anything that can change the answer: a candidate accepted,
@@ -133,6 +137,10 @@ def recompute(db: Session, case_id: int) -> CaseStatus:
         one CASE_STATUS_CHANGED row, and the round continues like `advance()`
         when it is not a wait point (OUTREACH sends the next wave, EXECUTING
         closes the case).
+
+    Optional prepare runs inside the D11 savepoint before computing the status.
+    It is not called for a stopped case. It must not commit or change case.status;
+    its workflow writes roll back on failure while the caller's answer is kept.
 
     Raises InvalidTransitionError, without touching the case, when it is neither
     waiting nor stopped: a round always ends at one of those, so anything else
@@ -156,7 +164,17 @@ def recompute(db: Session, case_id: int) -> CaseStatus:
         raise InvalidTransitionError(
             f"Case {case.id} is {case.status.value}, not at a wait point: cannot recompute"
         )
-    _run_round(db, case, before=_apply_computed_status)
+
+    def before(db: Session, case: StaffingCase) -> None:
+        if prepare is not None:
+            previous = case.status
+            prepare(db, case)
+            if case.status != previous:
+                raise WorkflowError("Preparation callback changed case.status itself")
+        db.flush()
+        _apply_computed_status(db, case)
+
+    _run_round(db, case, before=before)
     return case.status
 
 

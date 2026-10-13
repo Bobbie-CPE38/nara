@@ -12,7 +12,8 @@ Who counts, per candidate (workflow.md section 4.1):
   * assigned: the approval request of the case is approved AND the candidate
     holds a replacement roster row on the proposed shift that is ASSIGNED or
     COMPLETED.
-  * pending: the approval request of the case is still pending.
+  * pending: the approval request is pending AND its case/item still has an
+    ACCEPTED offer. Cancelled offers cannot reserve gap coverage.
   * open offer: the offer of the case is SENT and its candidate is not waiting
     on another case.
   * paused offer: the offer of the case is SENT and its candidate is waiting on
@@ -29,6 +30,7 @@ Known limits:
 
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.selectable import Exists
 
 from app.db.models import (
     ApprovalRequest,
@@ -51,6 +53,28 @@ from app.services import gap_service
 
 # A replacement keeps counting after its shift ended and the row was closed
 _ON_ROSTER_STATUSES = (RosterStatus.ASSIGNED, RosterStatus.COMPLETED)
+
+
+def get_case_fillers(
+    db: Session, case_id: int, *, include_reserves: bool = False
+) -> list[GapFiller]:
+    """People already credited to this case; Wave also counts accepted reserves."""
+    with db.no_autoflush:
+        staff_ids = _assigned_staff_ids(db, case_id) | _pending_staff_ids(db, case_id)
+        if include_reserves:
+            staff_ids.update(
+                db.scalars(
+                    select(CandidateItem.staff_id)
+                    .join(
+                        CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id
+                    )
+                    .where(
+                        CandidateOutreach.case_id == case_id,
+                        CandidateOutreach.status == OutreachStatus.ACCEPTED,
+                    )
+                )
+            )
+        return list(_fillers(db, staff_ids).values())
 
 
 def load_case_facts(db: Session, case: StaffingCase) -> CaseFacts:
@@ -136,6 +160,20 @@ def staff_waiting_on_another_case(db: Session, case_id: int, staff_ids: set[int]
 def _staff_waiting_on_another_case(db: Session, case_id: int, staff_ids: set[int]) -> set[int]:
     if not staff_ids:
         return set()
+    return {
+        staff_id
+        for staff_id, waiting_case_id in _waiting_acceptances(db, staff_ids)
+        if waiting_case_id != case_id
+    }
+
+
+def staff_waiting_case_ids(db: Session, staff_id: int) -> set[int]:
+    """Batch offer reads: running cases holding this staff's unresolved acceptance."""
+    with db.no_autoflush:
+        return {case_id for _, case_id in _waiting_acceptances(db, {staff_id})}
+
+
+def _waiting_acceptances(db: Session, staff_ids: set[int]) -> set[tuple[int, int]]:
     decided = exists().where(
         ApprovalRequest.candidate_item_id == CandidateOutreach.candidate_item_id,
         ApprovalRequest.is_pending.is_(False),
@@ -145,13 +183,12 @@ def _staff_waiting_on_another_case(db: Session, case_id: int, staff_ids: set[int
         SafetyValidation.is_passed.is_(False),
     )
     return set(
-        db.scalars(
-            select(CandidateItem.staff_id)
+        db.execute(
+            select(CandidateItem.staff_id, CandidateOutreach.case_id)
             .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
             .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
             .where(
                 CandidateItem.staff_id.in_(staff_ids),
-                CandidateOutreach.case_id != case_id,
                 CandidateOutreach.status == OutreachStatus.ACCEPTED,
                 StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
                 ~decided,
@@ -220,12 +257,29 @@ def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:
     )
 
 
+def accepted_offer_for_request() -> Exists:
+    """Shared predicate for actionable requests and pending gap coverage.
+
+    Cancellation preserves undecided request history. Its offer is the authority
+    for whether that request can still be acted on; match BOTH case and item.
+    """
+    return exists().where(
+        CandidateOutreach.case_id == ApprovalRequest.case_id,
+        CandidateOutreach.candidate_item_id == ApprovalRequest.candidate_item_id,
+        CandidateOutreach.status == OutreachStatus.ACCEPTED,
+    )
+
+
 def _pending_staff_ids(db: Session, case_id: int) -> set[int]:
     return set(
         db.scalars(
             select(CandidateItem.staff_id)
             .join(ApprovalRequest, ApprovalRequest.candidate_item_id == CandidateItem.id)
-            .where(ApprovalRequest.case_id == case_id, ApprovalRequest.is_pending.is_(True))
+            .where(
+                ApprovalRequest.case_id == case_id,
+                ApprovalRequest.is_pending.is_(True),
+                accepted_offer_for_request(),
+            )
         )
     )
 

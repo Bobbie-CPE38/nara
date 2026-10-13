@@ -1,44 +1,50 @@
 """
-Safety check of the accepted candidate (docs/workflow.md, sections 6.4 and 8).
+Safety check of one accepted candidate (docs/workflow.md, sections 6.4 and 8).
 
-The walking skeleton has no hard rules yet. The accepted candidate is re-checked
-with the three Skeleton rules of availability_service (the Solver uses the full
-Hard Rules since PR 2a; Safety follows in PR 3), because the situation can change
-while the offer waits for an answer. If they still hold, the candidate passes and
-the case waits for a head nurse's manual approval. The real rule engine replaces
-the pass later; the lookups and the approval request stay.
+Safety is not a step of the case (Q31). It runs once per accepted offer, inside the
+transaction of the answer. outreach_service.promote_reserves() calls it for the
+candidate who just accepted and for a reserve that moves up. The candidate is
+re-checked with hard_rule_service.check_items(), the loader wave selection uses,
+because the situation can change while the offer waits.
+
+  * Passed: one SAFETY_VALIDATION row and SAFETY_PASSED, then approval_service opens
+    the request and writes APPROVAL_REQUESTED.
+  * Failed: one row with every failed code and SAFETY_FAILED. The offer becomes
+    CANCELLED through outreach_service.cancel_offer(). No approval request. The
+    caller recomputes the case status.
 
 Rules:
-  * Never commits and writes no audit row. The `validate_safety` handler logs
-    SAFETY_PASSED and APPROVAL_REQUESTED in the same round.
-  * "Exactly one" lookups raise instead of taking the first row (section 6.4).
-    Inside the handler the error turns the case FAILED (D11).
-  * The accepted item must propose the case's own shift: Execute rosters the
-    candidate onto item.proposed_shift_id (seam 8), so that has to be the shift
-    checked here. A mismatch raises ProposedShiftMismatchError.
-  * A candidate who can no longer take the shift raises before any row is
-    written. Recording is_passed = false with SAFETY_FAILED and moving on to the
-    next candidate needs a section 5 transition that does not exist yet.
+  * Never commits, never changes case.status and takes no row lock: it runs under
+    the locks of the response path (workflow.md 6.11).
+  * A broken rule is a recorded result, never an exception. Malformed data (an offer
+    that is not the case's or not ACCEPTED, an item of another case or shift) still
+    raises before any row is written, and the case becomes FAILED (D11).
+  * The offer cap is not checked: the accepted offer is the candidate's own.
 """
 
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.constants import HEAD_NURSE_ROLE
 from app.db.models import (
     ApprovalRequest,
     CandidateItem,
+    CandidateOutreach,
     CandidatePlan,
-    Role,
     SafetyValidation,
     Shift,
     StaffingCase,
 )
-from app.domain.enums import ApprovalMode
-from app.services import availability_service, outreach_service, policy_service
+from app.domain.enums import ActorName, AuditAction, EntityType, OutreachStatus
+from app.services import (
+    actor_service,
+    approval_service,
+    audit_service,
+    hard_rule_service,
+    outreach_service,
+    policy_service,
+)
 
 
 class ProposedShiftMismatchError(ValueError):
@@ -47,16 +53,23 @@ class ProposedShiftMismatchError(ValueError):
 
 class SafetyResult(NamedTuple):
     validation: SafetyValidation
-    approval: ApprovalRequest
+    # None when the candidate failed Safety
+    approval: ApprovalRequest | None
     candidate: CandidateItem
 
 
-def validate_accepted_candidate(db: Session, case: StaffingCase) -> SafetyResult:
-    """Pass the case's accepted candidate and open a pending MANUAL approval; flush only."""
-    # Seam 4: exactly one accepted offer for this case.
-    outreach = outreach_service.get_accepted_outreach(db, case.id)
+def validate_accepted_candidate(
+    db: Session, case: StaffingCase, *, outreach_id: int
+) -> SafetyResult:
+    """Check one accepted offer against the Hard Rules and record the outcome; flush only."""
+    # Seam 4: Safety is given the offer. A case can hold several ACCEPTED offers
+    outreach = db.get(CandidateOutreach, outreach_id)
+    if outreach is None or outreach.case_id != case.id:
+        raise ValueError("The accepted offer does not belong to this case")
+    if outreach.status is not OutreachStatus.ACCEPTED:
+        raise ValueError("Safety requires an ACCEPTED offer")
 
-    # Seam 5: the two foreign keys do not prove the item was planned for this case
+    # The two foreign keys do not prove the item was planned for this case
     item = db.get(CandidateItem, outreach.candidate_item_id)
     if item is None:
         raise LookupError(f"No candidate item {outreach.candidate_item_id}")
@@ -70,36 +83,51 @@ def validate_accepted_candidate(db: Session, case: StaffingCase) -> SafetyResult
             f"Candidate item {item.id} proposes shift {item.proposed_shift_id}, "
             f"not the case's shift {case.shift_id}"
         )
-
     shift = db.get(Shift, case.shift_id)
     if shift is None:
         raise LookupError(f"No shift {case.shift_id}")
-    availability_service.assert_available(db, shift, item.staff_id)
 
+    # The loader reads without autoflush (seam 12)
+    db.flush()
+    result = hard_rule_service.check_items(db, shift=shift, items=[item])[item.id].result
+    policy_id = policy_service.get_hard_constraint_policy(db).id
+    failed_rules = [code.value for code in result.failed_rules]
     validation = SafetyValidation(
         case_id=case.id,
         candidate_item_id=item.id,
-        hard_constraint_policy_id=policy_service.get_hard_constraint_policy(db).id,
-        is_passed=True,
-        failure_reason=None,
-        validation_snapshot={},
+        hard_constraint_policy_id=policy_id,
+        is_passed=result.passed,
+        failure_reason=",".join(failed_rules) or None,
+        validation_snapshot={
+            "staff_id": item.staff_id,
+            "shift_id": shift.id,
+            "policy_id": policy_id,
+            "checked_rules": [code.value for code in result.checked_rules],
+            "failed_rules": failed_rules,
+            "details": dict(result.details),
+        },
         validated_at=clock.now(),
     )
-    approval = ApprovalRequest(
-        case_id=case.id,
-        candidate_item_id=item.id,
-        required_approver_role=db.scalars(
-            select(Role.id).where(Role.name == HEAD_NURSE_ROLE)
-        ).one(),
-        approval_mode=ApprovalMode.MANUAL,
-        is_pending=True,
-        approver_id=None,
-        is_approved=None,
-        reason=None,
-        decided_at=None,
-        requested_at=clock.now(),
-    )
-    db.add_all([validation, approval])
-    # The audit rows need both ids, and SessionLocal has autoflush off
+    db.add(validation)
+    # The audit row needs the id, and SessionLocal has autoflush off
     db.flush()
-    return SafetyResult(validation=validation, approval=approval, candidate=item)
+    payload: dict[str, Any] = {"validation_id": validation.id, "staff_id": item.staff_id}
+    if not result.passed:
+        payload |= {"outreach_id": outreach.id, "failed_rules": failed_rules}
+    audit_service.log(
+        db,
+        case_id=case.id,
+        actor_id=actor_service.component_id(db, ActorName.SAFETY_RULE_ENGINE),
+        action=AuditAction.SAFETY_PASSED if result.passed else AuditAction.SAFETY_FAILED,
+        entity_type=EntityType.SAFETY_VALIDATION,
+        entity_id=validation.id,
+        payload=payload,
+    )
+    if result.passed:
+        approval = approval_service.create_request(db, case=case, item=item)
+        return SafetyResult(validation=validation, approval=approval, candidate=item)
+    # Q7, Q8: a dropped candidate's offer is CANCELLED by the one shared function.
+    # This transaction already holds the lock of that row (workflow.md 6.11)
+    outreach_service.cancel_offer(db, outreach)
+    db.flush()
+    return SafetyResult(validation=validation, approval=None, candidate=item)

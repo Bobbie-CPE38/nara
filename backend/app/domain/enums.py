@@ -296,13 +296,16 @@ class AuditAction(StrEnum):
     REQUIREMENT_UPDATED = "REQUIREMENT_UPDATED"
 
 
-# Actions the golden-path E2E test expects to find, in order of first appearance.
+# Exact non-transition audit sequence expected by the Golden Case E2E test.
+# Its one-person gap has ceil(1.1 * 1) = 2 candidates: wave 1 sends to
+# both 201 and 202, hence two consecutive OFFER_SENT rows.
 GOLDEN_PATH_AUDIT_ACTIONS: tuple[AuditAction, ...] = (
     AuditAction.EVENT_RECEIVED,
     AuditAction.UNAVAILABILITY_CREATED,
     AuditAction.CASE_OPENED,
     AuditAction.GAP_ASSESSED,
     AuditAction.SOLVER_EXECUTED,
+    AuditAction.OFFER_SENT,
     AuditAction.OFFER_SENT,
     AuditAction.OFFER_ACCEPTED,
     AuditAction.SAFETY_PASSED,

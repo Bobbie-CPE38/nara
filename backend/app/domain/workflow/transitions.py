@@ -1,8 +1,8 @@
 """Allowed case transitions from docs/workflow.md section 5.
 
 The orchestrator validates every transition here before changing case.status.
-T1 to T7 are the round 1 edges of section 5.1. The two SAFETY_VALIDATION edges stay
-until the code that still walks them is replaced (round 1 PR 3).
+T1 to T7 are the round 1 edges of section 5.1. The two SAFETY_VALIDATION edges of the
+Skeleton were removed in round 1 PR 3.
 """
 
 from app.domain.enums import TERMINAL_CASE_STATUSES, CaseStatus
@@ -29,11 +29,11 @@ ALLOWED_TRANSITIONS: dict[CaseStatus, frozenset[CaseStatus]] = {
         {
             CaseStatus.OUTREACH,  # T1
             CaseStatus.WAITING_APPROVAL,  # T2
-            CaseStatus.SAFETY_VALIDATION,
             CaseStatus.FAILED,
         }
     ),
-    CaseStatus.SAFETY_VALIDATION: frozenset({CaseStatus.WAITING_APPROVAL, CaseStatus.FAILED}),
+    # Kept in the enum, but no edge leads here: Safety runs per candidate (Q31).
+    CaseStatus.SAFETY_VALIDATION: frozenset({CaseStatus.FAILED}),
     CaseStatus.WAITING_APPROVAL: frozenset(
         {
             CaseStatus.WAITING_RESPONSE,  # T3

@@ -507,9 +507,9 @@ def test_offers_of_stopped_cases_do_not_count(seeded: Session) -> None:
 @pytest.mark.parametrize(
     ("offer_status", "case_status", "dropped"),
     [
-        (OutreachStatus.SENT, CaseStatus.WAITING_RESPONSE, True),
-        (OutreachStatus.SENT, CaseStatus.FAILED, True),
-        (OutreachStatus.ACCEPTED, CaseStatus.WAITING_APPROVAL, True),
+        (OutreachStatus.SENT, CaseStatus.WAITING_RESPONSE, False),
+        (OutreachStatus.SENT, CaseStatus.FAILED, False),
+        (OutreachStatus.ACCEPTED, CaseStatus.WAITING_APPROVAL, False),
         (OutreachStatus.ACCEPTED, CaseStatus.FAILED, False),
         (OutreachStatus.ACCEPTED, CaseStatus.RESOLVED, False),
         (OutreachStatus.REJECTED, CaseStatus.WAITING_RESPONSE, False),
@@ -539,8 +539,8 @@ def test_which_offers_count_as_open(
         assert _candidates(seeded, case) == [(201, 1), (202, 2), (203, 3)]
 
 
-def test_second_case_on_the_shift_offers_the_next_candidate(seeded: Session) -> None:
-    """The answer route needs exactly one SENT offer per responder, so 201 is not offered twice."""
+def test_second_case_can_offer_same_staff_below_limit(seeded: Session) -> None:
+    """The cap is three; an unanswered offer does not exclude a candidate."""
     first = _make_case(seeded)
     second = _case_with_gap(seeded)
 
@@ -551,7 +551,7 @@ def test_second_case_on_the_shift_offers_the_next_candidate(seeded: Session) -> 
     assert first.status is CaseStatus.WAITING_RESPONSE
     assert second.status is CaseStatus.WAITING_RESPONSE
     assert _candidates(seeded, first) == [(201, 1), (202, 2), (203, 3)]
-    assert _candidates(seeded, second) == [(202, 1), (203, 2)]
+    assert _candidates(seeded, second) == [(201, 1), (202, 2), (203, 3)]
 
 
 # --------------------------------------------------------------------------- #
@@ -682,7 +682,7 @@ def test_two_cases_planned_at_once_never_offer_the_same_candidate(
                 .where(CandidateOutreach.status == OutreachStatus.SENT)
             )
         )
-        assert sorted(sent) == [201, 202], f"a candidate holds two offers: {sent}"
+        assert len(sent) == len(set(sent)) == 3, f"a candidate exceeded the cap: {sent}"
         for case_id in committed_optimizing_cases:
             case = db.get(StaffingCase, case_id)
             assert case is not None

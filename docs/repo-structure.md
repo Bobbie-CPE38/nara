@@ -188,7 +188,6 @@ nara/
 │   │   │       ├── assess_staffing.py
 │   │   │       ├── optimize.py
 │   │   │       ├── contact_candidate.py
-│   │   │       ├── validate_safety.py
 │   │   │       ├── execute_assignment.py
 │   │   │       └── manual_handoff.py
 │   │   │
@@ -202,6 +201,7 @@ nara/
 │   │   │   ├── hard_rule_service.py
 │   │   │   ├── case_facts_service.py
 │   │   │   ├── candidate_service.py
+│   │   │   ├── wave_service.py
 │   │   │   ├── optimization_service.py
 │   │   │   ├── outreach_service.py
 │   │   │   ├── safety_service.py
@@ -370,13 +370,13 @@ nara/
 │       │   ├── test_optimize.py
 │       │   ├── test_outreach_policy.py
 │       │   ├── test_working_time_service.py
+│       │   ├── test_approval_per_candidate.py
 │       │   ├── test_execute_assignment.py
 │       │   ├── test_roster_route.py
 │       │   ├── test_outreach.py
-│       │   ├── test_accepted_outreach.py
 │       │   ├── test_outreach_response.py
 │       │   ├── test_line_sim_offers.py
-│       │   ├── test_validate_safety.py
+│       │   ├── test_safety_service.py
 │       │   ├── test_pending_approvals.py
 │       │   ├── test_approval_decision.py
 │       │   ├── test_line_webhook.py
