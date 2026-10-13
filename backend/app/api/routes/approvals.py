@@ -26,13 +26,14 @@ def decide(
             approval_id=approval_id,
             staff_id=user.staff.id,
             role_id=user.staff.role_id,
+            home_ward_id=user.staff.home_ward_id,
             actor_id=user.actor_id,
             approved=body.approved,
             reason=body.reason,
         )
     except approval_service.ApprovalNotFoundError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(error)) from error
-    except approval_service.ApproverRoleError as error:
+    except (approval_service.ApproverRoleError, approval_service.ApproverWardError) as error:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(error)) from error
     except (
         approval_service.ApprovalNotPendingError,

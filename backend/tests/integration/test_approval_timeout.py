@@ -59,6 +59,7 @@ def decide(db, request, approved=True):
         approval_id=request.id,
         staff_id=900,
         role_id=2,
+        home_ward_id=db.get(Staff, 900).home_ward_id,
         actor_id=actor_service.user_id(db, 900),
         approved=approved,
         reason=None if approved else "not selected",
@@ -324,10 +325,10 @@ def test_transient_lock_failure_is_isolated_and_retried_next_tick(production_see
     clock.advance(timedelta(seconds=900))
     real_lock = approval_service.lock_approval_attempt
 
-    def lock(db, approval_id, role_id):
+    def lock(db, approval_id, role_id, home_ward_id=None):
         if approval_id == request.id:
             raise approval_service.ApprovalLockRetryError("try later")
-        return real_lock(db, approval_id, role_id)
+        return real_lock(db, approval_id, role_id, home_ward_id)
 
     with patch.object(approval_service, "lock_approval_attempt", side_effect=lock):
         result = approval_timeout_service.expire_due_approvals(db)
@@ -408,3 +409,15 @@ def test_expired_pending_list_is_read_only_but_coverage_waits_for_job(production
     assert db.get(ApprovalRequest, request.id).is_pending
     approval_timeout_service.expire_due_approvals(db)
     assert not case_facts_service.pending_staff_ids(db, case.id)
+
+
+def test_timeout_job_does_not_require_a_head_nurse_ward(production_seeded):
+    db = production_seeded
+    _, _, _, request = pending(db, candidates=(201,))
+    clock.advance(timedelta(seconds=900))
+    with patch.object(
+        approval_service, "manages_ward", side_effect=AssertionError("job is not an approver")
+    ) as check:
+        result = approval_timeout_service.expire_due_approvals(db)
+    check.assert_not_called()
+    assert result.approval_ids == [request.id] and not result.failed_case_ids
