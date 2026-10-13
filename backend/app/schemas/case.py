@@ -59,6 +59,9 @@ class CaseDetail(BaseModel):
     updated_at: AppDatetime
     # null until the ASSESSING step stored a gap
     gap: GapView | None
+    # People this case already put on the roster. The case is still short of
+    # max(gap.headcount_gap - assigned_count, 0) people
+    assigned_count: int
     # Empty until the solver stored a plan. Ordered by rank
     candidates: list[CandidateView]
 

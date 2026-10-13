@@ -174,6 +174,12 @@ def staff_waiting_case_ids(db: Session, staff_id: int) -> set[int]:
         return {case_id for _, case_id in _waiting_acceptances(db, {staff_id})}
 
 
+def assigned_staff_ids(db: Session, case_id: int) -> set[int]:
+    """Staff the case counts as assigned (module docstring). For read models."""
+    with db.no_autoflush:
+        return _assigned_staff_ids(db, case_id)
+
+
 def _waiting_acceptances(db: Session, staff_ids: set[int]) -> set[tuple[int, int]]:
     decided = exists().where(
         ApprovalRequest.candidate_item_id == CandidateOutreach.candidate_item_id,

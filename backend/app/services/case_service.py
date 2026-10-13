@@ -27,6 +27,7 @@ from app.db.models import (
 )
 from app.domain.errors import CaseNotFoundError
 from app.schemas.case import AuditEntry, CandidateView, CaseDetail, GapCount, GapView
+from app.services import case_facts_service
 
 
 def get_case_detail(db: Session, case_id: int) -> CaseDetail:
@@ -40,6 +41,7 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
         created_at=case.created_at,
         updated_at=case.updated_at,
         gap=_latest_gap(db, case.id),
+        assigned_count=len(case_facts_service.assigned_staff_ids(db, case.id)),
         candidates=_latest_candidates(db, case.id),
     )
 
