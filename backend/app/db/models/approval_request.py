@@ -23,6 +23,8 @@ class ApprovalRequest(Base):
     candidate_item_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("candidate_items.id"))
     outreach_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("candidate_outreach.id"))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # is_approved=False means no assignment approval; consult is_timed_out before
+    # calling a negative outcome a head-nurse rejection. Only the job sets this flag.
     is_timed_out: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     required_approver_role: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("role.id"))
     approval_mode: Mapped[ApprovalMode] = mapped_column(StrEnumText(ApprovalMode))

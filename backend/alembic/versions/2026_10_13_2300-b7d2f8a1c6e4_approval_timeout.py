@@ -2,6 +2,14 @@
 
 Revision ID: b7d2f8a1c6e4
 Revises: a4b8c2d6e9f1
+
+All policies are initialized to 900 seconds by this migration, so historical
+deadlines use requested_at + 900 seconds, including decided and inactive rows.
+Old actionable requests expire on the first job tick after deployment.
+
+Downgrade removes attempt identity. After a retry creates two offers for an
+item, re-upgrade deliberately refuses that ambiguous history; repair it before
+re-upgrading rather than selecting an offer arbitrarily.
 """
 
 import sqlalchemy as sa

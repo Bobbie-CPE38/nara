@@ -271,8 +271,10 @@ def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:
 
 
 def accepted_offer_for_request() -> Exists:
-    """Shared predicate for actionable requests and pending gap coverage.
+    """Shared offer-link predicate for approval attempts and pending gap coverage.
 
+    List/decision callers also check the deadline; the timeout job selects expired
+    attempts. Coverage stays reserved until the job records the timeout.
     Cancellation preserves undecided request history. Its offer is the authority
     for whether that request can still be acted on; match its exact attempt, case and item.
     """

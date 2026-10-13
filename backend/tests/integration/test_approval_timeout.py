@@ -322,14 +322,14 @@ def test_transient_lock_failure_is_isolated_and_retried_next_tick(production_see
     other = approval(db, second, items[202])
     db.commit()
     clock.advance(timedelta(seconds=900))
-    real_lock = approval_service._lock_decision
+    real_lock = approval_service.lock_approval_attempt
 
     def lock(db, approval_id, role_id):
         if approval_id == request.id:
             raise approval_service.ApprovalLockRetryError("try later")
         return real_lock(db, approval_id, role_id)
 
-    with patch.object(approval_service, "_lock_decision", side_effect=lock):
+    with patch.object(approval_service, "lock_approval_attempt", side_effect=lock):
         result = approval_timeout_service.expire_due_approvals(db)
     assert result.approval_ids == [other.id] and result.failed_case_ids == {first.id}
     assert db.get(ApprovalRequest, request.id).is_pending
@@ -367,3 +367,44 @@ def test_retry_is_rechecked_against_concurrent_offer_limit(production_seeded):
         )
         == 1
     )
+
+
+def test_committed_timeout_is_not_failed_when_foreign_notification_raises(production_seeded):
+    db = production_seeded
+    case, _, _, request = pending(db, candidates=(201,))
+    clock.advance(timedelta(seconds=900))
+    with patch.object(
+        outreach_service,
+        "recompute_affected_cases",
+        side_effect=RuntimeError("notification failed"),
+    ):
+        result = approval_timeout_service.expire_due_approvals(db)
+    assert result.approval_ids == [request.id]
+    assert result.failed_case_ids == set()
+    assert db.get(ApprovalRequest, request.id).is_timed_out
+    assert db.get(StaffingCase, case.id).status == CaseStatus.WAITING_RESPONSE
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == AuditAction.APPROVAL_TIMEOUT)
+        )
+        == 1
+    )
+    assert approval_timeout_service.expire_due_approvals(db).approval_ids == []
+
+
+def test_expired_pending_list_is_read_only_but_coverage_waits_for_job(production_seeded):
+    db = production_seeded
+    case, _, _, request = pending(db, candidates=(201,))
+    clock.advance(timedelta(seconds=900, microseconds=-1))
+    assert [row.id for row in approval_service.list_pending(db)] == [request.id]
+    before = db.scalar(select(func.count()).select_from(AuditLog))
+    clock.advance(timedelta(microseconds=1))
+    assert approval_service.list_pending(db) == []
+    assert case_facts_service.pending_staff_ids(db, case.id) == {201}
+    assert case_facts_service.staff_waiting_case_ids(db, 201) == {case.id}
+    assert db.scalar(select(func.count()).select_from(AuditLog)) == before
+    assert db.get(ApprovalRequest, request.id).is_pending
+    approval_timeout_service.expire_due_approvals(db)
+    assert not case_facts_service.pending_staff_ids(db, case.id)

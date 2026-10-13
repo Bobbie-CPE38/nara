@@ -21,7 +21,7 @@ from app.services import (
     case_facts_service,
     outreach_service,
 )
-from app.services.offer_timeout_service import _clear_failures, _log_failure
+from app.services.offer_timeout_service import clear_failures, log_failure
 from app.workflow import orchestrator
 
 TIMEOUT_REASON = "The head nurse did not decide before the approval deadline"
@@ -57,7 +57,9 @@ def expire_due_approvals(db: Session) -> ExpiredApprovals:
     result = ExpiredApprovals()
     for approval_id, case_id in due:
         try:
-            request, case, item, offers = approval_service._lock_decision(db, approval_id, None)
+            request, case, item, offers = approval_service.lock_approval_attempt(
+                db, approval_id, None
+            )
             own = next(
                 (
                     row
@@ -99,19 +101,35 @@ def expire_due_approvals(db: Session) -> ExpiredApprovals:
                 if row.case_id == case.id and row.status == OutreachStatus.ACCEPTED
             }
             own_items.add(item.id)
-            orchestrator.recompute(db, case.id, prepare=outreach_service.promote_reserves)
-            result.approval_ids.append(approval_id)
-            _clear_failures("Approval expiry", case_id)
-            for staff_id in db.scalars(
-                select(CandidateItem.staff_id).where(CandidateItem.id.in_(own_items))
-            ):
-                outreach_service.recompute_affected_cases(
-                    db, staff_id=staff_id, own_case_id=case.id
+            notify_staff_ids = list(
+                db.scalars(
+                    select(CandidateItem.staff_id)
+                    .where(CandidateItem.id.in_(own_items))
+                    .order_by(CandidateItem.staff_id)
                 )
+            )
+            orchestrator.recompute(db, case.id, prepare=outreach_service.promote_reserves)
+            # recompute committed the timeout, even if D11 failed the workflow.
+            result.approval_ids.append(approval_id)
+            clear_failures("Approval expiry", case_id)
         except approval_service.ApprovalNotPendingError:
             db.rollback()  # Another decision/tick or case completion won the locks.
+            continue
         except Exception as error:
             db.rollback()
-            _log_failure("Approval expiry", case_id, error)
+            log_failure("Approval expiry", case_id, error)
             result.failed_case_ids.add(case_id)
+            continue
+        # Foreign notifications are best effort after the committed timeout.
+        # Never label their failure as a rolled-back expiry or exclude this case
+        # from recovery. The recovery sweep retries stranded foreign cases.
+        for staff_id in notify_staff_ids:
+            try:
+                outreach_service.recompute_affected_cases(
+                    db, staff_id=staff_id, own_case_id=case_id
+                )
+                clear_failures("Approval notification", case_id)
+            except Exception as error:
+                db.rollback()
+                log_failure("Approval notification", case_id, error)
     return result

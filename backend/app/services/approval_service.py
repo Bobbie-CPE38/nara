@@ -145,7 +145,7 @@ def decide(
     recompute's savepoint. Workflow failure preserves the decision, fails the
     case, and rolls back its assignment. Foreign notifications follow commit.
     """
-    request, case, item, offers = _lock_decision(db, approval_id, role_id)
+    request, case, item, offers = lock_approval_attempt(db, approval_id, role_id)
     own = [
         row
         for row in offers
@@ -237,7 +237,7 @@ def decide(
     return request, case
 
 
-def _lock_decision(
+def lock_approval_attempt(
     db: Session,
     approval_id: int,
     role_id: int | None,
@@ -379,6 +379,7 @@ def list_pending(db: Session) -> list[PendingApproval]:
             .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
             .where(
                 ApprovalRequest.is_pending.is_(True),
+                ApprovalRequest.expires_at > clock.now(),
                 case_facts_service.accepted_offer_for_request(),
                 StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
             )

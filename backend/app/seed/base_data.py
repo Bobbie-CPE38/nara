@@ -80,12 +80,12 @@ def seed(db: Session) -> None:
                 created_at=now,
             ),
             ApprovalPolicy(
-                approval_timeout_seconds=900,
                 id=1,
                 ratio=Decimal(2),
                 incoming_count=10,
                 version="demo-stub-v1",
                 created_at=now,
+                approval_timeout_seconds=900,
             ),
             OutreachPolicy(
                 id=1,
