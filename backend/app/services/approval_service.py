@@ -4,6 +4,7 @@ The orchestrator owns decision commits."""
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import Select
 
 from app.core import clock
 from app.core.constants import HEAD_NURSE_ROLE, MAX_APPROVAL_REASON_LENGTH
@@ -16,6 +17,7 @@ from app.db.models import (
     Shift,
     StaffingCase,
 )
+from app.domain.constraints.codes import HardRuleCode
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     ActorName,
@@ -29,12 +31,24 @@ from app.schemas.approval import PendingApproval
 from app.services import (
     actor_service,
     audit_service,
+    case_facts_service,
     hard_rule_service,
     outreach_service,
     roster_service,
 )
 from app.services.wave_service import plan_items
 from app.workflow import orchestrator
+
+_SCHEDULING_RULES = frozenset(
+    {
+        HardRuleCode.ALREADY_ON_SHIFT,
+        HardRuleCode.SHIFT_CONFLICT,
+        HardRuleCode.INSUFFICIENT_REST,
+        HardRuleCode.DAILY_HOURS_EXCEEDED,
+        HardRuleCode.WEEKLY_HOURS_EXCEEDED,
+        HardRuleCode.CONSECUTIVE_SHIFTS_EXCEEDED,
+    }
+)
 
 
 class ApprovalNotFoundError(LookupError):
@@ -47,6 +61,14 @@ class ApproverRoleError(ValueError):
 
 class ApprovalNotPendingError(ValueError):
     """The request has already been decided."""
+
+
+class ApprovalOfferConflictError(ValueError):
+    """The selected request no longer has exactly one accepted offer."""
+
+
+class ApprovalLockRetryError(ValueError):
+    """Concurrent offer changes prevented acquiring a stable lock set; retry."""
 
 
 class InvalidApprovalReasonError(ValueError):
@@ -111,12 +133,6 @@ def decide(
     case, and rolls back its assignment. Foreign notifications follow commit.
     """
     request, case, item, offers = _lock_decision(db, approval_id, role_id)
-    if reason is not None and len(reason) > MAX_APPROVAL_REASON_LENGTH:
-        raise InvalidApprovalReasonError(
-            f"reason must be at most {MAX_APPROVAL_REASON_LENGTH} characters"
-        )
-    if not approved and (reason is None or not reason.strip()):
-        raise InvalidApprovalReasonError("A rejection requires a nonblank reason")
     own = [
         row
         for row in offers
@@ -125,7 +141,20 @@ def decide(
         and row.status == OutreachStatus.ACCEPTED
     ]
     if len(own) != 1:
-        raise ValueError("Approval requires exactly one accepted offer of its candidate")
+        raise ApprovalOfferConflictError(
+            "The request no longer has one accepted offer; refresh approvals"
+        )
+    live_offer_ids = {
+        row.id
+        for row in offers
+        if row.case_id == case.id and row.status in {OutreachStatus.SENT, OutreachStatus.ACCEPTED}
+    }
+    if reason is not None and len(reason) > MAX_APPROVAL_REASON_LENGTH:
+        raise InvalidApprovalReasonError(
+            f"reason must be at most {MAX_APPROVAL_REASON_LENGTH} characters"
+        )
+    if not approved and (reason is None or not reason.strip()):
+        raise InvalidApprovalReasonError("A rejection requires a nonblank reason")
     outreach = own[0]
     request.approver_id = staff_id
     request.is_approved = approved
@@ -177,6 +206,7 @@ def decide(
             .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
             .where(
                 CandidateOutreach.case_id == case.id,
+                CandidateOutreach.id.in_(live_offer_ids),
                 CandidateOutreach.status == OutreachStatus.CANCELLED,
             )
         )
@@ -225,20 +255,10 @@ def _lock_decision(
         item = db.get(CandidateItem, request.candidate_item_id)
         if item is None:
             raise LookupError(f"No candidate item {request.candidate_item_id}")
+        offer_query = _decision_offer_query(request.case_id, item.staff_id)
         offers = list(
             db.scalars(
-                select(CandidateOutreach)
-                .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
-                .where(
-                    or_(
-                        CandidateOutreach.case_id == request.case_id,
-                        (CandidateItem.staff_id == item.staff_id)
-                        & CandidateOutreach.status.in_(
-                            [OutreachStatus.SENT, OutreachStatus.ACCEPTED]
-                        ),
-                    )
-                )
-                .order_by(CandidateOutreach.id)
+                offer_query.order_by(CandidateOutreach.id)
                 .with_for_update(key_share=True, of=CandidateOutreach)
                 .execution_options(populate_existing=True)
             )
@@ -256,25 +276,28 @@ def _lock_decision(
         hard_rule_service.lock_staff(
             db, [candidate.staff_id for candidate in plan_items(db, case.id)] + [item.staff_id]
         )
-        current_ids = set(
-            db.scalars(
-                select(CandidateOutreach.id)
-                .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
-                .where(
-                    or_(
-                        CandidateOutreach.case_id == request.case_id,
-                        (CandidateItem.staff_id == item.staff_id)
-                        & CandidateOutreach.status.in_(
-                            [OutreachStatus.SENT, OutreachStatus.ACCEPTED]
-                        ),
-                    )
-                )
-            )
-        )
+        current_ids = set(db.scalars(offer_query.with_only_columns(CandidateOutreach.id)))
         if current_ids <= {row.id for row in offers}:
             return request, case, item, offers
         db.rollback()
-    raise ApprovalNotPendingError("Offers changed while locking; retry the decision")
+    raise ApprovalLockRetryError(
+        "Could not lock a stable offer set after five attempts; retry the decision"
+    )
+
+
+def _decision_offer_query(case_id: int, staff_id: int) -> Select[CandidateOutreach]:
+    """One definition for initial offer locks and the post-Staff phantom check."""
+    return (
+        select(CandidateOutreach)
+        .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+        .where(
+            or_(
+                CandidateOutreach.case_id == case_id,
+                (CandidateItem.staff_id == staff_id)
+                & CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
+            )
+        )
+    )
 
 
 def _cancel_conflicting_offers(
@@ -286,16 +309,6 @@ def _cancel_conflicting_offers(
     the other proposed shifts for overlap, rest, hours and consecutive shifts.
     Safety's shared evaluator and current policy provide the exact semantics.
     """
-    from app.domain.constraints.codes import HardRuleCode
-
-    scheduling_rules = {
-        HardRuleCode.ALREADY_ON_SHIFT,
-        HardRuleCode.SHIFT_CONFLICT,
-        HardRuleCode.INSUFFICIENT_REST,
-        HardRuleCode.DAILY_HOURS_EXCEEDED,
-        HardRuleCode.WEEKLY_HOURS_EXCEEDED,
-        HardRuleCode.CONSECUTIVE_SHIFTS_EXCEEDED,
-    }
     cancelled = []
     for row in offers:
         if row.case_id == case.id or row.status not in {
@@ -312,7 +325,7 @@ def _cancel_conflicting_offers(
         if shift is None:
             raise LookupError(f"No shift {candidate.proposed_shift_id}")
         check = hard_rule_service.check_items(db, shift=shift, items=[candidate])[candidate.id]
-        if scheduling_rules.intersection(check.result.failed_rules):
+        if _SCHEDULING_RULES.intersection(check.result.failed_rules):
             outreach_service.cancel_offer(db, row)
             cancelled.append(row)
     db.flush()
@@ -326,7 +339,8 @@ def list_pending(db: Session) -> list[PendingApproval]:
     uniqueness enforcement belongs at creation, not on this list read.
     Include the candidate's identity and proposed shift for the UI. Stopped
     cases keep undecided requests as history, but those cannot be acted on and
-    are excluded here, including requests left behind by D11 failures.
+    are excluded here, including requests left behind by D11 failures. Pending
+    requests whose offers were cancelled are also excluded on running cases.
     """
     with db.no_autoflush:
         rows = db.execute(
@@ -345,6 +359,7 @@ def list_pending(db: Session) -> list[PendingApproval]:
             .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
             .where(
                 ApprovalRequest.is_pending.is_(True),
+                case_facts_service.accepted_offer_for_request(),
                 StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
             )
             .order_by(ApprovalRequest.id)

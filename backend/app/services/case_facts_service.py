@@ -12,7 +12,8 @@ Who counts, per candidate (workflow.md section 4.1):
   * assigned: the approval request of the case is approved AND the candidate
     holds a replacement roster row on the proposed shift that is ASSIGNED or
     COMPLETED.
-  * pending: the approval request of the case is still pending.
+  * pending: the approval request is pending AND its case/item still has an
+    ACCEPTED offer. Cancelled offers cannot reserve gap coverage.
   * open offer: the offer of the case is SENT and its candidate is not waiting
     on another case.
   * paused offer: the offer of the case is SENT and its candidate is waiting on
@@ -29,6 +30,7 @@ Known limits:
 
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.selectable import Exists
 
 from app.db.models import (
     ApprovalRequest,
@@ -255,12 +257,29 @@ def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:
     )
 
 
+def accepted_offer_for_request() -> Exists:
+    """Shared predicate for actionable requests and pending gap coverage.
+
+    Cancellation preserves undecided request history. Its offer is the authority
+    for whether that request can still be acted on; match BOTH case and item.
+    """
+    return exists().where(
+        CandidateOutreach.case_id == ApprovalRequest.case_id,
+        CandidateOutreach.candidate_item_id == ApprovalRequest.candidate_item_id,
+        CandidateOutreach.status == OutreachStatus.ACCEPTED,
+    )
+
+
 def _pending_staff_ids(db: Session, case_id: int) -> set[int]:
     return set(
         db.scalars(
             select(CandidateItem.staff_id)
             .join(ApprovalRequest, ApprovalRequest.candidate_item_id == CandidateItem.id)
-            .where(ApprovalRequest.case_id == case_id, ApprovalRequest.is_pending.is_(True))
+            .where(
+                ApprovalRequest.case_id == case_id,
+                ApprovalRequest.is_pending.is_(True),
+                accepted_offer_for_request(),
+            )
         )
     )
 

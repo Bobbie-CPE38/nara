@@ -197,6 +197,20 @@ def approval(
     )
     db.add(request)
     db.flush()
+    if (
+        db.scalar(
+            select(CandidateOutreach.id).where(
+                CandidateOutreach.case_id == case.id, CandidateOutreach.candidate_item_id == item.id
+            )
+        )
+        is None
+    ):
+        offer(
+            db,
+            case,
+            item,
+            OutreachStatus.ACCEPTED if approved is not False else OutreachStatus.CANCELLED,
+        )
     return request
 
 

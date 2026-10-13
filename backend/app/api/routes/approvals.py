@@ -34,7 +34,11 @@ def decide(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(error)) from error
     except approval_service.ApproverRoleError as error:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(error)) from error
-    except approval_service.ApprovalNotPendingError as error:
+    except (
+        approval_service.ApprovalNotPendingError,
+        approval_service.ApprovalOfferConflictError,
+        approval_service.ApprovalLockRetryError,
+    ) as error:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error)) from error
     except approval_service.InvalidApprovalReasonError as error:
         raise HTTPException(422, detail=str(error)) from error

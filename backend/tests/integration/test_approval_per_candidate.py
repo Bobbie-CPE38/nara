@@ -685,3 +685,128 @@ def test_direct_service_also_bounds_approval_reason(production_seeded: Session) 
         )
     assert result.approval.is_pending
     assert db.scalar(select(func.count()).select_from(AuditLog)) == count
+
+
+def test_cancelled_foreign_acceptance_no_longer_covers_gap_or_allows_a_decision(
+    client: TestClient,
+    production_seeded: Session,
+) -> None:
+    db = production_seeded
+    _, own_offers = two_offers(db)
+    foreign, foreign_offer = foreign_case(db, delay=timedelta(hours=1))
+    # Include a remaining candidate so cancellation must send the next wave,
+    # rather than hide the stale request only because the foreign case stopped.
+    from app.services import case_facts_service
+    from tests.integration.case_rows import make_plan
+
+    items = make_plan(db, foreign, (201, 202))
+    foreign_offer.candidate_item_id = items[201].id
+    db.commit()
+    accept(client, own_offers[0], 201)
+    # Simulate legacy/external data with two accepted commitments. The normal
+    # response path prevents this, but the foreign-ACCEPTED cancellation path
+    # must safely invalidate an existing request when this state is encountered.
+    foreign_offer.status = OutreachStatus.ACCEPTED
+    foreign_offer.response_at = DEMO_NOW
+    safety_result = safety_service.validate_accepted_candidate(
+        db, foreign, outreach_id=foreign_offer.id
+    )
+    foreign.status = CaseStatus.WAITING_APPROVAL
+    foreign_request = safety_result.approval
+    db.commit()
+    decide(client, request_for(db, own_offers[0]))
+    db.expire_all()
+    assert foreign_offer.status == OutreachStatus.CANCELLED
+    assert foreign_offer.response_at == DEMO_NOW
+    assert foreign_request.is_pending and foreign_request.is_approved is None
+    assert foreign.status == CaseStatus.WAITING_RESPONSE
+    assert not case_facts_service.load_case_facts(db, foreign).has_pending_approval
+    assert case_facts_service.get_case_fillers(db, foreign.id) == []
+    sent = db.scalars(
+        select(CandidateOutreach).where(
+            CandidateOutreach.case_id == foreign.id, CandidateOutreach.status == OutreachStatus.SENT
+        )
+    ).one()
+    assert db.get(CandidateItem, sent.candidate_item_id).staff_id == 202
+    assert client.get("/approvals?pending=true", headers=HEADERS).json() == []
+    count = db.scalar(select(func.count()).select_from(AuditLog))
+    for approved in (True, False):
+        response = client.post(
+            f"/approvals/{foreign_request.id}/decision",
+            headers=HEADERS,
+            json={"approved": approved, "reason": "No longer needed"},
+        )
+        assert response.status_code == 409, response.text
+        assert "accepted offer" in response.json()["detail"]
+    assert db.scalar(select(func.count()).select_from(AuditLog)) == count
+    assert [row.staff_id for row in replacements(db)] == [201]
+
+
+def test_completion_cancels_unassigned_acceptance_without_actionable_request(
+    production_seeded: Session,
+) -> None:
+    from app.services import case_facts_service
+    from app.workflow import orchestrator
+    from tests.integration.case_rows import approval, assign
+
+    db = production_seeded
+    case, items = short_case(db, status=CaseStatus.WAITING_APPROVAL)
+    assign(db, case, items[201])
+    stale = approval(db, case, items[202])
+    db.commit()
+    assert orchestrator.recompute(db, case.id) == CaseStatus.RESOLVED
+    cancelled = db.scalars(
+        select(CandidateOutreach).where(CandidateOutreach.candidate_item_id == items[202].id)
+    ).one()
+    assert cancelled.status == OutreachStatus.CANCELLED
+    assert stale.is_pending and stale.is_approved is None
+    assert approval_service.list_pending(db) == []
+    assert not case_facts_service.load_case_facts(db, case).has_pending_approval
+    assert {person.staff_id for person in case_facts_service.get_case_fillers(db, case.id)} == {201}
+
+
+def test_decision_notifies_only_candidates_cancelled_in_this_round(
+    client: TestClient,
+    production_seeded: Session,
+) -> None:
+    db = production_seeded
+    _, rows = two_offers(db)
+    rows[2].status = OutreachStatus.CANCELLED  # Historical cancellation.
+    db.commit()
+    accept(client, rows[0], 201)
+    accept(client, rows[1], 202)
+    real_notify = outreach_service.recompute_affected_cases
+    with patch.object(outreach_service, "recompute_affected_cases", wraps=real_notify) as notify:
+        decide(client, request_for(db, rows[0]), False, "Use reserve")
+    assert [call.kwargs["staff_id"] for call in notify.call_args_list] == [201]
+
+
+def test_exhausted_lock_restarts_return_retryable_409_without_deciding_request(
+    client: TestClient,
+    production_seeded: Session,
+) -> None:
+    db = production_seeded
+    _, rows = two_offers(db)
+    accept(client, rows[0], 201)
+    request = request_for(db, rows[0])
+    count = db.scalar(select(func.count()).select_from(AuditLog))
+    real_scalars = Session.scalars
+    from unittest.mock import MagicMock
+
+    def scalars(session, statement, *args, **kwargs):
+        columns = list(statement.selected_columns)
+        if len(columns) == 1 and columns[0].shares_lineage(CandidateOutreach.__table__.c.id):
+            return MagicMock(__iter__=lambda self: iter([2**62]))
+        return real_scalars(session, statement, *args, **kwargs)
+
+    with patch.object(Session, "scalars", scalars):
+        response = client.post(
+            f"/approvals/{request.id}/decision", headers=HEADERS, json={"approved": True}
+        )
+    assert response.status_code == 409
+    assert "retry the decision" in response.json()["detail"]
+    assert "not pending" not in response.json()["detail"]
+    db.expire_all()
+    assert request.is_pending and request.is_approved is None
+    assert db.scalar(select(func.count()).select_from(AuditLog)) == count
+    assert replacements(db) == []
