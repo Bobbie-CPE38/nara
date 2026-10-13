@@ -810,3 +810,22 @@ def test_exhausted_lock_restarts_return_retryable_409_without_deciding_request(
     assert request.is_pending and request.is_approved is None
     assert db.scalar(select(func.count()).select_from(AuditLog)) == count
     assert replacements(db) == []
+
+
+def test_rejection_length_uses_the_trimmed_reason_that_is_stored(
+    client: TestClient,
+    production_seeded: Session,
+) -> None:
+    db = production_seeded
+    _, rows = two_offers(db)
+    accept(client, rows[0], 201)
+    request = request_for(db, rows[0])
+    response = decide(client, request, False, " \t" + "ก" * 500 + " \n")
+    assert response.json()["is_approved"] is False
+    db.expire_all()
+    assert request.reason == "ก" * 500
+    audit = db.scalars(
+        select(AuditLog).where(AuditLog.action == AuditAction.APPROVAL_REJECTED)
+    ).one()
+    assert audit.payload["reason"] == request.reason
+    assert outreach_service.list_offers(db, staff_id=201)[0].cancellation_reason == request.reason

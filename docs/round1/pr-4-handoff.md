@@ -4,8 +4,8 @@ Base: `feat/round1-case-flow` at `61bb6d0`, including PR 2b and PR 3.
 
 ## Implemented
 
-- Pending reads exclude stopped cases and requests without an ACCEPTED offer of the same case/item. The same predicate controls pending gap coverage. Cancellation preserves undecided requests as inactive history; deciding them returns 409 instead of creating a fake rejection or acquiring extra approval locks in foreign cases.
-- Decide one request at a time. Keep 404 → 403 → 409 ordering; a stopped case returns 409. Rejection requires a nonblank reason; all decision reasons are limited to 500 characters (422 otherwise), preserves the candidate response time, cancels that candidate's offer and promotes reserves in acceptance order through real Safety.
+- Pending reads exclude stopped cases and requests without an ACCEPTED offer of the same case/item. The same predicate controls pending gap coverage. Cancellation preserves undecided requests as inactive history; deciding them returns 409 instead of creating a fake rejection or acquiring extra approval locks in foreign cases. Reports and other consumers counting pending requests must also use `case_facts_service.accepted_offer_for_request()` rather than counting `is_pending=True` alone.
+- Decide one request at a time. Keep 404 → 403 → 409 ordering; a stopped case returns 409. Rejection requires a nonblank reason; reason length is checked in the service after 404 → 403 → 409: at most 500 stored characters (422 otherwise). Rejection text is trimmed before this check and before storage; approval text is preserved as supplied, preserves the candidate response time, cancels that candidate's offer and promotes reserves in acceptance order through real Safety.
 - Approval creates that candidate's replacement roster row immediately. Other approvals may remain pending, and a partially staffed case may continue outreach or go to MANUAL_HANDOFF without removing assignments already committed.
 - No execution recheck of the approved candidate (Q38). After assignment, shared scheduling Hard Rules check the candidate's other offers for overlap, rest, daily/weekly hours and consecutive shifts; cancel only unsafe offers.
 - The EXECUTING handler only verifies assigned coverage, cancels unused SENT/reserve offers, records all assignment IDs and cancellation IDs, and resolves the case. Approved candidates retain their ACCEPTED history.
@@ -30,4 +30,4 @@ No migration. PR 5 still owns the approvals UI's rejection reason input; PR O ow
 
 ## Validation
 
-Full backend suite: 1,375 passed, including E2E. Frontend: 186 passed. Ruff, format check, mypy, TypeScript typecheck and production build passed. No developer database reset was used.
+Full backend suite: 1,386 passed, including E2E. Frontend: 186 passed. Ruff, format check, mypy, TypeScript typecheck and production build passed. No developer database reset was used.

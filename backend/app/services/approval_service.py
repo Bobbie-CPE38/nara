@@ -149,16 +149,17 @@ def decide(
         for row in offers
         if row.case_id == case.id and row.status in {OutreachStatus.SENT, OutreachStatus.ACCEPTED}
     }
-    if reason is not None and len(reason) > MAX_APPROVAL_REASON_LENGTH:
+    stored_reason = reason if approved or reason is None else reason.strip()
+    if stored_reason is not None and len(stored_reason) > MAX_APPROVAL_REASON_LENGTH:
         raise InvalidApprovalReasonError(
             f"reason must be at most {MAX_APPROVAL_REASON_LENGTH} characters"
         )
-    if not approved and (reason is None or not reason.strip()):
+    if not approved and not stored_reason:
         raise InvalidApprovalReasonError("A rejection requires a nonblank reason")
     outreach = own[0]
     request.approver_id = staff_id
     request.is_approved = approved
-    request.reason = reason if approved else (reason or "").strip()
+    request.reason = stored_reason
     request.decided_at = clock.now()
     request.is_pending = False
     payload = {"approval_id": request.id, "reason": request.reason}

@@ -396,3 +396,54 @@ def test_concurrent_decisions_write_one_approval(committed_request: int) -> None
         assert request.decided_at == DEMO_NOW
         actions = list(db.scalars(select(AuditLog.action)))
         assert actions.count(AuditAction.APPROVAL_APPROVED) == 1
+
+
+@pytest.mark.parametrize("approved", [True, False])
+@pytest.mark.parametrize(
+    "problem,expected",
+    [
+        ("missing", 404),
+        ("wrong_role", 403),
+        ("decided", 409),
+        ("stopped", 409),
+        ("cancelled_offer", 409),
+    ],
+)
+def test_overlong_reason_does_not_override_decision_error_order(
+    client: TestClient,
+    production_seeded: Session,
+    request_row: ApprovalRequest,
+    approved: bool,
+    problem: str,
+    expected: int,
+) -> None:
+    from app.db.models import CandidateOutreach
+    from app.domain.enums import OutreachStatus
+
+    db = production_seeded
+    url = _url(request_row)
+    headers = HEADERS
+    if problem == "missing":
+        url = "/approvals/9223372036854775807/decision"
+        headers = {"X-Demo-User": "105"}
+    elif problem == "wrong_role":
+        headers = {"X-Demo-User": "105"}
+    elif problem == "decided":
+        request_row.is_pending = False
+    elif problem == "stopped":
+        db.get(StaffingCase, request_row.case_id).status = CaseStatus.FAILED
+    else:
+        row = db.scalars(
+            select(CandidateOutreach).where(
+                CandidateOutreach.candidate_item_id == request_row.candidate_item_id
+            )
+        ).one()
+        row.status = OutreachStatus.CANCELLED
+    db.commit()
+    pending_before = request_row.is_pending
+    response = client.post(url, headers=headers, json={"approved": approved, "reason": "x" * 501})
+    assert response.status_code == expected, response.text
+    db.expire_all()
+    assert request_row.is_pending == pending_before
+    assert request_row.is_approved is None and request_row.reason is None
+    assert db.scalar(select(AuditLog.id)) is None

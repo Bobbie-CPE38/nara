@@ -1,6 +1,5 @@
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, StrictBool
 
-from app.core.constants import MAX_APPROVAL_REASON_LENGTH
 from app.domain.enums import ApprovalMode, CaseStatus
 from app.schemas.types import AppDatetime
 
@@ -24,7 +23,8 @@ class ApprovalDecision(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     approved: StrictBool
-    reason: str | None = Field(default=None, max_length=MAX_APPROVAL_REASON_LENGTH)
+    # Semantic reason validation runs after 404/403/409 checks in the service.
+    reason: str | None = None
 
 
 class ApprovalDecisionResult(BaseModel):
