@@ -378,17 +378,19 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 
 เคสหนึ่งมีผู้สมัครหลายคนพร้อมกัน แต่ละคนอยู่คนละขั้น สถานะรายคนไม่มีคอลัมน์เดียวที่เก็บ อ่านจากแถวของผู้สมัคร (ผูกด้วย `candidate_item_id`)
 
-| ผู้สมัครอยู่ขั้นไหน | ดูจาก |
-|---|---|
-| ยังไม่ถูกติดต่อ | ไม่มีแถว `CANDIDATE_OUTREACH` |
-| ส่ง Offer แล้ว รอคำตอบ | `CANDIDATE_OUTREACH.status = SENT` |
-| ปฏิเสธ | `status = REJECTED` |
-| ตอบรับ รอตรวจ Safety | `status = ACCEPTED` และยังไม่มีแถว `SAFETY_VALIDATION` |
-| ตอบรับ แต่ Safety ไม่ผ่าน | `SAFETY_VALIDATION.is_passed = false` และ Offer เป็น `CANCELLED` |
-| รออนุมัติ | `APPROVAL_REQUEST.is_pending = true` และมี Offer `ACCEPTED` ของเคส / Item เดียวกัน |
-| ไม่ได้รับอนุมัติ | `APPROVAL_REQUEST.is_approved = false` และ Offer เป็น `CANCELLED` |
-| ได้รับอนุมัติ | `APPROVAL_REQUEST.is_approved = true` |
-| ได้เข้าเวรแล้ว | มีแถว `ROSTER_ASSIGNMENT` แบบ `REPLACEMENT` |
+| ผู้สมัครอยู่ขั้นไหน | ดูจาก | `stage` |
+|---|---|---|
+| ยังไม่ถูกติดต่อ | ไม่มีแถว `CANDIDATE_OUTREACH` | `NOT_CONTACTED` |
+| ส่ง Offer แล้ว รอคำตอบ | `CANDIDATE_OUTREACH.status = SENT` | `OFFER_SENT` |
+| ปฏิเสธ | `status = REJECTED` | `OFFER_REJECTED` |
+| ตอบรับ รอตรวจ Safety | `status = ACCEPTED` และยังไม่มีแถว `SAFETY_VALIDATION` | `ACCEPTED` |
+| ตอบรับ แต่ Safety ไม่ผ่าน | `SAFETY_VALIDATION.is_passed = false` และ Offer เป็น `CANCELLED` | `SAFETY_FAILED` |
+| รออนุมัติ | `APPROVAL_REQUEST.is_pending = true` และมี Offer `ACCEPTED` ของเคส / Item เดียวกัน | `WAITING_APPROVAL` |
+| ไม่ได้รับอนุมัติ | `APPROVAL_REQUEST.is_approved = false` และ Offer เป็น `CANCELLED` | `APPROVAL_REJECTED` |
+| ได้รับอนุมัติ | `APPROVAL_REQUEST.is_approved = true` | `APPROVED` |
+| ได้เข้าเวรแล้ว | มีแถว `ROSTER_ASSIGNMENT` แบบ `REPLACEMENT` | `ASSIGNED` |
+
+`GET /cases/{id}` คืนขั้นนี้เป็น `candidates[].stage` (ข้อ 9.3) Offer ที่จบแบบอื่นใช้ `OFFER_TIMEOUT`, `OFFER_CANCELLED`, `OFFER_PENDING` และ `OFFER_FAILED`
 
 ### 4.2 สถานะเคส
 
@@ -1150,7 +1152,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
   "assigned_count": 0,
   "candidates": [
     {"candidate_item_id": 1, "rank": 1, "staff_id": 201, "first_name": "Arunee", "last_name": "Demo",
-     "source": "SAME_WARD", "outreach_status": "SENT"}
+     "source": "SAME_WARD", "outreach_status": "SENT", "stage": "OFFER_SENT"}
   ]
 }
 ```
@@ -1163,6 +1165,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 * `assigned_count` คือจำนวนคนที่เคสนี้จัดเข้าเวรแล้ว นับแบบเดียวกับ "ได้เข้าเวรแล้ว" ของข้อ 5.3 (`case_facts_service.assigned_staff_ids()`) เคสยังขาดคนอีก `max(gap.headcount_gap - assigned_count, 0)` หน้า `approvals` ใช้ค่านี้บอกว่าเคสของแต่ละคำขอยังขาดกี่คน (PR 5) ค่านี้นับเฉพาะจำนวนคน เคสที่ได้ 0 ยังรออนุมัติอยู่ได้เมื่อยังขาด Role หรือ Skill
 * `candidates` เป็น `[]` จนกว่า Solver จะบันทึก Plan ใช้ Plan ที่ `id` มากสุดของเคส (Seam 1) เรียงตาม `rank`
 * `outreach_status` เป็น `null` จนกว่าจะมี Outreach ของผู้สมัครคนนั้น ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
+* `stage` คือขั้นของผู้สมัครในเคสนี้ตามข้อ 4.1 คำนวณตอนอ่าน ไม่มีคอลัมน์เก็บ ใช้ข้อแรกที่ตรงตามลำดับ: ได้เข้าเวรแล้ว (`ASSIGNED`), อนุมัติแล้ว (`APPROVED`), ไม่อนุมัติ (`APPROVAL_REJECTED`), Safety ไม่ผ่าน (`SAFETY_FAILED`), ไม่มี Offer (`NOT_CONTACTED`), Offer `ACCEPTED` และรออนุมัติ (`WAITING_APPROVAL`), Offer `ACCEPTED` อย่างเดียว (`ACCEPTED` คือสำรองตาม Q28), นอกนั้น `OFFER_` ตามด้วยสถานะของ Offer "ได้เข้าเวรแล้ว" กับ "รออนุมัติ" ใช้เงื่อนไขเดียวกับ `case_facts_service` คำขอที่ยัง Pending แต่ Offer ถูกยกเลิกจึงเป็น `OFFER_CANCELLED` Offer ที่ยัง `SENT` เลย `expires_at` แล้วแต่ Job ยังไม่ตั้ง `TIMEOUT` ยังเป็น `OFFER_SENT` ทั้งที่เคสไม่รอ Offer นั้นแล้ว (ข้อ 6.9) `stage` อ่านสถานะที่เก็บ ไม่ได้เทียบ `clock.now()`
 
 **`GET /cases/{id}/audit`** (คน 1) ไม่ต้องมี `X-Demo-User` ไม่มีเคส ID นั้น → `404` ID นอกช่วง `bigint` (1 ถึง 9223372036854775807) → `422`
 
@@ -1457,3 +1460,4 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-13 | รอบ 1 PR O: Migration a4b8c2d6e9f1 เพิ่ม offer_timeout_seconds (Seed 300) และ expires_at; backfill จาก sent_at + 300 วินาที ตรวจ SENT ต้องมี expiry; ส่ง Wave snapshot deadline เดียวกัน, ตอบหลัง deadline ได้ 409 ไม่เขียน, SENT ที่หมดเวลาไม่เติม open/paused offer และไม่นับ cap; Job ปิด TIMEOUT/Audit ราย Offer แล้ว recompute, recovery sweep และปล่อย Window ต่อใน tick เดียวกัน; LINE simulator แสดง deadline; tests ครอบคลุมขอบเขตเวลา migration failure-isolation และ race กับ Job | คน 3 |
 | 2026-10-13 | รอบ 1 PR 5: หน้า `approvals` มีช่องกรอกเหตุผลตอนไม่อนุมัติ (ไม่ว่าง ไม่เกิน 500 ตัวอักษร ส่งค่าที่ตัดช่องว่างหัวท้ายแล้ว) และคอลัมน์บอกว่าเคสของคำขอยังขาดกี่คน; `GET /cases/{id}` เพิ่ม `assigned_count` จาก `case_facts_service.assigned_staff_ids()` | คน 1 |
 | 2026-10-13 | `POST /demo/clock/advance` คืน `timed_out_outreach_ids` และ `recovered_case_ids` เพิ่มจาก `closed_windows` และหน้า `demo/control` แสดงสองรายการนี้หลังเลื่อน Clock เพราะตั้งแต่ PR O การเลื่อน Clock ทำให้ Offer หมดเวลาได้ แต่หน้าเดิมบอกแค่เรื่อง Window; Route ของ Job ไม่เปลี่ยน | คน 1 |
+| 2026-10-13 | รอบ 1 PR 6: `GET /cases/{id}` เพิ่ม `candidates[].stage` (ข้อ 4.1, 9.3) คำนวณตอนอ่านด้วยเงื่อนไขเดียวกับ `case_facts_service`; หน้า `cases/[id]` แสดงสถานะรายคน, ตารางผู้สมัครที่ถูกข้ามจาก `skipped` ใน Audit และ `effective_minimum` ของ Gap ไม่มี Migration | คน 2 |

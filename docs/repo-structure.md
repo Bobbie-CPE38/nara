@@ -456,7 +456,8 @@ nara/
 │       │   │   ├── CaseView.tsx
 │       │   │   └── GapTable.tsx
 │       │   ├── candidate/
-│       │   │   └── CandidateTable.tsx
+│       │   │   ├── CandidateTable.tsx
+│       │   │   └── SkippedTable.tsx
 │       │   ├── optimization/
 │       │   ├── outreach/
 │       │   ├── safety/

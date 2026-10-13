@@ -180,6 +180,12 @@ def assigned_staff_ids(db: Session, case_id: int) -> set[int]:
         return _assigned_staff_ids(db, case_id)
 
 
+def pending_staff_ids(db: Session, case_id: int) -> set[int]:
+    """Staff the case counts as waiting for approval (module docstring). For read models."""
+    with db.no_autoflush:
+        return _pending_staff_ids(db, case_id)
+
+
 def _waiting_acceptances(db: Session, staff_ids: set[int]) -> set[tuple[int, int]]:
     decided = exists().where(
         ApprovalRequest.candidate_item_id == CandidateOutreach.candidate_item_id,

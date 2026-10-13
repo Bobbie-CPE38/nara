@@ -12,11 +12,13 @@ from sqlalchemy.orm import Session
 
 from app.db.models import (
     Actor,
+    ApprovalRequest,
     AuditLog,
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
     Role,
+    SafetyValidation,
     Skill,
     Staff,
     StaffingCase,
@@ -25,9 +27,26 @@ from app.db.models import (
     StaffingGapRole,
     StaffingGapSkill,
 )
+from app.domain.enums import OutreachStatus
 from app.domain.errors import CaseNotFoundError
-from app.schemas.case import AuditEntry, CandidateView, CaseDetail, GapCount, GapView
+from app.schemas.case import (
+    AuditEntry,
+    CandidateStage,
+    CandidateView,
+    CaseDetail,
+    GapCount,
+    GapView,
+)
 from app.services import case_facts_service
+
+_OFFER_STAGES: dict[OutreachStatus, CandidateStage] = {
+    OutreachStatus.PENDING: "OFFER_PENDING",
+    OutreachStatus.SENT: "OFFER_SENT",
+    OutreachStatus.REJECTED: "OFFER_REJECTED",
+    OutreachStatus.TIMEOUT: "OFFER_TIMEOUT",
+    OutreachStatus.FAILED: "OFFER_FAILED",
+    OutreachStatus.CANCELLED: "OFFER_CANCELLED",
+}
 
 
 def get_case_detail(db: Session, case_id: int) -> CaseDetail:
@@ -177,6 +196,24 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
             .order_by(CandidateOutreach.id)
         )
     }
+    safety_passed = {
+        item_id: is_passed
+        for item_id, is_passed in db.execute(
+            select(SafetyValidation.candidate_item_id, SafetyValidation.is_passed)
+            .where(SafetyValidation.case_id == case_id)
+            .order_by(SafetyValidation.id)
+        )
+    }
+    approved = {
+        item_id: is_approved
+        for item_id, is_approved in db.execute(
+            select(ApprovalRequest.candidate_item_id, ApprovalRequest.is_approved)
+            .where(ApprovalRequest.case_id == case_id, ApprovalRequest.is_pending.is_(False))
+            .order_by(ApprovalRequest.id)
+        )
+    }
+    assigned = case_facts_service.assigned_staff_ids(db, case_id)
+    pending = case_facts_service.pending_staff_ids(db, case_id)
     return [
         CandidateView(
             candidate_item_id=item.id,
@@ -186,6 +223,37 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
             last_name=last_name,
             source=item.source,
             outreach_status=outreach_status.get(item.id),
+            stage=_stage(
+                outreach_status=outreach_status.get(item.id),
+                safety_passed=safety_passed.get(item.id),
+                approved=approved.get(item.id),
+                is_assigned=item.staff_id in assigned,
+                is_pending=item.staff_id in pending,
+            ),
         )
         for item, first_name, last_name in items
     ]
+
+
+def _stage(
+    *,
+    outreach_status: OutreachStatus | None,
+    safety_passed: bool | None,
+    approved: bool | None,
+    is_assigned: bool,
+    is_pending: bool,
+) -> CandidateStage:
+    """The first rule that matches (docs/workflow.md, section 4.1)."""
+    if is_assigned:
+        return "ASSIGNED"
+    if approved is True:
+        return "APPROVED"
+    if approved is False:
+        return "APPROVAL_REJECTED"
+    if safety_passed is False:
+        return "SAFETY_FAILED"
+    if outreach_status is None:
+        return "NOT_CONTACTED"
+    if outreach_status is OutreachStatus.ACCEPTED:
+        return "WAITING_APPROVAL" if is_pending else "ACCEPTED"
+    return _OFFER_STAGES[outreach_status]

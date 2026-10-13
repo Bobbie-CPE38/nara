@@ -1,6 +1,8 @@
 import { apiRequest } from "@/lib/api";
 import type { AuditEntry, CaseDetail } from "@/lib/types/case";
 
+export type SkipRecord = { key: string; origin: string; staffId: number; reason: string };
+
 export type CaseSnapshot = { detail: CaseDetail; audit: AuditEntry[] };
 
 /** A positive integer of at most 19 digits. Kept as text: a number would round IDs above 2^53. */
@@ -39,4 +41,22 @@ export async function loadCase(caseId: string, signal: AbortSignal): Promise<Cas
     throw new Error("Unexpected response from the API");
   }
   return { detail, audit };
+}
+
+/** Candidates skipped when a wave was selected, from the audit (docs/workflow.md, section 6.7). */
+export function collectSkips(audit: AuditEntry[]): SkipRecord[] {
+  const records: SkipRecord[] = [];
+  for (const entry of audit) {
+    if (entry.action !== "OFFER_SENT" && entry.action !== "MANUAL_HANDOFF") continue;
+    const { skipped, wave } = entry.payload;
+    if (!Array.isArray(skipped)) continue;
+    const origin = entry.action === "MANUAL_HANDOFF"
+      ? "Handoff"
+      : typeof wave === "number" ? `Wave ${wave}` : "Wave";
+    skipped.forEach((item: unknown, index: number) => {
+      if (!isRecord(item) || typeof item.staff_id !== "number" || typeof item.reason !== "string") return;
+      records.push({ key: `${entry.id}-${index}`, origin, staffId: item.staff_id, reason: item.reason });
+    });
+  }
+  return records;
 }

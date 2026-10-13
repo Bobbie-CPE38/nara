@@ -41,6 +41,8 @@ from app.domain.enums import (
 )
 from app.main import app
 from app.services import audit_service
+from app.services.case_service import _OFFER_STAGES
+from tests.integration import case_rows
 from tests.integration.case_rows import approval
 from tests.integration.conftest import DEMO_NOW
 
@@ -290,6 +292,7 @@ def test_candidates_come_from_the_latest_plan_in_rank_order(
         "last_name",
         "source",
         "outreach_status",
+        "stage",
     }
     assert (first["first_name"], first["source"]) == ("Arunee", "SAME_WARD")
 
@@ -334,6 +337,63 @@ def test_candidate_shows_its_newest_outreach_status(
     body = client.get(f"/cases/{case.id}").json()
 
     assert [c["outreach_status"] for c in body["candidates"]] == ["ACCEPTED", "SENT", None]
+
+
+def _stages(client: TestClient, case: StaffingCase) -> list[str]:
+    body = client.get(f"/cases/{case.id}").json()
+    return [c["stage"] for c in body["candidates"]]
+
+
+def test_every_offer_status_but_accepted_has_a_stage() -> None:
+    # A status without a stage would make GET /cases/{id} answer 500
+    assert set(_OFFER_STAGES) == set(OutreachStatus) - {OutreachStatus.ACCEPTED}
+
+
+def test_candidate_stage_follows_the_offer(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, second, _ = _add_plan(seeded, case, [201, 202, 203])
+    case_rows.offer(seeded, case, first, OutreachStatus.SENT)
+    case_rows.offer(seeded, case, second, OutreachStatus.REJECTED)
+
+    assert _stages(client, case) == ["OFFER_SENT", "OFFER_REJECTED", "NOT_CONTACTED"]
+
+
+def test_candidate_stage_of_closed_offers_and_a_reserve(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, second, third = _add_plan(seeded, case, [201, 202, 203])
+    case_rows.offer(seeded, case, first, OutreachStatus.TIMEOUT)
+    case_rows.offer(seeded, case, second, OutreachStatus.CANCELLED)
+    case_rows.offer(seeded, case, third, OutreachStatus.ACCEPTED)
+
+    assert _stages(client, case) == ["OFFER_TIMEOUT", "OFFER_CANCELLED", "ACCEPTED"]
+
+
+def test_candidate_stage_after_acceptance(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, second, third = _add_plan(seeded, case, [201, 202, 203])
+    case_rows.offer(seeded, case, first, OutreachStatus.ACCEPTED)
+    case_rows.safety(seeded, case, first, passed=True)
+    case_rows.approval(seeded, case, first)
+    case_rows.offer(seeded, case, second, OutreachStatus.CANCELLED)
+    case_rows.safety(seeded, case, second, passed=False)
+    case_rows.approval(seeded, case, third, approved=False)
+
+    assert _stages(client, case) == ["WAITING_APPROVAL", "SAFETY_FAILED", "APPROVAL_REJECTED"]
+
+
+def test_candidate_stage_after_a_decision(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, second, third = _add_plan(seeded, case, [201, 202, 203])
+    case_rows.assign(seeded, case, first)
+    case_rows.approval(seeded, case, second, approved=True)
+    case_rows.offer(seeded, case, third, OutreachStatus.CANCELLED)
+    case_rows.approval(seeded, case, third)
+
+    assert _stages(client, case) == ["ASSIGNED", "APPROVED", "OFFER_CANCELLED"]
 
 
 # --------------------------------------------------------------------------- #

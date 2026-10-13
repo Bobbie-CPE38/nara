@@ -74,7 +74,7 @@ describe("CaseView", () => {
     }
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Case 1");
     expect(status()).toBe("WAITING_RESPONSE");
-    expect(screen.getByText("Waiting for the candidate to reply")).toBeTruthy();
+    expect(screen.getByText("Waiting for candidates to reply")).toBeTruthy();
     expect(screen.getByText("Updating every 2 seconds.")).toBeTruthy();
     expect(screen.getByText("Headcount:").textContent).toContain("Short by 1");
     expect(rows("Gap")).toEqual([
@@ -82,7 +82,7 @@ describe("CaseView", () => {
       ["Skill", "ICU", "2", "2", "OK"],
     ]);
     expect(rows("Candidates")).toEqual([
-      ["1", "201", "Arunee Demo", "SAME_WARD", "SENT"],
+      ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply"],
       ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted"],
       ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted"],
     ]);
@@ -178,7 +178,7 @@ describe("CaseView", () => {
     expect(status()).toBe("FAILED");
     expect(screen.getByText("Failed at ASSESSING: NoGapError")).toBeTruthy();
     expect(screen.getByText("Not assessed yet.")).toBeTruthy();
-    expect(screen.getByText("No candidates yet.")).toBeTruthy();
+    expect(screen.getByText("No candidates.")).toBeTruthy();
     expect(screen.queryByRole("table", { name: "Gap" })).toBeNull();
     expect(screen.queryByRole("table", { name: "Candidates" })).toBeNull();
   });
@@ -195,14 +195,14 @@ describe("CaseView", () => {
   it("reports a role or skill shortage on its own when the headcount is enough", async () => {
     serve(caseDetail({
       gap: {
-        id: 1, headcount_gap: 0, computed_at: DEMO_TIME,
+        id: 1, effective_minimum: 5, headcount_gap: 0, computed_at: DEMO_TIME,
         roles: [{ id: 1, name: "RN", required_count: 5, current_count: 5, gap_count: 0 }],
         skills: [{ id: 1, name: "ICU", required_count: 2, current_count: 1, gap_count: 1 }],
       },
     }), []);
     render(<CaseView caseId="1" />);
     await tick();
-    expect(screen.getByText("Headcount:").textContent).toBe("Headcount: OKComputed 2026-10-09 21:00:00");
+    expect(screen.getByText("Headcount:").textContent).toBe("Headcount: OKMinimum 5Computed 2026-10-09 21:00:00");
     expect(rows("Gap")).toEqual([
       ["Role", "RN", "5", "5", "OK"],
       ["Skill", "ICU", "2", "1", "Short by 1"],
@@ -212,7 +212,7 @@ describe("CaseView", () => {
   it("never adds the headcount, role and skill gaps together", async () => {
     serve(caseDetail({
       gap: {
-        id: 1, headcount_gap: 1, computed_at: DEMO_TIME,
+        id: 1, effective_minimum: 5, headcount_gap: 1, computed_at: DEMO_TIME,
         roles: [{ id: 1, name: "RN", required_count: 5, current_count: 4, gap_count: 1 }],
         skills: [{ id: 1, name: "ICU", required_count: 2, current_count: 1, gap_count: 1 }],
       },
@@ -275,7 +275,7 @@ describe("CaseView", () => {
     );
     await tick(2000);
     expect(status()).toBe("WAITING_RESPONSE");
-    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "SENT"]]);
+    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "Offer sent, waiting for reply"]]);
     expect(actions()).toEqual(["EVENT_RECEIVED", "UNAVAILABILITY_CREATED", "CASE_OPENED", "CASE_STATUS_CHANGED"]);
   });
 
@@ -386,6 +386,107 @@ describe("CaseView", () => {
     const tableRows = within(screen.getByRole("table", { name: "Timeline" })).getAllByRole("row").slice(1);
     expect(tableRows.map(row => row.className.includes("text-gray-500"))).toEqual([
       false, false, false, true, false, false, false,
+    ]);
+  });
+
+  it.each([
+    ["NOT_CONTACTED", "Not contacted"],
+    ["OFFER_PENDING", "Offer queued"],
+    ["OFFER_SENT", "Offer sent, waiting for reply"],
+    ["OFFER_REJECTED", "Declined the offer"],
+    ["OFFER_TIMEOUT", "Did not reply in time"],
+    ["OFFER_FAILED", "Offer could not be delivered"],
+    ["OFFER_CANCELLED", "Offer cancelled"],
+    ["ACCEPTED", "Accepted, on reserve"],
+    ["SAFETY_FAILED", "Accepted, failed the safety check"],
+    ["WAITING_APPROVAL", "Accepted, waiting for approval"],
+    ["APPROVAL_REJECTED", "Not approved"],
+    ["APPROVED", "Approved, not on the roster"],
+    ["ASSIGNED", "Assigned to the shift"],
+  ])("shows the candidate stage %s as %j", async (stage, label) => {
+    const [first] = caseDetail().candidates;
+    serve(caseDetail({ candidates: [{ ...first, stage }] }), []);
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(rows("Candidates")[0][4]).toBe(label);
+  });
+
+  it("shows an unknown candidate stage as it is", async () => {
+    const [first] = caseDetail().candidates;
+    serve(caseDetail({ candidates: [{ ...first, stage: "A_STAGE_ADDED_LATER" }] }), []);
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(rows("Candidates")[0][4]).toBe("A_STAGE_ADDED_LATER");
+  });
+
+  it("shows the headcount minimum and how many are on the shift", async () => {
+    render(<CaseView caseId="1" />);
+    await tick();
+    const text = screen.getByText("Headcount:").textContent;
+    expect(text).toContain("Short by 1");
+    expect(text).toContain("Minimum 5, 4 on shift when assessed");
+  });
+
+  it("lists every event of the case", async () => {
+    serve(caseDetail({ event_ids: [1, 2] }), []);
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(screen.getByText("1, 2")).toBeTruthy();
+  });
+
+  it("shows no skipped table when nobody was skipped", async () => {
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(screen.queryByRole("table", { name: "Skipped" })).toBeNull();
+  });
+
+  it("lists the skipped candidates of a wave and of the handoff, and keeps polling", async () => {
+    serve(caseDetail({ status: "MANUAL_HANDOFF" }), [
+      auditEntry(1, "OFFER_SENT", {
+        entity_type: "CANDIDATE_OUTREACH",
+        payload: {
+          outreach_id: 1, staff_id: 201, channel: "LINE", wave: 2,
+          skipped: [{ staff_id: 202, reason: "OFFER_LIMIT_REACHED" }],
+        },
+      }),
+      auditEntry(2, "MANUAL_HANDOFF", {
+        payload: {
+          reason: "NO_CANDIDATE_LEFT",
+          skipped: [{ staff_id: 204, reason: "A_REASON_ADDED_LATER" }],
+        },
+      }),
+    ]);
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(rows("Skipped")).toEqual([
+      ["Wave 2", "202", "Phanu Demo", "OFFER_LIMIT_REACHEDAlready holds the maximum number of open offers"],
+      ["Handoff", "204", "—", "A_REASON_ADDED_LATER"],
+    ]);
+    await tick(4000);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+  });
+
+  it("lists skipped people without names when the case stopped without a plan", async () => {
+    serve(caseDetail({ status: "MANUAL_HANDOFF", candidates: [] }), [
+      auditEntry(1, "MANUAL_HANDOFF", {
+        payload: {
+          reason: "NO_FEASIBLE_PLAN",
+          skipped: [
+            { staff_id: 201, reason: "STAFF_NOT_ACTIVE" },
+            { staff_id: 202, reason: "STAFF_NOT_ACTIVE" },
+          ],
+        },
+      }),
+    ]);
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(screen.getByText("No candidates.")).toBeTruthy();
+    expect(screen.queryByText("No candidates yet.")).toBeNull();
+    const skipped = screen.getByRole("table", { name: "Skipped" });
+    expect(within(skipped).queryByRole("columnheader", { name: "Name" })).toBeNull();
+    expect(rows("Skipped")).toEqual([
+      ["Handoff", "201", "STAFF_NOT_ACTIVENot an active staff member"],
+      ["Handoff", "202", "STAFF_NOT_ACTIVENot an active staff member"],
     ]);
   });
 

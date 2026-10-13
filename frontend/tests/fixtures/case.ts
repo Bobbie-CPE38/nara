@@ -15,6 +15,7 @@ export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
     updated_at: DEMO_TIME,
     gap: {
       id: 1,
+      effective_minimum: 5,
       headcount_gap: 1,
       computed_at: DEMO_TIME,
       roles: [{ id: 1, name: "RN", required_count: 5, current_count: 4, gap_count: 1 }],
@@ -23,11 +24,11 @@ export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
     assigned_count: 0,
     candidates: [
       { candidate_item_id: 1, rank: 1, staff_id: 201, first_name: "Arunee", last_name: "Demo",
-        source: "SAME_WARD", outreach_status: "SENT" },
+        source: "SAME_WARD", outreach_status: "SENT", stage: "OFFER_SENT" },
       { candidate_item_id: 2, rank: 2, staff_id: 202, first_name: "Phanu", last_name: "Demo",
-        source: "SAME_WARD", outreach_status: null },
+        source: "SAME_WARD", outreach_status: null, stage: "NOT_CONTACTED" },
       { candidate_item_id: 3, rank: 3, staff_id: 203, first_name: "Chonthicha", last_name: "Demo",
-        source: "SAME_WARD", outreach_status: null },
+        source: "SAME_WARD", outreach_status: null, stage: "NOT_CONTACTED" },
     ],
     ...overrides,
   };
@@ -87,7 +88,7 @@ export function waitingResponseAudit(): AuditEntry[] {
     statusChange(8, "OPTIMIZING", "OUTREACH"),
     auditEntry(9, "OFFER_SENT", {
       actor_id: 5, actor_name: "outreach_agent", entity_type: "CANDIDATE_OUTREACH",
-      payload: { outreach_id: 1, staff_id: 201, channel: "LINE" },
+      payload: { outreach_id: 1, staff_id: 201, channel: "LINE", wave: 1, skipped: [] },
     }),
     statusChange(10, "OUTREACH", "WAITING_RESPONSE"),
   ];
