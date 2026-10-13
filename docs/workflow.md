@@ -57,9 +57,9 @@ Contract ของรอบ 2 ตกลงแล้ว (PR #50) ไฟล์น�
 | A | คน 2 | Test ที่ตรึงผลของ Solver รอบ 1 | 6.14 | #51 |
 | 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, Transition T8 และ T9, ค่าใหม่ใน Enum | 4, 5.1, 6.12 ถึง 6.14, 7.1, 9.4 | #52 |
 | W | คน 1 | การอนุมัติจำกัดหอ | 6.12 | #53 |
-| T | คน 3 | Approval Timeout (Migration ตัวที่ 1) | 6.13 | |
+| T | คน 3 | Approval Timeout (Migration ตัวที่ 1) | 6.13 | #54 |
 | T2 | คน 1 | หน้า `approvals` แสดงเส้นตาย | 9.4 | |
-| B | คน 2 | OR-Tools (Migration ตัวที่ 2) | 6.14 | |
+| B | คน 2 | OR-Tools (Migration ตัวที่ 2) | 6.14 | #56 |
 | H | คน 1 | เส้นออกจาก `MANUAL_HANDOFF` (Migration ตัวที่ 3) | 6.12 | |
 
 ลำดับ merge: 0 ก่อนทุกตัว, W ก่อน H, T ก่อน B ก่อน H ตามสาย Migration (`a4b8c2d6e9f1` → T → B → H), T2 หลัง T รายละเอียดอยู่ร่างรอบ 2 ข้อ 6 รอบ 2 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R2-Q10)
