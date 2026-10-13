@@ -250,8 +250,13 @@ def _lock_decision(
         initial_case = db.get(StaffingCase, initial.case_id)
         if initial_case is None:
             raise LookupError(f"No case {initial.case_id}")
+        # KEY SHARE does not block an update of ward_id. No path moves a shift to
+        # another ward, so the ward read here holds for the decision
         shift = db.scalar(
-            select(Shift).where(Shift.id == initial_case.shift_id).with_for_update(key_share=True)
+            select(Shift)
+            .where(Shift.id == initial_case.shift_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         )
         if shift is None:
             raise LookupError(f"No shift {initial_case.shift_id}")

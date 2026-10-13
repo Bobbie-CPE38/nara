@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
@@ -38,32 +38,46 @@ from app.workflow.handlers.base import HandlerResult
 from tests.integration.conftest import DEMO_NOW
 
 HEADERS = {"X-Demo-User": "900"}
-# A head nurse whose home ward is not the ward of the seeded shifts
-OTHER_WARD_HEADERS = {"X-Demo-User": "901"}
 
 
-def _add_other_ward_head_nurse(db: Session) -> None:
+def _add_other_ward_head_nurse(db: Session) -> tuple[int, dict[str, str]]:
+    """A head nurse of a new ward. Returns the ward ID and the headers to act as them.
+
+    The IDs follow the highest ones in use, so a seed that gains a ward or a
+    staff member does not clash with this.
+    """
     template = db.get(Staff, 900)
     assert template is not None
-    db.add(Ward(id=2, name="ER", is_active=True, created_at=DEMO_NOW, updated_at=DEMO_NOW))
+    ward_id = (db.scalar(select(func.max(Ward.id))) or 0) + 1
+    staff_id = (db.scalar(select(func.max(Staff.id))) or 0) + 1
+    db.add(
+        Ward(
+            id=ward_id,
+            name=f"Other ward {ward_id}",
+            is_active=True,
+            created_at=DEMO_NOW,
+            updated_at=DEMO_NOW,
+        )
+    )
     db.flush()
     db.add(
         Staff(
-            id=901,
+            id=staff_id,
             first_name="Other",
             last_name="Ward",
-            email="901@demo.local",
+            email=f"{staff_id}@demo.local",
             password_hash="!",
             role_id=template.role_id,
-            home_ward_id=2,
+            home_ward_id=ward_id,
             status=StaffStatus.ACTIVE,
             created_at=DEMO_NOW,
             updated_at=DEMO_NOW,
         )
     )
     db.flush()
-    db.add(Actor(name="901", actor_type=ActorType.USER, staff_id=901))
+    db.add(Actor(name=str(staff_id), actor_type=ActorType.USER, staff_id=staff_id))
     db.flush()
+    return ward_id, {"X-Demo-User": str(staff_id)}
 
 
 def _make_request(db: Session) -> ApprovalRequest:
@@ -212,12 +226,12 @@ def test_head_nurse_of_another_ward_is_403_before_pending_and_answer(
     approved: bool,
 ) -> None:
     """The approver must be a head nurse of the shift's ward (workflow.md 6.12, R2-Q21)."""
-    _add_other_ward_head_nurse(production_seeded)
+    _, other_ward_headers = _add_other_ward_head_nurse(production_seeded)
     request_row.is_pending = pending
     production_seeded.commit()
     response = client.post(
         _url(request_row),
-        headers=OTHER_WARD_HEADERS,
+        headers=other_ward_headers,
         json={"approved": approved, "reason": "Not my ward"},
     )
     assert response.status_code == 403
@@ -234,23 +248,23 @@ def test_the_ward_rule_follows_the_shift_not_a_fixed_ward(
 ) -> None:
     """Move the shift to the other ward: its head nurse may decide, the old one may not."""
     db = production_seeded
-    _add_other_ward_head_nurse(db)
+    other_ward_id, other_ward_headers = _add_other_ward_head_nurse(db)
     case = db.get(StaffingCase, request_row.case_id)
     assert case is not None
     shift = db.get(Shift, case.shift_id)
     assert shift is not None
-    shift.ward_id = 2
+    shift.ward_id = other_ward_id
     db.commit()
 
     refused = client.post(_url(request_row), headers=HEADERS, json={"approved": True})
     assert refused.status_code == 403
     _unchanged(db, request_row)
 
-    decided = client.post(_url(request_row), headers=OTHER_WARD_HEADERS, json={"approved": True})
+    decided = client.post(_url(request_row), headers=other_ward_headers, json={"approved": True})
     assert decided.status_code == 200, decided.text
     db.expire_all()
     assert request_row.is_approved is True
-    assert request_row.approver_id == 901
+    assert request_row.approver_id == int(other_ward_headers["X-Demo-User"])
 
 
 @pytest.mark.parametrize("approved", [True, False])
@@ -514,8 +528,7 @@ def test_overlong_reason_does_not_override_decision_error_order(
     elif problem == "wrong_role":
         headers = {"X-Demo-User": "105"}
     elif problem == "wrong_ward":
-        _add_other_ward_head_nurse(db)
-        headers = OTHER_WARD_HEADERS
+        _, headers = _add_other_ward_head_nurse(db)
     elif problem == "decided":
         request_row.is_pending = False
     elif problem == "stopped":

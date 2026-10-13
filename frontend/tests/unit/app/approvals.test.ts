@@ -180,6 +180,23 @@ describe("approvals page", () => {
     );
   });
 
+  it("shows why a head nurse of another ward cannot decide, and keeps the row", async () => {
+    // GET /approvals lists every ward; the decision is limited to the shift's ward
+    const fetchMock = stubFetch([PENDING], {
+      body: { detail: "The staff member is not a head nurse of the shift's ward" },
+      status: 403,
+    });
+    render(createElement(Approvals));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(
+      "Approval 4: The staff member is not a head nurse of the shift's ward (HTTP 403)",
+    );
+    expect(posts(fetchMock)).toHaveLength(1);
+    expect(screen.getByRole("table")).toBeTruthy();
+  });
+
   it("shows a new request that reuses a decided ID after a demo reset", async () => {
     vi.useFakeTimers();
     let list: unknown[] = [PENDING];
