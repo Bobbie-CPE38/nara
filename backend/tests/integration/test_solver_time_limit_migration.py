@@ -22,7 +22,7 @@ def migration():
     return ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_revision(REVISION).module
 
 
-def test_upgrade_backfills_three_seconds_and_keeps_weights(seeded):
+def test_upgrade_backfills_five_seconds_and_keeps_weights(seeded):
     connection = seeded.connection()
     query = text(f"SELECT {WEIGHTS} FROM soft_constraint_policy WHERE id = 1")
     before = tuple(connection.execute(query).one())
@@ -38,7 +38,7 @@ def test_upgrade_backfills_three_seconds_and_keeps_weights(seeded):
         connection.scalar(
             text("SELECT solver_time_limit_seconds FROM soft_constraint_policy WHERE id = 1")
         )
-        == 3
+        == 5
     )
     assert tuple(connection.execute(query).one()) == before
 

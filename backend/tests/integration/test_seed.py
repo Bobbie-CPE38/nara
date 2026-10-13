@@ -71,7 +71,7 @@ def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
         soft.roster_change_weight,
         soft.candidate_source_weight,
     ) == (1000, 5, 1, 2, 300, 200)
-    assert soft.solver_time_limit_seconds == 3
+    assert soft.solver_time_limit_seconds == 5
     assert soft.candidate_source_priority == ["SAME_WARD", "FLOAT_POOL", "CROSS_WARD"]
     assert soft.optimization_priority == [
         "MIN_CANDIDATE_COUNT",
