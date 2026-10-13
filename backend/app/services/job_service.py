@@ -29,8 +29,9 @@ def run_due_work(db: Session) -> DueWork:
     """Expire offers, recover missed notifications, then close due merge windows.
 
     Case work commits per case; window work commits per shift. Releasing a case
-    first lets its queued window close in this same tick. Route response shapes
-    remain unchanged; service callers can inspect timeout/recovery IDs.
+    first lets its queued window close in this same tick. The job route still
+    answers only the windows; the demo clock route also answers the timeout
+    and recovery IDs.
     """
     expired = offer_timeout_service.expire_due_offers(db)
     recovered = offer_timeout_service.recover_waiting_cases(

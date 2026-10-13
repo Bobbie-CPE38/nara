@@ -281,3 +281,15 @@ Branch ที่แตกก่อน PR #29 ต้อง Merge `staging` เข
 | 6 | LLM Node สรุปสถานการณ์ (ถ้าทีมเลือกทางเลือก 4) | | LLM ตีความคำตอบอิสระ (ถ้าทีมเลือกทางเลือก 4) |
 
 ทุกครั้งที่ทำกรณีใหม่ เปิดใช้ Seed Scenario และ Integration Test ของกรณีนั้นไปด้วย Golden Path ต้องเขียวตลอด
+
+### สถานะหลังรอบ 1
+
+ตารางข้างบนคือแผนแรก รอบ 1 เสร็จแล้ว และดึงงานจากหลายลำดับมาทำพร้อมกัน ตารางใน `docs/round1/next-move.md` เอางานที่รอบ 1 ทำไปแล้วออกจากรอบเดิม แต่รอบ 2 ถึง 6 ในตารางนั้นยังเป็นแผนเดิมที่ทีมยังไม่ได้จัดใหม่ รายชื่อ PR อยู่ที่ `docs/workflow.md` ส่วน "สถานะของรอบ 1"
+
+| ลำดับในตารางข้างบน | ทำแล้วในรอบ 1 | ยังไม่ได้ทำ |
+|---|---|---|
+| 1 | ทั้งสามช่อง: Coverage, Hard Rules ตัวเดียวทั้ง Solver, Wave และ Safety, Reject และ Head Nurse ไม่อนุมัติ | |
+| 2 | กติกาตรวจความพร้อมตัวเดียวทั้งระบบ, Soft Constraint แบบใช้ Weight, Timeout ของผู้สมัคร (ใช้ Service ของ Job ไม่ใช้ Celery + Redis) | OR-Tools |
+| 3 | เคสหยุดที่ `MANUAL_HANDOFF` พร้อมเหตุผล, Working Time Snapshot | การจัดการเคสหลัง `MANUAL_HANDOFF`, Escalation, Score Breakdown และคำอธิบายอันดับ, LINE จริง |
+| 4 | รวม Event ของเวรเดียวกันเป็นเคสเดียว และ Lock ต่อ Shift (Merge Gap) | Cross-Ward, ผู้อนุมัติเป็น Supervisor, Approval Timeout, Auto-Approval |
+| 5, 6 | | ทั้งหมด |
