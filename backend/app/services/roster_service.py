@@ -23,23 +23,17 @@ from app.domain.errors import ShiftNotFoundError
 from app.schemas.roster import RosterRow, RosterShift, ShiftRoster
 
 
-def create_replacement(db: Session, case: StaffingCase) -> RosterAssignment:
-    """Create from exactly one completed, approved request, never commit.
+def create_replacement(
+    db: Session, case: StaffingCase, *, approval: ApprovalRequest
+) -> RosterAssignment:
+    """Create the selected approval's replacement in the decision transaction.
 
-    Flush the caller's decision first: production sessions disable autoflush.
-    Follow the request's item, rather than a newer plan or a rank-1 lookup.
-    Reject inconsistent case/plan/shift references before creating a roster row.
-    Errors propagate to the orchestrator's D11 handling; do not catch and continue.
-    Hard Rules are not checked again here (Q38).
+    Caller holds Shift, Request, Offer, case and Staff locks. No commit or audit.
+    Do not recheck Hard Rules at execution (Q38); Safety owns that check.
     """
     db.flush()
-    approval = db.scalars(
-        select(ApprovalRequest).where(
-            ApprovalRequest.case_id == case.id,
-            ApprovalRequest.is_pending.is_(False),
-            ApprovalRequest.is_approved.is_(True),
-        )
-    ).one()
+    if approval.case_id != case.id or approval.is_pending or approval.is_approved is not True:
+        raise ValueError("Replacement requires a decided, approved request of this case")
     item = db.get(CandidateItem, approval.candidate_item_id)
     if item is None:
         raise LookupError(f"No candidate item {approval.candidate_item_id}")

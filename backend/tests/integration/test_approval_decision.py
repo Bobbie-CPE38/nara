@@ -2,7 +2,7 @@
 
 import threading
 from collections.abc import Iterator
-from datetime import datetime, timedelta
+from datetime import datetime
 from unittest.mock import patch
 
 import pytest
@@ -15,21 +15,13 @@ from app.db.base import Base
 from app.db.models import (
     ApprovalRequest,
     AuditLog,
-    CandidateItem,
-    CandidatePlan,
     StaffingCase,
-    StaffingEvent,
 )
 from app.db.session import SessionLocal, engine
 from app.domain.enums import (
-    ApprovalMode,
     AuditAction,
-    CandidateSource,
     CaseStatus,
     EntityType,
-    EventStatus,
-    EventType,
-    SolverStatus,
 )
 from app.main import app
 from app.seed import load
@@ -43,70 +35,13 @@ HEADERS = {"X-Demo-User": "900"}
 
 
 def _make_request(db: Session) -> ApprovalRequest:
-    event = StaffingEvent(
-        event_type=EventType.STAFF_UNAVAILABLE,
-        shift_id=1,
-        staff_id=105,
-        occurred_at=DEMO_NOW,
-        status=EventStatus.PROCESSED,
-        processed_at=DEMO_NOW,
-    )
-    db.add(event)
-    db.flush()
-    case = StaffingCase(
-        shift_id=1,
-        status=CaseStatus.WAITING_APPROVAL,
-        required_replacement_time=DEMO_NOW + timedelta(hours=2),
-    )
-    db.add(case)
-    db.flush()
-    event.case_id = case.id
-    db.flush()
-    plan = CandidatePlan(
-        case_id=case.id,
-        solver_status=SolverStatus.FEASIBLE,
-        generated_at=DEMO_NOW,
-        execution_time_ms=0,
-        solver_version="stub",
-        hard_constraint_policy_id=1,
-        soft_constraint_policy_id=1,
-        input_snapshot={},
-    )
-    db.add(plan)
-    db.flush()
-    item = CandidateItem(
-        plan_id=plan.id,
-        staff_id=201,
-        rank=1,
-        source=CandidateSource.SAME_WARD,
-        proposed_shift_id=1,
-    )
-    db.add(item)
-    db.flush()
-    request = ApprovalRequest(
-        case_id=case.id,
-        candidate_item_id=item.id,
-        required_approver_role=2,
-        approval_mode=ApprovalMode.MANUAL,
-        is_pending=True,
-        approver_id=None,
-        is_approved=None,
-        reason=None,
-        requested_at=DEMO_NOW,
-        decided_at=None,
-    )
-    db.add(request)
-    db.flush()
-    return request
+    from app.domain.enums import OutreachStatus
+    from tests.integration.case_rows import approval, offer, safety, short_case
 
-
-@pytest.fixture(autouse=True)
-def execution_stand_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Seam 8 has its own assignment tests. These tests verify the decision-to-execution handoff.
-    def execute(db: Session, case: StaffingCase) -> HandlerResult:
-        return HandlerResult(next_status=CaseStatus.RESOLVED)
-
-    monkeypatch.setitem(orchestrator.HANDLERS, CaseStatus.EXECUTING, execute)
+    case, items = short_case(db, status=CaseStatus.WAITING_APPROVAL)
+    offer(db, case, items[201], OutreachStatus.ACCEPTED)
+    safety(db, case, items[201], passed=True)
+    return approval(db, case, items[201])
 
 
 @pytest.fixture
@@ -173,7 +108,9 @@ def test_approval_fields_response_and_audit(
     rows = list(db.scalars(select(AuditLog).order_by(AuditLog.id)))
     assert [row.action for row in rows] == [
         AuditAction.APPROVAL_APPROVED,
+        AuditAction.ASSIGNMENT_CREATED,
         AuditAction.CASE_STATUS_CHANGED,
+        AuditAction.CASE_RESOLVED,
         AuditAction.CASE_STATUS_CHANGED,
     ]
     assert rows[0].actor_id == actor_service.user_id(db, 900)
@@ -182,8 +119,8 @@ def test_approval_fields_response_and_audit(
     assert rows[0].entity_id == request_row.id
     assert rows[0].payload == {"approval_id": request_row.id, "reason": reason}
     assert rows[0].created_at == DEMO_NOW
-    assert rows[1].payload == {"from": "WAITING_APPROVAL", "to": "EXECUTING"}
-    assert rows[2].payload == {"from": "EXECUTING", "to": "RESOLVED"}
+    assert rows[2].payload == {"from": "WAITING_APPROVAL", "to": "EXECUTING"}
+    assert rows[4].payload == {"from": "EXECUTING", "to": "RESOLVED"}
 
 
 def test_approved_request_leaves_pending_list(
@@ -261,11 +198,12 @@ def test_role_and_approver_identity_follow_the_request_and_header(
     assert audit.actor_id == actor_service.user_id(production_seeded, 201)
 
 
-def test_decline_is_422_without_writes(
-    client: TestClient, production_seeded: Session, request_row: ApprovalRequest
+@pytest.mark.parametrize("reason", [None, "", "   "])
+def test_decline_requires_nonblank_reason(
+    client: TestClient, production_seeded: Session, request_row: ApprovalRequest, reason: str | None
 ) -> None:
     response = client.post(
-        _url(request_row), headers=HEADERS, json={"approved": False, "reason": "No"}
+        _url(request_row), headers=HEADERS, json={"approved": False, "reason": reason}
     )
     assert response.status_code == 422
     _unchanged(production_seeded, request_row)
@@ -341,7 +279,11 @@ def test_service_delegates_commit_and_status_to_orchestrator(
     production_seeded: Session, request_row: ApprovalRequest
 ) -> None:
     db = production_seeded
-    with patch.object(orchestrator, "resume") as resume, patch.object(db, "commit") as commit:
+    with (
+        patch.object(orchestrator, "recompute") as recompute,
+        patch("app.services.outreach_service.recompute_affected_cases"),
+        patch.object(db, "commit") as commit,
+    ):
         request, case = approval_service.decide(
             db,
             approval_id=request_row.id,
@@ -350,7 +292,9 @@ def test_service_delegates_commit_and_status_to_orchestrator(
             actor_id=actor_service.user_id(db, 900),
             approved=True,
         )
-    resume.assert_called_once_with(db, request.case_id, CaseStatus.EXECUTING)
+    assert recompute.call_count == 1
+    assert recompute.call_args.args == (db, request.case_id)
+    assert callable(recompute.call_args.kwargs["prepare"])
     commit.assert_not_called()
     assert case.status is CaseStatus.WAITING_APPROVAL
 
@@ -388,7 +332,6 @@ def test_execution_failure_returns_200_failed_and_keeps_the_approval(
     actions = list(production_seeded.scalars(select(AuditLog.action).order_by(AuditLog.id)))
     assert actions == [
         AuditAction.APPROVAL_APPROVED,
-        AuditAction.CASE_STATUS_CHANGED,
         AuditAction.CASE_STATUS_CHANGED,
         AuditAction.WORKFLOW_FAILED,
     ]
@@ -453,3 +396,54 @@ def test_concurrent_decisions_write_one_approval(committed_request: int) -> None
         assert request.decided_at == DEMO_NOW
         actions = list(db.scalars(select(AuditLog.action)))
         assert actions.count(AuditAction.APPROVAL_APPROVED) == 1
+
+
+@pytest.mark.parametrize("approved", [True, False])
+@pytest.mark.parametrize(
+    "problem,expected",
+    [
+        ("missing", 404),
+        ("wrong_role", 403),
+        ("decided", 409),
+        ("stopped", 409),
+        ("cancelled_offer", 409),
+    ],
+)
+def test_overlong_reason_does_not_override_decision_error_order(
+    client: TestClient,
+    production_seeded: Session,
+    request_row: ApprovalRequest,
+    approved: bool,
+    problem: str,
+    expected: int,
+) -> None:
+    from app.db.models import CandidateOutreach
+    from app.domain.enums import OutreachStatus
+
+    db = production_seeded
+    url = _url(request_row)
+    headers = HEADERS
+    if problem == "missing":
+        url = "/approvals/9223372036854775807/decision"
+        headers = {"X-Demo-User": "105"}
+    elif problem == "wrong_role":
+        headers = {"X-Demo-User": "105"}
+    elif problem == "decided":
+        request_row.is_pending = False
+    elif problem == "stopped":
+        db.get(StaffingCase, request_row.case_id).status = CaseStatus.FAILED
+    else:
+        row = db.scalars(
+            select(CandidateOutreach).where(
+                CandidateOutreach.candidate_item_id == request_row.candidate_item_id
+            )
+        ).one()
+        row.status = OutreachStatus.CANCELLED
+    db.commit()
+    pending_before = request_row.is_pending
+    response = client.post(url, headers=headers, json={"approved": approved, "reason": "x" * 501})
+    assert response.status_code == expected, response.text
+    db.expire_all()
+    assert request_row.is_pending == pending_before
+    assert request_row.is_approved is None and request_row.reason is None
+    assert db.scalar(select(AuditLog.id)) is None

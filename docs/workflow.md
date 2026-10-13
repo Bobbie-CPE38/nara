@@ -13,10 +13,10 @@ PR 0 ของรอบ 1 ย้ายกติกาที่ทีมรีว
 | ข้อ | เรื่อง | โค้ดตรงกับข้อนี้เมื่อ PR ไหนเข้า |
 |---|---|---|
 | 3 | การรับ Event, Window, Threshold, Event สี่ชนิด, เป้าหมายจำนวนคน | ตรงแล้ว (PR 1b และ PR M) ยกเว้นข้อ 3.8 บรรทัดสุดท้าย: รอบของ Job ยังปิดแค่ Window การปิด Offer ที่หมดเวลาและการเก็บตกเคสที่ค้างมากับ PR O |
-| 4, 5 | สถานะเคส, Transition, ฟังก์ชันคำนวณสถานะเคส | ตาราง Transition มี T1 ถึง T7 แล้วใน PR 0 `decide_status()` และ `orchestrator.recompute()` มีแล้วใน PR S และเส้นทางตอบ Offer เรียก `recompute()` แล้วใน PR 2b Handler `optimize` ใช้ T6 แล้ว (PR 2a) Safety รายคนด้วย Hard Rules เต็มและการลบสองเส้นของ `SAFETY_VALIDATION` ตรงแล้ว (PR 3) ที่เหลือ: การอนุมัติรายคน (PR 4) |
-| 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c เพิ่มตาราง Policy, Seed และฟังก์ชันเพดานแล้ว; 2a ให้ Solver เรียกฟังก์ชันเพดาน เขียน `CANDIDATE_ITEM_TARGET` และเพิ่ม Seam 12 ถึง 14 แล้ว; ส่วนที่เหลือ: 2b, 4, O |
-| 7 | Audit | แถวของ Event และ `AUDIT_LOG.event_id` ตรงแล้ว (PR M) `SOLVER_EXECUTED` และ `MANUAL_HANDOFF` ของ T6 ตรงแล้ว (PR 2a) ที่เหลือ: 2b, 4, O |
-| 9 | API | `gap.effective_minimum` ตรงแล้ว (PR 1b) Route ของ Event, `event_ids`, Timeline ผ่าน `event_id`, Route เลื่อน Clock และ Route ของ Job ตรงแล้ว (PR M) ที่เหลือ: 2b, 4, O (กติกา `expires_at` ของการตอบ Offer) |
+| 4, 5 | สถานะเคส, Transition, ฟังก์ชันคำนวณสถานะเคส | ตาราง Transition มี T1 ถึง T7 แล้วใน PR 0 `decide_status()` และ `orchestrator.recompute()` มีแล้วใน PR S และเส้นทางตอบ Offer เรียก `recompute()` แล้วใน PR 2b Handler `optimize` ใช้ T6 แล้ว (PR 2a) Safety รายคนด้วย Hard Rules เต็มและการลบสองเส้นของ `SAFETY_VALIDATION` ตรงแล้ว (PR 3) การอนุมัติ/จัดเวรรายคนและปิดเคสเมื่อ Assigned ครบตรงแล้ว (PR 4) |
+| 6.4, 6.6 ถึง 6.11 | Seam, Wave, เพดาน Offer, หลาย Offer ต่อคน, Timeout ของ Offer, ลำดับ Lock | 1c เพิ่มตาราง Policy, Seed และฟังก์ชันเพดานแล้ว; 2a ให้ Solver เรียกฟังก์ชันเพดาน เขียน `CANDIDATE_ITEM_TARGET` และเพิ่ม Seam 12 ถึง 14 แล้ว; 2b และ 4 ทำ Wave/Response/Approval/Execution แล้ว ที่เหลือ: O (Timeout และ Recovery) |
+| 7 | Audit | แถวของ Event และ `AUDIT_LOG.event_id` ตรงแล้ว (PR M) `SOLVER_EXECUTED` และ `MANUAL_HANDOFF` ของ T6 ตรงแล้ว (PR 2a) Wave/Response/Safety/Approval/Assignment/Resolution ตรงแล้ว (PR 2b, 3, 4) ที่เหลือ: O |
+| 9 | API | `gap.effective_minimum` ตรงแล้ว (PR 1b) Route ของ Event, `event_ids`, Timeline ผ่าน `event_id`, Route เลื่อน Clock และ Route ของ Job ตรงแล้ว (PR M) Accept/Reject และการตัดสินรายคนตรงแล้ว (PR 2b, 4) ที่เหลือ: O (กติกา `expires_at` ของการตอบ Offer) |
 
 เรื่องที่ยังอยู่ในร่างรอบ 1 ไม่ได้ย้ายเข้าไฟล์นี้ เลข Q ที่อ้างในไฟล์นี้คือคำถามในร่างรอบ 1 ข้อ 12
 
@@ -385,7 +385,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 | ปฏิเสธ | `status = REJECTED` |
 | ตอบรับ รอตรวจ Safety | `status = ACCEPTED` และยังไม่มีแถว `SAFETY_VALIDATION` |
 | ตอบรับ แต่ Safety ไม่ผ่าน | `SAFETY_VALIDATION.is_passed = false` และ Offer เป็น `CANCELLED` |
-| รออนุมัติ | `APPROVAL_REQUEST.is_pending = true` |
+| รออนุมัติ | `APPROVAL_REQUEST.is_pending = true` และมี Offer `ACCEPTED` ของเคส / Item เดียวกัน |
 | ไม่ได้รับอนุมัติ | `APPROVAL_REQUEST.is_approved = false` และ Offer เป็น `CANCELLED` |
 | ได้รับอนุมัติ | `APPROVAL_REQUEST.is_approved = true` |
 | ได้เข้าเวรแล้ว | มีแถว `ROSTER_ASSIGNMENT` แบบ `REPLACEMENT` |
@@ -513,7 +513,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
   * **ข้อจำกัดที่รู้ของการนับ:** (1) `ROSTER_ASSIGNMENT` ไม่มีคอลัมน์ที่ชี้ไปเคส แถว `REPLACEMENT` ของคนเดียวกันในเวรเดียวกันที่เส้นทางอื่นสร้าง จึงถูกนับให้เคสนี้ด้วย ตราบที่เคสนี้อนุมัติคนนั้น (2) Role และ Skill ของผู้สมัครอ่านค่าปัจจุบัน แต่ Gap เป็นค่าที่จดไว้ตอนเปิดเคส ถ้ามีคนแก้ Role หรือ Skill ของคนที่เข้าเวรแล้วกลางเคส Gap ของเคสเปิดใหม่ได้และเคสจะส่ง Wave เพิ่ม ไม่ทำให้เคส `FAILED` รอบ 1 ไม่มี Route แก้ Role หรือ Skill ของพนักงาน
   * **Offer ที่ถูกพักในโค้ด:** `case_facts_service.staff_waiting_on_another_case(db, case_id, staff_ids)` คืนผู้สมัครที่มี Offer `ACCEPTED` บนเคสอื่นที่ยังไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` โดย Offer นั้นยังไม่มีคำขออนุมัติที่ตัดสินแล้ว (ไม่ว่าอนุมัติหรือไม่อนุมัติ) และยังไม่มีผล Safety ที่ไม่ผ่าน (ครอบคลุมคนที่กำลังตรวจ Safety, รออนุมัติ และสำรอง) Offer `SENT` ของคนกลุ่มนี้ไม่นับเป็น Offer ค้าง ฟังก์ชันนี้ไม่พึ่งว่าเคสอื่นตั้ง Offer เป็น `CANCELLED` แล้วหรือยัง ถ้าการเขียนนั้นหลุด ผู้สมัครที่ถูกปัดตกก็ยังกลับมากดรับ Offer นี้ได้ PR 2b ใช้ฟังก์ชันเดียวกันนี้ตอบ `409` เมื่อผู้สมัครกดรับ Offer ที่ถูกพัก และ PR O ใช้ใน Job เก็บตก การเทียบ `expires_at` ยังไม่อยู่ในฟังก์ชันนี้ เพราะคอลัมน์เพิ่มใน PR O
   * **ความล้มเหลวใน `recompute()`:** ต่างจาก `resume()` ตรงที่ไม่มีสถานะที่ผู้เรียกขอมา สถานะคำนวณภายใต้ Lock ของเคส จึงไม่มีกรณีแพ้ Race ถ้าการอ่านข้อมูลล้มเหลว (เช่น เคสไม่มีแถว Gap) ถือเป็นระบบผิด เคสเป็น `FAILED` ตาม D11 เหมือน Handler ที่พัง งานของผู้เรียกใน Transaction เดียวกันยังอยู่ เคสที่ไม่ได้อยู่ที่จุดรอและไม่ได้หยุด `recompute()` โยน `InvalidTransitionError` โดยไม่แตะเคส เคสที่หยุดแล้ว `recompute()` ไม่อ่านอะไรและไม่เขียนอะไรกับเคส แต่ยัง Commit งานของผู้เรียก (เช่น Job ที่เพิ่งตั้ง Offer เป็น `TIMEOUT`)
-  * **PR 2b เรียก `recompute()` กับ Handler จริงแล้ว:** `contact_candidate` ส่ง Wave โดยไม่ติดต่อคนเดิมซ้ำ และเส้นตอบ Offer ตรวจ Safety รายคนด้วย Hard Rules เต็มตั้งแต่ PR 3 ส่วน `execute_assignment` และการอนุมัติยังเป็น Skeleton ที่รับหนึ่งคนจนกว่า PR 4 เข้า Branch รวมต้องผ่าน Test ร่วมกันก่อน merge เข้า staging
+  * **PR 2b เรียก `recompute()` กับ Handler จริงแล้ว:** `contact_candidate` ส่ง Wave โดยไม่ติดต่อคนเดิมซ้ำ และเส้นตอบ Offer ตรวจ Safety รายคนด้วย Hard Rules เต็มตั้งแต่ PR 3 PR 4 จัดเวรรายคนใน Transaction ของการอนุมัติและให้ `execute_assignment` ปิดเคสเฉพาะเมื่อคนที่ได้เข้าเวรปิด Gap ครบ Branch รวมต้องผ่าน Test ร่วมกันก่อน merge เข้า staging
   * ผู้เรียก: `outreach_service` (หลังตอบรับ, ปฏิเสธ, Offer หมดเวลา) และ `approval_service` (หลังตัดสิน) เรียก `recompute()` แทนการส่ง `next_status` เอง
   * **เคสอื่นที่ได้รับผลกระทบ:** เมื่อสถานะของผู้สมัครคนหนึ่งเปลี่ยนในเคส X (เขาตอบรับ, เขาหลุดเพราะ Safety ไม่ผ่านหรือไม่ได้รับอนุมัติ, หรือเขาได้เวร) Offer ของเขาในเคสอื่นเปลี่ยนตามไปด้วย คือถูกยกเลิก, เลิกนับเป็น Offer ค้าง หรือกลับมากดรับได้ (ข้อ 6.8) แต่เคสอื่นนั้นไม่มีเหตุการณ์ของตัวเองมาสั่งให้คำนวณสถานะใหม่ ตัวอย่าง: เคส Y รอ A คนเดียว เคส X อนุมัติ A แล้วยกเลิก Offer ของ A ในเคส Y เคส Y จะค้างที่ `WAITING_RESPONSE` โดยไม่มี Offer ค้าง กติกา: หลัง Transaction ของเคส X Commit แล้ว ผู้เรียกเรียก `recompute()` ให้เคสอื่นทุกเคสที่ผู้สมัครคนนั้นมี Offer ที่ยัง `SENT` หรือเพิ่งถูกยกเลิกใน Transaction นั้น ทีละเคส เคสละ Transaction เรียงตาม `case_id`
   * **Job เก็บตก:** การเรียก `recompute()` ให้เคสอื่นเกิดหลัง Commit ถ้าระบบล่มตรงช่วงนั้น การเรียกจะหายไป ทุกรอบของ Job (ข้อ 3.8) จึงเรียก `recompute()` ให้เคสที่อยู่ `WAITING_RESPONSE`, ไม่มี Offer ค้าง (ไม่มี Offer ที่กดรับได้ตอนนี้) และเข้าเงื่อนไขข้อใดข้อหนึ่ง
@@ -626,7 +626,7 @@ def user_id(db: Session, staff_id: int) -> int               # Actor ของ�
 | 3 | Respond | คน 3 | ผู้ตอบคือ `user.staff.id` จาก `X-Demo-User` Body ส่ง `outreach_id` ของ Offer ที่เห็น ตอบได้ทั้ง `ACCEPT` และ `REJECT` การตรวจและคำตอบอยู่ข้อ 9.2 แถวที่เขียนอยู่ข้อ 6.10 ลำดับ Lock อยู่ข้อ 6.11 จบด้วยการเรียก `orchestrator.recompute()` |
 | 4 | Outreach → Safety | คน 3 → คน 2 | Safety รับ `outreach_id` ของคนที่เพิ่งตอบรับ และตรวจใน Transaction ของการตอบรับ ไม่ค้นจากเคส เพราะเคสมี Offer `ACCEPTED` ได้หลายแถว `get_accepted_outreach()` ที่ต้องการหนึ่งแถวพอดีจึงลบแล้วใน PR 3 ตัวตรวจและสิ่งที่ Safety บันทึกอยู่ร่างรอบ 1 ข้อ 7.3 และ 7.4 |
 | 5 | Safety → Approval Request | คน 2 (PR 3) | Safety ผ่าน: `safety_service` เรียกฟังก์ชันสร้างคำขอใน `approval_service` (`create_request(db, *, case, item)`) ซึ่งสร้าง `APPROVAL_REQUEST` หนึ่งแถวของผู้สมัครคนนั้น และเขียน `APPROVAL_REQUESTED` ใน Transaction ของการตอบรับ PR 3 เป็นคนย้ายโค้ดนี้ออกจาก `safety_service` และ Handler `validate_safety` (ไฟล์ `approval_service` เป็นของคน 3 แจ้งก่อนแก้) PR 4 ไม่ต้องทำส่วนนี้ `case_id` = เคสนั้น `candidate_item_id` = Item ของ Outreach ที่ตอบรับ โหลด Plan จาก `item.plan_id` แล้วตรวจ `plan.case_id == case.id` (FK สองตัวไม่ได้รับประกันข้อนี้) ตั้ง `approval_mode = MANUAL`, `required_approver_role` = `id` ของ Role ชื่อ `HEAD_NURSE` (ค้นด้วยชื่อ), `is_pending = true`, `requested_at = clock.now()` Safety ไม่ผ่าน: ไม่สร้าง Request และ Offer ของคนนั้นเป็น `CANCELLED` ผ่านฟังก์ชันเดียวใน `outreach_service` (Q8) |
-| 6 | รายการรออนุมัติ | คน 3 | `GET /approvals?pending=true` คืนแถวที่ `is_pending = true` เรียงด้วย `id` จากน้อยไปมาก เคสหนึ่งมีได้หลายแถว หนึ่งแถวต่อผู้สมัคร |
+| 6 | รายการรออนุมัติ | คน 3 | `GET /approvals?pending=true` คืนแถวที่ `is_pending = true` เฉพาะเคสที่ไม่อยู่ใน `AUTOMATION_STOPPED_STATUSES` เรียงด้วย `id` จากน้อยไปมาก เคสหนึ่งมีได้หลายแถว หนึ่งแถวต่อผู้สมัคร |
 | 7 | Decide | คน 3 | ตรวจตามลำดับเดิม: ไม่มี Request ID นั้น → `404`; `user.staff.role_id != required_approver_role` → `403` (`get_demo_user` ไม่ตรวจ Role ดูข้อ 9); ไม่ได้ Pending → `409` กติกาเพิ่มของรอบ 1 อยู่ข้อ 9.2: เคสที่หยุดแล้วตอบ `409` และไม่อนุมัติต้องมี `reason` ตัดสินทีละคน บันทึกผลตามข้อ 6.10 แล้วเรียก `orchestrator.recompute()` |
 | 8 | Approval → Roster | คน 3 | อนุมัติแล้วสร้าง Roster ของคนนั้นใน Transaction เดียวกับการอนุมัติ จาก Item ของ Request: `staff_id = item.staff_id`, `shift_id = item.proposed_shift_id`, `status = ASSIGNED`, `assignment_type = REPLACEMENT`, `candidate_source = item.source` ไม่ตรวจ Hard Rules ซ้ำ (Q38) จากนั้นยกเลิก Offer ของคนนั้นในเคสอื่นที่ขัดกับเวรใหม่ (ข้อ 6.8) Handler ของ `EXECUTING` เหลืองานปิดเคส |
 | 9 | Timeline | คน 1 | `GET /cases/{id}/audit` แถวที่ `case_id` เป็นเคสนี้ รวมกับแถวที่ `event_id` เป็น Event ของเคสนี้ เรียงด้วย `id` (ข้อ 3.7) |
@@ -796,6 +796,8 @@ Offer มี Timeout ส่วนการอนุมัติ**ไม่มี
 
 ## 7. Audit
 
+PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้ามี Offer ใหม่ Commit ระหว่างรอ Lock ให้ Rollback ก่อนเขียนคำตัดสิน แล้วเริ่มล็อกใหม่ตามลำดับเดิม (สูงสุด 5 ครั้ง ถ้ายังเปลี่ยนตอบ 409 ให้ลองใหม่) ไม่ล็อก Offer เพิ่มภายหลังเคส/Staff เพื่อกัน Deadlock
+
 ### 7.1 Action ที่ใช้
 
 | Action | ใครเขียน | Actor | entity_type | payload ขั้นต่ำ |
@@ -945,8 +947,8 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 | Outreach | PR 2b เลือกและส่ง Wave ตามข้อ 6.6 ผ่าน `wave_service.select_wave()` และ `outreach_service.send_offer()` หนึ่งแถวต่อคน ใช้ LINE Mock และไม่ Commit เอง | CANDIDATE_OUTREACH |
 | Response | PR 2b ตอบ Accept / Reject ของ Offer ID ที่ระบุ ล็อก Offer → เคส → Staff ทั้ง Plan; ตอบรับเกินเป็นสำรอง ตรวจ Safety รายคนผ่าน bridge และเรียก `recompute()` แทน `resume()` กติกาเต็มอยู่ข้อ 6.10 และ 9.2 | CANDIDATE_OUTREACH, AUDIT_LOG |
 | Safety | ของจริงตั้งแต่ PR 3 ไม่ใช่ Stub: `safety_service.validate_accepted_candidate(db, case, outreach_id=)` ถูกเรียกรายคนใน Transaction ของการตอบรับ ผ่าน `outreach_service.promote_reserves()` ตรวจด้วย `hard_rule_service.check_items()` ตัวเดียวกับการเลือกคนของ Wave แล้วเขียน `SAFETY_VALIDATION` หนึ่งแถวตามร่างรอบ 1 ข้อ 7.4 ผ่าน: เขียน `SAFETY_PASSED` แล้ว `approval_service.create_request()` สร้างคำขออนุมัติและเขียน `APPROVAL_REQUESTED` ไม่ผ่าน: เขียน `SAFETY_FAILED` พร้อมรหัสทุกข้อ ตั้ง Offer เป็น `CANCELLED` ผ่าน `outreach_service.cancel_offer()` ไม่สร้างคำขอ และเคสเดินต่อตามข้อ 5.3 ข้อมูลผิดรูป (Offer ไม่ใช่ของเคส, Offer ไม่ใช่ `ACCEPTED`, Item ของเคสอื่นหรือเวรอื่น) ยังเป็น `FAILED` ตาม D11 ไม่ตรวจเพดาน Offer | SAFETY_VALIDATION, APPROVAL_REQUEST |
-| Approval | ยังเป็น Skeleton: MANUAL, ตรวจ `404 → 403 → 409`, อนุมัติแล้ว `resume(..., EXECUTING)` และ `approved = false` ตอบ `422`; PR 2b สร้างคำขอรายคนได้ แต่การอนุมัติ / จัดเวร / ปิดเคสหลายคนจะถูกเปลี่ยนใน PR 4 ก่อนนำ branch รวมเข้า staging | APPROVAL_REQUEST |
-| Roster | Handler ของ `EXECUTING` เรียก `roster_service.create_replacement(db, case)` หา Request ของเคสที่อนุมัติแล้วหนึ่งแถวพอดี แล้วสร้างแถว `ASSIGNED` + `REPLACEMENT` + `SAME_WARD` จากนั้นเขียน `ASSIGNMENT_CREATED` และ `CASE_RESOLVED` ไม่ตรวจ Hard Rules ซ้ำ (Q38): PR 3 ลบ `assert_available()` และบรรทัดที่เรียกใน `roster_service` แล้ว และ PR 4 ย้ายการสร้าง Roster ไปอยู่ใน Transaction ของการอนุมัติ | ROSTER_ASSIGNMENT |
+| Approval | PR 4 ตัดสินรายคน ตรวจ `404 → 403 → 409 → 422` เคสที่หยุดแล้วตอบ `409` ไม่อนุมัติต้องมีเหตุผลไม่ว่าง ยกเลิก Offer ของคนนั้นและเลื่อนสำรอง; อนุมัติสร้าง Roster ทันทีผ่าน `recompute(..., prepare=...)` ใน Savepoint ของ D11 แล้วแจ้งเคสอื่นหลัง Commit | APPROVAL_REQUEST |
+| Roster | PR 4 ใช้ `roster_service.create_replacement(db, case, approval=request)` สร้างแถวของ Request ที่กำลังตัดสินโดยตรง ไม่ค้นหนึ่งแถวจากเคส ไม่ตรวจ Hard Rules ซ้ำ (Q38) การอนุมัติเขียน `ASSIGNMENT_CREATED` และยกเลิก Offer ของเคสอื่นที่ขัดกับเวรใหม่ด้วยกฎเวลา/ชั่วโมงชุดเดียวกับ Safety; `EXECUTING` ตรวจ Assigned Coverage ไม่สร้าง Roster เพิ่ม ยกเลิก Offer ที่ยัง SENT และสำรอง แล้วเขียน `CASE_RESOLVED` พร้อม `assignment_ids` / `cancelled_outreach_ids` | ROSTER_ASSIGNMENT |
 
 `CANDIDATE_PLANS` และ `SAFETY_VALIDATION` อ้าง Policy แบบ NOT NULL จึงต้อง Seed `HARD_CONSTRAINT_POLICY` และ `SOFT_CONSTRAINT_POLICY` อย่างละ 1 แถว Solver ใช้ค่าของทั้งสอง Policy แล้วตั้งแต่ PR 2a
 
@@ -1054,7 +1056,7 @@ Handler นี้เป็นตาข่ายชั้นสุดท้าย
 * Offer ที่ยัง `SENT` แต่กดรับไม่ได้ เพราะผู้ตอบรับ Offer ของเคสอื่นค้างอยู่ (ข้อ 6.8): ตอบ `409` (Q39) ข้อความต้องต่างจาก `409` ของ Offer ที่ถูกยกเลิก เพื่อให้หน้า `line-sim` บอกเหตุผลได้
 * `decision` ตัดสินทีละคน เคสหนึ่งมีคำขออนุมัติค้างได้หลายแถวพร้อมกัน (Q24)
 * การตรวจที่มาก่อนยังเหมือนเดิม: respond ตรวจ `outreach_id` (PR #30), decision ตรวจ `404 → 403 → 409`
-* `reason` ตอนไม่อนุมัติ: บังคับและไม่ว่าง ไม่ส่งเหตุผลให้ตอบ `422` (Q13)
+* `reason` ตอนไม่อนุมัติ: บังคับและไม่ว่าง ไม่ส่งเหตุผลให้ตอบ `422` (Q13) เหตุผลที่เก็บของทั้งอนุมัติและไม่อนุมัติยาวได้ไม่เกิน 500 ตัวอักษร เหตุผลปฏิเสธตัดช่องว่างหัวท้ายก่อนตรวจและเก็บ ส่วนเหตุผลอนุมัติเก็บตามที่ส่งมา ตรวจความยาวใน Service หลัง `404 → 403 → 409` เกินเพดานตอบ `422` ก่อนเขียนคำตัดสิน
 * Body ของ `respond`: `{"outreach_id": <id>, "response": "ACCEPT"}` หรือ `REJECT` `outreach_id` ต้องเป็น JSON Integer บวกในช่วง PostgreSQL bigint ไม่รับ Boolean, Float, String หรือฟิลด์อื่น เช่น `staff_id` ไม่ส่ง ID หรือส่งค่าผิดรูปแบบตอบ `422` ID ใน Body ไม่ใช่สิทธิ์ในการตอบ ผู้ตอบยังต้องเป็น Staff เจ้าของ Offer ตาม Header เสมอ
 * Body ของ `decision`: `approved` เป็น JSON Boolean และ `reason` เป็น String หรือ `null` (ไม่ส่งเท่ากับ `null`) ไม่รับฟิลด์อื่น ตัวตนและ Role มาจาก `X-Demo-User` เท่านั้น ID ต้องเป็นจำนวนเต็มบวกในช่วง PostgreSQL bigint
 * Service และ Route ไม่ Commit เองและไม่แก้ `case.status` Error จาก Orchestrator ต้องปล่อยให้ Request Rollback
@@ -1178,6 +1180,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 
 PR 2b เพิ่ม `ward_id`, `ward_name`, `shift_start_at`, `shift_end_at`, `can_accept`, `can_reject`, `blocked_reason`, `cancellation_reason` และ `is_reserve` สถานะ `SENT` ของเคสที่ยังเดินอยู่กด Reject ได้ แม้ Accept ถูกพัก (`AWAITING_OTHER_CASE`) ส่วนเคสที่หยุดแล้วกดทั้งสองอย่างไม่ได้ ไม่ได้ใช้ `case_status == WAITING_RESPONSE` เป็นเงื่อนไขอีกต่อไป
 
+PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุมัติแล้วและมี Roster `REPLACEMENT` ที่ `ASSIGNED` หรือ `COMPLETED` ของคน/เวรนี้ LINE simulator จึงแสดงข้อความยืนยันเวรได้แม้เคสยังรอผู้สมัครคนอื่น ไม่ใช่อ่านจาก `case_status` อย่างเดียว
 
 * ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`)
 * `staff_id` เป็น Query ที่ต้องส่ง เป็นจำนวนเต็มบวกไม่เกิน PostgreSQL bigint; ไม่ส่งหรือไม่ถูกต้อง → `422`
@@ -1199,8 +1202,8 @@ PR 2b เพิ่ม `ward_id`, `ward_name`, `shift_start_at`, `shift_end_at`, 
   `required_approver_role` (อาจเป็น `null`), `approval_mode`, `is_pending` และ `requested_at` (ISO 8601, `+07:00`)
   `staff_id` และ `proposed_shift_id` โหลดจาก Item ของ Request นั้นเพื่อให้ Frontend ระบุผู้สมัครและเวรได้
 * ไม่ส่ง `pending` เท่ากับ `pending=true`; `pending=false` หรือค่า Boolean ไม่ถูกต้องตอบ `422`
-* คืนทุก Pending Request เคสเดียวมีได้หลายแถว หนึ่งแถวต่อผู้สมัครที่รออนุมัติ (ข้อ 4.2)
-* Route / `approval_service.list_pending()` ไม่เขียน DB, Audit, Commit หรือ Explicit Flush
+* คืนทุก Pending Request ของเคสที่ยังเดินอยู่และยังมี Offer `ACCEPTED` ของเคส / Item เดียวกัน เคสเดียวมีได้หลายแถว หนึ่งแถวต่อผู้สมัครที่รออนุมัติ (ข้อ 4.2)
+* Route / `approval_service.list_pending()` ไม่เขียน DB, Audit, Commit หรือ Explicit Flush และปิด Autoflush ระหว่างอ่าน คำขอของเคสที่หยุดแล้ว (`RESOLVED`, `FAILED`, `UNRESOLVED`, `MANUAL_HANDOFF`) ไม่อยู่ในรายการ แม้ยัง `is_pending = true`; เก็บแถวดังกล่าวไว้เป็นประวัติ ไม่สร้างผลอนุมัติ/ปฏิเสธขึ้นเอง คำขอที่ Offer ถูกยกเลิกก็ไม่อยู่ในรายการและไม่ถูกนับเป็น Pending Coverage แม้เคสยังเดินอยู่ (`case_facts_service.accepted_offer_for_request()` ใช้เงื่อนไขร่วมกัน)
 
 **`GET /roster?shift_id=`** (คน 3)
 
@@ -1436,3 +1439,7 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | 2026-10-13 | รอบ 1 PR 2b: ส่ง Offer เป็น Wave ตาม Target ของ Solver, เติมเฉพาะตำแหน่งที่ว่าง, Accept / Reject ระบุ Offer ID, สำรองและการเลื่อนสำรอง, หลาย Offer ต่อคนและการพัก Accept ข้ามเคส, เรียก `recompute()` หลังตอบและแจ้งเคสอื่นหลัง Commit; LINE simulator แสดงหอ เวลาเวร เหตุผล และสถานะสำรอง; เตรียม Safety bridge รายคนสำหรับ PR 3 และ preparation callback ภายใต้ D11; PR 3/4 ยังต้องเข้า branch รวมก่อน staging รายละเอียดที่ `docs/round1/pr-2b-handoff.md` | คน 3 |
 | 2026-10-13 | ตามรีวิว PR 2b: เอกสารตรงกับเพดาน Offer และผู้เรียก recompute ปัจจุบัน; Target ของสมาชิก Solver ที่ยังไม่เคยติดต่อถูกแทนที่ก่อนส่งใน Wave ถัดไป; อ่าน Offer เป็นชุดพร้อมเหตุผลยกเลิก และซ่อนข้อความรออนุมัติเมื่อเคสหยุด | คน 3 |
 | 2026-10-13 | รอบ 1 PR 3: Safety ตรวจรายคนตอนตอบรับด้วย `hard_rule_service.check_items()` บันทึกผลตามร่างรอบ 1 ข้อ 7.4; Safety ไม่ผ่านเขียน `SAFETY_FAILED` ตั้ง Offer เป็น `CANCELLED` และเคสเดินต่อ ไม่เป็น `FAILED`; ย้ายการสร้าง `APPROVAL_REQUEST` และ `APPROVAL_REQUESTED` ไป `approval_service.create_request()`; ลบสองเส้นของ `SAFETY_VALIDATION`, Handler `validate_safety`, `get_accepted_outreach()`, `assert_available()`, `unavailable_staff()` และ Exception สี่ตัว; เพิ่ม Scenario `safety_failure` | คน 2 |
+| 2026-10-13 | รอบ 1 PR 4: อนุมัติ/ไม่อนุมัติรายคนพร้อมเหตุผล สร้าง Roster ทันทีใน Savepoint ของการตัดสิน เลื่อนสำรองและแจ้งเคสอื่นหลัง Commit; ปิดเคสเฉพาะเมื่อ Assigned ปิด Gap ครบ ยกเลิก Offer ของสำรอง/ที่ยัง SENT และ Offer ต่างเคสที่ขัดกับเวรใหม่; LINE simulator ใช้ is_assigned แสดงยืนยันเวรของคนที่อนุมัติแล้ว แม้เคสยังไม่จบ; Scenario head_nurse_reject และ Test สอง Connection สำหรับ Accept แข่งกับอนุมัติสุดท้าย | คน 3 |
+| 2026-10-13 | ตามรีวิว PR 4: Pending List ไม่แสดงคำขอของเคสที่หยุดแล้ว รวมกรณีอนุมัติคนเดียวปิดทั้ง Headcount/Skill แต่คำขอคนอื่นยังค้างและกรณี D11; เหตุผลการตัดสินยาวได้ไม่เกิน 500 ตัวอักษร (`MAX_APPROVAL_REASON_LENGTH`) ตรวจทั้ง API และ Service ก่อนเขียน พร้อม Test ขอบเขต 500/501 | คน 3 |
+| 2026-10-13 | ตามรีวิว PR 4 รอบเพิ่มเติม: คำขอใช้งานได้และนับ Pending Coverage เฉพาะเมื่อ Offer ของเคส / Item เดียวกันยัง ACCEPTED; ยกเลิก Offer แล้วเก็บคำขอเป็นประวัติ แต่กดตัดสินได้ 409 และเคสต่างหอเดินต่อได้; แยก Offer Conflict / Lock Retry Error, ใช้ query lock ร่วมกับ phantom check, ย้าย scheduling codes ขึ้น module และแจ้งเฉพาะผู้สมัครที่ยกเลิกในรอบนี้ | คน 3 |
+| 2026-10-13 | ตามรีวิว PR 4 รอบ Minor: ตรวจความยาวเหตุผลใน Service แทน Schema เพื่อคง 404 → 403 → 409 → 422; เหตุผลปฏิเสธตัดช่องว่างก่อนตรวจ 500 ตัวอักษร; รายงานหรือผู้ใช้อื่นที่นับคำขอค้างต้องใช้ accepted_offer_for_request ไม่ใช่ is_pending อย่างเดียว; เพิ่ม Test ลำดับ error และเหตุผล 500 ตัวอักษรพร้อม whitespace | คน 3 |

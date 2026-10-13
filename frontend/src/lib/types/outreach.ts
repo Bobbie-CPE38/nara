@@ -40,6 +40,7 @@ export type Offer = {
   can_reject: boolean;
   blocked_reason: string | null;
   cancellation_reason: string | null;
+  is_assigned: boolean;
   is_reserve: boolean;
 };
 

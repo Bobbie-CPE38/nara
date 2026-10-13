@@ -21,6 +21,7 @@ function offerSnapshot(offer: Offer) {
     offer.can_reject,
     offer.blocked_reason,
     offer.is_reserve,
+    offer.is_assigned,
   ]);
 }
 
@@ -272,7 +273,9 @@ function StaffOffers({
                       {offer.cancellation_reason && (
                         <p>Cancelled: {offer.cancellation_reason}</p>
                       )}
-                      {offer.is_reserve ? (
+                      {offer.is_assigned ? (
+                        <p>Assignment confirmed for this shift.</p>
+                      ) : offer.is_reserve ? (
                         <p>
                           Accepted as a reserve. Do not come to the shift unless
                           selected and approved.

@@ -14,6 +14,7 @@ from app.db.models import (
     ApprovalRequest,
     AuditLog,
     CandidateItem,
+    CandidateOutreach,
     CandidatePlan,
     Staff,
     StaffingCase,
@@ -23,8 +24,10 @@ from app.domain.enums import (
     ApprovalMode,
     CandidateSource,
     CaseStatus,
+    Channel,
     EventStatus,
     EventType,
+    OutreachStatus,
     SolverStatus,
     StaffStatus,
 )
@@ -97,6 +100,16 @@ def _request(
         decided_at=DEMO_NOW if approved is not None else None,
     )
     db.add(request)
+    db.flush()
+    db.add(
+        CandidateOutreach(
+            case_id=case.id,
+            candidate_item_id=item.id,
+            channel=Channel.LINE,
+            status=OutreachStatus.ACCEPTED,
+            sent_at=DEMO_NOW,
+        )
+    )
     db.flush()
     return request
 
@@ -271,3 +284,71 @@ def test_candidate_details_come_from_each_requests_item(
         (second.id, 202, 2),
     ]
     assert all(r["requested_at"] == DEMO_NOW.isoformat() for r in rows)
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        CaseStatus.RESOLVED,
+        CaseStatus.FAILED,
+        CaseStatus.UNRESOLVED,
+        CaseStatus.MANUAL_HANDOFF,
+    ],
+)
+def test_stopped_cases_do_not_leave_unactionable_requests_in_pending_list(
+    client: TestClient,
+    production_seeded: Session,
+    status: CaseStatus,
+) -> None:
+    db = production_seeded
+    stopped = _request(db)
+    db.get(StaffingCase, stopped.case_id).status = status
+    active = _request(db)
+    db.flush()
+    before = dict(vars(stopped))
+    response = client.get(URL, headers=HEADERS)
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()] == [active.id]
+    # Preserve undecided history; do not record a fake rejection on read.
+    assert stopped.is_pending and stopped.is_approved is None
+    assert vars(stopped) == before
+    assert db.scalar(select(AuditLog.id)) is None
+
+
+@pytest.mark.parametrize(
+    "status", [OutreachStatus.CANCELLED, OutreachStatus.REJECTED, OutreachStatus.SENT]
+)
+def test_pending_request_requires_accepted_offer_of_same_case_and_item(
+    client: TestClient,
+    production_seeded: Session,
+    status: OutreachStatus,
+) -> None:
+    db = production_seeded
+    stale = _request(db)
+    row = db.scalars(
+        select(CandidateOutreach).where(
+            CandidateOutreach.candidate_item_id == stale.candidate_item_id
+        )
+    ).one()
+    row.status = status
+    active = _request(db)
+    db.flush()
+    assert [item["id"] for item in client.get(URL, headers=HEADERS).json()] == [active.id]
+    assert stale.is_pending and stale.is_approved is None
+
+
+def test_offer_of_another_case_does_not_authorize_pending_request(
+    client: TestClient,
+    production_seeded: Session,
+) -> None:
+    db = production_seeded
+    stale = _request(db)
+    unrelated = _request(db)
+    row = db.scalars(
+        select(CandidateOutreach).where(
+            CandidateOutreach.candidate_item_id == stale.candidate_item_id
+        )
+    ).one()
+    row.case_id = unrelated.case_id  # Individual FKs do not enforce the case/item pairing.
+    db.flush()
+    assert [item["id"] for item in client.get(URL, headers=HEADERS).json()] == [unrelated.id]
