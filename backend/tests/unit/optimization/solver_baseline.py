@@ -17,12 +17,14 @@ from typing import Any
 
 from app.domain.constraints.penalties import SoftWeights
 from app.domain.constraints.soft_metrics import SoftMetrics
-from app.domain.enums import CandidateSource, SelectionType, TargetType
+from app.domain.enums import CandidateSource, SelectionType, SolverStatus, TargetType
 from app.domain.staffing.wave_targets import TargetCredit
 from app.domain.workflow.case_status import GapFiller
 from app.optimization.solver import SolverCandidate, SolverResult, solve
 
 DATA_FILE = Path(__file__).parent / "data" / "solver_baseline.jsonl"
+# Generous, so the status of a real search never depends on machine speed
+LIMIT = 60
 
 _WEIGHT_NAMES = (
     "candidate_count",
@@ -48,11 +50,15 @@ class Problem:
 
 @dataclass(frozen=True)
 class Recorded:
-    """The three SolverResult values a plan stores. first_wave keeps its order."""
+    """The three SolverResult values a plan stores. first_wave keeps its order.
+
+    status is set by run_case only: the file records the round 1 results, which had none.
+    """
 
     ranked_staff_ids: tuple[int, ...]
     first_wave: tuple[tuple[int, tuple[TargetCredit, ...]], ...]
     objective_score: Fraction | None
+    status: SolverStatus | None = None
 
 
 def run_case(problem: Problem, *, solver: Callable[..., SolverResult] = solve) -> Recorded:
@@ -63,6 +69,7 @@ def run_case(problem: Problem, *, solver: Callable[..., SolverResult] = solve) -
         skill_gaps=problem.skill_gaps,
         candidates=problem.candidates,
         weights=problem.weights,
+        time_limit_seconds=LIMIT,
     )
     return Recorded(
         ranked_staff_ids=tuple(result.ranked_staff_ids),
@@ -70,6 +77,7 @@ def run_case(problem: Problem, *, solver: Callable[..., SolverResult] = solve) -
             (staff_id, tuple(credits)) for staff_id, credits in result.first_wave.items()
         ),
         objective_score=result.objective_score,
+        status=result.status,
     )
 
 

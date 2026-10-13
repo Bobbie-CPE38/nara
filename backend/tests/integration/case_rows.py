@@ -116,7 +116,7 @@ def make_plan(
     """A plan of the case with one item per candidate, keyed by staff ID."""
     plan = CandidatePlan(
         case_id=case.id,
-        solver_status=SolverStatus.FEASIBLE,
+        solver_status=SolverStatus.OPTIMAL,
         generated_at=DEMO_NOW,
         execution_time_ms=0,
         solver_version="test",

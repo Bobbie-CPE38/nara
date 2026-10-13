@@ -83,7 +83,7 @@ export function waitingResponseAudit(): AuditEntry[] {
     statusChange(6, "ASSESSING", "OPTIMIZING"),
     auditEntry(7, "SOLVER_EXECUTED", {
       actor_id: 4, actor_name: "constraint_fair_scheduling_agent", entity_type: "CANDIDATE_PLANS",
-      payload: { plan_id: 1, solver_status: "FEASIBLE", candidate_count: 3 },
+      payload: { plan_id: 1, solver_status: "OPTIMAL", candidate_count: 3 },
     }),
     statusChange(8, "OPTIMIZING", "OUTREACH"),
     auditEntry(9, "OFFER_SENT", {

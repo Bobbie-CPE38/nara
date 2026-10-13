@@ -1,4 +1,4 @@
-"""The round 1 Solver on plain values (round 1 contract, section 8.3)."""
+"""The Solver on plain values (round 1 contract, section 8.3; round 2 contract, section 4)."""
 
 import itertools
 import random
@@ -9,7 +9,7 @@ import pytest
 
 from app.domain.constraints.penalties import SoftWeights, plan_penalty
 from app.domain.constraints.soft_metrics import SoftMetrics
-from app.domain.enums import CandidateSource, SelectionType, TargetType
+from app.domain.enums import CandidateSource, SelectionType, SolverStatus, TargetType
 from app.domain.staffing.wave_targets import TargetCredit, wave_target
 from app.domain.workflow.case_status import GapFiller, gap_closed
 from app.optimization.solver import (
@@ -19,6 +19,7 @@ from app.optimization.solver import (
     solve,
 )
 
+LIMIT = 60
 RN = 1
 ICU, BLS = 1, 2
 SAME = CandidateSource.SAME_WARD
@@ -68,6 +69,7 @@ def run(
         skill_gaps=skills or {},
         candidates=candidates,
         weights=WEIGHTS,
+        time_limit_seconds=LIMIT,
     )
 
 
@@ -123,7 +125,7 @@ def test_fewer_candidates_than_the_target() -> None:
 
 
 def test_no_candidates() -> None:
-    assert run([]) == SolverResult((), {}, None)
+    assert run([]) == SolverResult((), {}, None, SolverStatus.INFEASIBLE)
 
 
 def test_the_fewest_people_that_cover_the_targets_win() -> None:
@@ -259,15 +261,18 @@ def test_the_search_agrees_with_trying_every_group() -> None:
             skill_id: rng.randint(1, 2) for skill_id in rng.sample([ICU, BLS], rng.randint(0, 2))
         }
 
-        group = _cheapest_covering_group(
+        selection = _cheapest_covering_group(
             candidates,
             headcount_gap=headcount,
             role_gaps=roles,
             skill_gaps=skills,
             weights=WEIGHTS,
+            time_limit_seconds=LIMIT,
         )
 
-        found = {candidate.filler.staff_id for candidate in group}
+        assert selection.status is SolverStatus.OPTIMAL
+        assert selection.group is not None
+        found = {candidate.filler.staff_id for candidate in selection.group}
         assert found == _every_group_best(candidates, headcount, roles, skills), (
             candidates,
             headcount,

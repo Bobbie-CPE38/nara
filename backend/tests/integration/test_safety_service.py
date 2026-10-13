@@ -90,7 +90,7 @@ def _offer(
     """
     plan = CandidatePlan(
         case_id=(planned_for or case).id,
-        solver_status=SolverStatus.FEASIBLE,
+        solver_status=SolverStatus.OPTIMAL,
         generated_at=clock.now(),
         execution_time_ms=0,
         solver_version="stub",

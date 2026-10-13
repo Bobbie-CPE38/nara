@@ -1,7 +1,7 @@
 """
 Candidate plans for a case (docs/workflow.md sections 6.4 and 8; round 1 contract section 8.3).
 
-create_plan() is the round 1 Solver:
+create_plan() is the Solver step (OR-Tools since round 2 PR B):
   1. Pool: every staff member whose home ward is the ward of the case's shift.
      Round 1 has no cross-ward candidates, so everyone is SAME_WARD.
   2. Drop who cannot be offered the shift, each with one reason code. The first
@@ -13,8 +13,11 @@ create_plan() is the round 1 Solver:
          ROLE_MISMATCH);
        * the offer cap (availability_service.staff_at_offer_limit): OFFER_LIMIT_REACHED.
   3. Capture a working-time snapshot of everyone left (working_time_service).
-  4. optimization.solver.solve(): the cheapest group that covers the wave targets
-     is the first wave, and rank lists that group first.
+  4. optimization.solver.solve() with the time limit of the soft policy: the
+     cheapest group that covers the wave targets is the first wave, and rank lists
+     that group first. The status is the one the solver reports (OPTIMAL, or
+     FEASIBLE when time ran out with a plan in hand). MODEL_INVALID raises
+     SolverModelInvalidError and nothing is written.
   5. Store the plan with every candidate left, not only the first wave, and the
      CANDIDATE_ITEM_TARGET rows of the first wave.
 
@@ -26,6 +29,8 @@ Rules:
   * Ranks run 1..n without gaps.
   * Nobody left still stores a plan: INFEASIBLE, without items (Q12). The handler
     then stops the case at MANUAL_HANDOFF (T6).
+  * The solver out of time with no plan stores UNKNOWN, without items. The handler
+    stops the case at MANUAL_HANDOFF with reason SOLVER_TIMEOUT.
   * The offer checks only see committed offers (and this session's own). So that
     two cases planned at the same moment count a shared candidate one after the
     other, the STAFF rows of the pool are locked before the rules run and stay
@@ -63,7 +68,7 @@ from app.domain.enums import (
 )
 from app.domain.staffing.wave_targets import TargetCredit, wave_target
 from app.domain.workflow.case_status import GapFiller
-from app.optimization.solver import SolverCandidate, solve
+from app.optimization.solver import SolverCandidate, SolverModelInvalidError, solve
 from app.services import (
     availability_service,
     gap_service,
@@ -74,7 +79,7 @@ from app.services import (
 from app.services.gap_service import CaseGap
 from app.services.hard_rule_service import CandidateCheck
 
-SOLVER_VERSION = "weighted-v1"
+SOLVER_VERSION = "cp-sat-v1"
 
 
 class SkippedCandidate(NamedTuple):
@@ -146,14 +151,17 @@ def create_plan(db: Session, case: StaffingCase) -> PlanResult:
         skill_gaps=case_gap.skill_gaps,
         candidates=candidates,
         weights=weights,
+        time_limit_seconds=soft_policy.solver_time_limit_seconds,
     )
+    if result.status is SolverStatus.MODEL_INVALID:
+        raise SolverModelInvalidError(f"Case {case.id}: the solver model is invalid")
     by_staff = {candidate.filler.staff_id: candidate for candidate in candidates}
     ranked = [by_staff[staff_id] for staff_id in result.ranked_staff_ids]
     score = result.objective_score
 
     plan = CandidatePlan(
         case_id=case.id,
-        solver_status=SolverStatus.FEASIBLE if ranked else SolverStatus.INFEASIBLE,
+        solver_status=result.status,
         generated_at=captured_at,
         execution_time_ms=int((time.perf_counter() - started) * 1000),
         objective_score=None if score is None else Decimal(score.numerator) / score.denominator,

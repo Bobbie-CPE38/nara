@@ -4,6 +4,7 @@ from collections import Counter
 
 import pytest
 
+from app.domain.enums import SolverStatus
 from app.domain.staffing.wave_targets import wave_target
 from tests.unit.optimization.build_solver_baseline import (
     MAX_CANDIDATES,
@@ -62,6 +63,9 @@ def test_solve_returns_the_recorded_result(problem: Problem, recorded: Recorded)
     assert result.first_wave == recorded.first_wave
     assert result.ranked_staff_ids == recorded.ranked_staff_ids
     assert result.objective_score == recorded.objective_score
+    assert result.status is (
+        SolverStatus.OPTIMAL if problem.candidates else SolverStatus.INFEASIBLE
+    )
 
 
 def test_the_file_holds_the_problems_the_builder_makes() -> None:

@@ -185,7 +185,7 @@ class ManualHandoffReason(StrEnum):
 
     NO_CANDIDATE_LEFT = "NO_CANDIDATE_LEFT"  # T5, written by contact_candidate
     NO_FEASIBLE_PLAN = "NO_FEASIBLE_PLAN"  # T6, written by optimize
-    # Round 2: the solver hit its time limit without a plan (UNKNOWN). Not written yet
+    # Round 2: the solver hit its time limit without a plan (UNKNOWN), written by optimize
     SOLVER_TIMEOUT = "SOLVER_TIMEOUT"
 
 

@@ -1,10 +1,12 @@
-"""The round 1 Solver against the seeded PostgreSQL: the candidate plan, its target rows,
+"""The Solver against the seeded PostgreSQL: the candidate plan, its target rows,
 its snapshots and its audit rows."""
 
 import contextlib
+import dataclasses
 import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 from sqlalchemy import select, text
@@ -42,7 +44,9 @@ from app.domain.enums import (
     StaffStatus,
     TargetType,
 )
+from app.optimization.solver import SolverResult, SolverScalingOverflowError
 from app.seed import load
+from app.services import optimization_service
 from app.workflow import orchestrator
 from app.workflow.handlers import optimize
 from tests.integration.case_rows import cancel_roster, leave, make_case, record_gap
@@ -157,14 +161,14 @@ def test_requests_outreach_without_touching_the_case(seeded: Session) -> None:
     assert case.status is CaseStatus.OPTIMIZING
 
 
-def test_writes_one_feasible_plan(seeded: Session) -> None:
+def test_writes_one_optimal_plan(seeded: Session) -> None:
     case = _make_case(seeded)
 
     optimize.handle(seeded, case)
 
     [plan] = _plans(seeded, case)
-    assert plan.solver_status is SolverStatus.FEASIBLE
-    assert plan.solver_version == "weighted-v1"
+    assert plan.solver_status is SolverStatus.OPTIMAL
+    assert plan.solver_version == "cp-sat-v1"
     assert plan.execution_time_ms >= 0
     assert plan.objective_score == 2023
     assert plan.hard_constraint_policy_id == 1
@@ -327,7 +331,7 @@ def test_logs_solver_executed(seeded: Session) -> None:
     assert row.actor_id == solver_actor
     assert row.entity_type is EntityType.CANDIDATE_PLANS
     assert row.entity_id == plan.id
-    assert row.payload == {"plan_id": plan.id, "solver_status": "FEASIBLE", "candidate_count": 3}
+    assert row.payload == {"plan_id": plan.id, "solver_status": "OPTIMAL", "candidate_count": 3}
 
 
 def test_missing_soft_policy_raises(seeded: Session) -> None:
@@ -446,7 +450,7 @@ def _open_offer(
     other = make_case(db, case_status)
     plan = CandidatePlan(
         case_id=other.id,
-        solver_status=SolverStatus.FEASIBLE,
+        solver_status=SolverStatus.OPTIMAL,
         generated_at=DEMO_NOW,
         execution_time_ms=0,
         solver_version="test",
@@ -606,6 +610,118 @@ def test_nobody_left_stops_the_case_at_manual_handoff(seeded: Session) -> None:
     orchestrator.advance(seeded, case.id)
     assert case.status is CaseStatus.MANUAL_HANDOFF
     assert len(_plans(seeded, case)) == 1
+
+
+# --------------------------------------------------------------------------- #
+# The status the solver reports (solver replaced by a fake)
+# --------------------------------------------------------------------------- #
+def _fake_solver(monkeypatch: pytest.MonkeyPatch, status: SolverStatus) -> list[dict[str, Any]]:
+    """Replace solve(): the real result with another status, or an empty result for
+    UNKNOWN and MODEL_INVALID. Returns the keyword arguments of each call."""
+    real_solve = optimization_service.solve
+    calls: list[dict[str, Any]] = []
+
+    def fake(**kwargs: Any) -> SolverResult:
+        calls.append(kwargs)
+        if status in (SolverStatus.UNKNOWN, SolverStatus.MODEL_INVALID):
+            return SolverResult((), {}, None, status)
+        return dataclasses.replace(real_solve(**kwargs), status=status)
+
+    monkeypatch.setattr(optimization_service, "solve", fake)
+    return calls
+
+
+def test_a_feasible_plan_is_stored_as_reported_and_goes_to_outreach(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_case(seeded)
+    _fake_solver(monkeypatch, SolverStatus.FEASIBLE)
+
+    orchestrator.advance(seeded, case.id)
+
+    seeded.expire_all()
+    assert case.status is CaseStatus.WAITING_RESPONSE
+    [plan] = _plans(seeded, case)
+    assert plan.solver_status is SolverStatus.FEASIBLE
+    assert len(_items(seeded, plan)) == 3
+    [executed] = [row for row in _audit(seeded, case) if row.action is AuditAction.SOLVER_EXECUTED]
+    assert executed.payload["solver_status"] == "FEASIBLE"
+
+
+def test_a_solver_timeout_without_a_plan_stops_the_case_at_manual_handoff(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_case(seeded)
+    _fake_solver(monkeypatch, SolverStatus.UNKNOWN)
+
+    orchestrator.advance(seeded, case.id)
+
+    seeded.expire_all()
+    assert case.status is CaseStatus.MANUAL_HANDOFF
+    [plan] = _plans(seeded, case)
+    assert plan.solver_status is SolverStatus.UNKNOWN
+    assert plan.objective_score is None
+    assert _items(seeded, plan) == []
+    rows = [
+        row for row in _audit(seeded, case) if row.action is not AuditAction.CASE_STATUS_CHANGED
+    ]
+    assert [row.action for row in rows] == [AuditAction.SOLVER_EXECUTED, AuditAction.MANUAL_HANDOFF]
+    assert rows[0].payload == {"plan_id": plan.id, "solver_status": "UNKNOWN", "candidate_count": 0}
+    assert rows[1].payload["reason"] == "SOLVER_TIMEOUT"
+    assert rows[1].payload["stopped_at"] == "OPTIMIZING"
+    assert seeded.scalar(select(CandidateOutreach.id)) is None
+
+
+def test_an_invalid_model_fails_the_case_and_leaves_no_plan(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_case(seeded)
+    _fake_solver(monkeypatch, SolverStatus.MODEL_INVALID)
+
+    orchestrator.advance(seeded, case.id)
+
+    seeded.expire_all()
+    assert case.status is CaseStatus.FAILED
+    failure = _audit(seeded, case)[-1]
+    assert failure.action is AuditAction.WORKFLOW_FAILED
+    assert failure.payload["error_type"] == "SolverModelInvalidError"
+    assert _plans(seeded, case) == []
+
+
+def test_a_scaling_overflow_fails_the_case(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_case(seeded)
+
+    def overflow(**kwargs: Any) -> SolverResult:
+        raise SolverScalingOverflowError("too large")
+
+    monkeypatch.setattr(optimization_service, "solve", overflow)
+
+    orchestrator.advance(seeded, case.id)
+
+    seeded.expire_all()
+    assert case.status is CaseStatus.FAILED
+    failure = _audit(seeded, case)[-1]
+    assert failure.action is AuditAction.WORKFLOW_FAILED
+    assert failure.payload["error_type"] == "SolverScalingOverflowError"
+    assert _plans(seeded, case) == []
+
+
+def test_the_solver_gets_the_time_limit_of_the_policy(
+    seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = _make_case(seeded)
+    policy = seeded.get(SoftConstraintPolicy, 1)
+    assert policy is not None
+    policy.solver_time_limit_seconds = 7
+    seeded.flush()
+    calls = _fake_solver(monkeypatch, SolverStatus.OPTIMAL)
+
+    optimize.handle(seeded, case)
+
+    [call] = calls
+    assert call["time_limit_seconds"] == 7
 
 
 # --------------------------------------------------------------------------- #
