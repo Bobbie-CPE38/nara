@@ -266,7 +266,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `generated_at` | timestamptz | NOT NULL |  |  |
 | `execution_time_ms` | integer | NOT NULL |  |  |
 | `objective_score` | numeric | NULL |  |  |
-| `solver_version` | text | NOT NULL |  | รอบ 1 = `"weighted-v1"` (Skeleton = `"stub"`) |
+| `solver_version` | text | NOT NULL |  | รอบ 2 PR B = `"cp-sat-v1"` (รอบ 1 = `"weighted-v1"`, Skeleton = `"stub"`) |
 | `hard_constraint_policy_id` | bigint | NOT NULL | FK HARD_CONSTRAINT_POLICY.id |  |
 | `soft_constraint_policy_id` | bigint | NOT NULL | FK SOFT_CONSTRAINT_POLICY.id |  |
 | `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `candidates` (ค่าของแต่ละคนเรียงตาม `rank`), `skipped` |
@@ -418,6 +418,7 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | `optimization_priority` | jsonb | NOT NULL |  |  |
 | `effective_from` | timestamptz | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |
+| `solver_time_limit_seconds` | integer | NOT NULL | CHECK > 0 | Seed = 3; เพดานเวลารวมของการเรียก `solve()` หนึ่งครั้ง (`workflow.md` ข้อ 6.14) Migration `c9e4a7b2d5f8` เติม 3 ให้ Policy เดิม รอบ 2 PR B |
 
 ค่า Seed ของรอบ 1: `candidate_count_weight = 1000`, `candidate_source_weight = 200`, `workload_imbalance_weight = 1`, `consecutive_shift_weight = 5`, `projected_overtime_weight = 2`, `roster_change_weight = 300` Weight ต้องไม่ติดลบ ไม่งั้น Solver โยน Error และเคสเป็น `FAILED`
 
@@ -575,7 +576,7 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | `OptimizationObjective` | SOFT_CONSTRAINT_POLICY.optimization_priority (ใน JSON) | `MIN_CANDIDATE_COUNT`, `MIN_CONSECUTIVE_SHIFT`, `CANDIDATE_SOURCE`, `WEEKLY_WORKLOAD_FAIRNESS`, `MIN_PROJECTED_OVERTIME` |
 | `TargetType` | CANDIDATE_ITEM_TARGET.target_type | `HEADCOUNT`, `ROLE`, `SKILL` |
 | `SelectionType` | CANDIDATE_ITEM_TARGET.selection_type | `PRIMARY`, `RESERVE` |
-| `ManualHandoffReason` | `reason` ใน payload ของ `MANUAL_HANDOFF` (ไม่เก็บเป็นคอลัมน์) | `NO_CANDIDATE_LEFT`, `NO_FEASIBLE_PLAN`, `SOLVER_TIMEOUT` (รอบ 2 ยังไม่มีโค้ดเขียน) |
+| `ManualHandoffReason` | `reason` ใน payload ของ `MANUAL_HANDOFF` (ไม่เก็บเป็นคอลัมน์) | `NO_CANDIDATE_LEFT`, `NO_FEASIBLE_PLAN`, `SOLVER_TIMEOUT` (รอบ 2 PR B: Solver หมดเวลาโดยยังไม่มีแผน) |
 | `OutreachStatus` | CANDIDATE_OUTREACH.status | `PENDING`, `SENT`, `ACCEPTED`, `REJECTED`, `TIMEOUT`, `FAILED`, `CANCELLED` |
 | `CandidateResponse` | API ของ LINE / LINE Sim (ไม่เก็บใน DB) | `ACCEPT`, `REJECT` |
 | `Channel` | CANDIDATE_OUTREACH.channel | `LINE` |
@@ -781,7 +782,7 @@ Meaning:
 
 ## MANUAL_HANDOFF Payload
 
-If no candidate can be selected and the case stops, the `MANUAL_HANDOFF` payload carries `reason` (`NO_CANDIDATE_LEFT` or `NO_FEASIBLE_PLAN`), `stopped_at`, `cancelled_outreach_ids` and the collected `skipped` list.
+If no candidate can be selected and the case stops, the `MANUAL_HANDOFF` payload carries `reason` (`NO_CANDIDATE_LEFT`, `NO_FEASIBLE_PLAN` or `SOLVER_TIMEOUT`), `stopped_at`, `cancelled_outreach_ids` and the collected `skipped` list.
 
 Previously contacted candidates may also explain why no candidate remains, but their outcomes come from outreach history and must not be labelled as new Hard Rule failures.
 
