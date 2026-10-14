@@ -17,7 +17,7 @@ from datetime import timedelta
 from fractions import Fraction
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -81,6 +81,17 @@ class Claim:
 
 def max_attempts() -> int:
     return 1 + settings.llm_max_retries
+
+
+def _db_now() -> Any:
+    """Database wall clock for leases (an exception to D10, see workflow.md 6.15).
+
+    A lease times a real network call, so it must not follow the Demo Clock: advancing or
+    freezing that clock would let a second sweep claim a row whose call is still running,
+    or keep a crashed row leased for hours. clock_timestamp() is real time even inside a
+    long transaction.
+    """
+    return func.clock_timestamp()
 
 
 def lease_duration() -> timedelta:
@@ -198,12 +209,13 @@ def _fail(row: RankExplanation, reason: str, status: ExplanationStatus) -> None:
 def _claim(db: Session) -> Claim | None:
     """Claim the oldest due PENDING row, or None. Rows with no attempts left end FAILED here."""
     for _ in range(_MAX_EXHAUSTED_PER_SWEEP):
-        now = clock.now()
         row = db.scalar(
             select(RankExplanation)
             .where(
                 RankExplanation.status == ExplanationStatus.PENDING,
-                or_(RankExplanation.lease_until.is_(None), RankExplanation.lease_until <= now),
+                or_(
+                    RankExplanation.lease_until.is_(None), RankExplanation.lease_until <= _db_now()
+                ),
             )
             .order_by(RankExplanation.id)
             .limit(1)
@@ -220,7 +232,7 @@ def _claim(db: Session) -> Claim | None:
             continue
         token = uuid.uuid4()
         row.claim = token
-        row.lease_until = now + lease_duration()
+        row.lease_until = _db_now() + lease_duration()
         claim = Claim(row.id, row.case_id, row.plan_id, token)
         db.commit()
         return claim

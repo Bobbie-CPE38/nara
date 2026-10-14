@@ -72,6 +72,11 @@ def test_bedrock_chosen_only_by_setting(monkeypatch):
         "bad\x00char",
         "tab\there",
         "a\x7fb",
+        "c1\x85next",
+        "csi\x9bx",
+        "bidi‮override",
+        "isolate⁦x",
+        "mark‎x",
     ],
 )
 def test_invalid_output_rejected(monkeypatch, text):

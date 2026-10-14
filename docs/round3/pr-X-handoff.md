@@ -33,7 +33,9 @@ the default boto3 credential chain.
    `JOB_INTERVAL_SECONDS` (30 s) plus the call. It is not in `job_service.run_due_work`,
    so `POST /demo/clock/advance` never calls the LLM.
 3. A sweep handles at most 3 rows. `_claim` uses `FOR UPDATE SKIP LOCKED`, sets a claim
-   UUID and `lease_until = now + max(60, timeout x (retries + 1) + 30)` s, then commits.
+   UUID and `lease_until = clock_timestamp() + max(60, timeout x (retries + 1) + 30)` s, then
+   commits. Lease time and the claim comparison use the database clock, not `clock.now()`: the
+   lease times a real network call, so the Demo Clock must not expire it (exception to D10).
 4. Before each attempt the row is re-locked, `attempts` is incremented and an
    `IN_FLIGHT` `llm_call_log` row is committed. The gateway is called with no
    transaction open. The result is then recorded under the claim. Attempts are durable,
@@ -56,8 +58,8 @@ The payload is built from `input_snapshot` and `objective_score` only: `targets`
 candidates by rank with `first_wave`, `total`, `terms` and their ranking-key numbers.
 It has no names, `staff_id`, LINE ID or free text; people are "อันดับ N". The stored
 `input_payload` is exactly what was sent, and `input_hash` is its canonical sha256.
-Output must be non-empty, at most 2000 characters, with no control characters other
-than newline. Logs carry exception type names only, never prompts, responses or SDK
+Output must be non-empty, at most 2000 characters, with no control characters (Unicode
+category `Cc`, including C1) other than newline and no bidirectional controls. Logs carry exception type names only, never prompts, responses or SDK
 messages. Round 3 validates the format only, not that the sentence's numbers match.
 
 ## Call log and cost
@@ -75,8 +77,9 @@ reports rate 0, so its cost is 0.
 `case_service._latest_explanation`; there is no `explanation_service.latest_for_plan`.
 It never exposes failure reasons, tokens or payload, and never calls the LLM.
 `cases/[id]` shows the sentence in `ScoreBreakdown` after the intro text, with a note
-when `provider` is `fake`, and "คำอธิบายยังไม่พร้อม" otherwise. Known limitation:
-polling stops on final case statuses, so a sentence that arrives later appears on reload.
+when `provider` is `fake`, and "คำอธิบายยังไม่พร้อม" otherwise. The page keeps polling a
+final case while its explanation is `PENDING`, and stops at `READY` or `UNAVAILABLE`
+(no explanation row: stops at once).
 `LlmRequest` and `LlmAttempt` live in `app/integrations/llm/__init__.py` and are
 re-exported by `llm_service`.
 
@@ -100,9 +103,9 @@ and the unique constraint.
 
 ## Verification
 
-- Backend: **2,231 passed, 14 skipped** (opt-in timing harness).
+- Backend: **2,237 passed, 14 skipped** (opt-in timing harness).
 - Ruff check, Ruff format check and mypy strict (159 files) passed.
-- Frontend: **285 tests passed** (11 files); typecheck passed.
+- Frontend: **289 tests passed** (11 files); typecheck passed.
 - `git diff --check` and `grep -ri "aws_secret\|AKIA"` over `.env.example`,
   `docker-compose.yml` and `backend/app`: clean.
 - `alembic heads` prints exactly `e1a4c7f2b9d6`.

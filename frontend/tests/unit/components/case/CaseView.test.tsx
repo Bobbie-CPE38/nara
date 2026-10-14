@@ -616,6 +616,59 @@ describe("CaseView", () => {
         expect(within(section()).getByText(sentence)).toBeTruthy();
         expect(within(section()).queryByText(notReady)).toBeNull();
       });
+
+      describe("when the case is already final", () => {
+        const pending = { status: "PENDING", text: null, provider: null, model_id: null } as const;
+        const unavailable = { status: "UNAVAILABLE", text: null, provider: null, model_id: null } as const;
+
+        it("keeps polling while PENDING, then shows the sentence and stops", async () => {
+          serve(caseDetail({ status: "RESOLVED", explanation: pending }), resolvedAudit());
+          render(<CaseView caseId="1" />);
+          await tick();
+          expect(within(section()).getByText(notReady)).toBeTruthy();
+          expect(screen.getByText(/^Final status\. Still updating/)).toBeTruthy();
+
+          await tick(30000);
+          expect(fetchMock.mock.calls.length).toBeGreaterThan(2);
+
+          serve(caseDetail({ status: "RESOLVED", explanation: ready("fake", null).explanation }), resolvedAudit());
+          await tick(2000);
+          expect(within(section()).getByText(sentence)).toBeTruthy();
+          expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+
+          const calls = fetchMock.mock.calls.length;
+          await tick(10000);
+          expect(fetchMock).toHaveBeenCalledTimes(calls);
+          expect(vi.getTimerCount()).toBe(0);
+        });
+
+        it("stops when PENDING turns UNAVAILABLE", async () => {
+          serve(caseDetail({ status: "UNRESOLVED", explanation: pending }), []);
+          render(<CaseView caseId="1" />);
+          await tick();
+
+          serve(caseDetail({ status: "UNRESOLVED", explanation: unavailable }), []);
+          await tick(2000);
+          expect(within(section()).getByText(notReady)).toBeTruthy();
+          expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+
+          const calls = fetchMock.mock.calls.length;
+          await tick(10000);
+          expect(fetchMock).toHaveBeenCalledTimes(calls);
+          expect(vi.getTimerCount()).toBe(0);
+        });
+
+        it.each([["RESOLVED"], ["FAILED"]])("stops at once with no explanation row (%s)", async final => {
+          serve(caseDetail({ status: final, explanation: null }), []);
+          render(<CaseView caseId="1" />);
+          await tick();
+          await tick(10000);
+
+          expect(fetchMock).toHaveBeenCalledTimes(2);
+          expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+          expect(vi.getTimerCount()).toBe(0);
+        });
+      });
     });
 
     it("shows no explanation section when no candidate has a score", async () => {

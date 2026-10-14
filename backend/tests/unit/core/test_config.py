@@ -36,6 +36,19 @@ def test_cors_origins_parses_json_list(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_llm_defaults_keep_it_off(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    # Compose passes unset LLM_* variables as "" into the container: test the defaults only
+    for name in (
+        "LLM_ENABLED",
+        "LLM_PROVIDER",
+        "LLM_MODEL_ID",
+        "AWS_REGION",
+        "LLM_MAX_OUTPUT_TOKENS",
+        "LLM_REQUEST_TIMEOUT_SECONDS",
+        "LLM_MAX_RETRIES",
+        "LLM_INPUT_PRICE_PER_MTOK_USD",
+        "LLM_OUTPUT_PRICE_PER_MTOK_USD",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
     settings = Settings(_env_file=None)
 

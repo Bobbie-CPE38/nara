@@ -1,5 +1,6 @@
 """Single LLM gateway. Provider is chosen strictly by settings; there is no fallback."""
 
+import unicodedata
 from dataclasses import replace
 from decimal import Decimal
 
@@ -17,6 +18,10 @@ __all__ = [
 ]
 
 MAX_EXPLANATION_CHARS = 2000
+# Bidirectional controls can make the page show text that differs from what is stored
+_BIDI_CONTROLS = frozenset(
+    chr(code) for code in (0x061C, 0x200E, 0x200F, *range(0x202A, 0x202F), *range(0x2066, 0x206A))
+)
 _RETRYABLE = frozenset(
     {LlmCallStatus.TIMEOUT, LlmCallStatus.THROTTLED, LlmCallStatus.SERVICE_ERROR}
 )
@@ -43,7 +48,9 @@ def estimate_cost(attempt: LlmAttempt) -> Decimal | None:
 def _valid_text(text: str) -> bool:
     if not text or len(text) > MAX_EXPLANATION_CHARS:
         return False
-    return not any((ord(c) < 32 and c != "\n") or ord(c) == 127 for c in text)
+    return not any(
+        (unicodedata.category(c) == "Cc" and c != "\n") or c in _BIDI_CONTROLS for c in text
+    )
 
 
 def generate_explanation(request: LlmRequest) -> LlmAttempt:

@@ -9,7 +9,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable, Iterator
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -387,7 +387,7 @@ def test_a_crash_cannot_exceed_the_attempt_bound(seeded: Session, llm_on, gatewa
     (row,) = _rows(seeded)
     row.attempts = 2
     row.claim = service.uuid.uuid4()
-    row.lease_until = clock.now() - timedelta(seconds=1)
+    row.lease_until = datetime.now(UTC) - timedelta(seconds=1)
     seeded.add(
         LlmCallLog(
             explanation_id=row.id,
@@ -417,7 +417,7 @@ def test_a_live_lease_blocks_the_sweep(seeded: Session, llm_on, gateway) -> None
     spy = gateway()
     (row,) = _rows(seeded)
     row.claim = service.uuid.uuid4()
-    row.lease_until = clock.now() + timedelta(seconds=30)
+    row.lease_until = datetime.now(UTC) + timedelta(seconds=30)
     seeded.flush()
 
     assert service.run_pending(seeded) == 0
@@ -522,6 +522,51 @@ def test_two_concurrent_sweeps_make_one_call(
         (row,) = _rows(db)
         assert row.status == ExplanationStatus.READY and row.attempts == 1
         assert len(_logs(db)) == 1
+
+
+def test_the_lease_follows_real_time_not_the_demo_clock(
+    frozen_clock, restore_empty_database, llm_on, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Advancing the Demo Clock past the lease mid-call must not allow a second call."""
+    started, release = threading.Event(), threading.Event()
+    calls: list[LlmRequest] = []
+    errors: list[BaseException] = []
+
+    def slow(request: LlmRequest) -> LlmAttempt:
+        calls.append(request)
+        started.set()
+        assert release.wait(5)
+        return fake.generate(request)
+
+    monkeypatch.setattr(llm_service, "generate_explanation", slow)
+    with SessionLocal() as db:
+        load(db)
+        _planned_case(db)
+        db.commit()
+
+    def sweep() -> None:
+        try:
+            with SessionLocal() as other:
+                service.run_pending(other)
+        except BaseException as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=sweep)
+    thread.start()
+    try:
+        assert started.wait(5)
+        clock.advance(service.lease_duration() * 3)
+        with SessionLocal() as db:
+            assert service.run_pending(db) == 0
+    finally:
+        release.set()
+        thread.join(10)
+    assert not thread.is_alive() and not errors
+    assert len(calls) == 1
+    with SessionLocal() as db:
+        (row,) = _rows(db)
+        assert row.status == ExplanationStatus.READY and row.attempts == 1
+        assert [log.status for log in _logs(db)] == [LlmCallStatus.SUCCEEDED]
 
 
 # 16
