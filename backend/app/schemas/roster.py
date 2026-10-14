@@ -1,4 +1,4 @@
-"""Answer of GET /roster?shift_id= (docs/workflow.md, section 9.3)."""
+"""Answers of GET /roster?shift_id= and GET /roster?staff_id= (docs/workflow.md, 9.3 and 9.5)."""
 
 from pydantic import BaseModel
 
@@ -45,6 +45,9 @@ class RosterRow(BaseModel):
     # Differs from the shift's ward for staff who come from another ward
     home_ward_id: int
     home_ward_name: str
+    # ASSIGNED, and a STAFF_UNAVAILABILITY period of the person overlaps the shift
+    # (an open end_at counts). Same overlap as the UNAVAILABLE hard rule
+    is_unavailable: bool
     created_at: AppDatetime
     updated_at: AppDatetime
 
@@ -53,3 +56,36 @@ class ShiftRoster(BaseModel):
     shift: RosterShift
     # Every status, ordered by id. Empty for a shift without rows
     assignments: list[RosterRow]
+
+
+class RosterStaff(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    # Employment status. An INACTIVE person can still hold rows
+    staff_status: StaffStatus
+    role_id: int
+    role_name: str
+    home_ward_id: int
+    home_ward_name: str
+
+
+class StaffRosterRow(BaseModel):
+    """One ROSTER_ASSIGNMENT row of the person with the shift it is on."""
+
+    id: int
+    status: RosterStatus
+    assignment_type: AssignmentType
+    # null for REGULAR rows
+    candidate_source: CandidateSource | None
+    shift: RosterShift
+    # Same meaning as RosterRow.is_unavailable
+    is_unavailable: bool
+    created_at: AppDatetime
+    updated_at: AppDatetime
+
+
+class StaffRoster(BaseModel):
+    staff: RosterStaff
+    # Every status, ordered by shift start, then row id. Empty for nobody's rows
+    assignments: list[StaffRosterRow]

@@ -7,3 +7,7 @@ class CaseNotFoundError(LookupError):
 
 class ShiftNotFoundError(LookupError):
     """No SHIFT row has this ID."""
+
+
+class StaffNotFoundError(LookupError):
+    """No STAFF row has this ID."""

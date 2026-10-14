@@ -122,11 +122,24 @@ class RosterStatus(StrEnum):
     COMPLETED = "COMPLETED"
 
 
-# Rows that block the staff member from another shift at the same time.
+# Rows that block the staff member from another shift at the same time, and the
+# shifts that fatigue rules and working time count. COMPLETED is an ASSIGNED row
+# whose shift has ended (round 3 PR R): it still counts, or yesterday's shift
+# would drop out of rest and consecutive-shift checks.
 COMMITTED_ROSTER_STATUSES: frozenset[RosterStatus] = frozenset(
     {
         RosterStatus.PENDING_APPROVAL,
         RosterStatus.ASSIGNED,
+        RosterStatus.COMPLETED,
+    }
+)
+
+# Rows that cover a shift in the gap and threshold counts. COMPLETED counts like
+# ASSIGNED, so a shift that ends while its case is open keeps the same gap.
+COVERING_ROSTER_STATUSES: frozenset[RosterStatus] = frozenset(
+    {
+        RosterStatus.ASSIGNED,
+        RosterStatus.COMPLETED,
     }
 )
 

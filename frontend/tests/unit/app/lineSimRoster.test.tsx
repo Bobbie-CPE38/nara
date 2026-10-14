@@ -77,6 +77,7 @@ const roster: ShiftRoster = {
       role_name: "RN",
       home_ward_id: 1,
       home_ward_name: "ICU",
+      is_unavailable: false,
       created_at: offer.sent_at!,
       updated_at: offer.sent_at!,
     },
@@ -93,6 +94,7 @@ const roster: ShiftRoster = {
       role_name: "RN",
       home_ward_id: 1,
       home_ward_name: "ICU",
+      is_unavailable: false,
       created_at: offer.sent_at!,
       updated_at: offer.sent_at!,
     },
@@ -841,6 +843,20 @@ describe("Roster", () => {
     expect(within(table).getAllByText("105 — Sudarat Demo")).toHaveLength(2);
     expect(screen.getByText("ER (cross-ward)")).toBeTruthy();
     expect(screen.getByText("INACTIVE")).toBeTruthy();
+  });
+  it("marks only assigned people whose leave overlaps the shift", async () => {
+    replies(() => ({
+      ...roster,
+      assignments: [
+        roster.assignments[0],
+        { ...roster.assignments[1], is_unavailable: true },
+      ],
+    }));
+    render(<RosterPage />);
+    const table = await screen.findByRole("table");
+    const rows = within(table).getAllByRole("row");
+    expect(within(rows[1]).queryByText("On leave")).toBeNull();
+    expect(within(rows[2]).getByText("On leave")).toBeTruthy();
   });
   it("loads another shift and displays an empty roster", async () => {
     replies((path) =>

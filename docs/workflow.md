@@ -109,7 +109,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | L | คน 3 | LINE จริง: Webhook, กันซ้ำ, ส่ง Offer (Migration ตัวที่ 1) | 6.16 | |
 | K | คน 3 | ผูกบัญชี LINE (Migration ตัวที่ 2) | 6.16 | |
 | X | คน 2 | ประโยคอธิบายจาก LLM (Migration ตัวที่ 3) | 6.15 | |
-| R | คน 1 | งานค้างของ Roster และการลา | 12 | |
+| R | คน 1 | งานค้างของ Roster และการลา: `COMPLETED`, `GET /roster?staff_id=`, ธง `is_unavailable`, แก้ `end_at` ของการลา | 6.18, 9.5 | |
 | N | ตกลงตอนแตก branch | หน้าเว็บพยาบาล "ข้อเสนอเข้าเวรของฉัน" | 6.17, 9.5 | |
 | D | ทั้งสามคน (คน 1 เปิด PR) | สภาพแวดล้อมทดสอบบน AWS | 6.16, 6.17 | |
 
@@ -145,6 +145,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | Offer ที่ถูกรับ ยกเลิก หมดเวลา หรือเคสหยุดแล้ว ไม่ถูกส่งซ้ำและไม่ถูกเขียนทับด้วย `FAILED` | L |
 | รหัสผูกบัญชีเดียวกันถูกใช้พร้อมกันสองครั้ง สำเร็จได้ครั้งเดียว และถ้าการเขียนพัง รหัสยังใช้ได้ | K |
 | Route ของหน้าเว็บพยาบาลไม่สนใจ `staff_id` ที่ส่งมาใน Query หรือ Body | N |
+| ตั้งเวรที่จบแล้วเป็น `COMPLETED` แล้ว Gap, Hard Rules (รวมเวลาพักหลังเวรนั้น) และชั่วโมงทำงานเท่าเดิม | R (`test_roster_completion.py`) |
 | เรียกเครื่องทดสอบบน AWS โดยไม่มีรหัส Basic Auth ถูกปฏิเสธ ส่วน Path ของ Webhook เรียกได้ และข้อยกเว้นไม่ครอบ Path อื่น | D (ลองบนเครื่อง) |
 
 ---
@@ -297,7 +298,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 
 | ตัวที่ดู | ผ่านเมื่อ | ข้อมูลที่ใช้ |
 |---|---|---|
-| Ratio | ผู้ป่วยต่อพยาบาลของเวรเกินค่าที่กำหนด: `patient_count > maximum_patients_per_nurse * จำนวนคนในเวร` | `SHIFT.patient_count`, Roster ที่ `ASSIGNED`, `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` |
+| Ratio | ผู้ป่วยต่อพยาบาลของเวรเกินค่าที่กำหนด: `patient_count > maximum_patients_per_nurse * จำนวนคนในเวร` | `SHIFT.patient_count`, Roster ที่ `ASSIGNED` หรือ `COMPLETED` (ข้อ 6.18), `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` |
 | Role Gap | มี Role อย่างน้อยหนึ่งตัวที่คนในเวรน้อยกว่าจำนวนที่ต้องการ | Requirement ของ Role, Roster |
 | Skill Gap | มี Skill อย่างน้อยหนึ่งตัวที่คนในเวรน้อยกว่าจำนวนที่ต้องการ | Requirement ของ Skill, Roster |
 
@@ -378,7 +379,7 @@ Body ที่เพิ่ม การตรวจตอนรับ และ 
 | ส่วน | รวมยังไง |
 |---|---|
 | ความต้องการ (`required_staff`) | UPDATE ในแถว Requirement เดิม ครั้งเดียวหลังวนครบทุก Event เมื่อมี Event ที่ผ่าน Threshold อย่างน้อยหนึ่งตัว ใช้ `patient_count` ค่าสุดท้ายของเวร |
-| จำนวนคนในเวร | นับใหม่จาก Roster ที่ `ASSIGNED` หลังวนครบทุก Event การลาของทุก Event ใน Window ถูกหักแล้ว |
+| จำนวนคนในเวร | นับใหม่จาก Roster ที่ `ASSIGNED` หรือ `COMPLETED` (ข้อ 6.18) หลังวนครบทุก Event การลาของทุก Event ใน Window ถูกหักแล้ว |
 | `headcount_gap` | `max(effective_minimum - current_valid_staff, 0)` คิดครั้งเดียวจากสองบรรทัดบน |
 | Gap ของ Role / Skill | คิดใหม่ทุกตัว: จำนวนที่ต้องการ ลบ คนในเวรที่มี Role / Skill นั้น |
 
@@ -403,7 +404,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 
 * `preserve_minimum_staffing` คือธงใน `HARD_CONSTRAINT_POLICY` (Seed เป็น `true`) ธงนี้เป็น `false` = ไม่ใช้ `minimum_staff` เป็นพื้น
 * ธงนี้ใช้ที่การคิด Gap ที่เดียว การกันไม่ให้ต้นทางขาดคนเป็นของอีกธงคือ `preserve_source_ward_minimum` (ร่างรอบ 1 ข้อ 7.2 Q15) ทั้งสองอย่างทำในรอบ 1
-* `current_valid_staff` = จำนวนคนในเวรที่นับตอนนี้ (Roster ที่ `ASSIGNED`) ไม่เปลี่ยนวิธีนับ
+* `current_valid_staff` = จำนวนคนในเวรที่นับตอนนี้ (Roster ที่ `ASSIGNED` หรือ `COMPLETED` ข้อ 6.18) ไม่เปลี่ยนวิธีนับ
 * Golden Case ไม่เปลี่ยนผล: เวร 1 มี `required_staff = 5`, `minimum_staff = 4` เป้าหมายยังเป็น 5 และค่า Seed ตรงกับสูตรอยู่แล้ว (ผู้ป่วย 10 คน หาร 2 = 5, เวร 2 ผู้ป่วย 2 คน หาร 2 = 1)
 * Ratio ที่ใช้คือ `HARD_CONSTRAINT_POLICY.maximum_patients_per_nurse` ค่าเดียวทั้งโรงพยาบาล โหลดด้วย `policy_service.get_hard_constraint_policy(db)` ซึ่งเลือก Policy `id=1` ตาม Seed ไม่มีค่า Default / Fallback ใน Calculator และไม่มีคอลัมน์ Ratio ใน WARD ค่านี้ไม่ใช่ `APPROVAL_POLICY.ratio` (ตัวคูณสำหรับ Auto-approval)
 * ตรวจ Role / Skill ตาม Requirement แยกจาก Headcount ขาดอย่างใดอย่างหนึ่งก็ถือว่ามี Gap แม้จำนวนคนจะเพียงพอแล้วก็ตาม
@@ -442,6 +443,7 @@ headcount_gap = max(effective_minimum - current_valid_staff, 0)
 * Backend เป็นคนตัดสินว่าเวรไหนถึงเวลาปิด ด้วยนาฬิกาของ Backend เอง เพราะเวลาของ Demo ที่ถูกหยุดไว้อยู่ในหน่วยความจำของ Process ของ Backend (`core/clock.py`) Service แยกเห็นแต่เวลาจริง
 * `POST /demo/clock/advance` เลื่อน Clock ของ Demo แล้วเรียกฟังก์ชันปิด Window ตัวเดียวกับ Job เพราะเลื่อนนาฬิกาอย่างเดียว Job ไม่รันเอง
 * ทั้ง Route ของ Job และ Route เลื่อน Clock เรียก `job_service.run_due_work(db)` ตัวเดียวกัน ซึ่งปิด Window ที่ถึงเวลาทีละเวร หนึ่ง Transaction ต่อเวร เวรที่ปิดไม่สำเร็จถูก Rollback และข้ามไป เวรอื่นไม่ได้รับผล
+* รอบ 3 PR R เพิ่มขั้นแรกของ `run_due_work()`: ตั้ง Roster ของเวรที่จบแล้วเป็น `COMPLETED` (ข้อ 6.18) ใน Commit ของตัวเอง ขั้นนี้ไม่เปลี่ยนการนับใด จึงอยู่ลำดับไหนก็ได้
 * PR O ให้ `run_due_work()` ปิด Offer ที่หมดเวลา → recovery sweep → ปิด Window ที่ถึงเวลา ตามลำดับนี้ เพื่อให้เคสที่หยุดจาก timeout ปล่อย Window ที่รออยู่ได้ใน tick เดียวกัน ปิด Offer / recovery เคสละ Transaction และ Window เวรละ Transaction หนึ่งเคสที่ผิดพลาดไม่หยุดเคสอื่น แต่ลองใหม่รอบถัดไป
 
 ### 3.9 ข้อจำกัดที่รู้
@@ -1194,6 +1196,34 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * **ตัวตนจำลอง:** รอบนี้ใช้ Header `X-Demo-User` เดิม หน้าและเอกสารต้องเขียนว่าเป็นโหมด Demo และไม่อ้างว่ามีระบบ Login จริง ผู้เรียกตั้ง Header นี้เองได้อิสระ การไม่รับ `staff_id` จึงกันแค่ความผิดพลาดของหน้าเว็บ ไม่ได้กันคนที่ตั้ง Header เป็นรหัสของคนอื่น ข้อนี้เป็นจริงกับทุก Route ที่ใช้ `X-Demo-User` รวมการอนุมัติของ Head Nurse
 * **ด่านของเครื่องทดสอบบน AWS (PR D):** เครื่องเปิดเป็น HTTPS สาธารณะ และพยาบาลที่ผูก LINE จริงจะมี Offer จริงบนเครื่องนั้น PR D จึงใส่ HTTP Basic Auth ที่ Reverse proxy ครอบทั้งหน้าเว็บและ API ยกเว้น Path ของ Webhook ของ LINE ซึ่งกันด้วยลายเซ็น ข้อยกเว้นผูกกับ Path ของ Webhook ตรงตัว ไม่ใช้ Prefix รหัสเก็บใน Parameter Store ไม่มีด่านนี้ห้ามเปิดเครื่องให้เข้าจากภายนอก รหัสตัวเดียวให้ทุกคนที่เข้าได้มีสิทธิ์เท่ากัน ใช้ได้กับเครื่อง Demo เท่านั้น
 
+### 6.18 งานค้างของ Roster และการลา
+
+ข้อนี้ทำแล้วในรอบ 3 PR R (R3-Q1) คำตอบของคำถามระหว่างทำ PR: นับ `COMPLETED` เหมือน `ASSIGNED`, ผู้แก้วันกลับคือ Head Nurse ของหอของคนลา, การลาที่ยาวขึ้นแล้วทับเวรหรือ Offer ให้บันทึกแล้วบอกในคำตอบ ไม่แตะอะไร
+
+**Roster ของเวรที่จบแล้วเป็น `COMPLETED`**
+
+* `roster_completion_service.complete_ended_shifts()` เป็นขั้นแรกของ `job_service.run_due_work()` (ข้อ 3.8) ตั้งแถว `ASSIGNED` ที่ `SHIFT.end_at <= clock.now()` เป็น `COMPLETED` แล้ว Commit
+* ล็อกแถวด้วย `FOR UPDATE SKIP LOCKED` แถวที่ Transaction อื่นถืออยู่ (เช่น การแจ้งลากำลังยกเลิกแถว) ถูกข้ามแล้วทำในรอบถัดไป ขั้นนี้จึงไม่รอ Lock และไม่ขัดลำดับ Lock ของการรับ Event (ข้อ 6.11)
+* ไม่มี Audit เพราะไม่มี `AuditAction` ของการเปลี่ยนนี้ เวลาที่เปลี่ยนดูจาก `ROSTER_ASSIGNMENT.updated_at`
+* **`COMPLETED` นับเหมือน `ASSIGNED` ทุกที่** ไม่อย่างนั้นเวรเมื่อวานจะหายจากการนับโดยไม่มี Error และคนที่เพิ่งลงเวรดึกจะผ่านกฎเวลาพัก
+  * `COMMITTED_ROSTER_STATUSES` (Hard Rules ทุกข้อที่ดูเวรอื่น และชั่วโมงทำงานใน `working_time_service`) มี `COMPLETED` เพิ่ม
+  * `COVERING_ROSTER_STATUSES` (ใหม่) = `ASSIGNED` และ `COMPLETED` ใช้นับคนในเวรของตัวคำนวณ Gap และ Threshold เวรที่จบระหว่างที่เคสยังเปิดจึงได้ Gap เท่าเดิม
+  * ตัวอ่านที่นับ `ASSIGNED` หรือ `COMPLETED` อยู่แล้ว (`case_facts_service`, `handoff_service`, `outreach_service`, Handler `EXECUTING`) ไม่เปลี่ยน
+  * ตัวที่ยังดูแค่ `ASSIGNED` โดยตั้งใจ: การรับ Event (แจ้งลาหรือยกเลิกได้เฉพาะเวรที่ยังไม่จบ) และธง `is_unavailable`
+
+**`GET /roster?staff_id=`** Filter ใหม่ของ Route เดิม (ข้อ 9.5) ต้องส่ง `shift_id` หรือ `staff_id` อย่างใดอย่างหนึ่งพอดี คืนตัวพนักงานและทุกแถว Roster ของคนนั้นทุกสถานะ พร้อมข้อมูลเวรของแต่ละแถว เรียงตามเวลาเริ่มเวร แล้วตาม `id` อ่านสอง Statement เสมอ
+
+**ธง `is_unavailable`** ทุกแถวของ `GET /roster` ทั้งสองแบบ เป็นจริงเมื่อแถวเป็น `ASSIGNED` และคนนั้นมี `STAFF_UNAVAILABILITY` ที่ทับเวร ใช้เงื่อนไขทับเดียวกับรหัส `UNAVAILABLE` ของ Hard Rules: ช่วงลาเริ่มก่อนเวรจบ และไม่มี `end_at` หรือ `end_at` หลังเวรเริ่ม (แตะขอบพอดีไม่นับ) คำนวณในคำสั่งเดียวกับแถว การรับ Event ยกเลิก Roster พร้อมการลาเสมอ ธงนี้จึงเกิดเมื่อมีการลาที่ไม่ได้มาจาก Event ทับเวร เช่น การลาที่ถูกแก้ให้ยาวขึ้น หน้า `roster` แสดงป้าย "On leave" ต่อท้ายสถานะของแถวที่ธงเป็นจริง
+
+**แก้วันกลับของการลา (`PATCH /unavailability/{id}`)**
+
+* Body `{end_at}` ต้องมีเขตเวลา และห้ามมีช่องอื่น ตั้งกลับเป็นไม่มีวันกลับไม่ได้ ใช้กับการลาที่ `end_at` เป็น `NULL` อยู่เพื่อใส่วันกลับได้
+* ลำดับ: `401` Header → `404` ไม่มีช่วงลานั้น → `403` ไม่ใช่ Head Nurse หรือไม่ใช่ Head Nurse ของหอประจำของคนลา (`manages_ward()` เดียวกับการอนุมัติ) → `422` `end_at` ไม่หลัง `start_at`
+* ล็อกแถว `STAFF` ของคนลาก่อน (`hard_rule_service.lock_staff()`) แล้วล็อกแถวการลา การวางแผนของคนเดียวกันจึงเห็นช่วงลาก่อนหรือหลังการแก้ทั้งก้อน
+* เขียน `UNAVAILABILITY_UPDATED` (ข้อ 7.1) แล้ว Commit พร้อมการแก้
+* ไม่แตะ Roster หรือ Offer ใด คำตอบบอกแถว Roster ที่ `ASSIGNED` และ Offer ที่ `SENT` หรือ `ACCEPTED` ของเคสที่ยังไม่หยุด ซึ่งช่วงลาใหม่ทับเวร Head Nurse ตัดสินเองว่าจะแจ้ง Event ต่อหรือไม่ แถว Roster พวกนั้นขึ้นธง `is_unavailable` ใน `GET /roster`
+* ข้อจำกัดที่รู้: Offer ที่ `ACCEPTED` และผ่าน Safety แล้วยังอนุมัติได้ เพราะการอนุมัติไม่ตรวจซ้ำ (Q38) คำตอบของการแก้จึงต้องบอก Offer พวกนี้ให้ Head Nurse เห็น
+
 ---
 
 ## 7. Audit
@@ -1206,6 +1236,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 |---|---|---|---|---|
 | `EVENT_RECEIVED` | `event_service` ตอนรับ Event (PART A) | user (ผู้แจ้ง) | STAFFING_EVENTS | `event_type`, `shift_id`, `staff_id` |
 | `UNAVAILABILITY_CREATED` | `merge_window_service` ตอน Window ปิด (PART B) | user (คนที่ลา) | STAFF_UNAVAILABILITY | `unavailability_id`, `staff_id`, `reason`, `start_at`, `end_at` |
+| `UNAVAILABILITY_UPDATED` | `unavailability_service.update_end_at()` (รอบ 3 PR R) | user (Head Nurse ที่แก้) | STAFF_UNAVAILABILITY | `unavailability_id`, `staff_id`, `previous_end_at` (`null` ได้), `end_at` เวลาเป็น `+07:00` แถวนี้มี `case_id = NULL` และ `event_id = NULL` |
 | `ASSIGNMENT_CANCELLED` | `merge_window_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง จาก `reported_by` ใน payload ของ Event) | ROSTER_ASSIGNMENT | `assignment_id` (Roster ที่ถูกยกเลิก), `staff_id`, `reason` |
 | `PATIENT_COUNT_UPDATED` | `merge_window_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง) | SHIFT | `shift_id`, `old_patient_count`, `new_patient_count` |
 | `REQUIREMENT_UPDATED` | `merge_window_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง) | STAFFING_REQUIREMENTS | `requirement_id`, `roles`: List ของ `{role_id, old_required_count, new_required_count}`, `skills`: List ของ `{skill_id, old_required_count, new_required_count}` เรียงตาม ID |
@@ -1385,7 +1416,8 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 | POST | `/demo/line-sim/respond` | ผู้สมัครตอบ `ACCEPT` / `REJECT` | คน 3 |
 | GET | `/approvals?pending=true` | รายการรออนุมัติ | คน 3 |
 | POST | `/approvals/{id}/decision` | อนุมัติ / ไม่อนุมัติ | คน 3 |
-| GET | `/roster?shift_id=` | ตารางเวรของเวรนั้น | คน 3 |
+| GET | `/roster?shift_id=` หรือ `?staff_id=` | ตารางเวรของเวรนั้น หรือของพนักงานหนึ่งคน (`staff_id` จากรอบ 3 PR R) | คน 3, `staff_id` คน 1 |
+| PATCH | `/unavailability/{id}` | แก้วันกลับของการลา (รอบ 3 PR R) | คน 1 |
 | POST | `/demo/reset` | ล้าง DB โหลด Golden Case ตั้ง Clock ใหม่ | คน 1 |
 | POST | `/demo/clock/advance` | เลื่อน Clock ของ Demo แล้วปิด Offer ที่หมดเวลา เก็บตกเคสที่ค้าง และปิด Window ที่ถึงเวลา | คน 1 |
 | POST | `/line/webhook` | Webhook ของ LINE กันด้วยลายเซ็น ไม่ใช้ `X-Demo-User` [รอบ 3 · PR L] | คน 3 |
@@ -1673,17 +1705,17 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 
 * ต้องมี `X-Demo-User` ของ Staff ที่ Active และมี Actor (ไม่ผ่าน → `401`) การอ่านไม่ตรวจ Role หรือ Ward:
   พนักงานคนใดก็อ่านเวรใดก็ได้ (ข้อ 12)
-* `shift_id` ต้องส่งมาเสมอ และเป็นจำนวนเต็มในช่วง `bigint` (1 ถึง 9223372036854775807) ไม่ส่งหรือค่าไม่ถูกต้อง → `422`
+* `shift_id` (หรือ `staff_id` ตั้งแต่รอบ 3 ข้อ 9.5 อย่างใดอย่างหนึ่ง) เป็นจำนวนเต็มในช่วง `bigint` (1 ถึง 9223372036854775807) ไม่ส่งหรือค่าไม่ถูกต้อง → `422`
 * ไม่มี Shift ID นั้น → `404` เวรที่มีอยู่แต่ไม่มีแถว Roster ตอบ `200` พร้อม `assignments: []`
   ตรวจตามลำดับ `401` → `422` → `404`
 * เวรที่ `is_active = false` ยังตอบ `200` พร้อมแถวของมัน ดูจาก `shift.is_active`
 * `assignments` คือ**แถว** `ROSTER_ASSIGNMENT` ไม่ใช่รายชื่อคน คืนทุกสถานะตามที่เก็บ (`CANCELLED`, `PENDING_APPROVAL`,
   `COMPLETED` ด้วย) ไม่กรองและไม่รวมแถวซ้ำ คนเดียวกันมีได้หลายแถวในเวรเดียว เพราะตารางไม่มี UNIQUE ที่
   (`staff_id`, `shift_id`) เรียงด้วย `id` จากน้อยไปมาก
-* Route ไม่นับ Coverage: คนที่นับได้คือคนไม่ซ้ำที่มีแถว `ASSIGNED` เท่านั้น (ข้อ 3) `PENDING_APPROVAL` ไม่นับ
+* Route ไม่นับ Coverage: คนที่นับได้คือคนไม่ซ้ำที่มีแถว `ASSIGNED` หรือ `COMPLETED` (ข้อ 3, 6.18) `PENDING_APPROVAL` ไม่นับ
   ตัวเลข Gap ดูจาก `GET /cases/{id}`
-* `status` คือค่าที่เก็บใน DB ไม่คำนวณจากเวลา เวรที่จบไปแล้วจึงยังเป็น `ASSIGNED` ได้ (ยังไม่มีขั้นใดตั้ง `COMPLETED`
-  ดูข้อ 12) ใช้ `shift.end_at` ดูว่าเวรจบแล้วหรือยัง
+* `status` คือค่าที่เก็บใน DB ไม่คำนวณจากเวลา Job ตั้งเวรที่จบแล้วเป็น `COMPLETED` ทุกรอบ (ข้อ 6.18) เวรที่เพิ่งจบจึงยังเป็น
+  `ASSIGNED` ได้จนถึงรอบถัดไป ใช้ `shift.end_at` ดูว่าเวรจบแล้วหรือยัง
 * `candidate_source` เป็น `null` สำหรับแถว `REGULAR`
 * `staff_status` คือ `STAFF.status` คนที่ `INACTIVE` ยังอยู่ในรายการถ้ายังมีแถว Roster
   (Coverage ไม่กรอง `STAFF.status` ซ้ำ ตาม `database-schema.md`)
@@ -1722,6 +1754,10 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 | `GET /me/offers` (ใหม่, ต้องมี `X-Demo-User`) | คืน List ของ `OfferView` แบบเดียวกับ `GET /demo/line-sim/offers` ของพนักงานใน Header เท่านั้น ไม่รับ `staff_id` | N |
 | `POST /me/offers/{outreach_id}/response` (ใหม่, ต้องมี `X-Demo-User`) | Body `{response}` (`ACCEPT` หรือ `REJECT`) Body ห้ามมีช่องอื่น คืน `{outreach_id, outreach_status, case_id, case_status}` แบบเดียวกับ `POST /demo/line-sim/respond` Error: `401` Header, `409` เมื่อ `record_response()` ปฏิเสธ (`OpenOfferConflictError`), `503` พร้อม `Retry-After: 1` เมื่อล็อกไม่นิ่ง (`OutreachLockRetryError`) | N |
 | หน้า "ข้อเสนอเข้าเวรของฉัน" (ใหม่) | ตามข้อ 6.17 | N |
+| `GET /roster` | ต้องส่ง `shift_id` หรือ `staff_id` อย่างใดอย่างหนึ่งพอดี ไม่ส่งหรือส่งทั้งคู่ได้ `422` (`detail` เป็นข้อความ) ทุกแถวมี `is_unavailable` (ข้อ 6.18) | R (ทำแล้ว) |
+| `GET /roster?staff_id=` (ใหม่) | คืน `{staff: {id, first_name, last_name, staff_status, role_id, role_name, home_ward_id, home_ward_name}, assignments: [{id, status, assignment_type, candidate_source, shift: {id, ward_id, ward_name, shift_type, start_at, end_at, is_active}, is_unavailable, created_at, updated_at}]}` เรียงตามเวลาเริ่มเวรแล้ว `id` ไม่มีพนักงาน ID นั้น `404` ไม่มีแถว `200` พร้อม List ว่าง | R (ทำแล้ว) |
+| หน้า `roster` | แถวที่ `is_unavailable` เป็นจริงมีป้าย "On leave" ต่อท้ายสถานะ | R (ทำแล้ว) |
+| `PATCH /unavailability/{id}` (ใหม่, ต้องมี `X-Demo-User`) | Body `{end_at}` คืน `{unavailability_id, staff_id, start_at, end_at, previous_end_at, overlapping_assignment_ids, overlapping_offers: [{outreach_id, case_id, status}]}` ลำดับ Error ตามข้อ 6.18 | R (ทำแล้ว) |
 
 Path ของสองตัวท้ายตกลงใน PR 0 ส่วน Path ของ Webhook ตั้งใน PR 0 และคน 3 เปลี่ยนได้ใน PR L ถ้าแจ้งในข้อ 13 ของไฟล์นี้
 
@@ -1834,15 +1870,20 @@ Test ที่ยืนยัน Flow นี้: `backend/tests/e2e/test_workfor
 | เรื่อง | หมายเหตุ |
 |---|---|
 | การใช้ `PENDING_APPROVAL` ใน Roster | ค่ามีใน Enum แล้ว แต่ยังไม่ใช้ รอบ 1 รองรับ Gap > 1 และหลายเคสพร้อมกันด้วยการสร้าง Roster เป็น `ASSIGNED` ตอนอนุมัติ ยังไม่มีงานที่กำหนดให้ใช้ค่านี้ |
-| การตั้ง Roster เป็น `COMPLETED` | ยังไม่มีขั้นใดเขียน เวรที่จบแล้วจึงยังเป็น `ASSIGNED` ใน `GET /roster` |
 | สิทธิ์อ่าน Roster ตาม Ward | Skeleton ให้ Staff ที่ Active ทุกคนอ่าน `GET /roster` ได้ทุกเวร การจำกัด เช่น Head Nurse อ่านได้เฉพาะหอของตัวเอง รอ Login จริง แล้วตอบ `403` |
-| ธง "อยู่เวรแต่ไม่พร้อม" ใน `GET /roster` | คนที่ `ASSIGNED` แต่มี `STAFF_UNAVAILABILITY` ชนเวร (รวม `end_at = NULL`) ใช้กติกาของรหัส `UNAVAILABLE` ใน `domain/constraints/` ร่วมกัน (กติกาข้อ 3 เดิมของ `availability_service` ลบแล้วใน PR 3) Golden Case สร้างสถานะนี้ไม่ได้ เพราะการรับ Event ยกเลิก Roster ใน Transaction เดียวกับการลา |
-| `GET /roster?staff_id=` | ตารางเวรของพนักงานหนึ่งคน เพิ่มเป็น Filter ของ Route เดิม ไม่ใช่ Path ใหม่ |
 | `NO_SHOW` | ตรวจ check-in ใน `ATTENDANCE` หลัง `SHIFT.start_at` + เวลาผ่อนผัน (สมมติ 15 นาที) แล้วสร้าง `STAFF_UNAVAILABILITY` + Event `STAFF_UNAVAILABLE` ทีละเวร |
-| แก้ `end_at` ของ `STAFF_UNAVAILABILITY` | กลับเร็ว / หยุดนานกว่าที่บันทึก / ใส่วันกลับเมื่อเคยเป็น NULL → Audit `UNAVAILABILITY_UPDATED` |
 | Auto-Approval | Future feature: activate when the nurse-to-patient ratio exceeds twice the ward's required ratio (`ratio = 2`). `incoming_count` refers to staff awaiting approval by the head nurse or nurse supervisor (policy value = 10); its comparison rule remains to be defined. Skeleton uses MANUAL approval. |
 | รูปแบบ `required_approver_role` | Skeleton เก็บ `ROLE.id` ของ HEAD_NURSE ไปก่อน |
 | LangGraph | ดูทางเลือกในเอกสารแยก |
+
+เรื่องที่ย้ายออกเพราะรอบ 3 ทำแล้ว
+
+| เรื่อง | ทำใน | ตอนนี้อยู่ข้อ |
+|---|---|---|
+| การตั้ง Roster เป็น `COMPLETED` | รอบ 3 PR R | 6.18 |
+| ธง "อยู่เวรแต่ไม่พร้อม" ใน `GET /roster` | รอบ 3 PR R | 6.18 |
+| `GET /roster?staff_id=` | รอบ 3 PR R | 6.18, 9.5 |
+| แก้ `end_at` ของ `STAFF_UNAVAILABILITY` | รอบ 3 PR R | 6.18, 9.5 |
 
 เรื่องที่ย้ายออกเพราะรอบ 2 ทำแล้ว
 
@@ -1943,3 +1984,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | ตามรีวิว PR ปิดรอบ 2: วันที่อัปเดตบนสุดเป็น 2026-10-14; หัวข้อ 9.4 เป็นอดีต; หมายเหตุลำดับ Lock ในข้อ 6.11 ที่เขียนว่ายังไม่มี Test เปลี่ยนเป็นรายการ Test สอง Connection ของแต่ละกรณี ทั้งของรอบ 1 และรอบ 2; ตาราง Test ของ PR H ระบุชื่อฟังก์ชัน | คน 1 |
 | 2026-10-14 | รอบ 3 PR 0: ส่วน "สถานะของรอบ 3" พร้อมตาราง PR, ลำดับ merge และ Test ของข้อกำหนดที่พังเงียบได้; ข้อ 6.15 คำอธิบายอันดับ, 6.16 LINE จริง, 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง; ข้อ 7.1 เพิ่ม `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED`; ข้อ 9 และ 9.5 เพิ่ม `POST /line/webhook`, `GET /me/offers`, `POST /me/offers/{outreach_id}/response`; `enums.py` เพิ่มสาม Action และ `EntityType.CONTACTS` ยังไม่มีผู้เขียน ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-14 | ตามรีวิว PR 0 ของรอบ 3 (#61): ข้อ 6.15 กำหนด `value` ของทุกพจน์ (`candidate_count` เป็น 1, `candidate_source` เป็นตำแหน่งใน `source_order` เริ่มที่ 0); ข้อ 6.16 และ 9.5 กำหนดว่าแต่ละ Event ใน body มี Transaction และแถวกันซ้ำของตัวเอง, `LINK <รหัส>` ถูกประมวลก่อนตรวจการผูก และผ่านตารางกันซ้ำใน Transaction ของการผูก; ตารางสถานะของรอบ 3 ใส่ #61 | คน 1 |
+| 2026-10-14 | รอบ 3 PR R: Job ตั้ง Roster ของเวรที่จบแล้วเป็น `COMPLETED` (`roster_completion_service` ขั้นแรกของ `run_due_work()`); `COMPLETED` นับเหมือน `ASSIGNED` ใน `COMMITTED_ROSTER_STATUSES` และ `COVERING_ROSTER_STATUSES` (ใหม่ ใช้ใน Gap และ Threshold); `GET /roster?staff_id=` และธง `is_unavailable` พร้อมป้าย "On leave" ในหน้า `roster`; `PATCH /unavailability/{id}` แก้วันกลับพร้อม `UNAVAILABILITY_UPDATED` และบอกเวรกับ Offer ที่ทับ; ข้อ 3.4, 3.6, 3.8, 6.18 (ใหม่), 7.1, 9, 9.3, 9.5 และ 12 แก้ตาม | คน 1 |
