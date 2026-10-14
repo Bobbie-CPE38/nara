@@ -66,7 +66,7 @@ def _offer(
     db.flush()
     plan = CandidatePlan(
         case_id=case.id,
-        solver_status=SolverStatus.FEASIBLE,
+        solver_status=SolverStatus.OPTIMAL,
         generated_at=DEMO_NOW,
         execution_time_ms=0,
         solver_version="stub",

@@ -7,6 +7,7 @@ from app.domain.enums import (
     CaseStatus,
     EntityType,
     ManualHandoffReason,
+    SolverStatus,
 )
 from app.services import actor_service, audit_service, optimization_service
 from app.workflow.handlers.base import HandlerResult
@@ -33,6 +34,11 @@ def handle(db: Session, case: StaffingCase) -> HandlerResult:
         return HandlerResult(next_status=CaseStatus.OUTREACH)
 
     # Not a system fault, so not FAILED: a person has to staff the shift (Q2)
+    reason = (
+        ManualHandoffReason.SOLVER_TIMEOUT
+        if result.plan.solver_status is SolverStatus.UNKNOWN
+        else ManualHandoffReason.NO_FEASIBLE_PLAN
+    )
     audit_service.log(
         db,
         case_id=case.id,
@@ -41,7 +47,7 @@ def handle(db: Session, case: StaffingCase) -> HandlerResult:
         entity_type=EntityType.STAFFING_CASES,
         entity_id=case.id,
         payload={
-            "reason": ManualHandoffReason.NO_FEASIBLE_PLAN.value,
+            "reason": reason.value,
             "stopped_at": CaseStatus.OPTIMIZING.value,
             "cancelled_outreach_ids": [],
             "skipped": [{"staff_id": row.staff_id, "reason": row.reason} for row in result.skipped],
