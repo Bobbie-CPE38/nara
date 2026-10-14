@@ -18,12 +18,20 @@ function isRecordList(value: unknown): value is Record<string, unknown>[] {
   return Array.isArray(value) && value.every(isRecord);
 }
 
+/** null, or a record with a numeric total, a boolean first_wave and a list of term records. */
+function isScore(value: unknown): boolean {
+  return value === null || (
+    isRecord(value) && typeof value.total === "number"
+    && typeof value.first_wave === "boolean" && isRecordList(value.terms)
+  );
+}
+
 function isCaseDetail(value: unknown): value is CaseDetail {
   if (!isRecord(value) || typeof value.status !== "string") return false;
   const { gap, candidates } = value;
   const gapOk =
     gap === null || (isRecord(gap) && isRecordList(gap.roles) && isRecordList(gap.skills));
-  return gapOk && isRecordList(candidates);
+  return gapOk && isRecordList(candidates) && candidates.every(candidate => isScore(candidate.score));
 }
 
 function isAuditList(value: unknown): value is AuditEntry[] {

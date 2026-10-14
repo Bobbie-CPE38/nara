@@ -23,6 +23,12 @@ export type GapView = {
   skills: GapCount[];
 };
 
+/** One term of a score: points = weight x value, as stored with the plan */
+export type ScoreTerm = { name: string; value: number; weight: number; points: number };
+
+/** Terms are in formula order. first_wave tells a first-wave pick from a reserve */
+export type CandidateScore = { total: number; terms: ScoreTerm[]; first_wave: boolean };
+
 export type CandidateView = {
   candidate_item_id: number;
   rank: number;
@@ -34,6 +40,8 @@ export type CandidateView = {
   outreach_status: string | null;
   /** Where the candidate is in the case (docs/workflow.md, section 4.1) */
   stage: string;
+  /** Numbers come from the plan's snapshot (docs/workflow.md, section 6.15). null means no score, for a reason the API does not give */
+  score: CandidateScore | null;
 };
 
 /** GET /cases/{id} */
