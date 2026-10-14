@@ -16,7 +16,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 
-from app.domain.enums import RosterStatus
+from app.domain.enums import COVERING_ROSTER_STATUSES
 from app.domain.staffing.coverage import RosterMember
 
 
@@ -48,7 +48,8 @@ def check_threshold(
     because a shift with nobody left would divide by zero. It gives the same
     answer as staff < ceil(patient_count / ratio).
 
-    Only ASSIGNED roster rows count, each person once, like gap_calculator.
+    Only covering roster rows (ASSIGNED or COMPLETED) count, each person once,
+    like gap_calculator.
     """
     if patient_count < 0:
         raise ValueError("Patient count must be non-negative")
@@ -61,7 +62,7 @@ def check_threshold(
         raise ValueError("Requirement counts must be non-negative")
 
     people = {
-        member.staff_id: member for member in roster if member.status is RosterStatus.ASSIGNED
+        member.staff_id: member for member in roster if member.status in COVERING_ROSTER_STATUSES
     }
     roles = Counter(member.role_id for member in people.values())
     skills = Counter(skill_id for member in people.values() for skill_id in member.skill_ids)
