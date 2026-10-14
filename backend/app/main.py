@@ -13,6 +13,7 @@ from app.api.routes import (
     internal,
     line_sim,
     line_webhook,
+    me,
     roster,
     unavailability,
 )
@@ -29,6 +30,7 @@ for module in (
     approvals,
     roster,
     line_sim,
+    me,
     internal,
     line_webhook,
     unavailability,

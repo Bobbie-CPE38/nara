@@ -110,7 +110,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | K | คน 3 | ผูกบัญชี LINE (Migration ตัวที่ 2) | 6.16 | #68 |
 | X | คน 2 | ประโยคอธิบายจาก LLM (Migration ตัวที่ 3) | 6.15 | |
 | R | คน 1 | งานค้างของ Roster และการลา: `COMPLETED`, `GET /roster?staff_id=`, ธง `is_unavailable`, แก้ `end_at` ของการลา | 6.18, 9.5 | |
-| N | ตกลงตอนแตก branch | หน้าเว็บพยาบาล "ข้อเสนอเข้าเวรของฉัน" | 6.17, 9.5 | |
+| N | คน 1 | หน้าเว็บพยาบาล "ข้อเสนอเข้าเวรของฉัน" | 6.17, 9.5 | |
 | D | ทั้งสามคน (คน 1 รวบรวม PR) | สภาพแวดล้อมบน AWS **เลื่อนไปรอบ 6** (มติทีม 2026-10-14) งานที่ทำแล้วเก็บใน branch `feat/aws-test-environment` | 6.16, 6.17 | |
 
 ลำดับ merge: 0 ก่อนทุกตัวยกเว้น D, E ก่อน E2 และ X, L ก่อน K, N หลัง L และ K, Migration ต่อกันเป็นเส้นเดียว `b7d3e5a1c9f2` → L → K → X (ลำดับนี้เป็นข้อเสนอในร่างรอบ 3 ข้อ 6 ถ้า X พร้อมก่อน ให้ตกลงสลับตอนนั้น) รอบ 3 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R3-Q13)
@@ -151,7 +151,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | `409` ของ Retry key นับว่ารับแล้ว `429` ไม่นับในสามครั้ง `401` และ `403` ไม่ตั้ง Offer เป็น `FAILED` | L |
 | Offer ที่ถูกรับ ยกเลิก หมดเวลา หรือเคสหยุดแล้ว ไม่ถูกส่งซ้ำและไม่ถูกเขียนทับด้วย `FAILED` | L |
 | รหัสผูกบัญชีเดียวกันถูกใช้พร้อมกันสองครั้ง สำเร็จได้ครั้งเดียว และถ้าการเขียนพัง รหัสยังใช้ได้ | K |
-| Route ของหน้าเว็บพยาบาลไม่สนใจ `staff_id` ที่ส่งมาใน Query หรือ Body | N |
+| Route ของหน้าเว็บพยาบาลไม่สนใจ `staff_id` ที่ส่งมาใน Query หรือ Body | N (`test_me_offers.py`) |
 | ตั้งเวรที่จบแล้วเป็น `COMPLETED` แล้ว Gap, Hard Rules (รวมเวลาพักหลังเวรนั้น) และชั่วโมงทำงานเท่าเดิม | R (`test_roster_completion.py`) |
 | การลาหรือการยกเลิกที่รับไว้ก่อนเวรจบยังถูกประมวลหลัง Job ตั้ง `COMPLETED` รวมกรณีที่ Window รอเคสที่ยังเดิน | R (`test_roster_completion_events.py`) |
 | เรียกเครื่องทดสอบบน AWS โดยไม่มีรหัส Basic Auth ถูกปฏิเสธ ส่วน Path ของ Webhook เรียกได้ และข้อยกเว้นไม่ครอบ Path อื่น | D (ลองบนเครื่องในรอบ 6 ไม่ใช่เกณฑ์ปิดรอบ 3) |
@@ -1230,7 +1230,7 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 * LINE รับแล้วไม่ได้แปลว่าคนได้อ่าน เช่น คนบล็อกบัญชีไว้ [ตรวจกับเอกสาร LINE] Offer แบบนั้นหมดเวลาตามกติกาเดิม
 * ข้อความที่แสดงเส้นตายในแชตใช้เวลาของ Clock ของระบบ การเลื่อน Clock ใน Demo จึงทำให้เวลาในแชตไม่ตรงกับนาฬิกาบนโทรศัพท์
 
-### 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง [รอบ 3 · PR N, D]
+### 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง [รอบ 3 · PR D]
 
 NTT ยืนยันแล้วว่าการแข่งขันใช้ LINE Messaging API ได้ งาน LINE จึงเดินตามข้อ 6.16 ทีมตกลงเพิ่มหน้าเว็บ "ข้อเสนอเข้าเวรของฉัน" เป็นช่องทางเสริม LINE ใช้รับการแจ้งเตือนและตอบเร็ว หน้าเว็บใช้ดูรายการ ติดตามสถานะ และตอบได้ด้วย
 
@@ -1240,6 +1240,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * **ตอบจากหลายช่องทาง:** การตอบผ่าน LINE และหน้าเว็บพร้อมกันกันด้วยกติกาและ Lock ใน `record_response()` ช่องทางที่ตอบทีหลังได้การปฏิเสธ แล้วแสดงสถานะล่าสุด
 * **การอัปเดตหน้า:** อ่านรายการใหม่เป็นระยะ ไม่เพิ่มระบบแจ้งเตือนใหม่ และไม่เพิ่มฟีเจอร์จัดเวรอื่นใน PR N
 * **ตัวตนจำลอง:** รอบนี้ใช้ Header `X-Demo-User` เดิม หน้าและเอกสารต้องเขียนว่าเป็นโหมด Demo และไม่อ้างว่ามีระบบ Login จริง ผู้เรียกตั้ง Header นี้เองได้อิสระ การไม่รับ `staff_id` จึงกันแค่ความผิดพลาดของหน้าเว็บ ไม่ได้กันคนที่ตั้ง Header เป็นรหัสของคนอื่น ข้อนี้เป็นจริงกับทุก Route ที่ใช้ `X-Demo-User` รวมการอนุมัติของ Head Nurse
+* **หน้าที่ทำแล้ว (PR N):** หน้า `/me/offers` (ลิงก์ "My offers" ในแถบเมนู) เปิดครั้งแรกให้เลือกตัวตนจำลองหนึ่งครั้งจากพนักงาน Demo ที่ไม่ใช่ผู้อนุมัติ 900 แล้วเก็บไว้ใน `localStorage` ของ Browser นั้น ค่าที่เก็บไว้ไม่อยู่ในรายการถือว่ายังไม่ได้เข้า และถ้า Browser ไม่ให้ใช้ Storage จะจำได้จนกว่าจะโหลดหน้าใหม่ ระหว่างเข้าอยู่มีป้าย "Demo mode" กับปุ่ม Sign out แทนตัวเลือกสลับพนักงาน หน้าเรียกแค่สอง Route ข้างบน ตารางและปุ่มตอบใช้ Component `OfferList` ตัวเดียวกับหน้า `demo/line-sim` ส่วนหน้าแต่ละหน้าเป็นผู้เลือก API ที่ใช้อ่านและตอบ
 * **ด่านของเครื่องทดสอบบน AWS (PR D, เลื่อนไปรอบ 6):** เครื่องเปิดเป็น HTTPS สาธารณะ และพยาบาลที่ผูก LINE จริงจะมี Offer จริงบนเครื่องนั้น PR D จึงใส่ HTTP Basic Auth ที่ Reverse proxy ครอบทั้งหน้าเว็บและ API ยกเว้น Path ของ Webhook ของ LINE ซึ่งกันด้วยลายเซ็น ข้อยกเว้นผูกกับ Path ของ Webhook ตรงตัว ไม่ใช้ Prefix รหัสเก็บใน Parameter Store ไม่มีด่านนี้ห้ามเปิดเครื่องให้เข้าจากภายนอก รหัสตัวเดียวให้ทุกคนที่เข้าได้มีสิทธิ์เท่ากัน ใช้ได้กับเครื่อง Demo เท่านั้น
 
 ### 6.18 งานค้างของ Roster และการลา
@@ -1469,8 +1470,8 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 | POST | `/demo/reset` | ล้าง DB โหลด Golden Case ตั้ง Clock ใหม่ | คน 1 |
 | POST | `/demo/clock/advance` | เลื่อน Clock ของ Demo แล้วปิด Offer ที่หมดเวลา เก็บตกเคสที่ค้าง และปิด Window ที่ถึงเวลา | คน 1 |
 | POST | `/line/webhook` | Webhook ของ LINE กันด้วยลายเซ็น ไม่ใช้ `X-Demo-User` | คน 3 |
-| GET | `/me/offers` | Offer ของพนักงานใน Header [รอบ 3 · PR N] | ผู้ทำ PR N (ตกลงตอนแตก branch) |
-| POST | `/me/offers/{outreach_id}/response` | พนักงานใน Header ตอบ `ACCEPT` / `REJECT` [รอบ 3 · PR N] | ผู้ทำ PR N (ตกลงตอนแตก branch) |
+| GET | `/me/offers` | Offer ของพนักงานใน Header (รอบ 3 PR N) | คน 1 |
+| POST | `/me/offers/{outreach_id}/response` | พนักงานใน Header ตอบ `ACCEPT` / `REJECT` (รอบ 3 PR N) | คน 1 |
 | POST | `/internal/merge-windows/close-due` | Route ภายในที่ Service ของ Job เรียก กันด้วย `X-Internal-Secret` ไม่ใช้ `X-Demo-User` | คน 1 |
 
 ทุก Request ที่ต้องรู้ตัวผู้ใช้ส่ง Header `X-Demo-User: <staff_id>` (D9)
@@ -1808,9 +1809,9 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 | `GET /cases/{id}` | แต่ละ `candidates[]` มีช่อง `score` ตามข้อ 6.15 (`null` สำหรับ Plan ที่สร้างก่อน PR E) | E (ทำแล้ว) |
 | หน้า `cases/[id]` | แสดงคะแนนรายพจน์ เหตุผลแบบตายตัว และประโยคจาก LLM เมื่อพร้อม | E2 (ทำแล้ว ตัวเลขและเหตุผลแบบตายตัว), X |
 | `POST /line/webhook` (ใหม่) | Webhook ของ LINE ไม่ใช้ `X-Demo-User` กันด้วยลายเซ็น ลำดับ: ลายเซ็นไม่ผ่าน `401` (ไม่เขียน DB) → ประมวลทีละ Event ในแต่ละ Transaction ของตัวเองตามข้อ 6.16: Event ซ้ำข้าม, `LINK <รหัส>` ไปทางผูกบัญชีก่อนตรวจการผูก, Postback ไปทางตอบ Offer → ตอบ `5xx` ถ้ามี Event ใดเจอ Error ที่ไม่คาดไว้ ไม่อย่างนั้น `200` (รวมการปฏิเสธทางธุรกิจ) | L |
-| `GET /me/offers` (ใหม่, ต้องมี `X-Demo-User`) | คืน List ของ `OfferView` แบบเดียวกับ `GET /demo/line-sim/offers` ของพนักงานใน Header เท่านั้น ไม่รับ `staff_id` | N |
-| `POST /me/offers/{outreach_id}/response` (ใหม่, ต้องมี `X-Demo-User`) | Body `{response}` (`ACCEPT` หรือ `REJECT`) Body ห้ามมีช่องอื่น คืน `{outreach_id, outreach_status, case_id, case_status}` แบบเดียวกับ `POST /demo/line-sim/respond` Error: `401` Header, `409` เมื่อ `record_response()` ปฏิเสธ (`OpenOfferConflictError`), `503` พร้อม `Retry-After: 1` เมื่อล็อกไม่นิ่ง (`OutreachLockRetryError`) | N |
-| หน้า "ข้อเสนอเข้าเวรของฉัน" (ใหม่) | ตามข้อ 6.17 | N |
+| `GET /me/offers` (ใหม่, ต้องมี `X-Demo-User`) | คืน List ของ `OfferView` แบบเดียวกับ `GET /demo/line-sim/offers` ของพนักงานใน Header เท่านั้น ไม่รับ `staff_id` (ส่ง `staff_id` มาใน Query ถูกข้าม) | N (ทำแล้ว) |
+| `POST /me/offers/{outreach_id}/response` (ใหม่, ต้องมี `X-Demo-User`) | Body `{response}` (`ACCEPT` หรือ `REJECT`) Body ห้ามมีช่องอื่น คืน `{outreach_id, outreach_status, case_id, case_status}` แบบเดียวกับ `POST /demo/line-sim/respond` Error: `401` Header, `409` เมื่อ `record_response()` ปฏิเสธ (`OpenOfferConflictError`), `503` พร้อม `Retry-After: 1` เมื่อล็อกไม่นิ่ง (`OutreachLockRetryError`), `422` เมื่อ Body มีช่องอื่นหรือ `outreach_id` ไม่ใช่ bigint บวก | N (ทำแล้ว) |
+| หน้า `/me/offers` "ข้อเสนอเข้าเวรของฉัน" (ใหม่) | ตามข้อ 6.17 | N (ทำแล้ว) |
 | `GET /roster` | ต้องส่ง `shift_id` หรือ `staff_id` อย่างใดอย่างหนึ่งพอดี ไม่ส่งหรือส่งทั้งคู่ได้ `422` (`detail` เป็นข้อความ) ทุกแถวมี `is_unavailable` (ข้อ 6.18) | R (ทำแล้ว) |
 | `GET /roster?staff_id=` (ใหม่) | คืน `{staff: {id, first_name, last_name, staff_status, role_id, role_name, home_ward_id, home_ward_name}, assignments: [{id, status, assignment_type, candidate_source, shift: {id, ward_id, ward_name, shift_type, start_at, end_at, is_active}, is_unavailable, created_at, updated_at}]}` เรียงตามเวลาเริ่มเวรแล้ว `id` ไม่มีพนักงาน ID นั้น `404` ไม่มีแถว `200` พร้อม List ว่าง | R (ทำแล้ว) |
 | หน้า `roster` | แถวที่ `is_unavailable` เป็นจริงมีป้าย "On leave" ต่อท้ายสถานะ | R (ทำแล้ว) |
@@ -2051,3 +2052,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | รอบ 3 PR E2: หน้า `cases/[id]` แสดงคอลัมน์ Score และตารางรายพจน์ (`ScoreBreakdown`) ของผู้สมัครที่มี `score` เรียงพจน์จาก `points` มากไปน้อย เหตุผลแบบตายตัวต่อชื่อพจน์และต่อ `first_wave` อยู่ใน `SCORE_TERM_INFO` และ `FIRST_WAVE_INFO`; `score = null` แสดงอันดับตามเดิมไม่มีคะแนนและไม่เดาเหตุผล; หน้าไม่คำนวณคะแนนเอง `loadCase()` ตรวจรูปของ `score` | คน 2 |
 | 2026-10-14 | ตามรีวิว PR E2 (#67): `loadCase()` ตรวจทุกพจน์ของ `score` (`name` เป็นข้อความ, `value`, `weight`, `points` เป็นตัวเลขจำกัด) ชื่อพจน์ที่ไม่รู้จักยังแสดงตามเดิม; เหตุผลของ `workload_imbalance` เป็นชั่วโมงตาม Roster ที่ Commit แล้วในสัปดาห์ ณ ตอนวางแผน (รวมเวรที่ยังไม่เริ่ม); หัวข้อเป็น "Score breakdown" และบอกว่าคะแนนเลือกกลุ่ม Wave แรก อันดับในกลุ่มเรียงตาม `ranking_key` | คน 2 |
 | 2026-10-14 | รอบ 3 PR K: รหัส LINK อายุ 10 นาที เก็บ SHA-256 hash, ใช้/revoke ครั้งเดียวตาม Backend Clock, unique LINE UID; CLI เรียก Route ภายในที่ตรวจ Internal Secret; LINK ผ่าน dedup พร้อม Contact/Code/Audit ใน Transaction เดียว; unlink รักษาประวัติและ revoke รหัสเก่า; pending send ตรวจบัญชีเดิมก่อน retry; Migration `d7f0b3c5e9a2` ต่อจาก PR L, tests สอง Connection และ Handoff ใน `docs/round3/pr-K-handoff.md` | คน 3 |
+| 2026-10-15 | รอบ 3 PR N: `GET /me/offers` และ `POST /me/offers/{outreach_id}/response` ใน `api/routes/me.py` อ่านด้วย `list_offers()` และตอบด้วย `record_response()` ผ่านตัวเดียวกับหน้าจำลอง (`line_sim.answer_offer()`) ไม่รับ `staff_id` (Query ถูกข้าม Body ที่มีช่องอื่นได้ `422`); หน้า `/me/offers` เข้าด้วยตัวตนจำลองที่เก็บใน `localStorage` มีป้าย Demo mode และ Sign out ไม่มีตัวเลือกสลับพนักงาน เขียนชัดว่า Accept ยังไม่ใช่การได้เข้าเวร; ตาราง Offer ย้ายเป็น `components/outreach/OfferList.tsx` ใช้ร่วมกับ `demo/line-sim` ไม่มี Migration | คน 1 |

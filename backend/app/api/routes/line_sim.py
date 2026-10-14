@@ -4,8 +4,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Session
 
-from app.api.dependencies import DbSession, DemoUser
+from app.api.dependencies import CurrentUser, DbSession, DemoUser
 from app.core.constants import MAX_BIGINT
 from app.domain.enums import CandidateResponse, CaseStatus, OutreachStatus
 from app.schemas.outreach import OfferView
@@ -39,13 +40,20 @@ class ResponseResult(BaseModel):
 
 @router.post("/respond", response_model=ResponseResult)
 def respond(body: ResponseRequest, db: DbSession, user: DemoUser) -> ResponseResult:
+    return answer_offer(db, user, body.outreach_id, body.response)
+
+
+def answer_offer(
+    db: Session, user: CurrentUser, outreach_id: int, response: CandidateResponse
+) -> ResponseResult:
+    """Answer as the header user; also used by the nurse page route (/me/offers)."""
     try:
         outreach, case = outreach_service.record_response(
             db,
             staff_id=user.staff.id,
             actor_id=user.actor_id,
-            outreach_id=body.outreach_id,
-            response=body.response,
+            outreach_id=outreach_id,
+            response=response,
         )
     except outreach_service.OutreachLockRetryError as error:
         raise HTTPException(
