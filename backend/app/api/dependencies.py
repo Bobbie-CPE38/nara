@@ -41,7 +41,9 @@ def get_db(background_tasks: BackgroundTasks) -> Iterator[Session]:
         yield db
 
 
-DbSession = Annotated[Session, Depends(get_db)]
+# Close request transactions before sending the response and running LINE tasks.
+# Request-scoped teardown would retain read locks until background delivery ends.
+DbSession = Annotated[Session, Depends(get_db, scope="function")]
 
 
 def _unauthorized(detail: str) -> HTTPException:

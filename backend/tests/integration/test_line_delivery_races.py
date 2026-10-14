@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.core import clock
 from app.core.config import settings
@@ -168,10 +168,14 @@ def test_http_response_precedes_line_network_work(race_case, monkeypatch, blocke
     # existing intent explicitly to exercise push with a fresh background Session.
     item["postback"]["data"] = "invalid"
     original = webhook.process_event
+    request_sessions = []
 
     def process_and_queue(db, incoming):
         original(db, incoming)
         delivery.dispatch_pending(db)
+        # A post-commit read recreates the transaction that used to stay open
+        # through background I/O, blocking schema reset. Keep it open on purpose.
+        request_sessions.append((db, db.scalar(text("SELECT pg_backend_pid()"))))
 
     monkeypatch.setattr(webhook, "process_event", process_and_queue)
     started, release, response_sent = threading.Event(), threading.Event(), threading.Event()
@@ -213,17 +217,29 @@ def test_http_response_precedes_line_network_work(race_case, monkeypatch, blocke
         except Exception as error:
             errors.append(error)
 
+    # Reserve a separate observer connection before the request; otherwise the
+    # pool can reuse its released connection and we would observe our own query.
+    observer = SessionLocal()
+    observer.execute(text("SELECT 1"))
     thread = threading.Thread(target=request)
     thread.start()
     try:
         assert started.wait(5)
         assert response_sent.is_set()
         assert statuses == [200]
-        with SessionLocal() as db:
-            assert db.get(LineWebhookEvent, "E1") is not None
+        assert len(request_sessions) == 1
+        request_db, request_pid = request_sessions[0]
+        assert not request_db.in_transaction()
+        state = observer.execute(
+            text("SELECT state, xact_start FROM pg_stat_activity WHERE pid=:pid"),
+            {"pid": request_pid},
+        ).one_or_none()
+        assert state is None or (state.xact_start is None and state.state == "idle")
+        assert observer.get(LineWebhookEvent, "E1") is not None
     finally:
         release.set()
         thread.join(10)
+        observer.close()
     assert not thread.is_alive() and not errors
     with SessionLocal() as db:
         # The delivery result is visible through an independent DB connection.

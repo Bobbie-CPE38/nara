@@ -27,8 +27,10 @@ the workflow offers the shift, not when LINE accepts the push.
 
 After the workflow commits, HTTP paths queue background work and send the
 HTTP response before LINE network calls. Replies run first; delivery uses a
-fresh Session, never the request Session. The internal job and demo-clock HTTP
-routes also queue delivery through get_db. Direct service calls without a
+fresh Session, never the request Session. The `get_db` dependency has function
+scope: its Session closes before the response and background work, so even
+post-commit read transactions cannot retain locks while LINE is blocked.
+The internal job and demo-clock HTTP routes also queue delivery through get_db. Direct service calls without a
 background scheduler dispatch synchronously after commit.
 The job also dispatches after expiry, recovery and window work, so a crash
 before the first call is recoverable. A sweep attempts at most 20 offers,
