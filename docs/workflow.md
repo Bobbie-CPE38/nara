@@ -165,17 +165,17 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | `409` ของ Retry key นับว่ารับแล้ว `429` ไม่นับในสามครั้ง `401` และ `403` ไม่ตั้ง Offer เป็น `FAILED` | L | `test_line_messaging.py` (`test_line_acceptance_stops_retries`, `test_configuration_and_rate_errors_do_not_consume_attempts`) |
 | Offer ที่ถูกรับ ยกเลิก หมดเวลา หรือเคสหยุดแล้ว ไม่ถูกส่งซ้ำและไม่ถูกเขียนทับด้วย `FAILED` | L | `test_line_messaging.py` (`test_answer_or_cancellation_during_send_is_never_overwritten`, `test_expired_and_stopped_intents_do_not_send`) |
 | รหัสผูกบัญชีเดียวกันถูกใช้พร้อมกันสองครั้ง สำเร็จได้ครั้งเดียว และถ้าการเขียนพัง รหัสยังใช้ได้ | K | `test_line_account_races.py` (`test_same_code_is_consumed_once_across_connections`), `test_line_account_linking.py` (`test_failed_link_rolls_back_contact_code_audit_and_dedup`) |
-| เปิดหน้าซ้ำหรือ Polling `GET /cases/{id}` ไม่เรียก LLM (Gateway ถูกเรียก 0 ครั้ง) | X | `test_rank_explanation.py` |
-| Sweep พร้อมกันสองตัว (สอง Connection) เรียก LLM ครั้งเดียวต่อ Plan | X | `test_rank_explanation.py` |
-| ตั้ง `bedrock` แล้วเรียกไม่สำเร็จ ไม่สลับไปใช้ `fake` เงียบ ๆ และหน้าได้ `UNAVAILABLE` | X | `test_rank_explanation.py`, `tests/unit/services/test_llm_service.py` |
-| LLM ล้มเหลวไม่เปลี่ยนสถานะเคสและไม่มี `WORKFLOW_FAILED` | X | `test_rank_explanation.py` |
-| ข้อมูลที่ส่งให้ LLM ไม่มีชื่อพนักงานหรือ `staff_id` (ตรวจทั้ง Key และ Value) | X | `test_rank_explanation.py` |
-| Attempt ไม่เกิน `1 + LLM_MAX_RETRIES` แม้เครื่องล่มกลางการเรียก (Lease หมดแล้ว `attempts` เต็ม ได้ `FAILED` โดยไม่เรียก) | X | `test_rank_explanation.py` |
-| เลื่อน Demo Clock เกิน Lease ระหว่างที่การเรียกยังรันอยู่ Sweep ถัดไปไม่เรียกซ้ำใน Plan เดียว (Lease ใช้นาฬิกาฐานข้อมูล) | X | `test_rank_explanation.py` |
-| เคสถึงสถานะสุดท้ายขณะที่ประโยคยัง `PENDING` หน้ายัง Poll จนเป็น `READY` หรือ `UNAVAILABLE` | X | `frontend/tests/unit/components/case/CaseView.test.tsx` |
-| Route ของหน้าเว็บพยาบาลไม่สนใจ `staff_id` ที่ส่งมาใน Query หรือ Body | N | `test_me_offers.py` |
-| ตั้งเวรที่จบแล้วเป็น `COMPLETED` แล้ว Gap, Hard Rules (รวมเวลาพักหลังเวรนั้น) และชั่วโมงทำงานเท่าเดิม | R | `test_roster_completion.py` |
-| การลาหรือการยกเลิกที่รับไว้ก่อนเวรจบยังถูกประมวลหลัง Job ตั้ง `COMPLETED` รวมกรณีที่ Window รอเคสที่ยังเดิน | R | `test_roster_completion_events.py` |
+| เปิดหน้าซ้ำหรือ Polling `GET /cases/{id}` ไม่เรียก LLM (Gateway ถูกเรียก 0 ครั้ง) | X | `test_rank_explanation.py` (`test_polling_never_calls_the_llm`, `test_demo_clock_advance_does_not_call_the_gateway`) |
+| Sweep พร้อมกันสองตัว (สอง Connection) เรียก LLM ครั้งเดียวต่อ Plan | X | `test_rank_explanation.py` (`test_two_concurrent_sweeps_make_one_call`) |
+| ตั้ง `bedrock` แล้วเรียกไม่สำเร็จ ไม่สลับไปใช้ `fake` เงียบ ๆ และหน้าได้ `UNAVAILABLE` | X | `test_rank_explanation.py` และ `tests/unit/services/test_llm_service.py` (`test_bedrock_failure_never_falls_back_to_fake` ทั้งสองไฟล์) |
+| LLM ล้มเหลวไม่เปลี่ยนสถานะเคสและไม่มี `WORKFLOW_FAILED` | X | `test_rank_explanation.py` (`test_llm_failure_does_not_touch_the_case`) |
+| ข้อมูลที่ส่งให้ LLM ไม่มีชื่อพนักงานหรือ `staff_id` (ตรวจทั้ง Key และ Value) | X | `test_rank_explanation.py` (`test_payload_has_no_personal_data`) |
+| Attempt ไม่เกิน `1 + LLM_MAX_RETRIES` แม้เครื่องล่มกลางการเรียก (Lease หมดแล้ว `attempts` เต็ม ได้ `FAILED` โดยไม่เรียก) | X | `test_rank_explanation.py` (`test_a_crash_cannot_exceed_the_attempt_bound`) |
+| เลื่อน Demo Clock เกิน Lease ระหว่างที่การเรียกยังรันอยู่ Sweep ถัดไปไม่เรียกซ้ำใน Plan เดียว (Lease ใช้นาฬิกาฐานข้อมูล) | X | `test_rank_explanation.py` (`test_the_lease_follows_real_time_not_the_demo_clock`) |
+| เคสถึงสถานะสุดท้ายขณะที่ประโยคยัง `PENDING` หน้ายัง Poll จนเป็น `READY` หรือ `UNAVAILABLE` | X | `frontend/tests/unit/components/case/CaseView.test.tsx` ("when the case is already final": "keeps polling while PENDING, then shows the sentence and stops", "stops when PENDING turns UNAVAILABLE") |
+| Route ของหน้าเว็บพยาบาลไม่สนใจ `staff_id` ที่ส่งมาใน Query หรือ Body | N | `test_me_offers.py` (`test_staff_id_in_the_query_is_ignored`, `test_body_with_any_other_field_is_refused_without_writes`) |
+| ตั้งเวรที่จบแล้วเป็น `COMPLETED` แล้ว Gap, Hard Rules (รวมเวลาพักหลังเวรนั้น) และชั่วโมงทำงานเท่าเดิม | R | `test_roster_completion.py` (`test_completing_a_shift_moves_no_gap_fatigue_check_or_working_time`) |
+| การลาหรือการยกเลิกที่รับไว้ก่อนเวรจบยังถูกประมวลหลัง Job ตั้ง `COMPLETED` รวมกรณีที่ Window รอเคสที่ยังเดิน | R | `test_roster_completion_events.py` (`test_a_leave_reported_before_the_end_applies_after_the_job_runs`, `test_a_cancellation_reported_before_the_end_applies_after_the_job_runs`, `test_a_leave_held_back_by_a_running_case_applies_once_the_case_ends`) |
 | เรียกเครื่องทดสอบบน AWS โดยไม่มีรหัส Basic Auth ถูกปฏิเสธ ส่วน Path ของ Webhook เรียกได้ และข้อยกเว้นไม่ครอบ Path อื่น | D (รอบ 6) | ยังไม่มีใน `staging` ลองบนเครื่องในรอบ 6 ด้วย `deploy/aws/check-gate.sh` จาก branch `feat/aws-test-environment` ไม่ใช่เกณฑ์ปิดรอบ 3 |
 
 ---
@@ -1257,7 +1257,7 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 * LINE รับแล้วไม่ได้แปลว่าคนได้อ่าน เช่น คนบล็อกบัญชีไว้ [ตรวจกับเอกสาร LINE] Offer แบบนั้นหมดเวลาตามกติกาเดิม
 * ข้อความที่แสดงเส้นตายในแชตใช้เวลาของ Clock ของระบบ การเลื่อน Clock ใน Demo จึงทำให้เวลาในแชตไม่ตรงกับนาฬิกาบนโทรศัพท์
 
-### 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง [รอบ 6 · PR D]
+### 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง
 
 NTT ยืนยันแล้วว่าการแข่งขันใช้ LINE Messaging API ได้ งาน LINE จึงเดินตามข้อ 6.16 ทีมตกลงเพิ่มหน้าเว็บ "ข้อเสนอเข้าเวรของฉัน" เป็นช่องทางเสริม LINE ใช้รับการแจ้งเตือนและตอบเร็ว หน้าเว็บใช้ดูรายการ ติดตามสถานะ และตอบได้ด้วย
 
@@ -2084,4 +2084,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-15 | รอบ 3 PR X: ประโยคอธิบายอันดับจาก LLM ผ่าน `llm_service` (ตัวเชื่อม `fake` และ `bedrock` ทดสอบแบบ Offline) เข้าคิวด้วยแถว `PENDING` ใน Transaction ของ Plan สร้างเฉพาะตอน Job tick ผ่าน Background Task ของ Route ภายใน (Claim/Lease, `attempts` ถาวรไม่เกิน `1 + LLM_MAX_RETRIES`, `LLM_CALL_LOG` ทุก Attempt); Payload มีแต่ตัวเลขและอันดับ; `GET /cases/{id}` เพิ่มช่อง `explanation` และหน้า `cases/[id]` แสดงประโยค; ตาราง `RANK_EXPLANATION` และ `LLM_CALL_LOG` กับ Enum `ExplanationStatus`, `LlmCallStatus` (Migration `e1a4c7f2b9d6` ต่อจาก PR K); Test ของข้อกำหนดที่พังเงียบได้ 6 ข้อ; Handoff ใน `docs/round3/pr-X-handoff.md` | คน 2 |
 | 2026-10-15 | ตามรีวิว PR X (#70): Lease ของ Job อ่านเวลาจากนาฬิกาฐานข้อมูล ไม่ใช้ Demo Clock (ข้อยกเว้นของ D10 ในข้อ 6.15), ตรวจข้อความจาก LLM ปฏิเสธอักขระควบคุมทุกตัว (Unicode `Cc` ยกเว้นขึ้นบรรทัดใหม่) และตัวควบคุมทิศทางข้อความ, หน้า `cases/[id]` Poll ต่อเมื่อเคสสุดท้ายแล้วแต่ประโยคยัง `PENDING` | คน 2 |
 | 2026-10-15 | รอบ 3 PR N: `GET /me/offers` และ `POST /me/offers/{outreach_id}/response` ใน `api/routes/me.py` อ่านด้วย `list_offers()` และตอบด้วย `record_response()` ผ่านตัวเดียวกับหน้าจำลอง (`api/offer_responses.answer_offer()`) ไม่รับ `staff_id` (Query ถูกข้าม Body ที่มีช่องอื่นได้ `422`); หน้า `/me/offers` เข้าด้วยตัวตนจำลองที่เก็บใน `localStorage` มีป้าย Demo mode และ Sign out ไม่มีตัวเลือกสลับพนักงาน เขียนชัดว่า Accept ยังไม่ใช่การได้เข้าเวร; ตาราง Offer ย้ายเป็น `components/outreach/OfferList.tsx` ใช้ร่วมกับ `demo/line-sim` ไม่มี Migration | คน 1 |
-| 2026-10-15 | ปิดรอบ 3: PR ทุกตัวยกเว้น D เข้า `staging` ครบ (#60 ถึง #64 และ #67 ถึง #70 รวม #65, #66 ของมติเรื่อง D และ Tunnel); ส่วน "สถานะของรอบ 3" บอกว่าเสร็จแล้ว ใส่ #64 ในแถว R และเพิ่มตารางว่าอะไรทดสอบด้วย fake และอะไรผ่านบริการจริง (LINE จริงและ Bedrock จริงยังไม่ได้ลอง); ตาราง Test ของข้อกำหนดที่พังเงียบได้ชี้ไฟล์และชื่อ Test ที่ตรวจแล้วว่ามีจริง; ป้ายที่เหลือเป็น **[รอบ 6 · PR D]** (ข้อ 6.17); ข้อ 9.5 บอกว่าทุกแถวทำแล้ว ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
+| 2026-10-15 | ปิดรอบ 3: PR ทุกตัวยกเว้น D เข้า `staging` ครบ (#60 ถึง #64 และ #67 ถึง #70 รวม #65, #66 ของมติเรื่อง D และ Tunnel); ส่วน "สถานะของรอบ 3" บอกว่าเสร็จแล้ว ใส่ #64 ในแถว R และเพิ่มตารางว่าอะไรทดสอบด้วย fake และอะไรผ่านบริการจริง (LINE จริงและ Bedrock จริงยังไม่ได้ลอง); ตาราง Test ของข้อกำหนดที่พังเงียบได้ชี้ไฟล์และชื่อ Test ที่ตรวจแล้วว่ามีจริง; ป้ายที่เหลือเป็น **[รอบ 6 · PR D]** ที่ข้อย่อยด่านของเครื่อง AWS ในข้อ 6.17 (ส่วนหน้าเว็บพยาบาลของข้อนั้นทำแล้วใน PR N); ข้อ 9.5 บอกว่าทุกแถวทำแล้ว ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
