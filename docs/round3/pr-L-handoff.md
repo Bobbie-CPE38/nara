@@ -98,6 +98,33 @@ All HTTP traffic is replaced by deterministic doubles in CI, including tests
 of real-mode paths. No test credentials are production credentials.
 
 Real LINE delivery, HTTP latency and account settings still need validation
-with the team's channel via Tunnel or PR D's AWS environment. No live LINE
+with the team's channel via the development-only Quick Tunnel and local
+HTTP filter below, or PR D's AWS environment in round 6. No live LINE
 test, developer-database migration, PR K command or AWS deployment is claimed
 by this implementation.
+
+## Local LINE testing before round 6
+
+Person 3 uses Cloudflare Quick Tunnel: no Cloudflare account, purchased domain
+or tunnel token is required. Its temporary `trycloudflare.com` hostname changes
+when the tunnel restarts; update and Verify the LINE webhook URL each time.
+
+Route LINE → Quick Tunnel → a loopback-only local HTTP filter → Backend.
+The filter forwards only the exact `/line/webhook` path, preserving the raw
+request body and `x-line-signature`. All other paths return 404, including
+`/line/webhook/`, `/line/webhook/anything`, `/demo/reset` and `/internal/...`.
+The public webhook path has no `/api` prefix. Backend signature checks remain
+required. Do not point Quick Tunnel directly at the backend port; the filter,
+not cloudflared ingress, enforces the path restriction.
+
+Before opening the tunnel, verify the signed webhook and denied paths locally;
+repeat the checks through the public URL. Person 3 owns this setup and shares
+secret-free reproduction instructions with people 1 and 2. Local tunnel/filter
+configuration and LINE secrets stay outside the repo. No cloudflared process,
+container or configuration belongs in the main Compose file or AWS deployment.
+
+If the organisers do not permit the tunnel, or the tunnel/filter is not ready,
+use the fake LINE API and simulator and record that live integration remains
+untested. In round 6, switch LINE to the AWS HTTPS endpoint and stop the tunnel.
+
+References: [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).

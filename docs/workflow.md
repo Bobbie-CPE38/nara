@@ -117,7 +117,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 
 **เลื่อน D และการลองของจริง (มติทีม 2026-10-14)** แทนเงื่อนไขเดิมที่ D ต้องเสร็จก่อนลอง LINE จริงและ Bedrock จริงในรอบ 3
 
-* **LINE จริงในรอบ 3 ถึง 5:** คน 3 ลองผ่าน Named Cloudflare Tunnel บนเครื่องของคน 3 (ข้อ 6.16) ใช้ระหว่างพัฒนาเท่านั้น
+* **LINE จริงในรอบ 3 ถึง 5:** คน 3 ลองผ่าน Cloudflare Quick Tunnel บนเครื่องของคน 3 ไม่ต้องมีบัญชี Cloudflare หรือโดเมน (ข้อ 6.16) ใช้ระหว่างพัฒนาเท่านั้น
 * **Bedrock จริง:** เลื่อนไปรอบ 6 พร้อม Deploy รอบ 3 ถึง 5 ใช้ `fake` (ข้อ 6.15)
 * **D:** เปิดเครื่อง AWS ในรอบ 6 ลำดับในรอบ 6 คือ เปิดเครื่องและผ่าน `check-gate.sh` ก่อน จากนั้นคน 2 ลอง Bedrock ด้วย IAM Role ของเครื่อง และคน 3 ย้าย Webhook จาก Tunnel มาที่เครื่องแล้วปิด Tunnel
 * **การปิดรอบ 3:** ไม่รอ D และต้องระบุตามหลักฐานว่าอะไรทดสอบด้วย fake และอะไรผ่านบริการจริงแล้ว การทดสอบ Bedrock จริงและการทดสอบระบบบน AWS เป็นเกณฑ์ของรอบ 6
@@ -1157,13 +1157,14 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 
 **ลอง LINE จริงก่อนมีเครื่อง AWS (มติทีม 2026-10-14)**
 
-* คน 3 ดูแล Named Cloudflare Tunnel บัญชีและสิทธิ์ Cloudflare และ hostname สำหรับทดสอบ ต้องมีโดเมนบน Cloudflare ก่อนใช้วิธีนี้
-* Tunnel ส่งต่อเข้า Backend โดยตรง ไม่ผ่าน Caddy ของชุด Deploy Webhook URL จึงเป็น `https://<hostname>/line/webhook` ไม่มี `/api` ข้างหน้า
-* ingress อนุญาตเฉพาะ Path `/line/webhook` ตรงตัว Path อื่นตอบ `404` ด้วย catch-all rule ของ `cloudflared` และ Backend ยังตรวจลายเซ็นตามเดิม
-* Tunnel token หรือไฟล์ credentials ค่าตั้งของ Tunnel และ Channel secret กับ Access token อยู่บนเครื่องคน 3 เท่านั้น ไม่อยู่ใน repo ห้าม commit หรือใส่ใน PR และ Log
-* คน 3 ส่งบันทึกขั้นตอนการตั้ง Tunnel ที่ไม่มีความลับให้คน 1 และคน 2 เก็บไว้ด้วย เพื่อให้ตั้งใหม่ได้ถ้าเครื่องหรือบัญชีของคน 3 ใช้ไม่ได้
+* คน 3 ดูแล Cloudflare Quick Tunnel บนเครื่องของตัวเอง ไม่ต้องมีบัญชี Cloudflare ไม่ต้องซื้อโดเมน และไม่มี Tunnel token/credentials สำหรับวิธีนี้ URL แบบ `https://<random>.trycloudflare.com` เป็น URL ชั่วคราว เปลี่ยนเมื่อเปิด Tunnel ใหม่ คน 3 ต้องแก้ Webhook URL ใน LINE Developers และ Verify ใหม่ทุกครั้ง
+* เส้นทางคือ LINE → Quick Tunnel → ตัวกรอง HTTP ในเครื่อง → Backend ไม่ผ่าน Caddy ของชุด Deploy Webhook URL จึงเป็น `https://<random>.trycloudflare.com/line/webhook` ไม่มี `/api` ข้างหน้า
+* Quick Tunnel ไม่ใช้ ingress ของ Named Tunnel ให้ตัวกรอง HTTP ในเครื่องอนุญาตเฉพาะ Path `/line/webhook` ตรงตัว และตอบ `404` สำหรับ Path อื่น รวม `/line/webhook/` และ `/line/webhook/anything` ตัวกรองฟังบน loopback และส่งต่อ body ดิบกับ `x-line-signature` โดยไม่เปลี่ยนข้อมูล Backend ยังตรวจลายเซ็นตามเดิม
+* ห้ามชี้ Quick Tunnel เข้า port ของ Backend โดยตรง ต้องชี้เข้า port ของตัวกรองแทน ก่อนเปิดสาธารณะ คน 3 ตรวจในเครื่องว่า Webhook ที่เซ็นถูกต้องผ่าน และ Path อื่นได้ `404` แล้วตรวจผ่าน URL สาธารณะซ้ำ ไม่มีตัวกรองที่ผ่านการตรวจให้ใช้ fake LINE API/หน้าจำลองก่อน
+* โปรแกรม/ค่าตั้งของตัวกรองและ Tunnel รวมถึง Channel secret กับ Access token อยู่บนเครื่องคน 3 เท่านั้น ไม่อยู่ใน repo ห้าม commit ความลับหรือใส่ใน PR และ Log
+* คน 3 ส่งบันทึกขั้นตอนการตั้ง Tunnel ที่ไม่มีความลับให้คน 1 และคน 2 เก็บไว้ด้วย เพื่อให้ตั้งใหม่ได้ถ้าเครื่องของคน 3 ใช้ไม่ได้
 * ห้ามเพิ่ม `cloudflared` ใน `docker-compose.yml` หรือชุด Deploy บน AWS ระบบบน AWS ต้องทำงานได้โดยไม่มี Tunnel ตอน Deploy คน 3 เปลี่ยน Webhook URL ไปที่เครื่อง AWS แล้วปิด Tunnel
-* ถ้าผู้จัดการแข่งขันไม่อนุญาต หรือยังเตรียมโดเมนไม่ได้ ให้ใช้ fake LINE API และหน้าจำลองไปจนถึงรอบ 6 และบันทึกว่าการทดสอบ LINE จริงยังไม่เสร็จ
+* ถ้าผู้จัดการแข่งขันไม่อนุญาต หรือ Quick Tunnel/ตัวกรองยังใช้งานไม่ได้ ให้ใช้ fake LINE API และหน้าจำลองไปจนถึงรอบ 6 และบันทึกว่าการทดสอบ LINE จริงยังไม่เสร็จ
 
 **Webhook รับคำตอบ (PR L)**
 
@@ -2031,3 +2032,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | รอบ 3 PR R: Job ตั้ง Roster ของเวรที่จบแล้วเป็น `COMPLETED` (`roster_completion_service` ขั้นแรกของ `run_due_work()`); `COMPLETED` นับเหมือน `ASSIGNED` ใน `COMMITTED_ROSTER_STATUSES` และ `COVERING_ROSTER_STATUSES` (ใหม่ ใช้ใน Gap และ Threshold); `GET /roster?staff_id=` และธง `is_unavailable` พร้อมป้าย "On leave" ในหน้า `roster`; `PATCH /unavailability/{id}` แก้วันกลับพร้อม `UNAVAILABILITY_UPDATED` และบอกเวรกับ Offer ที่ทับ; ข้อ 3.4, 3.6, 3.8, 6.18 (ใหม่), 7.1, 9, 9.3, 9.5 และ 12 แก้ตาม | คน 1 |
 | 2026-10-14 | ตามรีวิว PR R (#64): การตั้ง `COMPLETED` ข้ามแถวที่ยังมี Event กลุ่มพนักงานค้าง และการปิด Window รับแถว `COMPLETED` ด้วย การลาที่รับไว้ก่อนเวรจบจึงไม่ถูก `IGNORED`; เงื่อนไขทับของการลากับเวรเหลือหนึ่งตัวใน Python และหนึ่งตัวใน SQL พร้อม Test ที่เทียบกัน; ลำดับ Error ของ `PATCH /unavailability/{id}` ระบุว่า `422` ของรูป Body มาก่อน `404` และ `403`; ข้อ 6.18 ระบุว่า `409` ของการแจ้งลาเกิดเมื่อแถวเป็น `COMPLETED` แล้ว ไม่ใช่เมื่อเวรจบ | คน 1 |
 | 2026-10-14 | มติทีมเรื่องการลองของจริงและ Deploy: PR D เลื่อนไปรอบ 6 (งานเดิมเก็บใน branch `feat/aws-test-environment`) และไม่เป็นเงื่อนไขของรอบ 3 อีก; LINE จริงในรอบ 3 ถึง 5 ลองผ่าน Named Cloudflare Tunnel บนเครื่องคน 3 เข้า `/line/webhook` ตรงตัว ไม่อยู่ใน repo และไม่อยู่ในชุด Deploy (ข้อ 6.16); PR X ใช้ `fake` ในรอบ 3 คน 2 ตรวจเครดิตและสิทธิ์โมเดลตอนนี้ Bedrock จริง IAM และ Budget ทำในรอบ 6 (ข้อ 6.15); ลำดับในรอบ 6 และเกณฑ์ปิดรอบ 3 อยู่ใน "สถานะของรอบ 3"; แถว D ในตาราง Test เป็นของรอบ 6 ลำดับ merge ของ PR อื่นไม่เปลี่ยน | คน 1 |
+| 2026-10-14 | เปลี่ยนวิธีทดสอบ LINE จาก Named Tunnel เป็น Cloudflare Quick Tunnel เพราะไม่มีโดเมน: ไม่ต้องซื้อโดเมนหรือมี Tunnel credentials; URL ชั่วคราวต้องตั้งใหม่ใน LINE Developers เมื่อเปิดใหม่; ใช้ตัวกรอง HTTP ในเครื่องเปิดเฉพาะ `/line/webhook` แทน ingress ของ cloudflared ห้ามชี้ Tunnel เข้า Backend โดยตรง; เงื่อนไขผู้จัดและการเลื่อน AWS/Bedrock ไปรอบ 6 คงตามมติเดิม | คน 3 |
