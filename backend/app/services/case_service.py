@@ -8,6 +8,7 @@ frozen after a reset, so rows of one case can share the same time
 """
 
 import logging
+from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -279,7 +280,7 @@ def _scores(plan: CandidatePlan, staff_ids: list[int]) -> dict[int, CandidateSco
     except ScoreMismatchError:
         logger.exception("Plan %s: the stored weights cannot be read", plan.id)
         return dict.fromkeys(staff_ids)
-    entries = {entry["staff_id"]: entry for entry in snapshot["candidates"]}
+    entries = _snapshot_entries(plan)
     scores: dict[int, CandidateScore | None] = {}
     for staff_id in staff_ids:
         try:
@@ -292,6 +293,23 @@ def _scores(plan: CandidatePlan, staff_ids: list[int]) -> dict[int, CandidateSco
             )
             scores[staff_id] = None
     return scores
+
+
+def _snapshot_entries(plan: CandidatePlan) -> dict[int, Any]:
+    """The snapshot entries by staff ID. An entry that cannot be identified is logged
+    and left out, so its candidate falls into the missing-entry handling of _scores."""
+    rows = plan.input_snapshot.get("candidates")
+    if not isinstance(rows, list):
+        logger.error("Plan %s: the snapshot has no list of candidates", plan.id)
+        return {}
+    entries: dict[int, Any] = {}
+    for row in rows:
+        staff_id = row.get("staff_id") if isinstance(row, dict) else None
+        if not isinstance(staff_id, int):
+            logger.error("Plan %s: a snapshot entry has no staff ID: %r", plan.id, row)
+            continue
+        entries[staff_id] = row
+    return entries
 
 
 def _score_view(score: ScoreBreakdown) -> CandidateScore:

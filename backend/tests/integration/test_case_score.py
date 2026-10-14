@@ -215,6 +215,42 @@ def test_a_candidate_missing_from_the_snapshot_loses_its_score(
     assert any("staff 202" in record.getMessage() for record in caplog.records)
 
 
+@pytest.mark.parametrize(
+    "change",
+    [lambda row: row.pop("staff_id"), lambda row: row.update(staff_id="201")],
+    ids=["no-staff-id", "staff-id-not-a-number"],
+)
+def test_an_entry_without_a_staff_id_loses_only_its_candidate(
+    client: TestClient, seeded: Session, caplog: pytest.LogCaptureFixture, change: Any
+) -> None:
+    case = _planned_case(seeded)
+    _edit_candidate(seeded, case, 201, change)
+
+    with caplog.at_level("ERROR", logger="app.services.case_service"):
+        candidates = _candidates(client, case)
+
+    assert [c["staff_id"] for c in candidates] == [201, 202, 203]
+    assert [c["score"] is None for c in candidates] == [True, False, False]
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("no staff ID" in message for message in messages)
+    assert any("staff 201" in message for message in messages)
+
+
+def test_a_snapshot_without_a_candidate_list_gives_null_scores(
+    client: TestClient, seeded: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    case = _planned_case(seeded)
+    plan = _plan(seeded, case)
+    plan.input_snapshot = {k: v for k, v in plan.input_snapshot.items() if k != "candidates"}
+    seeded.flush()
+
+    with caplog.at_level("ERROR", logger="app.services.case_service"):
+        candidates = _candidates(client, case)
+
+    assert [c["score"] for c in candidates] == [None, None, None]
+    assert any("no list of candidates" in record.getMessage() for record in caplog.records)
+
+
 def test_unreadable_weights_give_null_scores_and_an_error_log(
     client: TestClient, seeded: Session, caplog: pytest.LogCaptureFixture
 ) -> None:
