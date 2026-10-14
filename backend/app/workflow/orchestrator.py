@@ -269,6 +269,11 @@ def _run_round(
         logger.exception("Workflow failed for case %s at %s", case.id, failed_at.value)
         _mark_failed(db, case, failed_at=failed_at, error=error)
     db.commit()
+    # Network delivery is strictly post-commit and best effort. The offer row
+    # retains its intent when dispatch fails; the job recovers it next tick.
+    from app.services import line_delivery_service
+
+    line_delivery_service.dispatch_pending(db, case_id=case.id)
 
 
 def _run_step(db: Session, case: StaffingCase) -> bool:

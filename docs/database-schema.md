@@ -18,7 +18,9 @@
 > * `c9e4a7b2d5f8` (รอบ 2 PR B) `SOFT_CONSTRAINT_POLICY.solver_time_limit_seconds`
 > * `b7d3e5a1c9f2` (รอบ 2 PR H) ตาราง `MANUAL_ASSIGNMENT` (ข้อ 31)
 >
-> **Migration head ปัจจุบัน: `b7d3e5a1c9f2`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `c6e9a2b4d8f1` (รอบ 3 PR L) งานส่งในแถว Offer และตาราง `LINE_WEBHOOK_EVENT`
+>
+> **Migration head ปัจจุบัน: `c6e9a2b4d8f1`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -339,6 +341,21 @@ CHECK `ck_candidate_item_target_role_id_matches_target_type`: `(target_type = 'R
 | `status` | text | NOT NULL |  | `OutreachStatus` |
 
 
+**งานส่ง LINE (รอบ 3 PR L, Migration `c6e9a2b4d8f1`)**
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `delivery_status` | text | NULL | `PENDING`, `ACCEPTED` (LINE รับ API แล้ว ไม่ใช่ผู้สมัครตอบรับ), `FAILED`, `CANCELLED`; NULL สำหรับโหมดจำลองและประวัติเดิม |
+| `delivery_attempts` | integer | NOT NULL | Default 0, CHECK 0 ถึง 3; 429/401/403 ไม่นับ |
+| `delivery_retry_key` | text | NULL | UUID ที่ใช้เหมือนเดิมทุกครั้งต่อ Offer |
+| `delivery_payload` | jsonb | NULL | ผู้รับและข้อความคงที่ ไม่เปลี่ยนระหว่าง retry; ไม่มี binding ให้เป็นการส่งผิดพลาดถาวร |
+| `delivery_next_attempt_at` | timestamptz | NULL | เวลาลองครั้งถัดไปจาก backend clock |
+| `delivery_claim` | text | NULL | UUID ของผู้ส่งที่จองงานครั้งนี้ |
+| `delivery_lease_until` | timestamptz | NULL | หมดสิทธิ์จองหลัง 60 วินาที ให้ Job เก็บตกเมื่อ process ล่ม |
+| `delivery_last_result` | text | NULL | รหัส HTTP หรือ `TIMEOUT`; ไม่เก็บ Secret หรือ body ที่ LINE คืน |
+
+Partial index `ix_candidate_outreach_delivery_due` ใช้กับ `delivery_status = PENDING` การส่งเริ่มหลัง Transaction ของ Wave Commit แล้วเท่านั้น
+
 ### 19. ATTENDANCE
 
 
@@ -578,6 +595,15 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 
 ---
 
+
+### 32. LINE_WEBHOOK_EVENT (รอบ 3 PR L)
+
+| Field | Type | Null | Key | หมายเหตุ |
+|---|---|---|---|---|
+| `webhook_event_id` | text | NOT NULL | PK | รหัส Event จาก LINE; PK กันการประมวลผลพร้อมกันซ้ำ |
+| `processed_at` | timestamptz | NOT NULL | | เวลาจาก backend clock เมื่อจัดการ Event |
+
+Commit พร้อมผลของ Event ใน Transaction เดียว ส่วนการปฏิเสธทางธุรกิจบันทึกแถว terminal แล้วตอบ 200 ไม่เก็บข้อความรหัส LINK, Signature หรือ reply token
 
 ## Enum
 

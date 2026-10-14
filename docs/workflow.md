@@ -1123,13 +1123,13 @@ Expired requests disappear from `GET /approvals` immediately (`expires_at > now`
 * การสร้างประโยคไม่ถือ Lock ของ Workflow และไม่ทำให้เคสเป็น `FAILED` บันทึกการเรียกทุกครั้ง (token, เวลา, สถานะ, attempt, ค่าใช้จ่ายประมาณ)
 * ค่าตั้งเริ่มต้น `LLM_ENABLED=false`, `LLM_PROVIDER=fake`, เพดาน 1,024 token ต่อคำตอบ, Timeout 15 วินาที, Retry ไม่เกินหนึ่งครั้ง โมเดลยังไม่ล็อก ต้องทดสอบ 20 ถึง 30 เคสก่อนยืนยัน
 
-### 6.16 LINE จริง [รอบ 3 · PR L, K]
+### 6.16 LINE จริง [รอบ 3 · PR K]
 
 LINE จริงอยู่คู่กับหน้าจำลอง ทุกทางที่ตอบ Offer ต้องผ่าน `outreach_service.record_response()` ตัวเดียว กติกาเส้นตาย การพัก Offer และลำดับ Lock จึงยังมีที่เดียว (R3-Q6 ถึง R3-Q11, R3-Q17, R3-Q18, R3-Q22) จุดที่มีป้าย [ตรวจกับเอกสาร LINE] ตรวจแล้วตามลิงก์ในร่างรอบ 3 ข้อ 8
 
 **โหมดและความลับ**
 
-* สองโหมดสลับด้วย env: โหมดจำลอง (ค่าเริ่มต้น ใช้หน้า `demo/line-sim` ตามเดิม) และโหมด LINE จริง CI และ Test ทั้งหมดรันในโหมดจำลอง
+* สองโหมดสลับด้วย env: โหมดจำลอง (ค่าเริ่มต้น ใช้หน้า `demo/line-sim` ตามเดิม) และโหมด LINE จริง CI ใช้โหมดจำลองเป็นค่าเริ่มต้น ส่วน Test ของโหมดจริงใช้ตัวแทน HTTP โดยไม่เรียก LINE จริง
 * แอปอ่าน Channel secret และ Channel access token จาก env เท่านั้น ไฟล์ตัวอย่าง env ใส่แค่ชื่อตัวแปร ไม่มีค่าแล้วระบบอยู่โหมดจำลอง ไม่ล่ม บนเครื่องทดสอบ AWS ค่าจริงอยู่ใน Parameter Store และ PR D โหลดเข้า env ตอนเริ่มเครื่อง (R3-Q21)
 
 **Webhook รับคำตอบ (PR L)**
@@ -1231,7 +1231,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 | `MANUAL_ASSIGNMENT_CREATED` | เส้นทางจัดคนเอง | user (Head Nurse) | ROSTER_ASSIGNMENT | `assignment_id`, `manual_assignment_id`, `staff_id`, `assignment_type`, `reason` (ว่างได้), `cancelled_outreach_ids` (Offer ของเคสอื่นที่ขัดกับเวรใหม่ ว่างได้) |
 | `CASE_CLOSED_UNRESOLVED` | เส้นทางปิดเคสโดยไม่มีคนแทน หรือขั้นปิด Window เมื่อเคสใหม่ของเวรเปิด | user (Head Nurse) หรือ `workflow_orchestrator` เมื่อระบบปิด | STAFFING_CASES | `reason`, `closed_by` (`HEAD_NURSE` หรือ `SUCCESSOR_CASE`), `successor_case_id` (มีเมื่อระบบปิด) |
 | `OFFER_CANCELLED_BY_ASSIGNMENT` | ตัวยกเลิก Offer ที่ขัดกับเวรใหม่ เขียนใน**เคสที่เสีย Offer** หนึ่งแถวต่อ Offer | ผู้กระทำของการจัดนั้น | CANDIDATE_OUTREACH | `cancelled_outreach_id` (เอกพจน์), `staff_id`, `by_case_id` (เคสที่เอาคนไป), `assignment_id` (Roster ที่ทำให้ขัด), `source` (`MANUAL_ASSIGNMENT` หรือ `APPROVAL`) |
-| `OFFER_DELIVERY_FAILED` [รอบ 3 · PR L] | ตัวส่ง Offer ของ LINE เมื่อตั้ง Offer เป็น `FAILED` (ข้อ 6.16) | `outreach_agent` | CANDIDATE_OUTREACH | `outreach_id`, `staff_id`, `attempts` (จำนวนครั้งที่นับ), `last_result` (รหัส HTTP เป็นข้อความ หรือ `TIMEOUT`) |
+| `OFFER_DELIVERY_FAILED` | ตัวส่ง Offer ของ LINE เมื่อตั้ง Offer เป็น `FAILED` (ข้อ 6.16) | `outreach_agent` | CANDIDATE_OUTREACH | `outreach_id`, `staff_id`, `attempts` (จำนวนครั้งที่นับ), `last_result` (รหัส HTTP เป็นข้อความ หรือ `TIMEOUT`) |
 | `LINE_ACCOUNT_LINKED` [รอบ 3 · PR K] | Webhook เมื่อรับ `LINK <รหัส>` ที่ใช้ได้ ใน Transaction เดียวกับการผูก | user (พนักงานที่ผูก) | CONTACTS | `contact_id`, `staff_id` |
 | `LINE_ACCOUNT_UNLINKED` [รอบ 3 · PR K] | คำสั่งปลดการผูกของผู้ดูแล | `system` | CONTACTS | `contact_id`, `staff_id` |
 
@@ -1246,7 +1246,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 * ชื่อช่องของ `OFFER_CANCELLED_BY_ASSIGNMENT` ต้องเป็น `cancelled_outreach_id` ห้ามใช้ `cancelled_outreach_ids` หรือ `outreach_id` เพราะ `outreach_service._cancellation_reasons()` ใช้สองชื่อนั้นหาเหตุที่ยกเลิก และแถว Audit ล่าสุดชนะ ถ้าใช้ชื่อซ้ำ `cancellation_reason` ของรายการ Offer จะเปลี่ยนจาก `CONFLICTING_ASSIGNMENT` เป็น `CANCELLED` โดยไม่มี Error
 * `MANUAL_ASSIGNMENT_CREATED` ใช้ `cancelled_outreach_ids` เหมือน `ASSIGNMENT_CREATED` และ PR H ต้องเพิ่ม Action นี้ในตารางของ `_cancellation_reasons()` ให้ได้ `CONFLICTING_ASSIGNMENT`
 * `APPROVAL_TIMEOUT` มี `outreach_id` และ PR T ให้ `_cancellation_reasons()` คืน `APPROVAL_TIMEOUT` สำหรับ Offer นั้น
-* Action ที่เพิ่มในรอบ 3 (PR 0 เพิ่มค่าใน `AuditAction` แล้ว และเพิ่ม `CONTACTS` ใน `EntityType`) ยังไม่มีผู้เขียน `OFFER_DELIVERY_FAILED` เขียนโดย PR L ส่วน `LINE_ACCOUNT_LINKED` และ `LINE_ACCOUNT_UNLINKED` เขียนโดย PR K
+* `OFFER_DELIVERY_FAILED` เขียนแล้วโดย `line_delivery_service` (PR L) ส่วน `LINE_ACCOUNT_LINKED` และ `LINE_ACCOUNT_UNLINKED` ยังรอ PR K
 * `OFFER_DELIVERY_FAILED` มี `case_id` ของ Offer และใช้ช่อง `outreach_id` ซึ่ง `_cancellation_reasons()` อ่านด้วย แต่ไม่กระทบ เพราะ Offer ที่ `FAILED` ไม่ใช่ `CANCELLED` และไม่เปลี่ยนเป็น `CANCELLED` ภายหลัง ถ้า PR L เปลี่ยนข้อนี้ต้องเพิ่ม Action นี้ในตารางของ `_cancellation_reasons()`
 * `LINE_ACCOUNT_LINKED` และ `LINE_ACCOUNT_UNLINKED` ไม่ใช่เรื่องของเคสหรือ Event จึงมี `case_id = NULL` และ `event_id = NULL` และไม่เก็บ `line_uid` ใน payload
 
@@ -1388,7 +1388,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 | GET | `/roster?shift_id=` | ตารางเวรของเวรนั้น | คน 3 |
 | POST | `/demo/reset` | ล้าง DB โหลด Golden Case ตั้ง Clock ใหม่ | คน 1 |
 | POST | `/demo/clock/advance` | เลื่อน Clock ของ Demo แล้วปิด Offer ที่หมดเวลา เก็บตกเคสที่ค้าง และปิด Window ที่ถึงเวลา | คน 1 |
-| POST | `/line/webhook` | Webhook ของ LINE กันด้วยลายเซ็น ไม่ใช้ `X-Demo-User` [รอบ 3 · PR L] | คน 3 |
+| POST | `/line/webhook` | Webhook ของ LINE กันด้วยลายเซ็น ไม่ใช้ `X-Demo-User` | คน 3 |
 | GET | `/me/offers` | Offer ของพนักงานใน Header [รอบ 3 · PR N] | ผู้ทำ PR N (ตกลงตอนแตก branch) |
 | POST | `/me/offers/{outreach_id}/response` | พนักงานใน Header ตอบ `ACCEPT` / `REJECT` [รอบ 3 · PR N] | ผู้ทำ PR N (ตกลงตอนแตก branch) |
 | POST | `/internal/merge-windows/close-due` | Route ภายในที่ Service ของ Job เรียก กันด้วย `X-Internal-Secret` ไม่ใช้ `X-Demo-User` | คน 1 |
@@ -1943,3 +1943,13 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | ตามรีวิว PR ปิดรอบ 2: วันที่อัปเดตบนสุดเป็น 2026-10-14; หัวข้อ 9.4 เป็นอดีต; หมายเหตุลำดับ Lock ในข้อ 6.11 ที่เขียนว่ายังไม่มี Test เปลี่ยนเป็นรายการ Test สอง Connection ของแต่ละกรณี ทั้งของรอบ 1 และรอบ 2; ตาราง Test ของ PR H ระบุชื่อฟังก์ชัน | คน 1 |
 | 2026-10-14 | รอบ 3 PR 0: ส่วน "สถานะของรอบ 3" พร้อมตาราง PR, ลำดับ merge และ Test ของข้อกำหนดที่พังเงียบได้; ข้อ 6.15 คำอธิบายอันดับ, 6.16 LINE จริง, 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง; ข้อ 7.1 เพิ่ม `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED`; ข้อ 9 และ 9.5 เพิ่ม `POST /line/webhook`, `GET /me/offers`, `POST /me/offers/{outreach_id}/response`; `enums.py` เพิ่มสาม Action และ `EntityType.CONTACTS` ยังไม่มีผู้เขียน ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-14 | ตามรีวิว PR 0 ของรอบ 3 (#61): ข้อ 6.15 กำหนด `value` ของทุกพจน์ (`candidate_count` เป็น 1, `candidate_source` เป็นตำแหน่งใน `source_order` เริ่มที่ 0); ข้อ 6.16 และ 9.5 กำหนดว่าแต่ละ Event ใน body มี Transaction และแถวกันซ้ำของตัวเอง, `LINK <รหัส>` ถูกประมวลก่อนตรวจการผูก และผ่านตารางกันซ้ำใน Transaction ของการผูก; ตารางสถานะของรอบ 3 ใส่ #61 | คน 1 |
+
+| 2026-10-14 | รอบ 3 PR L: โหมด LINE จริง, Webhook ตรวจลายเซ็นและเจ้าของ Offer, กันซ้ำหลังได้ Lock ที่นิ่ง, งานส่งในแถว Offer กับ Retry key/lease, ส่งหลัง Commit และ Job เก็บตก, `OFFER_DELIVERY_FAILED` ผ่าน Orchestrator; Migration `c6e9a2b4d8f1`; Setup และขอบเขตใน `docs/round3/pr-L-handoff.md` | คน 3 |
+
+### รายละเอียด PR L ที่ทำแล้ว
+
+* Branch `feat/line-messaging`: `POST /line/webhook`, Migration `c6e9a2b4d8f1` ต่อจาก `b7d3e5a1c9f2`, ตัวส่งหลัง Commit และ Job เก็บตก ตามข้อ 6.16 รายละเอียดการตั้งค่าและขอบเขตอยู่ `docs/round3/pr-L-handoff.md`
+* `LINE_MODE=simulation` เป็นค่าเริ่มต้น โหมดจริงต้องมี Secret และ Access token ทั้งคู่ ประวัติ Offer เดิมไม่ถูกส่งหลัง Migration
+* งานส่งใช้ claim/lease 60 วินาทีและ timeout HTTP 5 วินาที ปล่อย Lock ก่อนเรียก LINE แล้วตรวจใหม่ก่อนบันทึกผล กวาดไม่เกิน 20 Offer ต่อครั้ง ของที่เหลือรอ Job ใช้ Retry key ผู้รับและข้อความเดิมเสมอ
+* Test ของ PR L: `test_line_messaging.py`, `test_line_delivery_races.py`, `test_line_delivery_migration.py` ทดสอบ Lock restart จริง, Webhook ซ้ำสอง Connection, Job ชนกัน, ตอบรับระหว่าง HTTP รอ, failure/expiry และ Migration แบบไม่ส่งประวัติ
+* PR K ยังไม่ทำ: ไม่มีคำสั่ง LINK หรือปลดบัญชี การลอง LINE ก่อน K ต้องมี Contact ที่ผู้ดูแลเตรียมสำหรับทดสอบ ไม่ได้ทดสอบ LINE จริงหรือ Deploy AWS ใน PR L
