@@ -37,6 +37,9 @@ export default function RootLayout({
           <Link href="/roster" className="text-blue-700 underline">
             Roster
           </Link>
+          <Link href="/me/offers" className="text-blue-700 underline">
+            My offers
+          </Link>
         </nav>
         {children}
       </body>

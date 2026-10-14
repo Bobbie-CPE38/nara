@@ -268,6 +268,7 @@ nara/
 │   │   ├── api/
 │   │   │   ├── dependencies.py
 │   │   │   ├── exception_handlers.py
+│   │   │   ├── offer_responses.py
 │   │   │   │
 │   │   │   └── routes/
 │   │   │       ├── auth.py
@@ -286,6 +287,7 @@ nara/
 │   │   │       ├── audit.py
 │   │   │       ├── webhooks.py
 │   │   │       ├── line_sim.py
+│   │   │       ├── me.py
 │   │   │       ├── internal.py
 │   │   │       └── demo.py
 │   │   │
@@ -379,6 +381,7 @@ nara/
 │       │   ├── test_outreach.py
 │       │   ├── test_outreach_response.py
 │       │   ├── test_line_sim_offers.py
+│       │   ├── test_me_offers.py
 │       │   ├── test_safety_service.py
 │       │   ├── test_pending_approvals.py
 │       │   ├── test_approval_decision.py
@@ -441,6 +444,10 @@ nara/
 │       │   ├── roster/
 │       │   │   └── page.tsx
 │       │   │
+│       │   ├── me/
+│       │   │   └── offers/
+│       │   │       └── page.tsx
+│       │   │
 │       │   ├── policies/
 │       │   │   └── page.tsx
 │       │   │
@@ -460,6 +467,7 @@ nara/
 │       │   │   └── SkippedTable.tsx
 │       │   ├── optimization/
 │       │   ├── outreach/
+│       │   │   └── OfferList.tsx
 │       │   ├── safety/
 │       │   ├── approval/
 │       │   ├── roster/
