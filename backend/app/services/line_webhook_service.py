@@ -42,10 +42,19 @@ def _duplicate(error: IntegrityError) -> bool:
     )
 
 
-def _reply(event: dict[str, Any], message: str) -> None:
+def _reply(db: Session, event: dict[str, Any], message: str) -> None:
     token = event.get("replyToken")
     if not isinstance(token, str) or not token:
         return
+    schedule = db.info.get("line_reply_scheduler")
+    if schedule is not None:
+        schedule(token, message)
+        return
+    send_reply(token, message)
+
+
+def send_reply(token: str, message: str) -> None:
+    """Best-effort, no database access; also used by response background work."""
     try:
         result = client.reply(token, message)
         if not result.startswith("2"):
@@ -89,7 +98,7 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
         staff = line_contact_service.staff_for_line_uid(db, uid) if isinstance(uid, str) else None
         if staff is None:
             if _business_refusal(db, event_id):
-                _reply(event, "ยังไม่ได้ผูกบัญชี LINE กับพนักงาน")
+                _reply(db, event, "ยังไม่ได้ผูกบัญชี LINE กับพนักงาน")
             return
         postback = event.get("postback", {})
         data = postback.get("data") if isinstance(postback, dict) else None
@@ -108,7 +117,7 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             response = CandidateResponse(params["response"][0])
         except (ValueError, KeyError):
             if _business_refusal(db, event_id):
-                _reply(event, "ข้อมูลข้อเสนอไม่ถูกต้อง กรุณาดูข้อเสนอล่าสุด")
+                _reply(db, event, "ข้อมูลข้อเสนอไม่ถูกต้อง กรุณาดูข้อเสนอล่าสุด")
             return
         outreach_service.record_response(
             db,
@@ -126,9 +135,10 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
     except outreach_service.OpenOfferConflictError as error:
         if _business_refusal(db, event_id):
             _reply(
+                db,
                 event,
                 "ข้อเสนอนี้หมดเวลาแล้ว"
-                if "expired" in str(error)
+                if isinstance(error, outreach_service.OfferExpiredError)
                 else "ข้อเสนอนี้ตอบไม่ได้แล้ว หรือกำลังรอผลอนุมัติจากเคสอื่น",
             )
         logger.info("LINE offer response refused (%s)", type(error).__name__)
@@ -142,4 +152,10 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             return
         db.rollback()
         raise
-    _reply(event, "บันทึกคำตอบแล้ว โปรดตรวจสถานะล่าสุด การตอบรับยังไม่ยืนยันให้เข้าเวร")
+    _reply(
+        db,
+        event,
+        "บันทึกการปฏิเสธข้อเสนอแล้ว"
+        if response == CandidateResponse.REJECT
+        else "บันทึกคำตอบแล้ว โปรดตรวจสถานะล่าสุด การตอบรับยังไม่ยืนยันให้เข้าเวร",
+    )

@@ -47,6 +47,10 @@ class OpenOfferConflictError(ValueError):
     """The selected offer is not answerable by this staff member."""
 
 
+class OfferExpiredError(OpenOfferConflictError):
+    """A deadline refusal, independent of the human-readable exception wording."""
+
+
 class OutreachLockRetryError(ValueError):
     """Concurrent waves prevented acquiring a stable offer lock set; retry."""
 
@@ -411,7 +415,7 @@ def record_response(
         raise OpenOfferConflictError("The selected offer is no longer SENT; refresh offers")
     now = clock.now()
     if outreach.expires_at is None or outreach.expires_at <= now:
-        raise OpenOfferConflictError("The selected offer has expired; refresh offers")
+        raise OfferExpiredError("The selected offer has expired; refresh offers")
     if response is CandidateResponse.ACCEPT and case_facts_service.staff_waiting_on_another_case(
         db, case.id, {staff_id}
     ):

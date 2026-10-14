@@ -106,7 +106,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, ค่าใหม่ใน Enum, Path ของ API สำหรับผู้สมัคร | 6.15 ถึง 6.17, 7.1, 9.5 | #61 |
 | E | คน 2 | คำอธิบายอันดับ (Backend): ช่องใหม่ใน Snapshot และช่อง `score` | 6.15 | |
 | E2 | คน 2 | คำอธิบายอันดับ (หน้า `cases/[id]`) | 6.15, 9.5 | |
-| L | คน 3 | LINE จริง: Webhook, กันซ้ำ, ส่ง Offer (Migration ตัวที่ 1) | 6.16 | |
+| L | คน 3 | LINE จริง: Webhook, กันซ้ำ, ส่ง Offer (Migration ตัวที่ 1) | 6.16 | #62 |
 | K | คน 3 | ผูกบัญชี LINE (Migration ตัวที่ 2) | 6.16 | |
 | X | คน 2 | ประโยคอธิบายจาก LLM (Migration ตัวที่ 3) | 6.15 | |
 | R | คน 1 | งานค้างของ Roster และการลา | 12 | |
@@ -1140,7 +1140,7 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 * ตรวจ `x-line-signature` ก่อนทำอะไร: HMAC-SHA256 ของ body ดิบตามที่ได้รับ (ก่อน parse) ด้วย Channel secret เข้ารหัส Base64 เทียบด้วย `hmac.compare_digest` ไม่มี Header หรือไม่ตรงได้ `401` และไม่เขียน DB [ตรวจกับเอกสาร LINE]
 * ตัวพนักงานมาจาก `source.userId` ของ Event ที่ผ่านลายเซ็นแล้ว ผ่านตัวอ่าน `line_uid` ตัวเดียว และต้องเป็นการผูกที่ `CONTACTS.is_active` ไม่พบการผูกให้ตอบในแชตว่ายังไม่ได้ผูกบัญชี และไม่เรียก `record_response()`
 * ข้อความ Offer มีปุ่ม Postback สองปุ่ม `postback.data` มีแค่ `outreach_id` กับคำตอบ ห้ามมี `staff_id` และถ้ามีก็ห้ามเชื่อ `record_response(staff_id=..., outreach_id=...)` ตรวจอยู่แล้วว่า Offer เป็นของพนักงานคนนั้น และปฏิเสธ Offer ที่ไม่เป็น `SENT` หมดเวลา หรือเคสหยุดแล้ว (ปุ่มเก่า) ด้วย `OpenOfferConflictError`
-* ตอบกลับในแชตด้วย `replyToken` ของ Event ใช้ได้ครั้งเดียวภายในประมาณหนึ่งนาที [ตรวจกับเอกสาร LINE] ใช้ไม่ได้ให้บันทึก log และไม่ส่งซ้ำ เพราะผลของการตอบอยู่ใน DB แล้ว
+* ตอบกลับในแชตหลังส่ง HTTP response แล้วด้วย `replyToken` ของ Event ใช้ได้ครั้งเดียวภายในประมาณหนึ่งนาที [ตรวจกับเอกสาร LINE] ใช้ไม่ได้ให้บันทึก log และไม่ส่งซ้ำ เพราะผลของการตอบอยู่ใน DB แล้ว
 * ตอบหลังเส้นตายใช้กติกาเดิม `clock.now() >= expires_at` ตอบไม่ได้ และตอบในแชตว่าหมดเวลา (R3-Q11)
 
 **กันซ้ำด้วย `webhookEventId` (PR L)** LINE ส่ง Event ซ้ำด้วย `webhookEventId` เดิม ไม่รับประกันลำดับ และ Event เดียวกันอาจมาถึงมากกว่าหนึ่งครั้ง [ตรวจกับเอกสาร LINE]
@@ -1164,7 +1164,9 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 
 **ส่ง Offer (PR L)**
 
-* แถว Offer ที่ Wave เขียนมีงานส่ง: สถานะการส่ง (รอส่ง, LINE รับแล้ว, ส่งไม่สำเร็จ, ยกเลิกการส่ง), จำนวนครั้งที่ส่ง และ Retry key เขียนใน Transaction เดียวกับ Wave (Migration) หลัง Commit จึงส่งครั้งแรกผ่าน Push API ถ้าเครื่องล่มก่อนส่ง Job เห็นแถวที่ยังรอส่งแล้วส่งให้
+* แถว Offer ที่ Wave เขียนมีงานส่ง: สถานะการส่ง (รอส่ง, LINE รับแล้ว, ส่งไม่สำเร็จ, ยกเลิกการส่ง), จำนวนครั้งที่ส่ง และ Retry key เขียนใน Transaction เดียวกับ Wave (Migration) หลัง Commit เส้นทาง HTTP จัดคิว BackgroundTasks แล้วตอบ HTTP ก่อนส่งผ่าน Push API ตัวส่งใช้ Session ใหม่ ไม่ใช้ Session ของ Request; Job เรียกตัวส่งโดยตรง ถ้าเครื่องล่มก่อนส่ง Job เห็นแถวที่ยังรอส่งแล้วส่งให้
+* แต่ละรอบส่งไม่เกิน 20 Offer โดยอ่านงานที่ถึงเวลาส่งใหม่หลังแต่ละผลลัพธ์ จึงส่ง Wave ใหม่ที่เกิดจากการส่งล้มเหลวได้ในรอบเดียว งานที่เหลือรอ Job รอบถัดไป Reply ใช้คิวหลัง HTTP response เดียวกันและทำก่อน Push เพราะ Token อายุสั้น
+* ไม่มีการผูก LINE ที่ใช้งานได้และไม่กำกวม: ตั้ง Offer เป็น `FAILED` พร้อม `delivery_last_result = NO_LINE_BINDING` และ Audit `OFFER_DELIVERY_FAILED` หนึ่งแถว จำนวนครั้งที่ส่งเป็น 0 เพราะไม่ได้เรียก HTTP แล้วคำนวณเคสใหม่เพื่อหาคนถัดไป
 * Retry key: UUID หนึ่งค่าต่อ Offer เก็บในแถวก่อนส่งครั้งแรก ส่งใน Header `X-Line-Retry-Key` ทุกครั้ง พร้อมเนื้อหาและผู้รับเหมือนเดิม Retry key ใช้ได้ 24 ชั่วโมงนับจากครั้งแรก [ตรวจกับเอกสาร LINE]
 * ผลของแต่ละครั้ง [ตรวจกับเอกสาร LINE]
 
@@ -1231,7 +1233,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 | `MANUAL_ASSIGNMENT_CREATED` | เส้นทางจัดคนเอง | user (Head Nurse) | ROSTER_ASSIGNMENT | `assignment_id`, `manual_assignment_id`, `staff_id`, `assignment_type`, `reason` (ว่างได้), `cancelled_outreach_ids` (Offer ของเคสอื่นที่ขัดกับเวรใหม่ ว่างได้) |
 | `CASE_CLOSED_UNRESOLVED` | เส้นทางปิดเคสโดยไม่มีคนแทน หรือขั้นปิด Window เมื่อเคสใหม่ของเวรเปิด | user (Head Nurse) หรือ `workflow_orchestrator` เมื่อระบบปิด | STAFFING_CASES | `reason`, `closed_by` (`HEAD_NURSE` หรือ `SUCCESSOR_CASE`), `successor_case_id` (มีเมื่อระบบปิด) |
 | `OFFER_CANCELLED_BY_ASSIGNMENT` | ตัวยกเลิก Offer ที่ขัดกับเวรใหม่ เขียนใน**เคสที่เสีย Offer** หนึ่งแถวต่อ Offer | ผู้กระทำของการจัดนั้น | CANDIDATE_OUTREACH | `cancelled_outreach_id` (เอกพจน์), `staff_id`, `by_case_id` (เคสที่เอาคนไป), `assignment_id` (Roster ที่ทำให้ขัด), `source` (`MANUAL_ASSIGNMENT` หรือ `APPROVAL`) |
-| `OFFER_DELIVERY_FAILED` | ตัวส่ง Offer ของ LINE เมื่อตั้ง Offer เป็น `FAILED` (ข้อ 6.16) | `outreach_agent` | CANDIDATE_OUTREACH | `outreach_id`, `staff_id`, `attempts` (จำนวนครั้งที่นับ), `last_result` (รหัส HTTP เป็นข้อความ หรือ `TIMEOUT`) |
+| `OFFER_DELIVERY_FAILED` | ตัวส่ง Offer ของ LINE เมื่อตั้ง Offer เป็น `FAILED` (ข้อ 6.16) | `outreach_agent` | CANDIDATE_OUTREACH | `outreach_id`, `staff_id`, `attempts` (จำนวนครั้งที่นับ), `last_result` (รหัส HTTP เป็นข้อความ, `TIMEOUT` หรือ `NO_LINE_BINDING`) |
 | `LINE_ACCOUNT_LINKED` [รอบ 3 · PR K] | Webhook เมื่อรับ `LINK <รหัส>` ที่ใช้ได้ ใน Transaction เดียวกับการผูก | user (พนักงานที่ผูก) | CONTACTS | `contact_id`, `staff_id` |
 | `LINE_ACCOUNT_UNLINKED` [รอบ 3 · PR K] | คำสั่งปลดการผูกของผู้ดูแล | `system` | CONTACTS | `contact_id`, `staff_id` |
 
@@ -1943,13 +1945,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | ตามรีวิว PR ปิดรอบ 2: วันที่อัปเดตบนสุดเป็น 2026-10-14; หัวข้อ 9.4 เป็นอดีต; หมายเหตุลำดับ Lock ในข้อ 6.11 ที่เขียนว่ายังไม่มี Test เปลี่ยนเป็นรายการ Test สอง Connection ของแต่ละกรณี ทั้งของรอบ 1 และรอบ 2; ตาราง Test ของ PR H ระบุชื่อฟังก์ชัน | คน 1 |
 | 2026-10-14 | รอบ 3 PR 0: ส่วน "สถานะของรอบ 3" พร้อมตาราง PR, ลำดับ merge และ Test ของข้อกำหนดที่พังเงียบได้; ข้อ 6.15 คำอธิบายอันดับ, 6.16 LINE จริง, 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง; ข้อ 7.1 เพิ่ม `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED`; ข้อ 9 และ 9.5 เพิ่ม `POST /line/webhook`, `GET /me/offers`, `POST /me/offers/{outreach_id}/response`; `enums.py` เพิ่มสาม Action และ `EntityType.CONTACTS` ยังไม่มีผู้เขียน ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-14 | ตามรีวิว PR 0 ของรอบ 3 (#61): ข้อ 6.15 กำหนด `value` ของทุกพจน์ (`candidate_count` เป็น 1, `candidate_source` เป็นตำแหน่งใน `source_order` เริ่มที่ 0); ข้อ 6.16 และ 9.5 กำหนดว่าแต่ละ Event ใน body มี Transaction และแถวกันซ้ำของตัวเอง, `LINK <รหัส>` ถูกประมวลก่อนตรวจการผูก และผ่านตารางกันซ้ำใน Transaction ของการผูก; ตารางสถานะของรอบ 3 ใส่ #61 | คน 1 |
-
 | 2026-10-14 | รอบ 3 PR L: โหมด LINE จริง, Webhook ตรวจลายเซ็นและเจ้าของ Offer, กันซ้ำหลังได้ Lock ที่นิ่ง, งานส่งในแถว Offer กับ Retry key/lease, ส่งหลัง Commit และ Job เก็บตก, `OFFER_DELIVERY_FAILED` ผ่าน Orchestrator; Migration `c6e9a2b4d8f1`; Setup และขอบเขตใน `docs/round3/pr-L-handoff.md` | คน 3 |
-
-### รายละเอียด PR L ที่ทำแล้ว
-
-* Branch `feat/line-messaging`: `POST /line/webhook`, Migration `c6e9a2b4d8f1` ต่อจาก `b7d3e5a1c9f2`, ตัวส่งหลัง Commit และ Job เก็บตก ตามข้อ 6.16 รายละเอียดการตั้งค่าและขอบเขตอยู่ `docs/round3/pr-L-handoff.md`
-* `LINE_MODE=simulation` เป็นค่าเริ่มต้น โหมดจริงต้องมี Secret และ Access token ทั้งคู่ ประวัติ Offer เดิมไม่ถูกส่งหลัง Migration
-* งานส่งใช้ claim/lease 60 วินาทีและ timeout HTTP 5 วินาที ปล่อย Lock ก่อนเรียก LINE แล้วตรวจใหม่ก่อนบันทึกผล กวาดไม่เกิน 20 Offer ต่อครั้ง ของที่เหลือรอ Job ใช้ Retry key ผู้รับและข้อความเดิมเสมอ
-* Test ของ PR L: `test_line_messaging.py`, `test_line_delivery_races.py`, `test_line_delivery_migration.py` ทดสอบ Lock restart จริง, Webhook ซ้ำสอง Connection, Job ชนกัน, ตอบรับระหว่าง HTTP รอ, failure/expiry และ Migration แบบไม่ส่งประวัติ
-* PR K ยังไม่ทำ: ไม่มีคำสั่ง LINK หรือปลดบัญชี การลอง LINE ก่อน K ต้องมี Contact ที่ผู้ดูแลเตรียมสำหรับทดสอบ ไม่ได้ทดสอบ LINE จริงหรือ Deploy AWS ใน PR L

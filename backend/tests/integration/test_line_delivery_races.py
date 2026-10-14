@@ -154,3 +154,77 @@ def test_two_jobs_send_one_claim(race_case, monkeypatch):
         thread.join(10)
     assert not thread.is_alive()
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("blocked_method", ["push", "reply"])
+def test_http_response_precedes_line_network_work(race_case, monkeypatch, blocked_method):
+    import asyncio
+
+    from app.main import app
+    from tests.integration.test_line_messaging import signed
+
+    _, _, _, item = race_case
+    # An unsupported postback gets a reply and queues no new wave. Queue the
+    # existing intent explicitly to exercise push with a fresh background Session.
+    item["postback"]["data"] = "invalid"
+    original = webhook.process_event
+
+    def process_and_queue(db, incoming):
+        original(db, incoming)
+        delivery.dispatch_pending(db)
+
+    monkeypatch.setattr(webhook, "process_event", process_and_queue)
+    started, release, response_sent = threading.Event(), threading.Event(), threading.Event()
+    errors, statuses = [], []
+
+    def blocked(*args):
+        started.set()
+        assert release.wait(5)
+        return "200"
+
+    monkeypatch.setattr(client, blocked_method, blocked)
+    body, headers = signed([item])
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/line/webhook",
+        "raw_path": b"/line/webhook",
+        "query_string": b"",
+        "headers": [(key.lower().encode(), value.encode()) for key, value in headers.items()],
+        "server": ("test", 80),
+        "client": ("test", 1),
+    }
+
+    async def receive():
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            statuses.append(message["status"])
+        if message["type"] == "http.response.body" and not message.get("more_body", False):
+            response_sent.set()
+
+    def request():
+        try:
+            asyncio.run(app(scope, receive, send))
+        except Exception as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=request)
+    thread.start()
+    try:
+        assert started.wait(5)
+        assert response_sent.is_set()
+        assert statuses == [200]
+        with SessionLocal() as db:
+            assert db.get(LineWebhookEvent, "E1") is not None
+    finally:
+        release.set()
+        thread.join(10)
+    assert not thread.is_alive() and not errors
+    with SessionLocal() as db:
+        # The delivery result is visible through an independent DB connection.
+        assert db.get(CandidateOutreach, race_case[2]).delivery_status == "ACCEPTED"

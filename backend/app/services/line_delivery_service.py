@@ -121,7 +121,7 @@ def _claim(db: Session, outreach_id: int) -> Claim | None:
         raise RuntimeError("Delivery intent has no retry key")
     token = str(uuid4())
     exhausted = row.delivery_attempts >= 3
-    if not exhausted:
+    if not exhausted and row.delivery_payload is not None:
         row.delivery_attempts += 1
     row.delivery_claim = token
     row.delivery_lease_until = now + timedelta(seconds=60)
@@ -156,7 +156,7 @@ def _finish(db: Session, claim: Claim, result: str) -> bool:
         db.commit()
         logger.error("LINE delivery deferred: HTTP %s", result)
         return result in {"401", "403"}
-    permanent = result.startswith("4")
+    permanent = result.startswith("4") or result == "NO_LINE_BINDING"
     if not permanent and row.delivery_attempts < 3:
         row.delivery_next_attempt_at = clock.now() + timedelta(seconds=30)
         db.commit()
@@ -188,35 +188,47 @@ def _finish(db: Session, claim: Claim, result: str) -> bool:
 def dispatch_pending(db: Session, *, case_id: int | None = None) -> None:
     """Best-effort post-commit work and job recovery; errors never escape to callers.
 
-    At most 20 attempts per sweep, oldest offers first. The job picks up the rest.
-    The session guard prevents recursive dispatch when failure sends a new wave.
+    At most 20 offers per sweep, oldest first, including new waves created by
+    delivery failure. HTTP requests enqueue background work with a fresh session.
+    The session guard prevents recursion while this sweep reloads due offers.
     """
-    if not settings.real_line_enabled or db.info.get("line_dispatching"):
+    if not settings.real_line_enabled:
+        return
+    schedule = db.info.get("line_delivery_scheduler")
+    if schedule is not None:
+        schedule(case_id)
+        return
+    if db.info.get("line_dispatching"):
         return
     db.info["line_dispatching"] = True
     try:
-        now = clock.now()
-        query = (
-            select(CandidateOutreach.id)
-            .where(
-                CandidateOutreach.delivery_status == "PENDING",
-                or_(
-                    CandidateOutreach.delivery_next_attempt_at.is_(None),
-                    CandidateOutreach.delivery_next_attempt_at <= now,
-                ),
-                or_(
-                    CandidateOutreach.delivery_lease_until.is_(None),
-                    CandidateOutreach.delivery_lease_until <= now,
-                ),
+        visited: set[int] = set()
+        for _ in range(20):
+            now = clock.now()
+            query = (
+                select(CandidateOutreach.id)
+                .where(
+                    CandidateOutreach.delivery_status == "PENDING",
+                    CandidateOutreach.id.not_in(visited),
+                    or_(
+                        CandidateOutreach.delivery_next_attempt_at.is_(None),
+                        CandidateOutreach.delivery_next_attempt_at <= now,
+                    ),
+                    or_(
+                        CandidateOutreach.delivery_lease_until.is_(None),
+                        CandidateOutreach.delivery_lease_until <= now,
+                    ),
+                )
+                .order_by(CandidateOutreach.id)
+                .limit(1)
             )
-            .order_by(CandidateOutreach.id)
-            .limit(20)
-        )
-        if case_id is not None:
-            query = query.where(CandidateOutreach.case_id == case_id)
-        ids = list(db.scalars(query))
-        db.rollback()
-        for outreach_id in ids:
+            if case_id is not None:
+                query = query.where(CandidateOutreach.case_id == case_id)
+            outreach_id = db.scalar(query)
+            db.rollback()
+            if outreach_id is None:
+                break
+            visited.add(outreach_id)
             try:
                 claim = _claim(db, outreach_id)
                 if claim is None:
@@ -224,7 +236,7 @@ def dispatch_pending(db: Session, *, case_id: int | None = None) -> None:
                 result = (
                     "TIMEOUT"
                     if claim.exhausted
-                    else "400"
+                    else "NO_LINE_BINDING"
                     if claim.payload is None
                     else client.push(claim.payload, claim.retry_key)
                 )

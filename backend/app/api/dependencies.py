@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import BackgroundTasks, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,9 +28,12 @@ _STAFF_ID_PATTERN = re.compile(r"[1-9][0-9]{0,18}")
 MAX_STAFF_ID = MAX_BIGINT
 
 
-def get_db() -> Iterator[Session]:
+def get_db(background_tasks: BackgroundTasks) -> Iterator[Session]:
     """One session per request. Services and the orchestrator commit, not this."""
     with SessionLocal() as db:
+        from app.services import line_background_service
+
+        line_background_service.configure(db, background_tasks)
         yield db
 
 

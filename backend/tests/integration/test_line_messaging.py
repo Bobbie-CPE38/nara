@@ -194,7 +194,9 @@ def test_wave_rollback_removes_intent_without_http(real_line, production_seeded)
     assert db.scalar(select(func.count()).select_from(CandidateOutreach)) == 0
 
 
-def test_dedup_is_written_after_lock_restart(real_line, production_seeded, monkeypatch):
+def test_dedup_callback_runs_after_the_lock_helper_returns(
+    real_line, production_seeded, monkeypatch
+):
     db = production_seeded
     _, _, row = prepared(db)
     original = outreach_service.lock_case_for_outreach
@@ -274,8 +276,9 @@ def test_delivery_failure_has_one_audit_and_advances_case(real_line, production_
     audits = list(
         db.scalars(select(AuditLog).where(AuditLog.action == AuditAction.OFFER_DELIVERY_FAILED))
     )
-    assert len(audits) == 1
-    assert audits[0].payload["attempts"] == attempts
+    own = [audit for audit in audits if audit.payload["outreach_id"] == row.id]
+    assert len(own) == 1
+    assert own[0].payload["attempts"] == attempts
     assert db.get(StaffingCase, case.id).status != CaseStatus.FAILED
 
 
@@ -315,6 +318,82 @@ def test_missing_credentials_fall_back_without_intent(production_seeded, monkeyp
     monkeypatch.setattr(settings, "line_channel_access_token", None)
     _, _, row = prepared(production_seeded)
     assert row.delivery_status is None
+
+
+def test_failed_first_event_does_not_skip_later_event(
+    real_line, http_client, production_seeded, monkeypatch
+):
+    db = production_seeded
+    original = webhook.process_event
+
+    def fail_first(session, item):
+        if item["webhookEventId"] == "E1":
+            raise RuntimeError("temporary error")
+        original(session, item)
+
+    monkeypatch.setattr(webhook, "process_event", fail_first)
+    body, headers = signed(
+        [{"type": "message", "webhookEventId": "E1"}, {"type": "message", "webhookEventId": "E2"}]
+    )
+    assert http_client.post("/line/webhook", content=body, headers=headers).status_code == 503
+    assert db.get(LineWebhookEvent, "E1") is None
+    assert db.get(LineWebhookEvent, "E2") is not None
+
+
+def test_lock_retry_has_no_dedup_row(real_line, http_client, production_seeded, monkeypatch):
+    db = production_seeded
+    _, _, row = prepared(db)
+    monkeypatch.setattr(
+        outreach_service,
+        "lock_case_for_outreach",
+        Mock(side_effect=outreach_service.OutreachLockRetryError("try again")),
+    )
+    body, headers = signed([event(row)])
+    assert http_client.post("/line/webhook", content=body, headers=headers).status_code == 503
+    assert db.get(LineWebhookEvent, "E1") is None
+    assert db.get(CandidateOutreach, row.id).status == OutreachStatus.SENT
+
+
+def test_reject_reply_does_not_claim_an_acceptance(real_line, http_client, production_seeded):
+    _, _, row = prepared(production_seeded)
+    body, headers = signed([event(row, response="REJECT")])
+    assert http_client.post("/line/webhook", content=body, headers=headers).status_code == 200
+    message = real_line[1].call_args.args[1]
+    assert "ปฏิเสธ" in message and "ตอบรับ" not in message
+
+
+def test_expiry_reply_is_independent_of_exception_wording(
+    real_line, http_client, production_seeded, monkeypatch
+):
+    _, _, row = prepared(production_seeded)
+    monkeypatch.setattr(
+        outreach_service,
+        "record_response",
+        Mock(side_effect=outreach_service.OfferExpiredError("deadline reached")),
+    )
+    body, headers = signed([event(row)])
+    assert http_client.post("/line/webhook", content=body, headers=headers).status_code == 200
+    assert "หมดเวลา" in real_line[1].call_args.args[1]
+
+
+def test_unbound_candidates_fail_with_real_reason_and_chain_new_waves(real_line, production_seeded):
+    db = production_seeded
+    case, items = short_case(db)
+    row = outreach_service.send_offer(db, case, [items[201]])[0]
+    db.commit()
+    delivery.dispatch_pending(db, case_id=case.id)
+    rows = list(db.scalars(select(CandidateOutreach).where(CandidateOutreach.case_id == case.id)))
+    assert len(rows) == 3
+    assert all(r.status == OutreachStatus.FAILED and r.delivery_attempts == 0 for r in rows)
+    assert all(r.delivery_last_result == "NO_LINE_BINDING" for r in rows)
+    assert real_line[0].call_count == 0
+    audits = list(
+        db.scalars(select(AuditLog).where(AuditLog.action == AuditAction.OFFER_DELIVERY_FAILED))
+    )
+    assert len(audits) == 3
+    assert all(a.payload["last_result"] == "NO_LINE_BINDING" for a in audits)
+    assert db.get(StaffingCase, case.id).status == CaseStatus.MANUAL_HANDOFF
+    assert row.id in [a.payload["outreach_id"] for a in audits]
 
 
 def test_two_connections_process_same_webhook_once(real_line, frozen_clock, restore_empty_database):

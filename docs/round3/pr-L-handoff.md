@@ -25,9 +25,15 @@ intent, fixed recipient/body and UUID on each offer in their own transaction.
 `sent_at` and `expires_at` retain the existing meaning: deadline starts when
 the workflow offers the shift, not when LINE accepts the push.
 
-After the workflow commits, dispatch tries the new case's pending intents.
+After the workflow commits, HTTP paths queue background work and send the
+HTTP response before LINE network calls. Replies run first; delivery uses a
+fresh Session, never the request Session. Direct service/job calls dispatch
+synchronously after commit.
 The job also dispatches after expiry, recovery and window work, so a crash
-before the first call is recoverable. A sweep attempts at most 20 offers.
+before the first call is recoverable. A sweep attempts at most 20 offers,
+reloading due rows after each result so
+new waves created by failed delivery can be sent in the same sweep. Remaining
+work is picked up on the next job tick.
 
 Sender lock order is the shared Offer → Case → whole-plan Staff order. It
 commits a unique lease/claim before HTTP, then reacquires locks to persist the
@@ -47,7 +53,8 @@ with the same retry key. No network call holds workflow locks.
   that outcome if subsequent workflow work fails.
 - Accepted, cancelled, expired or stopped-case offers are not retried or
   overwritten. Overdue SENT rows are left for the existing timeout audit.
-- No active unambiguous LINE binding is a permanent delivery failure. PR L
+- No active unambiguous LINE binding fails with `NO_LINE_BINDING`, zero HTTP
+  attempts and one `OFFER_DELIVERY_FAILED` audit, then recomputes the case. PR L
   tests use Contact fixtures; real end-to-end account linking needs PR K.
 
 ## Webhook
@@ -63,10 +70,12 @@ helper finishes any transaction restarts. Its flush is outside D11, alongside
 the answer, and both commit together. Duplicate event IDs are acknowledged
 without repeating audit, Safety, Approval or chat replies. Expected business
 refusals get a terminal event row and HTTP 200; unexpected failures roll back
-and return 503 for LINE redelivery. Each event owns one transaction, so an
-earlier event in a multi-event request remains processed if a later one fails.
+and return 503 for LINE redelivery. Each event owns one transaction, so a
+failed first event does not prevent later events from committing. All events
+are processed before returning 503 if any failed; only failed events retry.
 
-Replies are post-commit, best effort and never retried. Expired offers get an
+Replies run after the HTTP response, best effort and never retried. Rejections
+are acknowledged as rejections, without acceptance wording. Expired offers get an
 expiry explanation. Unsupported event types are acknowledged; PR K extends
 the dispatcher for LINK messages using the same dedup table.
 
@@ -76,7 +85,8 @@ Integration tests cover signed/unsigned requests, accept/reject replay,
 ownership, expiry, rollback, immutable push content/key, claims and restarts,
 delivery error classes, and late-result protection. Real PostgreSQL tests
 force an actual offer-set lock restart, send duplicate events concurrently,
-race two senders, and accept while a network send is blocked. Migration tests
+race two senders, accept while a network send is blocked, and verify that the
+HTTP response is sent before blocked LINE reply/push calls finish. Migration tests
 check a single head, history backfill and ORM/schema agreement.
 
 All HTTP traffic is replaced by deterministic doubles in CI, including tests

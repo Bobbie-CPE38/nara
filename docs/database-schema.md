@@ -352,7 +352,7 @@ CHECK `ck_candidate_item_target_role_id_matches_target_type`: `(target_type = 'R
 | `delivery_next_attempt_at` | timestamptz | NULL | เวลาลองครั้งถัดไปจาก backend clock |
 | `delivery_claim` | text | NULL | UUID ของผู้ส่งที่จองงานครั้งนี้ |
 | `delivery_lease_until` | timestamptz | NULL | หมดสิทธิ์จองหลัง 60 วินาที ให้ Job เก็บตกเมื่อ process ล่ม |
-| `delivery_last_result` | text | NULL | รหัส HTTP หรือ `TIMEOUT`; ไม่เก็บ Secret หรือ body ที่ LINE คืน |
+| `delivery_last_result` | text | NULL | รหัส HTTP, `TIMEOUT` หรือ `NO_LINE_BINDING`; ไม่เก็บ Secret หรือ body ที่ LINE คืน |
 
 Partial index `ix_candidate_outreach_delivery_due` ใช้กับ `delivery_status = PENDING` การส่งเริ่มหลัง Transaction ของ Wave Commit แล้วเท่านั้น
 
