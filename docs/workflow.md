@@ -1161,6 +1161,7 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 * Tunnel ส่งต่อเข้า Backend โดยตรง ไม่ผ่าน Caddy ของชุด Deploy Webhook URL จึงเป็น `https://<hostname>/line/webhook` ไม่มี `/api` ข้างหน้า
 * ingress อนุญาตเฉพาะ Path `/line/webhook` ตรงตัว Path อื่นตอบ `404` ด้วย catch-all rule ของ `cloudflared` และ Backend ยังตรวจลายเซ็นตามเดิม
 * Tunnel token หรือไฟล์ credentials ค่าตั้งของ Tunnel และ Channel secret กับ Access token อยู่บนเครื่องคน 3 เท่านั้น ไม่อยู่ใน repo ห้าม commit หรือใส่ใน PR และ Log
+* คน 3 ส่งบันทึกขั้นตอนการตั้ง Tunnel ที่ไม่มีความลับให้คน 1 และคน 2 เก็บไว้ด้วย เพื่อให้ตั้งใหม่ได้ถ้าเครื่องหรือบัญชีของคน 3 ใช้ไม่ได้
 * ห้ามเพิ่ม `cloudflared` ใน `docker-compose.yml` หรือชุด Deploy บน AWS ระบบบน AWS ต้องทำงานได้โดยไม่มี Tunnel ตอน Deploy คน 3 เปลี่ยน Webhook URL ไปที่เครื่อง AWS แล้วปิด Tunnel
 * ถ้าผู้จัดการแข่งขันไม่อนุญาต หรือยังเตรียมโดเมนไม่ได้ ให้ใช้ fake LINE API และหน้าจำลองไปจนถึงรอบ 6 และบันทึกว่าการทดสอบ LINE จริงยังไม่เสร็จ
 
