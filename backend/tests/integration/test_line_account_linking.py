@@ -7,12 +7,12 @@ from unittest.mock import Mock
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.api.dependencies import get_db
 from app.core import clock
 from app.core.config import settings
-from app.db.models import AuditLog, Contact, LineAccountLinkCode, LineWebhookEvent, Staff
+from app.db.models import Actor, AuditLog, Contact, LineAccountLinkCode, LineWebhookEvent, Staff
 from app.domain.enums import AuditAction, StaffStatus
 from app.integrations.line import client as adapter
 from app.main import app
@@ -311,3 +311,46 @@ def test_issue_command_rejects_missing_or_inactive_staff(
     )
     assert response.status_code == 404
     assert production_seeded.scalar(select(func.count()).select_from(LineAccountLinkCode)) == 0
+
+
+@pytest.mark.parametrize("command", ["link ", "LiNk\n", "LINK\t", "link\r\n"])
+def test_link_keyword_accepts_case_and_ascii_whitespace(linked_client, production_seeded, command):
+    raw = issue(production_seeded)
+    item = link_event(raw)
+    item["message"]["text"] = command + raw
+    assert post(linked_client, item).status_code == 200
+    assert code_row(production_seeded, raw).used_at is not None
+    assert line_contact_service.line_uid_for_staff(production_seeded, 201) == "U201"
+
+
+def test_link_keyword_is_flexible_but_code_is_case_sensitive(
+    linked_client, production_seeded, monkeypatch
+):
+    monkeypatch.setattr(line_account_service.secrets, "token_urlsafe", lambda _: "a" * 32)
+    raw = issue(production_seeded)
+    assert post(linked_client, link_event(raw.upper())).status_code == 200
+    assert code_row(production_seeded, raw).used_at is None
+    assert line_contact_service.line_uid_for_staff(production_seeded, 201) is None
+
+
+@pytest.mark.parametrize("issued_already", [False, True])
+def test_missing_actor_is_refused_without_issuing_or_consuming_a_code(
+    linked_client, production_seeded, issued_already
+):
+    db = production_seeded
+    raw = issue(db) if issued_already else None
+    db.execute(delete(Actor).where(Actor.staff_id == 201))
+    db.commit()
+    if issued_already:
+        assert post(linked_client, link_event(raw)).status_code == 200
+        assert code_row(db, raw).used_at is None
+        assert db.get(LineWebhookEvent, "LINK1") is not None
+    else:
+        response = linked_client.post(
+            "/internal/line-accounts/201/issue-code",
+            headers={"X-Internal-Secret": "test-admin-secret"},
+        )
+        assert response.status_code == 404
+        assert db.scalar(select(func.count()).select_from(LineAccountLinkCode)) == 0
+    assert audit_count(db, AuditAction.LINE_ACCOUNT_LINKED) == 0
+    assert line_contact_service.line_uid_for_staff(db, 201) is None

@@ -107,7 +107,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | E | คน 2 | คำอธิบายอันดับ (Backend): ช่องใหม่ใน Snapshot และช่อง `score` | 6.15 | #63 |
 | E2 | คน 2 | คำอธิบายอันดับ (หน้า `cases/[id]`) | 6.15, 9.5 | |
 | L | คน 3 | LINE จริง: Webhook, กันซ้ำ, ส่ง Offer (Migration ตัวที่ 1) | 6.16 | #62 |
-| K | คน 3 | ผูกบัญชี LINE (Migration ตัวที่ 2) | 6.16 | |
+| K | คน 3 | ผูกบัญชี LINE (Migration ตัวที่ 2) | 6.16 | #68 |
 | X | คน 2 | ประโยคอธิบายจาก LLM (Migration ตัวที่ 3) | 6.15 | |
 | R | คน 1 | งานค้างของ Roster และการลา: `COMPLETED`, `GET /roster?staff_id=`, ธง `is_unavailable`, แก้ `end_at` ของการลา | 6.18, 9.5 | |
 | N | ตกลงตอนแตก branch | หน้าเว็บพยาบาล "ข้อเสนอเข้าเวรของฉัน" | 6.17, 9.5 | |
@@ -1200,6 +1200,8 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 * `userId` ของผู้ผูกมาจาก Event ที่ผ่านลายเซ็นแล้วเท่านั้น
 * คำสั่งใน Backend container คือ `python -m app.line_accounts issue-code --staff-id 201` และ `python -m app.line_accounts unlink --staff-id 201` CLI เรียก Backend ผ่าน `POST /internal/line-accounts/{staff_id}/issue-code` และ `/unlink` ที่กันด้วย `X-Internal-Secret`/`INTERNAL_JOB_SECRET` เพื่อใช้ Clock เดียวกับ Demo ไม่มีหน้าเว็บหรือ Route ออกรหัสที่ไม่ตรวจสิทธิ์ ผลรหัสตอบ `Cache-Control: no-store` และแสดงรหัสหลัง Commit เท่านั้น
 * Migration `d7f0b3c5e9a2` ต่อจาก `c6e9a2b4d8f1` เพิ่ม `LINE_ACCOUNT_LINK_CODE` (สุ่ม 192 bit, SHA-256 hash, created/expires/used/revoked timestamps) และ `uq_contacts_line_uid` ครอบทุก line_uid ที่ไม่เป็น NULL รวม Contact ที่ inactive; legacy UID ซ้ำต้องแก้โดยผู้ดูแลก่อน Migration ไม่ลบหรือโอนข้อมูลเอง PR X ต่อจาก head นี้
+* คำสั่ง LINK ไม่สนตัวพิมพ์ใหญ่เล็กและรับ ASCII whitespace เช่น space/tab/newline ระหว่างคำสั่งกับรหัส ส่วนตัวรหัสยัง case-sensitive; Staff ที่ไม่มี user Actor ถูกปฏิเสธก่อนออกรหัสหรือใช้รหัส LINK ไม่ retry วนเมื่อ actor หาย
+* ออกรหัสหลายใบยังแยกประวัติและไม่ทับกันตาม R3-Q22; รหัสที่ยังไม่หมดอายุใช้ได้จนมีการผูกสำเร็จหรือผู้ดูแล unlink ซึ่ง revoke รหัสที่ยังไม่ใช้ทั้งหมด ไม่ revoke ตอน issue โดยอัตโนมัติ
 * รหัสหมดอายุที่ `now >= expires_at` ตาม Backend Clock เช่นเดียวกับ Offer; Demo ที่ freeze ต้องเลื่อน Clock จึงหมดอายุ Staff ต้อง active และส่ง LINK ในแชตแบบหนึ่งต่อหนึ่ง ก่อนออกรหัสให้ปลดบัญชีเดิม (รวม Contact ที่ inactive) การล็อกเรียง Staff → code → Contacts ของคนนั้น ไม่ล็อก Offer/Case
 * ปลดบัญชีล้างเฉพาะ line_uid คง Contact ID/line_id/is_active และ revoke รหัสที่ยังไม่ใช้เพื่อห้ามรหัสเก่ากลับมาผูกใหม่ ต้องออกรหัสใหม่หลังปลด ปลดซ้ำไม่มี Audit เพิ่มเมื่อไม่มีบัญชีอยู่แล้ว ส่วนการปลดของ Staff inactive ทำได้
 * ก่อนส่ง/Retry ของ pending intent ตัวส่งตรวจว่าบัญชีที่ใช้งานได้ปัจจุบันตรงกับผู้รับเดิม หลังปลดหรือเปลี่ยนบัญชี intent ที่ไม่ตรงเป็น `NO_CONTACT` โดย Offer ยังเป็น SENT ไม่ส่ง ไม่เขียน failure audit และไม่ recompute; ไม่เปลี่ยน payload/retry key ไปหาบัญชีใหม่ งานส่งที่อยู่ระหว่าง HTTP แล้วเรียกคืนไม่ได้ แต่คำตอบหลังปลดถูกปฏิเสธจากตัวอ่านบัญชี Existing NO_CONTACT ไม่ถูกส่งย้อนหลังหลังผูกใหม่

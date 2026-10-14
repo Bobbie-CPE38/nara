@@ -66,6 +66,13 @@ def _lock_staff(db: Session, staff_id: int, *, require_active: bool = True) -> S
     return staff
 
 
+def _user_actor(db: Session, staff_id: int) -> int:
+    try:
+        return actor_service.user_id(db, staff_id)
+    except actor_service.ActorNotFoundError:
+        raise LinkStaffUnavailableError("Staff has no user actor") from None
+
+
 def _contacts(db: Session, staff_id: int) -> list[Contact]:
     return list(
         db.scalars(
@@ -80,6 +87,7 @@ def _contacts(db: Session, staff_id: int) -> list[Contact]:
 
 def issue_code(db: Session, staff_id: int) -> IssuedCode:
     _lock_staff(db, staff_id)
+    _user_actor(db, staff_id)
     # Refuse existing bindings, including inactive ones: explicit unlink is required.
     if db.scalar(
         select(Contact.id)
@@ -115,6 +123,7 @@ def link(db: Session, code: str, uid: str) -> Contact:
     if staff_id is None:
         raise InvalidLinkCodeError("Invalid link code")
     _lock_staff(db, staff_id)
+    actor_id = _user_actor(db, staff_id)
     row = db.scalar(
         select(LineAccountLinkCode)
         .where(LineAccountLinkCode.id == code_id)
@@ -166,7 +175,7 @@ def link(db: Session, code: str, uid: str) -> Contact:
     audit_service.log(
         db,
         case_id=None,
-        actor_id=actor_service.user_id(db, staff_id),
+        actor_id=actor_id,
         action=AuditAction.LINE_ACCOUNT_LINKED,
         entity_type=EntityType.CONTACTS,
         entity_id=contact.id,

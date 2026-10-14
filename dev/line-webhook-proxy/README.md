@@ -61,7 +61,7 @@ python3 dev/line-webhook-proxy/check_gate.py https://<random>.trycloudflare.com
 The check does not normalize paths. Both runs cover signed/invalid-signature
 POSTs, `/line/webhooks`, query strings, percent encoding, repeated slashes,
 dot segments, case differences, non-POST methods, `/demo/reset`, the internal
-job route, and known-length/chunked oversized bodies. CI additionally verifies
+job and account administration routes, and known-length/chunked oversized bodies. CI additionally verifies
 that rejected traffic never reaches its fake upstream.
 
 A first public `INCOMPLETE` result is a reason to investigate, not proof that

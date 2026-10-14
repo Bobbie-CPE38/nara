@@ -12,6 +12,9 @@ docker compose exec backend python -m app.line_accounts issue-code --staff-id 20
 docker compose exec backend python -m app.line_accounts unlink --staff-id 201
 ```
 
+The CLI is intentionally run inside the Backend container against its fixed
+`localhost:8000` listener, independent of the host-mapped `BACKEND_PORT`. It does
+not accept an arbitrary remote URL that could receive the internal secret.
 The CLI authenticates with `INTERNAL_JOB_SECRET` to fixed loopback endpoints:
 `POST /internal/line-accounts/{staff_id}/issue-code` and `.../unlink`.
 There is no frontend or unauthenticated issuance/unlink endpoint. This is an
@@ -31,9 +34,12 @@ print remote response bodies or secrets on error.
 - A code has 192 random bits, is case-sensitive, expires after 10 Backend-clock
   minutes, and stores only a SHA-256 hash. At `now >= expires_at` it is invalid.
   Demo Clock advances, rather than elapsed wall time, control expiry when frozen.
-- `LINK <code>` is dispatched before the binding lookup. Sender identity comes
+- The LINK keyword is case-insensitive and accepts ASCII whitespace (space,
+  tab or newline) before the code; the code itself remains case-sensitive.
+  `LINK <code>` is dispatched before the binding lookup. Sender identity comes
   only from a signed, one-to-one LINE message, never from a staff ID in the text.
-- Staff must be active. A bound staff member or an already-owned LINE UID is
+- Staff must be active and have a user Actor at issuance and consumption. A
+  missing Actor is a staff-unavailable refusal, not an unexpected retry loop. A bound staff member or an already-owned LINE UID is
   refused; bindings are never automatically overwritten, including inactive
   Contact rows. Issue-code also requires an explicit unlink first if bound.
 - Code consumption, Contact binding, `LINE_ACCOUNT_LINKED` audit and webhook
@@ -44,6 +50,9 @@ print remote response bodies or secrets on error.
   are taken. The code update checks unused, unrevoked and not expired atomically.
   Concurrent claims of one UID by different staff are settled by the database's
   `uq_contacts_line_uid` constraint; the losing code remains unused.
+- Multiple issued codes keep separate history and are not revoked by a later
+  issuance (R3-Q22). Once bound, other codes cannot replace the binding.
+  To invalidate earlier codes before binding, run unlink and issue a fresh code.
 - Unlink clears `line_uid`, preserving Contact ID, `line_id` and `is_active`, and
   revokes all unused codes of the staff member. It works for inactive staff too.
   Audit actor is `system` per workflow 7.1; there is one audit per cleared Contact.
@@ -78,7 +87,7 @@ trip/duplicate preflight, CLI errors and real two-connection races for one code,
 one event, shared UID and unlink vs link. Generic migration checks compare the
 full schema to ORM metadata and require a single head.
 
-Validation: Backend **2,119 passed, 14 skipped** (opt-in timing harness); Ruff
+Validation: Backend **2,126 passed, 14 skipped** (opt-in timing harness); Ruff
 check, Ruff format check, mypy and `git diff --check` passed. Frontend unchanged.
 
 Local developer DB migration, public Tunnel checks and actual LINE linking are
