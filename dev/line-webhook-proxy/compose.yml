@@ -1,0 +1,10 @@
+# Opt-in development proxy only; not part of the main or AWS Compose files.
+services:
+  line-webhook-proxy:
+    image: nginx:1.28-alpine
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
