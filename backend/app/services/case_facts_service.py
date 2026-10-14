@@ -30,6 +30,8 @@ Known limits:
     mid-case can reopen the gap of the case; it then sends another wave.
 """
 
+from collections.abc import Collection
+
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.selectable import Exists
@@ -253,40 +255,49 @@ def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
 
 
 def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:
+    return _assigned_staff_ids_by_case(db, [case_id])[case_id]
+
+
+def assigned_staff_ids_by_case(db: Session, case_ids: Collection[int]) -> dict[int, set[int]]:
+    """`assigned_staff_ids()` of several cases in two queries, for list reads."""
+    with db.no_autoflush:
+        return _assigned_staff_ids_by_case(db, case_ids)
+
+
+def _assigned_staff_ids_by_case(db: Session, case_ids: Collection[int]) -> dict[int, set[int]]:
+    """Approved and on the roster, or assigned by hand while the roster row stands."""
+    result: dict[int, set[int]] = {case_id: set() for case_id in case_ids}
+    if not result:
+        return result
     on_roster = exists().where(
         RosterAssignment.staff_id == CandidateItem.staff_id,
         RosterAssignment.shift_id == CandidateItem.proposed_shift_id,
         RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
         RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
     )
-    approved = set(
-        db.scalars(
-            select(CandidateItem.staff_id)
-            .join(ApprovalRequest, ApprovalRequest.candidate_item_id == CandidateItem.id)
-            .where(
-                ApprovalRequest.case_id == case_id,
-                ApprovalRequest.is_pending.is_(False),
-                ApprovalRequest.is_approved.is_(True),
-                on_roster,
-            )
+    approved = db.execute(
+        select(ApprovalRequest.case_id, CandidateItem.staff_id)
+        .join(ApprovalRequest, ApprovalRequest.candidate_item_id == CandidateItem.id)
+        .where(
+            ApprovalRequest.case_id.in_(list(result)),
+            ApprovalRequest.is_pending.is_(False),
+            ApprovalRequest.is_approved.is_(True),
+            on_roster,
         )
     )
-    return approved | _manually_assigned_staff_ids(db, case_id)
-
-
-def _manually_assigned_staff_ids(db: Session, case_id: int) -> set[int]:
-    """People a head nurse put on the shift for this case, while the roster row stands."""
-    return set(
-        db.scalars(
-            select(RosterAssignment.staff_id)
-            .join(ManualAssignment, ManualAssignment.roster_assignment_id == RosterAssignment.id)
-            .where(
-                ManualAssignment.case_id == case_id,
-                RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
-                RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
-            )
+    # A head nurse put the person on the shift for this case (section 6.12)
+    manual = db.execute(
+        select(ManualAssignment.case_id, RosterAssignment.staff_id)
+        .join(ManualAssignment, ManualAssignment.roster_assignment_id == RosterAssignment.id)
+        .where(
+            ManualAssignment.case_id.in_(list(result)),
+            RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
+            RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
         )
     )
+    for case_id, staff_id in (*approved, *manual):
+        result[case_id].add(staff_id)
+    return result
 
 
 def accepted_offer_for_request() -> Exists:

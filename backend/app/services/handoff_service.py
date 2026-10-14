@@ -10,9 +10,11 @@ Every write here runs in one transaction that this module commits, except
 Status changes go through `orchestrator.leave_handoff()`.
 """
 
+import logging
 from collections.abc import Collection
+from typing import NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -26,6 +28,7 @@ from app.db.models import (
     Shift,
     Staff,
     StaffingCase,
+    StaffingGap,
 )
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
@@ -46,18 +49,34 @@ from app.services import (
     actor_service,
     audit_service,
     case_facts_service,
-    gap_service,
     hard_rule_service,
     offer_conflict_service,
     outreach_service,
 )
 from app.workflow import orchestrator
 
+logger = logging.getLogger(__name__)
+
 # Same limit and rules as the reason of a rejected approval (R2-Q20)
 MAX_REASON_LENGTH = MAX_APPROVAL_REASON_LENGTH
 SUPERSEDED_REASON = "A new case opened for this shift"
 _LIVE_OFFER_STATUSES = (OutreachStatus.SENT, OutreachStatus.ACCEPTED)
 _ON_ROSTER_STATUSES = (RosterStatus.ASSIGNED, RosterStatus.COMPLETED)
+
+
+class AssignmentOutcome(NamedTuple):
+    """What a committed manual assignment produced, as plain values.
+
+    Read before the post-commit notifications, so the answer never needs the
+    session again: a failed notification rolls its own transaction back.
+    """
+
+    manual_assignment_id: int
+    assignment_id: int
+    staff_id: int
+    case_id: int
+    case_status: CaseStatus
+    cancelled_outreach_ids: list[int]
 
 
 class HandoffForbiddenError(PermissionError):
@@ -115,25 +134,36 @@ def list_cases(
             .where(StaffingCase.status.in_(list(statuses)), Shift.ward_id == home_ward_id)
             .order_by(StaffingCase.id)
         ).all()
-        result = []
-        for case, ward_id in rows:
-            try:
-                headcount_gap: int | None = gap_service.get_case_gap(db, case.id).headcount_gap
-            except gap_service.GapNotFoundError:
-                headcount_gap = None
-            result.append(
-                HandoffCase(
-                    id=case.id,
-                    status=case.status,
-                    shift_id=case.shift_id,
-                    ward_id=ward_id,
-                    required_replacement_time=case.required_replacement_time,
-                    created_at=case.created_at,
-                    headcount_gap=headcount_gap,
-                    assigned_count=len(case_facts_service.assigned_staff_ids(db, case.id)),
-                    can_manage=case.status is CaseStatus.MANUAL_HANDOFF,
+        case_ids = [case.id for case, _ in rows]
+        # Batched for the polling page: two queries, not two per case
+        assigned = case_facts_service.assigned_staff_ids_by_case(db, case_ids)
+        latest_gap = (
+            select(func.max(StaffingGap.id))
+            .where(StaffingGap.case_id.in_(case_ids))
+            .group_by(StaffingGap.case_id)
+        )
+        headcount_gaps: dict[int, int] = {
+            gap_case_id: headcount_gap
+            for gap_case_id, headcount_gap in db.execute(
+                select(StaffingGap.case_id, StaffingGap.headcount_gap).where(
+                    StaffingGap.id.in_(latest_gap)
                 )
             )
+        }
+        result = [
+            HandoffCase(
+                id=case.id,
+                status=case.status,
+                shift_id=case.shift_id,
+                ward_id=ward_id,
+                required_replacement_time=case.required_replacement_time,
+                created_at=case.created_at,
+                headcount_gap=headcount_gaps.get(case.id),
+                assigned_count=len(assigned[case.id]),
+                can_manage=case.status is CaseStatus.MANUAL_HANDOFF,
+            )
+            for case, ward_id in rows
+        ]
         return result
 
 
@@ -208,7 +238,7 @@ def assign(
     actor_id: int,
     reason: str | None = None,
     confirm_conflicts: bool = False,
-) -> tuple[ManualAssignment, RosterAssignment, StaffingCase, list[int]]:
+) -> AssignmentOutcome:
     """Put one person on the shift of a MANUAL_HANDOFF case, then commit.
 
     Locks Shift → the person's live offers → case → the person's STAFF row, the
@@ -225,8 +255,9 @@ def assign(
     cases recomputed after the commit (R2-Q46). Confirming is not an override:
     the Hard Rules of this shift were already passed.
 
-    Returns the manual assignment, its roster row, the case and the IDs of the
-    cancelled offers.
+    Returns what was committed. The other cases are recomputed after the
+    commit; a failure there is logged and left to the job's recovery sweep, and
+    never turns the committed assignment into an error (as in PR T).
     """
     case, shift, offers = _lock_assignment(
         db, case_id=case_id, staff_id=staff_id, role_id=role_id, home_ward_id=home_ward_id
@@ -313,14 +344,32 @@ def assign(
         )
         case = orchestrator.leave_handoff(db, case.id, CaseStatus.RESOLVED)
     db.commit()
-    # Their offers changed without an event of their own (section 5.3)
-    outreach_service.recompute_affected_cases(
-        db,
+    outcome = AssignmentOutcome(
+        manual_assignment_id=manual.id,
+        assignment_id=assignment.id,
         staff_id=staff_id,
-        own_case_id=case_id,
-        additional_case_ids={row.case_id for row in cancelled},
+        case_id=case.id,
+        case_status=case.status,
+        cancelled_outreach_ids=cancelled_ids,
     )
-    return manual, assignment, case, cancelled_ids
+    foreign_case_ids = {row.case_id for row in cancelled}
+    # Their offers changed without an event of their own (section 5.3)
+    try:
+        outreach_service.recompute_affected_cases(
+            db,
+            staff_id=staff_id,
+            own_case_id=case_id,
+            additional_case_ids=foreign_case_ids,
+        )
+    except Exception:
+        db.rollback()
+        # The job's recovery sweep picks the waiting cases up on its next round
+        logger.exception(
+            "Manual assignment %s is committed; cases %s need a recompute retry",
+            outcome.manual_assignment_id,
+            sorted(foreign_case_ids),
+        )
+    return outcome
 
 
 def close(

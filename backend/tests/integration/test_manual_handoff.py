@@ -320,6 +320,62 @@ def test_a_cancelled_manual_assignment_stops_counting(
     assert client.get(f"/cases/{case.id}").json()["assigned_count"] == 0
 
 
+def test_a_failed_notification_does_not_turn_the_committed_assignment_into_an_error(
+    client: TestClient, production_seeded: Session
+) -> None:
+    """The other cases are told after the commit. If that breaks, the head nurse
+    still gets the result of what was committed (the rule of PR T)."""
+    db = production_seeded
+    case = handoff_case(db)
+
+    with patch.object(
+        handoff_service.outreach_service,
+        "recompute_affected_cases",
+        side_effect=RuntimeError("notification down"),
+    ):
+        response = post_assign(client, case.id, 201)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["case_status"] == "RESOLVED"
+    db.expire_all()
+    assert db.scalar(select(func.count()).select_from(ManualAssignment)) == 1
+    assert actions(db, case.id) == [
+        AuditAction.MANUAL_ASSIGNMENT_CREATED,
+        AuditAction.CASE_RESOLVED,
+        AuditAction.CASE_STATUS_CHANGED,
+    ]
+
+
+def test_the_case_list_reads_coverage_in_a_fixed_number_of_queries(
+    client: TestClient, production_seeded: Session
+) -> None:
+    """The page polls this list: the queries must not grow with the number of cases."""
+    from sqlalchemy import event
+
+    db = production_seeded
+    for _ in range(3):
+        handoff_case(db)
+
+    def count_queries() -> int:
+        statements: list[str] = []
+
+        def record(*args: object) -> None:
+            statements.append(str(args[2]))
+
+        engine = db.get_bind()
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            assert client.get("/cases?status=MANUAL_HANDOFF", headers=HEAD_NURSE).status_code == 200
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+        return len(statements)
+
+    three = count_queries()
+    handoff_case(db)
+    handoff_case(db)
+    assert count_queries() == three
+
+
 # --------------------------------------------------------------------------- #
 # Hard Rules: no override (R2-Q14)
 # --------------------------------------------------------------------------- #

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
 import { SKIP_REASON_INFO } from "@/lib/constants";
@@ -43,13 +43,30 @@ function conflictOf(cause: unknown): HandoffConflict | null {
   return detail as HandoffConflict;
 }
 
+/** The API's own words: a string detail, or the messages of a validation list. */
+function detailText(cause: ApiError): string {
+  const body = cause.body;
+  const detail = typeof body === "object" && body !== null && "detail" in body ? body.detail : null;
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => (typeof item === "object" && item !== null && "msg" in item ? item.msg : null))
+      .filter((message): message is string => typeof message === "string");
+    if (messages.length > 0) return messages.join("; ");
+  }
+  if (typeof detail === "object" && detail !== null && "message" in detail) {
+    const message = detail.message;
+    if (typeof message === "string") return message;
+  }
+  return cause.message;
+}
+
 function errorText(cause: unknown): string {
   return cause instanceof ApiError
-    ? `${cause.message} (HTTP ${cause.status})`
+    ? `${detailText(cause)} (HTTP ${cause.status})`
     : "Cannot reach the API. Check that the backend is running.";
 }
 
-type Outcome = { kind: "ok" | "error"; message: string };
+type Outcome = { kind: "ok" | "error" | "info"; message: string };
 
 export default function Handoff() {
   const { data: cases, error, isLoading, refresh } = usePolling(loadCases);
@@ -66,21 +83,45 @@ export default function Handoff() {
   const [closeReason, setCloseReason] = useState("");
 
   const selected = cases?.find((row) => row.id === selectedId && row.can_manage);
+  // The case whose staff list may still be shown. A late answer for another case is dropped
+  const listedFor = useRef<number | null>(null);
 
   const loadCandidates = useCallback(async (caseId: number) => {
+    listedFor.current = caseId;
     setCandidates(null);
     try {
-      setCandidates(await api<HandoffCandidate[]>(`/cases/${caseId}/handoff/candidates`));
+      const rows = await api<HandoffCandidate[]>(`/cases/${caseId}/handoff/candidates`);
+      if (listedFor.current === caseId) setCandidates(rows);
     } catch (cause) {
-      setOutcome({ kind: "error", message: errorText(cause) });
+      if (listedFor.current === caseId) setOutcome({ kind: "error", message: errorText(cause) });
     }
   }, []);
+
+  useEffect(() => {
+    if (selectedId === null || !cases) return;
+    if (cases.some((row) => row.id === selectedId && row.can_manage)) return;
+    // Someone else staffed or closed it, or it left the list: say so instead of a blank panel
+    const now = cases.find((row) => row.id === selectedId);
+    setOutcome({
+      kind: "info",
+      message: now
+        ? `Case ${selectedId} can no longer be managed: it is now ${now.status}.`
+        : `Case ${selectedId} is no longer handed off.`,
+    });
+    listedFor.current = null;
+    setSelectedId(null);
+    setCandidates(null);
+    setPendingConfirm(null);
+  }, [cases, selectedId]);
 
   useEffect(() => {
     if (selectedId !== null) void loadCandidates(selectedId);
   }, [selectedId, loadCandidates]);
 
   function open(caseId: number) {
+    // Nothing of the previous case may show while the new list loads
+    listedFor.current = caseId;
+    setCandidates(null);
     setSelectedId(caseId);
     setOutcome(null);
     setNote("");
@@ -114,6 +155,7 @@ export default function Handoff() {
         message: `Staff ${result.staff_id} assigned. Case ${result.case_id}: ${result.case_status}.${cancelled}`,
       });
       if (result.case_status === "RESOLVED") {
+        listedFor.current = null;
         setSelectedId(null);
         setCandidates(null);
       } else {
@@ -151,6 +193,7 @@ export default function Handoff() {
         json: { reason: trimmed },
       });
       setOutcome({ kind: "ok", message: `Case ${result.case_id}: ${result.case_status}` });
+      listedFor.current = null;
       setSelectedId(null);
       setCandidates(null);
       await refresh();
@@ -172,6 +215,11 @@ export default function Handoff() {
 
       {error && <p className="mt-4 text-red-700">{error.message}</p>}
       {outcome?.kind === "ok" && <p className="mt-4 text-green-700">{outcome.message}</p>}
+      {outcome?.kind === "info" && (
+        <p role="status" className="mt-4 text-amber-700">
+          {outcome.message}
+        </p>
+      )}
       {outcome?.kind === "error" && (
         <p role="alert" className="mt-4 text-red-700">
           {outcome.message}

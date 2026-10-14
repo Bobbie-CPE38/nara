@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Handoff from "../../../src/app/handoff/page";
@@ -8,6 +8,7 @@ import Handoff from "../../../src/app/handoff/page";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 const STOPPED = {
@@ -269,6 +270,79 @@ describe("handoff page", () => {
 
     expect((await screen.findByRole("alert")).textContent).toBe(
       "The staff member is not a head nurse of the shift's ward (HTTP 403)",
+    );
+  });
+
+  it("never shows the staff of a case answered late over the case now selected", async () => {
+    const OTHER = { ...STOPPED, id: 9, shift_id: 2 };
+    const late: Record<number, (rows: unknown[]) => void> = {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) => {
+        const match = /\/cases\/(\d+)\/handoff\/candidates$/.exec(url);
+        if (!match) return new Response(JSON.stringify([STOPPED, OTHER]));
+        // Each case's staff list answers only when the test says so
+        const rows = await new Promise<unknown[]>((resolve) => {
+          late[Number(match[1])] = resolve;
+        });
+        return new Response(JSON.stringify(rows));
+      }),
+    );
+    render(createElement(Handoff));
+    const [manage7, manage9] = await screen.findAllByRole("button", { name: "Manage" });
+
+    fireEvent.click(manage7);
+    fireEvent.click(manage9);
+    // Case 9 answers first, then the stale answer of case 7 arrives
+    await act(async () => late[9]([{ ...FREE, first_name: "Ninth" }]));
+    await act(async () => late[7]([{ ...FREE, first_name: "Seventh" }]));
+
+    expect(screen.getByRole("region", { name: "Manage case 9" })).toBeTruthy();
+    expect(screen.getByText("Ninth Demo")).toBeTruthy();
+    expect(screen.queryByText("Seventh Demo")).toBeNull();
+  });
+
+  it("reads the messages of a validation error instead of a generic one", async () => {
+    stubFetch([
+      {
+        status: 422,
+        body: { detail: [{ loc: ["body", "staff_id"], msg: "Input should be greater than 0" }] },
+      },
+    ]);
+    render(createElement(Handoff));
+    await openCase();
+    fireEvent.click(within(rowOf("Arunee Demo")).getByRole("button", { name: "Assign" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Input should be greater than 0 (HTTP 422)",
+    );
+  });
+
+  it("says so when the case it manages is staffed or closed elsewhere", async () => {
+    vi.useFakeTimers();
+    let cases: unknown[] = [STOPPED];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async (url: string) =>
+        new Response(
+          JSON.stringify(/\/handoff\/candidates$/.test(url) ? [FREE] : cases),
+        ),
+      ),
+    );
+    const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
+    render(createElement(Handoff));
+    await tick(0);
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    await tick(0);
+    expect(screen.getByRole("region", { name: "Manage case 7" })).toBeTruthy();
+
+    // Another head nurse closed it: the next poll lists it as UNRESOLVED
+    cases = [{ ...STOPPED, status: "UNRESOLVED", can_manage: false }];
+    await tick(2000);
+
+    expect(screen.queryByRole("region", { name: "Manage case 7" })).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe(
+      "Case 7 can no longer be managed: it is now UNRESOLVED.",
     );
   });
 });

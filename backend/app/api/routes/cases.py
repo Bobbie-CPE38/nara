@@ -92,7 +92,7 @@ def assign_manually(
 ) -> ManualAssignmentResult:
     """Put one person on the shift of a MANUAL_HANDOFF case (T8 once the gap is closed)."""
     try:
-        manual, assignment, case, cancelled = handoff_service.assign(
+        outcome = handoff_service.assign(
             db,
             case_id=case_id,
             staff_id=body.staff_id,
@@ -135,14 +135,7 @@ def assign_manually(
         handoff_service.InvalidHandoffReasonError,
     ) as error:
         raise HTTPException(422, detail=str(error)) from error
-    return ManualAssignmentResult(
-        manual_assignment_id=manual.id,
-        assignment_id=assignment.id,
-        staff_id=assignment.staff_id,
-        case_id=case.id,
-        case_status=case.status,
-        cancelled_outreach_ids=cancelled,
-    )
+    return ManualAssignmentResult(**outcome._asdict())
 
 
 @router.post("/{case_id}/handoff/close", response_model=CloseCaseResult)
