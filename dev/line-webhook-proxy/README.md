@@ -26,6 +26,10 @@ fixture, not a production proxy.
 
 ## 2. Start only the opt-in proxy
 
+The nginx upstream is fixed at `host.docker.internal:8000`; if you change
+`BACKEND_PORT` from its default 8000, update the development proxy upstream
+to match or it will fail closed with 502.
+
 Start Nara's local backend on port 8000 first, then:
 
 ```sh
@@ -59,6 +63,12 @@ POSTs, `/line/webhooks`, query strings, percent encoding, repeated slashes,
 dot segments, case differences, non-POST methods, `/demo/reset`, the internal
 job route, and known-length/chunked oversized bodies. CI additionally verifies
 that rejected traffic never reaches its fake upstream.
+
+A first public `INCOMPLETE` result is a reason to investigate, not proof that
+nginx is broken: Cloudflare may normalize encoded/repeated-slash paths or
+answer TRACE before the request reaches the proxy. Compare local and public
+results and establish which layer handled the request. Do not mark unexpected
+forwarding or an unexplained public result as a passed end-to-end gate check.
 
 Record the commit, local/public results and subsequent real LINE offer tests.
 If the tunnel drops mid-test, record what remains incomplete and fall back to
