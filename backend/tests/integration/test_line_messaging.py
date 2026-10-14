@@ -18,13 +18,13 @@ from app.core import clock
 from app.core.config import settings
 from app.db.models import AuditLog, CandidateOutreach, Contact, LineWebhookEvent, StaffingCase
 from app.db.session import SessionLocal
-from app.domain.enums import AuditAction, CaseStatus, OutreachStatus
+from app.domain.enums import AuditAction, CandidateResponse, CaseStatus, OutreachStatus
 from app.integrations.line import client as adapter
 from app.main import app
 from app.seed import load
+from app.services import actor_service, offer_timeout_service, outreach_service
 from app.services import line_delivery_service as delivery
 from app.services import line_webhook_service as webhook
-from app.services import outreach_service
 from tests.integration.case_rows import short_case
 
 
@@ -376,24 +376,63 @@ def test_expiry_reply_is_independent_of_exception_wording(
     assert "หมดเวลา" in real_line[1].call_args.args[1]
 
 
-def test_unbound_candidates_fail_with_real_reason_and_chain_new_waves(real_line, production_seeded):
+@pytest.mark.parametrize("answer", [True, False])
+def test_unbound_candidate_can_answer_or_time_out_without_line_delivery(
+    real_line, production_seeded, answer
+):
     db = production_seeded
     case, items = short_case(db)
     row = outreach_service.send_offer(db, case, [items[201]])[0]
     db.commit()
     delivery.dispatch_pending(db, case_id=case.id)
-    rows = list(db.scalars(select(CandidateOutreach).where(CandidateOutreach.case_id == case.id)))
-    assert len(rows) == 3
-    assert all(r.status == OutreachStatus.FAILED and r.delivery_attempts == 0 for r in rows)
-    assert all(r.delivery_last_result == "NO_LINE_BINDING" for r in rows)
+    assert row.status == OutreachStatus.SENT
+    assert row.delivery_status == "NO_CONTACT"
+    assert row.delivery_payload is None and row.delivery_retry_key is None
+    assert row.delivery_attempts == 0 and row.delivery_last_result is None
     assert real_line[0].call_count == 0
-    audits = list(
-        db.scalars(select(AuditLog).where(AuditLog.action == AuditAction.OFFER_DELIVERY_FAILED))
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == AuditAction.OFFER_DELIVERY_FAILED)
+        )
+        == 0
     )
-    assert len(audits) == 3
-    assert all(a.payload["last_result"] == "NO_LINE_BINDING" for a in audits)
-    assert db.get(StaffingCase, case.id).status == CaseStatus.MANUAL_HANDOFF
-    assert row.id in [a.payload["outreach_id"] for a in audits]
+    assert db.scalar(select(func.count()).select_from(CandidateOutreach)) == 1
+    if answer:
+        outreach_service.record_response(
+            db,
+            staff_id=201,
+            actor_id=actor_service.user_id(db, 201),
+            outreach_id=row.id,
+            response=CandidateResponse.ACCEPT,
+        )
+        assert db.get(CandidateOutreach, row.id).status == OutreachStatus.ACCEPTED
+    else:
+        clock.advance(row.expires_at - clock.now())
+        expired = offer_timeout_service.expire_due_offers(db)
+        assert row.id in expired.outreach_ids
+        assert db.get(CandidateOutreach, row.id).status == OutreachStatus.TIMEOUT
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(
+                    AuditLog.action == AuditAction.OFFER_TIMEOUT,
+                    AuditLog.entity_id == row.id,
+                )
+            )
+            == 1
+        )
+    assert real_line[0].call_count == 0
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == AuditAction.OFFER_DELIVERY_FAILED)
+        )
+        == 0
+    )
 
 
 def test_two_connections_process_same_webhook_once(real_line, frozen_clock, restore_empty_database):

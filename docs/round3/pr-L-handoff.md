@@ -27,8 +27,9 @@ the workflow offers the shift, not when LINE accepts the push.
 
 After the workflow commits, HTTP paths queue background work and send the
 HTTP response before LINE network calls. Replies run first; delivery uses a
-fresh Session, never the request Session. Direct service/job calls dispatch
-synchronously after commit.
+fresh Session, never the request Session. The internal job and demo-clock HTTP
+routes also queue delivery through get_db. Direct service calls without a
+background scheduler dispatch synchronously after commit.
 The job also dispatches after expiry, recovery and window work, so a crash
 before the first call is recoverable. A sweep attempts at most 20 offers,
 reloading due rows after each result so
@@ -53,8 +54,10 @@ with the same retry key. No network call holds workflow locks.
   that outcome if subsequent workflow work fails.
 - Accepted, cancelled, expired or stopped-case offers are not retried or
   overwritten. Overdue SENT rows are left for the existing timeout audit.
-- No active unambiguous LINE binding fails with `NO_LINE_BINDING`, zero HTTP
-  attempts and one `OFFER_DELIVERY_FAILED` audit, then recomputes the case. PR L
+- No active unambiguous LINE binding sets delivery status `NO_CONTACT`. The
+  offer stays `SENT`, with no payload, HTTP attempts, failure audit or recompute.
+  The nurse can answer from the simulator or nurse page; unanswered offers
+  expire under the existing rule. PR L
   tests use Contact fixtures; real end-to-end account linking needs PR K.
 
 ## Webhook

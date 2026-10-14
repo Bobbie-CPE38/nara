@@ -18,7 +18,7 @@ class CandidateOutreach(Base):
         ),
         CheckConstraint(
             "delivery_status IS NULL OR "
-            "delivery_status IN ('PENDING','ACCEPTED','FAILED','CANCELLED')",
+            "delivery_status IN ('PENDING','ACCEPTED','FAILED','CANCELLED','NO_CONTACT')",
             name="delivery_status",
         ),
         Index(

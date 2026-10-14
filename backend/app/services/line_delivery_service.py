@@ -33,6 +33,9 @@ logger = logging.getLogger(__name__)
 def prepare_delivery(db: Session, outreach: CandidateOutreach, item: CandidateItem) -> None:
     """Persist an immutable intent alongside the new offer, without network I/O."""
     uid = line_contact_service.line_uid_for_staff(db, item.staff_id)
+    if uid is None:
+        outreach.delivery_status = "NO_CONTACT"
+        return
     shift = db.get(Shift, item.proposed_shift_id)
     if shift is None:
         raise LookupError("Offer shift is missing")
@@ -80,7 +83,7 @@ class Claim:
     outreach_id: int
     case_id: int
     token: str
-    payload: dict[str, Any] | None
+    payload: dict[str, Any]
     retry_key: str
     exhausted: bool
 
@@ -117,11 +120,11 @@ def _claim(db: Session, outreach_id: int) -> Claim | None:
     ):
         db.rollback()
         return None
-    if not row.delivery_retry_key:
-        raise RuntimeError("Delivery intent has no retry key")
+    if not row.delivery_retry_key or row.delivery_payload is None:
+        raise RuntimeError("Delivery intent has no retry key or payload")
     token = str(uuid4())
     exhausted = row.delivery_attempts >= 3
-    if not exhausted and row.delivery_payload is not None:
+    if not exhausted:
         row.delivery_attempts += 1
     row.delivery_claim = token
     row.delivery_lease_until = now + timedelta(seconds=60)
@@ -156,7 +159,7 @@ def _finish(db: Session, claim: Claim, result: str) -> bool:
         db.commit()
         logger.error("LINE delivery deferred: HTTP %s", result)
         return result in {"401", "403"}
-    permanent = result.startswith("4") or result == "NO_LINE_BINDING"
+    permanent = result.startswith("4")
     if not permanent and row.delivery_attempts < 3:
         row.delivery_next_attempt_at = clock.now() + timedelta(seconds=30)
         db.commit()
@@ -234,11 +237,7 @@ def dispatch_pending(db: Session, *, case_id: int | None = None) -> None:
                 if claim is None:
                     continue
                 result = (
-                    "TIMEOUT"
-                    if claim.exhausted
-                    else "NO_LINE_BINDING"
-                    if claim.payload is None
-                    else client.push(claim.payload, claim.retry_key)
+                    "TIMEOUT" if claim.exhausted else client.push(claim.payload, claim.retry_key)
                 )
                 if _finish(db, claim, result):
                     break

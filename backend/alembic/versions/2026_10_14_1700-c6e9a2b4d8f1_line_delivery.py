@@ -43,7 +43,8 @@ def upgrade() -> None:
     op.create_check_constraint(
         op.f("ck_candidate_outreach_delivery_status"),
         "candidate_outreach",
-        "delivery_status IS NULL OR delivery_status IN ('PENDING','ACCEPTED','FAILED','CANCELLED')",
+        "delivery_status IS NULL OR "
+        "delivery_status IN ('PENDING','ACCEPTED','FAILED','CANCELLED','NO_CONTACT')",
     )
     op.create_index(
         "ix_candidate_outreach_delivery_due",

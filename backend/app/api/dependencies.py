@@ -33,6 +33,10 @@ def get_db(background_tasks: BackgroundTasks) -> Iterator[Session]:
     with SessionLocal() as db:
         from app.services import line_background_service
 
+        # All HTTP entry points can create waves, including event, demo and
+        # internal job routes. Defer LINE I/O until their response is sent.
+        # A test reusing a Session across requests retains these schedulers in
+        # db.info; configure replaces them for each new BackgroundTasks object.
         line_background_service.configure(db, background_tasks)
         yield db
 

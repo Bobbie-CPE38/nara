@@ -32,6 +32,15 @@ def test_history_gets_no_delivery_intent(production_seeded):
         text("SELECT delivery_status, delivery_attempts FROM candidate_outreach WHERE id=:id"),
         {"id": row_id},
     ).one() == (None, 0)
+    # The in-place migration CHECK permits the team's terminal no-contact state.
+    db.execute(
+        text("UPDATE candidate_outreach SET delivery_status='NO_CONTACT' WHERE id=:id"),
+        {"id": row_id},
+    )
+    assert db.execute(
+        text("SELECT delivery_status, delivery_attempts FROM candidate_outreach WHERE id=:id"),
+        {"id": row_id},
+    ).one() == ("NO_CONTACT", 0)
 
 
 def test_single_head_and_expected_parent():
