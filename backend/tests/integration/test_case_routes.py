@@ -146,7 +146,7 @@ def _add_plan(
 ) -> list[CandidateItem]:
     plan = CandidatePlan(
         case_id=case.id,
-        solver_status=SolverStatus.FEASIBLE,
+        solver_status=SolverStatus.OPTIMAL,
         generated_at=generated_at,
         execution_time_ms=1,
         objective_score=Decimal(0),

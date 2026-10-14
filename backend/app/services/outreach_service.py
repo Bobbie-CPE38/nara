@@ -63,12 +63,13 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
             .where(
                 ApprovalRequest.candidate_item_id == CandidateItem.id,
                 ApprovalRequest.case_id == StaffingCase.id,
+                ApprovalRequest.outreach_id == CandidateOutreach.id,
                 ApprovalRequest.is_pending.is_(False),
                 ApprovalRequest.is_approved.is_(True),
                 RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
                 RosterAssignment.status.in_([RosterStatus.ASSIGNED, RosterStatus.COMPLETED]),
             )
-            .correlate(CandidateItem, StaffingCase)
+            .correlate(CandidateItem, StaffingCase, CandidateOutreach)
             .exists()
         )
         rows = (
@@ -103,18 +104,18 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
         )
         if not rows:
             return []
-        item_ids = {row["candidate_item_id"] for row in rows}
+        offer_ids = {row["id"] for row in rows}
         requested = set(
             db.scalars(
-                select(ApprovalRequest.candidate_item_id).where(
-                    ApprovalRequest.candidate_item_id.in_(item_ids)
+                select(ApprovalRequest.outreach_id).where(
+                    ApprovalRequest.outreach_id.in_(offer_ids)
                 )
             )
         )
         validated = set(
             db.scalars(
-                select(SafetyValidation.candidate_item_id).where(
-                    SafetyValidation.candidate_item_id.in_(item_ids)
+                select(SafetyValidation.outreach_id).where(
+                    SafetyValidation.outreach_id.in_(offer_ids)
                 )
             )
         )
@@ -145,8 +146,8 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
             reserve = (
                 row["status"] == OutreachStatus.ACCEPTED
                 and row["case_status"] not in AUTOMATION_STOPPED_STATUSES
-                and row["candidate_item_id"] not in requested
-                and row["candidate_item_id"] not in validated
+                and row["id"] not in requested
+                and row["id"] not in validated
             )
             result.append(
                 OfferView.model_validate(
@@ -190,8 +191,13 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
                     AuditAction.CASE_RESOLVED: "CASE_RESOLVED",
                     AuditAction.MANUAL_HANDOFF: "MANUAL_HANDOFF",
                     AuditAction.ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
+                    # A head nurse assigned the person by hand (section 6.12)
+                    AuditAction.MANUAL_ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
                 }.get(row.action, "CANCELLED")
             elif payload.get("outreach_id") == outreach_id:
+                if row.action == AuditAction.APPROVAL_TIMEOUT:
+                    reasons[outreach_id] = "APPROVAL_TIMEOUT"
+                    continue
                 if row.action == AuditAction.SAFETY_FAILED:
                     reasons[outreach_id] = (
                         ", ".join(payload.get("failed_rules", [])) or "SAFETY_FAILED"
@@ -301,12 +307,8 @@ def promote_reserves(db: Session, case: StaffingCase) -> None:
     # Imported here: safety_service imports this module
     from app.services import safety_service
 
-    processed = exists().where(
-        SafetyValidation.candidate_item_id == CandidateOutreach.candidate_item_id
-    )
-    requested = exists().where(
-        ApprovalRequest.candidate_item_id == CandidateOutreach.candidate_item_id
-    )
+    processed = exists().where(SafetyValidation.outreach_id == CandidateOutreach.id)
+    requested = exists().where(ApprovalRequest.outreach_id == CandidateOutreach.id)
     while not case_facts_service.load_case_facts(db, case).gap_closed_with_pending:
         db.flush()
         outreach = db.scalar(
@@ -328,16 +330,8 @@ def promote_reserves(db: Session, case: StaffingCase) -> None:
         # same reserve forever inside the HTTP request.
         if (
             outreach.status == OutreachStatus.ACCEPTED
-            and not db.scalar(
-                select(
-                    exists().where(SafetyValidation.candidate_item_id == outreach.candidate_item_id)
-                )
-            )
-            and not db.scalar(
-                select(
-                    exists().where(ApprovalRequest.candidate_item_id == outreach.candidate_item_id)
-                )
-            )
+            and not db.scalar(select(exists().where(SafetyValidation.outreach_id == outreach.id)))
+            and not db.scalar(select(exists().where(ApprovalRequest.outreach_id == outreach.id)))
         ):
             raise RuntimeError("Safety did not record an outcome for the accepted offer")
 

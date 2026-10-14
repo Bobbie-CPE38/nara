@@ -16,6 +16,7 @@ class PendingApproval(BaseModel):
     staff_id: int
     proposed_shift_id: int
     requested_at: AppDatetime
+    expires_at: AppDatetime
 
 
 class ApprovalDecision(BaseModel):

@@ -16,6 +16,7 @@ from app.db.models.candidate_outreach import CandidateOutreach
 from app.db.models.candidate_plan import CandidatePlan
 from app.db.models.contact import Contact
 from app.db.models.hard_constraint_policy import HardConstraintPolicy
+from app.db.models.manual_assignment import ManualAssignment
 from app.db.models.outreach_policy import OutreachPolicy
 from app.db.models.role import Role
 from app.db.models.roster_assignment import RosterAssignment
@@ -50,6 +51,7 @@ __all__ = [
     "CandidatePlan",
     "Contact",
     "HardConstraintPolicy",
+    "ManualAssignment",
     "OutreachPolicy",
     "Role",
     "RosterAssignment",

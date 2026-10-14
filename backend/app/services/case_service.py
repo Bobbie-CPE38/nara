@@ -188,26 +188,33 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
     ).all()
 
     # The newest outreach of each item: ascending id, so a later row overwrites
-    outreach_status = {
-        item_id: status
-        for item_id, status in db.execute(
-            select(CandidateOutreach.candidate_item_id, CandidateOutreach.status)
+    latest_offers = {
+        item_id: (offer_id, status)
+        for item_id, offer_id, status in db.execute(
+            select(
+                CandidateOutreach.candidate_item_id, CandidateOutreach.id, CandidateOutreach.status
+            )
             .where(CandidateOutreach.case_id == case_id)
             .order_by(CandidateOutreach.id)
         )
     }
+    outreach_status = {item_id: status for item_id, (_, status) in latest_offers.items()}
     safety_passed = {
-        item_id: is_passed
-        for item_id, is_passed in db.execute(
-            select(SafetyValidation.candidate_item_id, SafetyValidation.is_passed)
+        offer_id: is_passed
+        for offer_id, is_passed in db.execute(
+            select(SafetyValidation.outreach_id, SafetyValidation.is_passed)
             .where(SafetyValidation.case_id == case_id)
             .order_by(SafetyValidation.id)
         )
     }
     approved = {
-        item_id: is_approved
-        for item_id, is_approved in db.execute(
-            select(ApprovalRequest.candidate_item_id, ApprovalRequest.is_approved)
+        offer_id: (is_approved, is_timed_out)
+        for offer_id, is_approved, is_timed_out in db.execute(
+            select(
+                ApprovalRequest.outreach_id,
+                ApprovalRequest.is_approved,
+                ApprovalRequest.is_timed_out,
+            )
             .where(ApprovalRequest.case_id == case_id, ApprovalRequest.is_pending.is_(False))
             .order_by(ApprovalRequest.id)
         )
@@ -225,8 +232,11 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
             outreach_status=outreach_status.get(item.id),
             stage=_stage(
                 outreach_status=outreach_status.get(item.id),
-                safety_passed=safety_passed.get(item.id),
-                approved=approved.get(item.id),
+                safety_passed=safety_passed.get(latest_offers.get(item.id, (-1, None))[0]),
+                approved=approved.get(latest_offers.get(item.id, (-1, None))[0], (None, False))[0],
+                is_timed_out=approved.get(latest_offers.get(item.id, (-1, None))[0], (None, False))[
+                    1
+                ],
                 is_assigned=item.staff_id in assigned,
                 is_pending=item.staff_id in pending,
             ),
@@ -242,12 +252,15 @@ def _stage(
     approved: bool | None,
     is_assigned: bool,
     is_pending: bool,
+    is_timed_out: bool = False,
 ) -> CandidateStage:
     """The first rule that matches (docs/workflow.md, section 4.1)."""
     if is_assigned:
         return "ASSIGNED"
     if approved is True:
         return "APPROVED"
+    if is_timed_out:
+        return "APPROVAL_TIMEOUT"
     if approved is False:
         return "APPROVAL_REJECTED"
     if safety_passed is False:

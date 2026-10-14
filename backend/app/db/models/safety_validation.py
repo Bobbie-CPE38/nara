@@ -14,6 +14,7 @@ class SafetyValidation(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     case_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("staffing_cases.id"))
     candidate_item_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("candidate_items.id"))
+    outreach_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("candidate_outreach.id"))
     hard_constraint_policy_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("hard_constraint_policy.id")
     )

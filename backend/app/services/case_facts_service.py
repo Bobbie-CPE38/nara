@@ -13,8 +13,10 @@ and recheck before writing.
 Who counts, per candidate (workflow.md section 4.1):
   * assigned: the approval request of the case is approved AND the candidate
     holds a replacement roster row on the proposed shift that is ASSIGNED or
-    COMPLETED.
-  * pending: the approval request is pending AND its case/item still has an
+    COMPLETED. Or a head nurse assigned the person to this case by hand: a
+    MANUAL_ASSIGNMENT row of the case whose roster row is ASSIGNED or COMPLETED
+    (section 6.12). A cancelled manual assignment stops counting.
+  * pending: the approval request is pending AND its specific offer is still an
     ACCEPTED offer. Cancelled offers cannot reserve gap coverage.
   * open offer: unexpired SENT; the candidate is not waiting on another case.
   * paused offer: unexpired SENT; the candidate is waiting on another case.
@@ -28,6 +30,8 @@ Known limits:
     mid-case can reopen the gap of the case; it then sends another wave.
 """
 
+from collections.abc import Collection
+
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.selectable import Exists
@@ -38,6 +42,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    ManualAssignment,
     RosterAssignment,
     SafetyValidation,
     Staff,
@@ -51,6 +56,7 @@ from app.domain.enums import (
 )
 from app.domain.workflow.case_status import CaseFacts, GapFiller, gap_closed
 from app.services import gap_service
+from app.services.outreach_attempt_service import contactable_item
 
 # A replacement keeps counting after its shift ended and the row was closed
 _ON_ROSTER_STATUSES = (RosterStatus.ASSIGNED, RosterStatus.COMPLETED)
@@ -188,11 +194,11 @@ def pending_staff_ids(db: Session, case_id: int) -> set[int]:
 
 def _waiting_acceptances(db: Session, staff_ids: set[int]) -> set[tuple[int, int]]:
     decided = exists().where(
-        ApprovalRequest.candidate_item_id == CandidateOutreach.candidate_item_id,
+        ApprovalRequest.outreach_id == CandidateOutreach.id,
         ApprovalRequest.is_pending.is_(False),
     )
     failed_safety = exists().where(
-        SafetyValidation.candidate_item_id == CandidateOutreach.candidate_item_id,
+        SafetyValidation.outreach_id == CandidateOutreach.id,
         SafetyValidation.is_passed.is_(False),
     )
     return set(
@@ -226,7 +232,7 @@ def _sent_staff_ids(db: Session, case_id: int) -> set[int]:
 
 
 def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
-    """True when the latest plan of the case holds an item without an offer of the case.
+    """True when the latest plan holds an uncontacted item or an unused timeout retry.
 
     "Latest" is the highest id (seam 1). A case without a plan has nobody to contact.
     """
@@ -238,47 +244,73 @@ def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
     )
     if plan_id is None:
         return False
-    contacted = exists().where(
-        CandidateOutreach.candidate_item_id == CandidateItem.id,
-        CandidateOutreach.case_id == case_id,
-    )
     return (
         db.scalar(
-            select(CandidateItem.id).where(CandidateItem.plan_id == plan_id, ~contacted).limit(1)
+            select(CandidateItem.id)
+            .where(CandidateItem.plan_id == plan_id, contactable_item(case_id))
+            .limit(1)
         )
         is not None
     )
 
 
 def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:
+    return _assigned_staff_ids_by_case(db, [case_id])[case_id]
+
+
+def assigned_staff_ids_by_case(db: Session, case_ids: Collection[int]) -> dict[int, set[int]]:
+    """`assigned_staff_ids()` of several cases in two queries, for list reads."""
+    with db.no_autoflush:
+        return _assigned_staff_ids_by_case(db, case_ids)
+
+
+def _assigned_staff_ids_by_case(db: Session, case_ids: Collection[int]) -> dict[int, set[int]]:
+    """Approved and on the roster, or assigned by hand while the roster row stands."""
+    result: dict[int, set[int]] = {case_id: set() for case_id in case_ids}
+    if not result:
+        return result
     on_roster = exists().where(
         RosterAssignment.staff_id == CandidateItem.staff_id,
         RosterAssignment.shift_id == CandidateItem.proposed_shift_id,
         RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
         RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
     )
-    return set(
-        db.scalars(
-            select(CandidateItem.staff_id)
-            .join(ApprovalRequest, ApprovalRequest.candidate_item_id == CandidateItem.id)
-            .where(
-                ApprovalRequest.case_id == case_id,
-                ApprovalRequest.is_pending.is_(False),
-                ApprovalRequest.is_approved.is_(True),
-                on_roster,
-            )
+    approved = db.execute(
+        select(ApprovalRequest.case_id, CandidateItem.staff_id)
+        .join(ApprovalRequest, ApprovalRequest.candidate_item_id == CandidateItem.id)
+        .where(
+            ApprovalRequest.case_id.in_(list(result)),
+            ApprovalRequest.is_pending.is_(False),
+            ApprovalRequest.is_approved.is_(True),
+            on_roster,
         )
     )
+    # A head nurse put the person on the shift for this case (section 6.12)
+    manual = db.execute(
+        select(ManualAssignment.case_id, RosterAssignment.staff_id)
+        .join(ManualAssignment, ManualAssignment.roster_assignment_id == RosterAssignment.id)
+        .where(
+            ManualAssignment.case_id.in_(list(result)),
+            RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
+            RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
+        )
+    )
+    for case_id, staff_id in (*approved, *manual):
+        result[case_id].add(staff_id)
+    return result
 
 
 def accepted_offer_for_request() -> Exists:
-    """Shared predicate for actionable requests and pending gap coverage.
+    """Shared offer-link predicate for approval attempts and pending gap coverage.
 
+    List/decision callers also check the deadline; the timeout job selects expired
+    attempts. Coverage stays reserved until the job records the timeout.
     Cancellation preserves undecided request history. Its offer is the authority
-    for whether that request can still be acted on; match BOTH case and item.
+    for whether that request can still be acted on; match its exact attempt, case and item.
     """
     return exists().where(
         CandidateOutreach.case_id == ApprovalRequest.case_id,
+        CandidateOutreach.id == ApprovalRequest.outreach_id,
         CandidateOutreach.candidate_item_id == ApprovalRequest.candidate_item_id,
         CandidateOutreach.status == OutreachStatus.ACCEPTED,
     )

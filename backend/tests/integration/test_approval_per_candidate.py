@@ -377,6 +377,7 @@ def test_accept_racing_last_approval_never_overassigns_or_deadlocks(
                         approval_id=request_id,
                         staff_id=900,
                         role_id=2,
+                        home_ward_id=1,
                         actor_id=actor_service.user_id(db, 900),
                         approved=True,
                     )
@@ -498,6 +499,7 @@ def test_simultaneous_per_candidate_approvals_create_two_assignments_once(commit
                     approval_id=request_id,
                     staff_id=900,
                     role_id=2,
+                    home_ward_id=1,
                     actor_id=actor_service.user_id(db, 900),
                     approved=True,
                 )
@@ -567,6 +569,7 @@ def test_approval_restarts_lock_order_if_a_foreign_wave_commits_while_it_waits(
                     approval_id=request_id,
                     staff_id=900,
                     role_id=2,
+                    home_ward_id=1,
                     actor_id=actor_service.user_id(db, 900),
                     approved=True,
                 )
@@ -679,6 +682,7 @@ def test_direct_service_also_bounds_approval_reason(production_seeded: Session) 
             approval_id=result.approval.id,
             staff_id=900,
             role_id=2,
+            home_ward_id=1,
             actor_id=actor_service.user_id(db, 900),
             approved=False,
             reason="x" * 501,

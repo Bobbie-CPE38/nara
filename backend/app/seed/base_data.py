@@ -76,6 +76,7 @@ def seed(db: Session) -> None:
                     OptimizationObjective.MIN_CONSECUTIVE_SHIFT.value,
                     OptimizationObjective.MIN_PROJECTED_OVERTIME.value,
                 ],
+                solver_time_limit_seconds=3,
                 effective_from=now,
                 created_at=now,
             ),
@@ -85,6 +86,7 @@ def seed(db: Session) -> None:
                 incoming_count=10,
                 version="demo-stub-v1",
                 created_at=now,
+                approval_timeout_seconds=900,
             ),
             OutreachPolicy(
                 id=1,

@@ -49,6 +49,7 @@ CandidateStage = Literal[
     "SAFETY_FAILED",
     "WAITING_APPROVAL",
     "APPROVAL_REJECTED",
+    "APPROVAL_TIMEOUT",
     "APPROVED",
     "ASSIGNED",
 ]

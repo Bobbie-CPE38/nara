@@ -28,14 +28,21 @@ ROUND1_EDGES = {
     "T7": (CaseStatus.OUTREACH, CaseStatus.WAITING_APPROVAL),
 }
 
+# docs/workflow.md section 5.1, T8 and T9: the ways out of MANUAL_HANDOFF.
+ROUND2_EDGES = {
+    "T8": (CaseStatus.MANUAL_HANDOFF, CaseStatus.RESOLVED),
+    "T9": (CaseStatus.MANUAL_HANDOFF, CaseStatus.UNRESOLVED),
+}
+
 
 @pytest.mark.parametrize("current", list(CaseStatus))
 @pytest.mark.parametrize("next_status", list(CaseStatus))
 def test_transition_contract(current: CaseStatus, next_status: CaseStatus) -> None:
     skeleton = (current, next_status) in SKELETON_EDGES
     round1 = (current, next_status) in ROUND1_EDGES.values()
+    round2 = (current, next_status) in ROUND2_EDGES.values()
     failure = current not in TERMINAL_CASE_STATUSES and next_status is CaseStatus.FAILED
-    if skeleton or round1 or failure:
+    if skeleton or round1 or round2 or failure:
         assert_transition(current, next_status)
     else:
         with pytest.raises(InvalidTransitionError, match="Invalid case transition"):
@@ -55,6 +62,19 @@ def test_round1_edges_are_new_and_distinct() -> None:
     assert edges.isdisjoint(SKELETON_EDGES)
 
 
+@pytest.mark.parametrize("name", list(ROUND2_EDGES))
+def test_round2_edge_is_allowed(name: str) -> None:
+    current, next_status = ROUND2_EDGES[name]
+    assert_transition(current, next_status)
+
+
+def test_round2_edges_are_new_and_distinct() -> None:
+    edges = set(ROUND2_EDGES.values())
+    assert len(edges) == len(ROUND2_EDGES)
+    assert edges.isdisjoint(SKELETON_EDGES)
+    assert edges.isdisjoint(ROUND1_EDGES.values())
+
+
 def test_safety_validation_is_no_longer_a_step_of_the_case() -> None:
     """Safety runs per candidate inside the answer's transaction (Q31, round 1 PR 3)."""
     assert ALLOWED_TRANSITIONS[CaseStatus.SAFETY_VALIDATION] == frozenset({CaseStatus.FAILED})
@@ -63,8 +83,20 @@ def test_safety_validation_is_no_longer_a_step_of_the_case() -> None:
     )
 
 
-def test_manual_handoff_has_no_exit_except_failed() -> None:
-    assert ALLOWED_TRANSITIONS[CaseStatus.MANUAL_HANDOFF] == frozenset({CaseStatus.FAILED})
+def test_manual_handoff_leads_only_to_the_two_manual_exits_and_failed() -> None:
+    """No edge leads back into the automatic flow: the solver runs once per case (Q37)."""
+    assert ALLOWED_TRANSITIONS[CaseStatus.MANUAL_HANDOFF] == frozenset(
+        {CaseStatus.RESOLVED, CaseStatus.UNRESOLVED, CaseStatus.FAILED}
+    )
+
+
+def test_unresolved_is_reached_only_from_manual_handoff() -> None:
+    sources = {
+        current
+        for current, targets in ALLOWED_TRANSITIONS.items()
+        if CaseStatus.UNRESOLVED in targets
+    }
+    assert sources == {CaseStatus.MANUAL_HANDOFF}
 
 
 def test_every_case_status_has_an_explicit_transition_entry() -> None:

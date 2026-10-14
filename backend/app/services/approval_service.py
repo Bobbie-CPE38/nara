@@ -2,6 +2,8 @@
 
 The orchestrator owns decision commits."""
 
+from datetime import timedelta
+
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
@@ -17,7 +19,6 @@ from app.db.models import (
     Shift,
     StaffingCase,
 )
-from app.domain.constraints.codes import HardRuleCode
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     ActorName,
@@ -27,28 +28,20 @@ from app.domain.enums import (
     EntityType,
     OutreachStatus,
 )
+from app.domain.staffing.ward_authority import manages_ward
 from app.schemas.approval import PendingApproval
 from app.services import (
     actor_service,
     audit_service,
     case_facts_service,
     hard_rule_service,
+    offer_conflict_service,
     outreach_service,
+    policy_service,
     roster_service,
 )
 from app.services.wave_service import plan_items
 from app.workflow import orchestrator
-
-_SCHEDULING_RULES = frozenset(
-    {
-        HardRuleCode.ALREADY_ON_SHIFT,
-        HardRuleCode.SHIFT_CONFLICT,
-        HardRuleCode.INSUFFICIENT_REST,
-        HardRuleCode.DAILY_HOURS_EXCEEDED,
-        HardRuleCode.WEEKLY_HOURS_EXCEEDED,
-        HardRuleCode.CONSECUTIVE_SHIFTS_EXCEEDED,
-    }
-)
 
 
 class ApprovalNotFoundError(LookupError):
@@ -57,6 +50,10 @@ class ApprovalNotFoundError(LookupError):
 
 class ApproverRoleError(ValueError):
     """The authenticated staff member does not have the required role."""
+
+
+class ApproverWardError(ValueError):
+    """The authenticated staff member is not of the ward the shift belongs to."""
 
 
 class ApprovalNotPendingError(ValueError):
@@ -75,7 +72,9 @@ class InvalidApprovalReasonError(ValueError):
     """A rejection needs a nonblank reason; all reasons must fit the length limit."""
 
 
-def create_request(db: Session, *, case: StaffingCase, item: CandidateItem) -> ApprovalRequest:
+def create_request(
+    db: Session, *, case: StaffingCase, item: CandidateItem, outreach: CandidateOutreach
+) -> ApprovalRequest:
     """Open the pending MANUAL request of one candidate who passed Safety (seam 5).
 
     safety_service calls this inside the transaction of the answer. Flushes and
@@ -85,7 +84,15 @@ def create_request(db: Session, *, case: StaffingCase, item: CandidateItem) -> A
     plan = db.get(CandidatePlan, item.plan_id)
     if plan is None or plan.case_id != case.id:
         raise ValueError(f"Candidate item {item.id} does not belong to case {case.id}")
+    if outreach.case_id != case.id or outreach.candidate_item_id != item.id:
+        raise ValueError("Offer does not match the approval case and item")
+    if outreach.status != OutreachStatus.ACCEPTED:
+        raise ValueError("Approval requires an accepted offer")
+    now = clock.now()
     request = ApprovalRequest(
+        outreach_id=outreach.id,
+        expires_at=now
+        + timedelta(seconds=policy_service.get_approval_policy(db).approval_timeout_seconds),
         case_id=case.id,
         candidate_item_id=item.id,
         required_approver_role=db.scalars(
@@ -97,7 +104,7 @@ def create_request(db: Session, *, case: StaffingCase, item: CandidateItem) -> A
         is_approved=None,
         reason=None,
         decided_at=None,
-        requested_at=clock.now(),
+        requested_at=now,
     )
     db.add(request)
     # The audit row needs the id, and SessionLocal has autoflush off
@@ -120,11 +127,15 @@ def decide(
     approval_id: int,
     staff_id: int,
     role_id: int,
+    home_ward_id: int,
     actor_id: int,
     approved: bool,
     reason: str | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase]:
     """Decide one candidate and execute immediately, then recompute the case.
+
+    The approver needs the required role and must be of the ward of the shift
+    (workflow.md section 6.12). Both refusals come before the pending check.
 
     Lock Shift → Request → own-case and candidate's foreign Offers in one ID-
     ordered query → case → whole-plan Staff. Refresh state after lock waits.
@@ -132,12 +143,12 @@ def decide(
     recompute's savepoint. Workflow failure preserves the decision, fails the
     case, and rolls back its assignment. Foreign notifications follow commit.
     """
-    request, case, item, offers = _lock_decision(db, approval_id, role_id)
+    request, case, item, offers = lock_approval_attempt(db, approval_id, role_id, home_ward_id)
     own = [
         row
         for row in offers
         if row.case_id == case.id
-        and row.candidate_item_id == item.id
+        and row.id == request.outreach_id
         and row.status == OutreachStatus.ACCEPTED
     ]
     if len(own) != 1:
@@ -149,6 +160,8 @@ def decide(
         for row in offers
         if row.case_id == case.id and row.status in {OutreachStatus.SENT, OutreachStatus.ACCEPTED}
     }
+    if clock.now() >= request.expires_at:
+        raise ApprovalNotPendingError("The approval request has expired")
     stored_reason = reason if approved or reason is None else reason.strip()
     if stored_reason is not None and len(stored_reason) > MAX_APPROVAL_REASON_LENGTH:
         raise InvalidApprovalReasonError(
@@ -180,7 +193,14 @@ def decide(
     def prepare(db: Session, case: StaffingCase) -> None:
         if approved:
             assignment = roster_service.create_replacement(db, case, approval=request)
-            cancelled = _cancel_conflicting_offers(db, case, item, offers)
+            cancelled = offer_conflict_service.cancel_conflicting_offers(
+                db,
+                case=case,
+                assignment=assignment,
+                offers=offers,
+                actor_id=actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR),
+                source="APPROVAL",
+            )
             foreign_cases.update(row.case_id for row in cancelled)
             audit_service.log(
                 db,
@@ -222,12 +242,17 @@ def decide(
     return request, case
 
 
-def _lock_decision(
+def lock_approval_attempt(
     db: Session,
     approval_id: int,
-    role_id: int,
+    role_id: int | None,
+    home_ward_id: int | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase, CandidateItem, list[CandidateOutreach]]:
     """Acquire the full lock set before writes; restart if an offer appeared while waiting.
+
+    role_id=None is reserved for the timeout job and skips role/ward authorization.
+    HTTP decisions always pass both the authenticated role and home ward.
+    Caller must have no uncommitted writes: a phantom restart rolls back.
 
     Staff locks prevent another wave sending once held, but a wave may have
     committed between our offer query and that lock. Never acquire those new
@@ -240,17 +265,30 @@ def _lock_decision(
         initial_case = db.get(StaffingCase, initial.case_id)
         if initial_case is None:
             raise LookupError(f"No case {initial.case_id}")
-        db.scalar(
-            select(Shift).where(Shift.id == initial_case.shift_id).with_for_update(key_share=True)
+        # KEY SHARE does not block an update of ward_id. No path moves a shift to
+        # another ward, so the ward read here holds for the decision
+        shift = db.scalar(
+            select(Shift)
+            .where(Shift.id == initial_case.shift_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         )
+        if shift is None:
+            raise LookupError(f"No shift {initial_case.shift_id}")
         request = db.scalars(
             select(ApprovalRequest)
             .where(ApprovalRequest.id == approval_id)
             .with_for_update(key_share=True)
             .execution_options(populate_existing=True)
         ).one()
-        if role_id != request.required_approver_role:
+        if role_id is not None and role_id != request.required_approver_role:
             raise ApproverRoleError("The staff member does not have the required approver role")
+        # Same rule as the manual exits of MANUAL_HANDOFF (section 6.12)
+        if role_id is not None and (
+            home_ward_id is None
+            or not manages_ward(home_ward_id=home_ward_id, ward_id=shift.ward_id)
+        ):
+            raise ApproverWardError("The staff member is not a head nurse of the shift's ward")
         if not request.is_pending:
             raise ApprovalNotPendingError(f"Approval request {approval_id} is not pending")
         item = db.get(CandidateItem, request.candidate_item_id)
@@ -301,38 +339,6 @@ def _decision_offer_query(case_id: int, staff_id: int) -> Select[CandidateOutrea
     )
 
 
-def _cancel_conflicting_offers(
-    db: Session, case: StaffingCase, item: CandidateItem, offers: list[CandidateOutreach]
-) -> list[CandidateOutreach]:
-    """After assignment, cancel foreign offers unsafe against the new roster.
-
-    This is not execution validation of the approved candidate (Q38). It checks
-    the other proposed shifts for overlap, rest, hours and consecutive shifts.
-    Safety's shared evaluator and current policy provide the exact semantics.
-    """
-    cancelled = []
-    for row in offers:
-        if row.case_id == case.id or row.status not in {
-            OutreachStatus.SENT,
-            OutreachStatus.ACCEPTED,
-        }:
-            continue
-        foreign_case = db.get(StaffingCase, row.case_id)
-        if foreign_case is None or foreign_case.status in AUTOMATION_STOPPED_STATUSES:
-            continue
-        candidate = db.get(CandidateItem, row.candidate_item_id)
-        assert candidate is not None and candidate.staff_id == item.staff_id
-        shift = db.get(Shift, candidate.proposed_shift_id)
-        if shift is None:
-            raise LookupError(f"No shift {candidate.proposed_shift_id}")
-        check = hard_rule_service.check_items(db, shift=shift, items=[candidate])[candidate.id]
-        if _SCHEDULING_RULES.intersection(check.result.failed_rules):
-            outreach_service.cancel_offer(db, row)
-            cancelled.append(row)
-    db.flush()
-    return cancelled
-
-
 def list_pending(db: Session) -> list[PendingApproval]:
     """Read pending requests of running cases by ID, without writes or locks.
 
@@ -353,6 +359,7 @@ def list_pending(db: Session) -> list[PendingApproval]:
                 ApprovalRequest.approval_mode,
                 ApprovalRequest.is_pending,
                 ApprovalRequest.requested_at,
+                ApprovalRequest.expires_at,
                 CandidateItem.staff_id,
                 CandidateItem.proposed_shift_id,
             )
@@ -360,6 +367,7 @@ def list_pending(db: Session) -> list[PendingApproval]:
             .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
             .where(
                 ApprovalRequest.is_pending.is_(True),
+                ApprovalRequest.expires_at > clock.now(),
                 case_facts_service.accepted_offer_for_request(),
                 StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
             )

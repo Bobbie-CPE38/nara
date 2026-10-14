@@ -90,7 +90,7 @@ def _offer(
     """
     plan = CandidatePlan(
         case_id=(planned_for or case).id,
-        solver_status=SolverStatus.FEASIBLE,
+        solver_status=SolverStatus.OPTIMAL,
         generated_at=clock.now(),
         execution_time_ms=0,
         solver_version="stub",
@@ -390,7 +390,7 @@ def test_create_request_rejects_an_item_of_another_case(seeded: Session) -> None
     assert item is not None
 
     with pytest.raises(ValueError, match="does not belong"):
-        approval_service.create_request(seeded, case=case, item=item)
+        approval_service.create_request(seeded, case=case, item=item, outreach=outreach)
 
     assert _approvals(seeded, case) == []
     assert _approvals(seeded, other) == []
