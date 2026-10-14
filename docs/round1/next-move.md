@@ -8,7 +8,7 @@
 | :-: | :-- | :-- | :-- | :-- |
 | **1** | Merge Gap (Window, Threshold, Event สี่ชนิด, Job), Coverage (`effective_minimum`), สถานะเคสคำนวณจาก Gap | Hard Rules ของจริง, Solver ใช้ Gap และ Soft Constraint, Working Time Snapshot, Safety รายคน | Wave, Reject, หลาย Offer ต่อคน, อนุมัติและจัดเวรรายคน, Timeout ของ Offer | ตกลงแล้ว อยู่ใน `round1-contract-draft.md` |
 | **2** | เส้นออกจาก `MANUAL_HANDOFF` (Head Nurse จัดคนเอง หรือปิดเคสโดยไม่มีคนแทน), การอนุมัติจำกัดหอ | OR-Tools: Hard Rules คัดข้างนอกเหมือนเดิม OR-Tools ทำ Soft ผลเท่ารอบ 1 | Approval Timeout และการกลับไปต่อท้ายคิวหนึ่งครั้ง | ตกลงแล้ว อยู่ใน `docs/round2/round2-contract-draft.md` |
-| **3** | งานค้างของ Roster และการลา (R3-Q1) | คะแนนและคำอธิบายอันดับ พร้อมประโยคจาก LLM (ใช้ `fake` ในรอบนี้) | LINE จริง + Webhook + ตรวจ Signature, ผูกบัญชี LINE (ลองผ่าน Quick Tunnel และตัวกรอง HTTP ในเครื่อง ไม่ต้องมีโดเมน) | ตกลงแล้ว อยู่ใน `docs/round3/round3-contract-draft.md` หน้าเว็บพยาบาลตกลงแล้ว ผู้ทำตกลงตอนแตก branch สภาพแวดล้อม AWS เลื่อนไปรอบ 6 (มติทีม 2026-10-14) |
+| **3** | งานค้างของ Roster และการลา (R3-Q1) | คะแนนและคำอธิบายอันดับ พร้อมประโยคจาก LLM (ใช้ `fake` ในรอบนี้) | LINE จริง + Webhook + ตรวจ Signature, ผูกบัญชี LINE (ลองผ่าน Quick Tunnel และตัวกรอง HTTP ในเครื่อง ไม่ต้องมีโดเมน) | ตกลงแล้ว อยู่ใน `docs/round3/round3-contract-draft.md` หน้าเว็บพยาบาลตกลงแล้ว คน 1 ทำ (PR #69) สภาพแวดล้อม AWS เลื่อนไปรอบ 6 (มติทีม 2026-10-14) |
 | **4** | (งานเดิมย้ายไปรอบ 1) | Cross-Ward, ผู้อนุมัติเป็น Supervisor | Auto-Approval | ใครอนุมัติกรณีข้ามหอ, กติกาเทียบ `incoming_count` ของ Auto-Approval |
 | **5** | ห่อ Orchestrator ด้วย LangGraph | `NO_SHOW` | Handover | Orchestrator เปลี่ยนโครง ต้องไม่ทำ Handler ของคนอื่นพัง |
 | **6** | LLM สรุปสถานการณ์, Deploy บน AWS (PR D) | Bedrock จริง (IAM Role และ Budget) | LLM ตีความคำตอบอิสระ, ย้าย Webhook จาก Tunnel มาที่ AWS | ทีมต้องเลือกก่อนว่าจะทำทางนี้ไหม เปิดเครื่อง AWS ก่อน แล้วจึงลอง Bedrock และย้าย Webhook (มติทีม 2026-10-14) |
@@ -67,6 +67,6 @@
 5. คน 1 เปิด PR 0 ของรอบ 2: ย้าย Contract เข้า `workflow.md` พร้อมเส้น T8 กับ T9 ใน `transitions.py` และค่าใหม่ใน `enums.py` (เสร็จแล้ว PR #52)
 6. แตก branch งานตามลำดับ PR ในข้อ 6 ของร่างรอบ 2 (เสร็จแล้ว PR ทุกตัวเข้า `staging` ครบ #51 ถึง #57 รายชื่ออยู่ที่ `docs/workflow.md` ส่วน "สถานะของรอบ 2")
 7. จัดงานของรอบ 3 ใหม่ (เสร็จแล้ว PR #60) รอบ 3 มีคำอธิบายอันดับ, LINE จริง, หน้าเว็บพยาบาล, งานค้างของคน 1 และสภาพแวดล้อมทดสอบบน AWS (ภายหลังมติทีม 2026-10-14 เลื่อน AWS ไปรอบ 6)
-8. คน 1 เปิด PR 0 ของรอบ 3: ย้าย Contract เข้า `workflow.md` และค่าใหม่ใน `enums.py`
-9. แตก branch งานตามลำดับ PR ในข้อ 6 ของร่างรอบ 3 รายชื่ออยู่ที่ `docs/workflow.md` ส่วน "สถานะของรอบ 3"
-10. จัดงานของรอบ 4 ขึ้นไปใหม่ก่อนเริ่มรอบ 4
+8. คน 1 เปิด PR 0 ของรอบ 3: ย้าย Contract เข้า `workflow.md` และค่าใหม่ใน `enums.py` (เสร็จแล้ว PR #61)
+9. แตก branch งานตามลำดับ PR ในข้อ 6 ของร่างรอบ 3 (เสร็จแล้ว PR ทุกตัวยกเว้น D เข้า `staging` ครบ #62 ถึง #64 และ #67 ถึง #70 รายชื่ออยู่ที่ `docs/workflow.md` ส่วน "สถานะของรอบ 3" ส่วน LINE จริงและ Bedrock จริงยังไม่ได้ลองกับบริการจริง ดูตาราง fake กับของจริงในส่วนเดียวกัน)
+10. จัดงานของรอบ 4 ขึ้นไปใหม่ก่อนเริ่มรอบ 4 **ยังไม่ได้ทำ และเป็นขั้นถัดไปของทีม**
