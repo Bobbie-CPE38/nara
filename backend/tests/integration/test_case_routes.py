@@ -293,7 +293,10 @@ def test_candidates_come_from_the_latest_plan_in_rank_order(
         "source",
         "outreach_status",
         "stage",
+        "score",
     }
+    # The helper plans store an empty snapshot: no exact values, so no score
+    assert [c["score"] for c in body["candidates"]] == [None, None, None]
     assert (first["first_name"], first["source"]) == ("Arunee", "SAME_WARD")
 
 
