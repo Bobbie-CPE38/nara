@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { formatDateTime, formatValue } from "../../../src/lib/format";
+import { formatDateTime, formatScore, formatValue } from "../../../src/lib/format";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -40,5 +40,18 @@ describe("formatValue", () => {
     [{ from: "OPEN" }, '{"from":"OPEN"}'],
   ])("shows %j as %j", (value, expected) => {
     expect(formatValue(value)).toBe(expected);
+  });
+});
+
+describe("formatScore", () => {
+  it.each([
+    [1005, "1005"],
+    [0, "0"],
+    [2.5, "2.5"],
+    [0.3333333333333333, "0.33"],
+    [1 / 60, "0.02"],
+    [12345, "12345"],
+  ])("shows %j as %j", (value, expected) => {
+    expect(formatScore(value)).toBe(expected);
   });
 });

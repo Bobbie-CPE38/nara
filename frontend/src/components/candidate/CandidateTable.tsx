@@ -1,4 +1,5 @@
 import { CANDIDATE_STAGE_INFO, TONE_CLASS } from "@/lib/constants";
+import { formatScore } from "@/lib/format";
 import type { CandidateView } from "@/lib/types/case";
 
 /** A stage the map does not know is shown as it is. */
@@ -28,6 +29,7 @@ export function CandidateTable({
           <th className="py-1 pr-4">Name</th>
           <th className="py-1 pr-4">Source</th>
           <th className="py-1 pr-4">Status</th>
+          <th className="py-1 pr-4">Score</th>
         </tr>
       </thead>
       <tbody>
@@ -40,6 +42,7 @@ export function CandidateTable({
             <td className="py-1 pr-4">
               <StageLabel stage={candidate.stage} />
             </td>
+            <td className="py-1 pr-4">{candidate.score ? formatScore(candidate.score.total) : "—"}</td>
           </tr>
         ))}
       </tbody>

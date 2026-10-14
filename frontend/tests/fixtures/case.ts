@@ -1,7 +1,29 @@
-import type { AuditEntry, CaseDetail } from "../../src/lib/types/case";
+import type { AuditEntry, CandidateScore, CaseDetail } from "../../src/lib/types/case";
 
 // The demo clock is frozen after a reset, so every row of a case carries this time.
 export const DEMO_TIME = "2026-10-09T21:00:00+07:00";
+
+const TERMS = [
+  ["candidate_count", 1000],
+  ["consecutive_shift", 5],
+  ["workload_imbalance", 1],
+  ["projected_overtime", 2],
+  ["candidate_source", 200],
+] as const;
+
+/** A score in the API's formula order. Values are shown as given, never re-summed. */
+export function score(
+  total: number, firstWave: boolean,
+  values: [number, number, number, number, number],
+): CandidateScore {
+  return {
+    total,
+    first_wave: firstWave,
+    terms: TERMS.map(([name, weight], index) => ({
+      name, value: values[index], weight, points: weight * values[index],
+    })),
+  };
+}
 
 /** The golden case while it waits for 201 to reply (docs/workflow.md, section 10). */
 export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
@@ -24,11 +46,14 @@ export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
     assigned_count: 0,
     candidates: [
       { candidate_item_id: 1, rank: 1, staff_id: 201, first_name: "Arunee", last_name: "Demo",
-        source: "SAME_WARD", outreach_status: "SENT", stage: "OFFER_SENT" },
+        source: "SAME_WARD", outreach_status: "SENT", stage: "OFFER_SENT",
+        score: score(1005, true, [1, 1, 0, 0, 0]) },
       { candidate_item_id: 2, rank: 2, staff_id: 202, first_name: "Phanu", last_name: "Demo",
-        source: "SAME_WARD", outreach_status: null, stage: "NOT_CONTACTED" },
+        source: "SAME_WARD", outreach_status: null, stage: "NOT_CONTACTED",
+        score: score(1013, false, [1, 1, 8, 0, 0]) },
       { candidate_item_id: 3, rank: 3, staff_id: 203, first_name: "Chonthicha", last_name: "Demo",
-        source: "SAME_WARD", outreach_status: null, stage: "NOT_CONTACTED" },
+        source: "SAME_WARD", outreach_status: null, stage: "NOT_CONTACTED",
+        score: score(1020, false, [1, 2, 0, 5, 0]) },
     ],
     ...overrides,
   };
