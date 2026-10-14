@@ -22,7 +22,17 @@ nara/
 │   ├── approval.md
 │   ├── audit.md
 │   ├── api.md
-│   └── demo.md
+│   ├── demo.md
+│   └── deploy-aws.md
+│
+├── deploy/
+│   └── aws/                    # เครื่องทดสอบบน AWS (รอบ 3 PR D)
+│       ├── Caddyfile           # HTTPS และด่าน Basic Auth
+│       ├── docker-compose.aws.yml
+│       ├── load-env.sh         # Parameter Store → env file
+│       ├── nara.service        # systemd
+│       ├── iam-parameter-read-policy.json
+│       └── check-gate.sh       # ลองด่านจากภายนอก
 │
 ├── scripts/
 │   ├── reset-demo.sh

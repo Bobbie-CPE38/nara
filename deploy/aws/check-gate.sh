@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Checks the Basic Auth gate of the AWS test machine from outside
+# (round 3 PR D, docs/workflow.md "สถานะของรอบ 3", the D row of the silent-break tests).
+#
+#   deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password>
+#
+# A 401 from the gate carries "WWW-Authenticate: Basic". The webhook's own 401
+# (bad LINE signature) does not, which is how the two are told apart.
+
+set -uo pipefail
+shopt -s extglob
+
+base="${1:?Usage: check-gate.sh <base url> <user> <password>}"
+user="${2:?Usage: check-gate.sh <base url> <user> <password>}"
+password="${3:?Usage: check-gate.sh <base url> <user> <password>}"
+curl_options=(--silent --output /dev/null --max-time 20)
+failures=0
+
+# Prints "<status> gate" when the gate answered, "<status> passed" otherwise
+probe() {
+  local method="$1" path="$2" auth="$3" headers status
+  local args=("${curl_options[@]}" --request "$method" --dump-header - --write-out '%{http_code}')
+  case "$auth" in
+    with-login) args+=(--user "$user:$password") ;;
+    wrong-login) args+=(--user "$user:not-$password") ;;
+  esac
+  if [ "$method" = "POST" ]; then
+    args+=(--header "Content-Type: application/json" --data '{"events":[]}')
+  fi
+  headers="$(curl "${args[@]}" "$base$path")"
+  status="${headers: -3}"
+  if grep -qi '^www-authenticate: *basic' <<<"$headers"; then
+    echo "$status gate"
+  else
+    echo "$status passed"
+  fi
+}
+
+expect() {
+  local description="$1" method="$2" path="$3" auth="$4" wanted="$5" got
+  got="$(probe "$method" "$path" "$auth")"
+  # $wanted is a pattern, e.g. "@(401|503) passed"
+  # shellcheck disable=SC2053
+  if [[ "$got" == $wanted ]]; then
+    echo "ok    $description: $got"
+  else
+    echo "FAIL  $description: got '$got', wanted '$wanted'"
+    failures=$((failures + 1))
+  fi
+}
+
+echo "Without a login"
+expect "web page" GET / no-login "401 gate"
+expect "API" GET /api/health no-login "401 gate"
+expect "API docs" GET /api/docs no-login "401 gate"
+expect "demo reset" POST /api/demo/reset no-login "401 gate"
+# The webhook passes the gate; the backend refuses the missing signature
+# (401, or 503 while LINE_MODE is not real)
+expect "LINE webhook" POST /api/line/webhook no-login "@(401|503) passed"
+expect "webhook with GET" GET /api/line/webhook no-login "401 gate"
+expect "path under the webhook" POST /api/line/webhook/x no-login "401 gate"
+expect "webhook with a suffix" POST /api/line/webhooks no-login "401 gate"
+expect "webhook with a trailing slash" POST /api/line/webhook/ no-login "401 gate"
+expect "webhook path without /api" POST /line/webhook no-login "401 gate"
+expect "internal route" POST /api/internal/merge-windows/close-due no-login "404 passed"
+
+echo "With the login"
+expect "web page" GET / with-login "200 passed"
+expect "API" GET /api/health with-login "200 passed"
+expect "internal route (exists in the backend)" POST /api/internal/merge-windows/close-due with-login "404 passed"
+expect "wrong password" GET /api/health wrong-login "401 gate"
+
+if [ "$failures" -ne 0 ]; then
+  echo "$failures check(s) failed"
+  exit 1
+fi
+echo "All checks passed"

@@ -1,0 +1,42 @@
+# Reverse proxy of the AWS test machine (round 3 PR D, docs/deploy-aws.md).
+#
+# One HTTPS site: the web pages at /, the API at /api (the prefix is stripped
+# before the backend sees the path). The browser calls the API on the same
+# origin, so it sends the Basic Auth login it already gave for the pages.
+#
+# Basic Auth covers every path except the LINE webhook, which the backend
+# guards with the LINE signature (docs/workflow.md 6.16; the gate is 6.17).
+# The exception is the exact path and method, never a prefix.
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_DOMAIN} {
+	encode gzip
+
+	# Evaluated top to bottom: the first matching handler answers
+	route {
+		# Only the job service calls these, inside the compose network
+		@internal path /api/internal /api/internal/*
+		respond @internal 404
+
+		@webhook {
+			method POST
+			path /api/line/webhook
+		}
+		handle @webhook {
+			uri strip_prefix /api
+			reverse_proxy backend:8000
+		}
+
+		basic_auth {
+			{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+		}
+
+		handle_path /api/* {
+			reverse_proxy backend:8000
+		}
+
+		reverse_proxy frontend:3000
+	}
+}
