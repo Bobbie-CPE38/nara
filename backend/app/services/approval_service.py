@@ -19,7 +19,6 @@ from app.db.models import (
     Shift,
     StaffingCase,
 )
-from app.domain.constraints.codes import HardRuleCode
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     ActorName,
@@ -36,23 +35,13 @@ from app.services import (
     audit_service,
     case_facts_service,
     hard_rule_service,
+    offer_conflict_service,
     outreach_service,
     policy_service,
     roster_service,
 )
 from app.services.wave_service import plan_items
 from app.workflow import orchestrator
-
-_SCHEDULING_RULES = frozenset(
-    {
-        HardRuleCode.ALREADY_ON_SHIFT,
-        HardRuleCode.SHIFT_CONFLICT,
-        HardRuleCode.INSUFFICIENT_REST,
-        HardRuleCode.DAILY_HOURS_EXCEEDED,
-        HardRuleCode.WEEKLY_HOURS_EXCEEDED,
-        HardRuleCode.CONSECUTIVE_SHIFTS_EXCEEDED,
-    }
-)
 
 
 class ApprovalNotFoundError(LookupError):
@@ -204,7 +193,14 @@ def decide(
     def prepare(db: Session, case: StaffingCase) -> None:
         if approved:
             assignment = roster_service.create_replacement(db, case, approval=request)
-            cancelled = _cancel_conflicting_offers(db, case, item, offers)
+            cancelled = offer_conflict_service.cancel_conflicting_offers(
+                db,
+                case=case,
+                assignment=assignment,
+                offers=offers,
+                actor_id=actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR),
+                source="APPROVAL",
+            )
             foreign_cases.update(row.case_id for row in cancelled)
             audit_service.log(
                 db,
@@ -341,38 +337,6 @@ def _decision_offer_query(case_id: int, staff_id: int) -> Select[CandidateOutrea
             )
         )
     )
-
-
-def _cancel_conflicting_offers(
-    db: Session, case: StaffingCase, item: CandidateItem, offers: list[CandidateOutreach]
-) -> list[CandidateOutreach]:
-    """After assignment, cancel foreign offers unsafe against the new roster.
-
-    This is not execution validation of the approved candidate (Q38). It checks
-    the other proposed shifts for overlap, rest, hours and consecutive shifts.
-    Safety's shared evaluator and current policy provide the exact semantics.
-    """
-    cancelled = []
-    for row in offers:
-        if row.case_id == case.id or row.status not in {
-            OutreachStatus.SENT,
-            OutreachStatus.ACCEPTED,
-        }:
-            continue
-        foreign_case = db.get(StaffingCase, row.case_id)
-        if foreign_case is None or foreign_case.status in AUTOMATION_STOPPED_STATUSES:
-            continue
-        candidate = db.get(CandidateItem, row.candidate_item_id)
-        assert candidate is not None and candidate.staff_id == item.staff_id
-        shift = db.get(Shift, candidate.proposed_shift_id)
-        if shift is None:
-            raise LookupError(f"No shift {candidate.proposed_shift_id}")
-        check = hard_rule_service.check_items(db, shift=shift, items=[candidate])[candidate.id]
-        if _SCHEDULING_RULES.intersection(check.result.failed_rules):
-            outreach_service.cancel_offer(db, row)
-            cancelled.append(row)
-    db.flush()
-    return cancelled
 
 
 def list_pending(db: Session) -> list[PendingApproval]:

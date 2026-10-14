@@ -46,6 +46,7 @@ from app.services import (
     actor_service,
     audit_service,
     gap_service,
+    handoff_service,
     policy_service,
     requirement_service,
     unavailability_service,
@@ -245,6 +246,9 @@ def close_locked_window(db: Session, shift: Shift) -> ClosedWindow | None:
             "headcount_gap": headcount_gap,
         },
     )
+    # The gap of the new case covers the whole shift, so it replaces a case a
+    # head nurse was still handling by hand (section 6.12, R2-Q19)
+    handoff_service.close_superseded(db, shift_id=shift.id, successor_case_id=case.id)
     # Commits the whole transaction, also when the round ends in FAILED (D11)
     orchestrator.advance(db, case.id)
     return ClosedWindow(

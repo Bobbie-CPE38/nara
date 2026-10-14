@@ -60,7 +60,7 @@ Contract ของรอบ 2 ตกลงแล้ว (PR #50) ไฟล์น�
 | T | คน 3 | Approval Timeout (Migration ตัวที่ 1) | 6.13 | #54 |
 | T2 | คน 1 | หน้า `approvals` แสดงเส้นตาย | 9.4 | #55 |
 | B | คน 2 | OR-Tools (Migration ตัวที่ 2) | 6.14 | #56 |
-| H | คน 1 | เส้นออกจาก `MANUAL_HANDOFF` (Migration ตัวที่ 3) | 6.12 | |
+| H | คน 1 | เส้นออกจาก `MANUAL_HANDOFF` (Migration ตัวที่ 3) | 6.12 | #57 |
 
 ลำดับ merge: 0 ก่อนทุกตัว, W ก่อน H, T ก่อน B ก่อน H ตามสาย Migration (`a4b8c2d6e9f1` → T → B → H), T2 หลัง T รายละเอียดอยู่ร่างรอบ 2 ข้อ 6 รอบ 2 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R2-Q10)
 
@@ -877,7 +877,7 @@ Offer มี Timeout ตามข้อนี้ ส่วนคำขออน�
 
 ### 6.12 เส้นออกจาก `MANUAL_HANDOFF`
 
-**[รอบ 2 · PR H]** ทั้งข้อนี้เป็นกติกาที่ตกลงแล้ว โค้ดที่มีแล้วคือเส้น T8 กับ T9 ใน `transitions.py`, ค่าใน `enums.py` และการตรวจหอของการอนุมัติ (PR W) ส่วนที่เหลือยังไม่มีโค้ด Test ที่เป็นเกณฑ์เสร็จอยู่ร่างรอบ 2 ข้อ 3.2
+**[รอบ 2 · PR H]** กติกาของข้อนี้มีโค้ดครบแล้วใน PR H: ตาราง `manual_assignment`, ตัวอ่านกลาง, `orchestrator.leave_handoff()`, ตัวยกเลิก Offer ที่ใช้ร่วม (`services/offer_conflict_service.py`), `services/handoff_service.py`, Route ในข้อ 9.4 และหน้า `/handoff` (`frontend/src/app/handoff/page.tsx`) Test อยู่ที่ `tests/integration/test_manual_handoff.py` และ `frontend/tests/unit/app/handoff.test.ts`
 
 **ใครกดได้**
 
@@ -931,6 +931,8 @@ Offer มี Timeout ตามข้อนี้ ส่วนคำขออน�
 **การเปลี่ยนสถานะและ Lock**
 
 * T8 และ T9 เปลี่ยนสถานะผ่าน Orchestrator เท่านั้น เพื่อให้ `assert_transition()` ตรวจ และ `CASE_STATUS_CHANGED` ยังมีผู้เขียนคนเดียว (ข้อ 7.2) `recompute()` ยังไม่แตะเคสที่ `MANUAL_HANDOFF` PR H เพิ่มทางเข้าใหม่ใน Orchestrator สำหรับสองเส้นนี้ และเขียน Signature ลงข้อ 6.2
+* Signature: `orchestrator.leave_handoff(db: Session, case_id: int, next_status: CaseStatus) -> StaffingCase` ล็อกเคส ตรวจว่าอยู่ `MANUAL_HANDOFF` และปลายทางเป็น `RESOLVED` หรือ `UNRESOLVED` เท่านั้น ไม่อย่างนั้นโยน `InvalidTransitionError` โดยไม่แตะเคส เขียน `CASE_STATUS_CHANGED` และ**ไม่ Commit** ไม่เดินรอบของ Handler ผู้เรียก Commit เอง ถ้าพังให้ Rollback เคสไม่เป็น `FAILED` เพราะ D11 ใช้กับรอบของ Workflow
+* T8 เขียน Audit `CASE_RESOLVED` (`assignment_ids` คือแถว Roster ที่ปิด Gap ทั้งจากการอนุมัติและจากการจัดเอง, `cancelled_outreach_ids` ว่าง) ก่อนเปลี่ยนสถานะ เหมือนเคสที่ปิดผ่าน `EXECUTING`
 * ผู้เรียกทางเข้านี้มีสามจุด: Route จัดคนเอง (T8 เมื่อ Gap ถูกปิด), Route ปิดเคสโดยไม่มีคนแทน (T9) และขั้นปิด Window เมื่อเคสใหม่ของเวรเปิด (T9 โดยระบบ) ทุกจุดเรียกใน Transaction เดียวกับงานของตัวเอง ไม่มี Handler และไม่มีจุดอื่นเดินสองเส้นนี้
 * เส้นทางจัดคนเองล็อกแถว `STAFF` ของคนที่ถูกเลือกแม้เขาไม่อยู่ใน Plan ตรวจซ้ำหลังได้ Lock และใช้ลำดับ Lock ของข้อ 6.11
 
@@ -1067,7 +1069,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 
 รหัส `reason` ของ `MANUAL_HANDOFF`: `NO_CANDIDATE_LEFT` (T5), `NO_FEASIBLE_PLAN` (T6) และ `SOLVER_TIMEOUT` (T6 เมื่อ Solver หมดเวลาโดยยังไม่มีแผน ข้อ 6.14 ตั้งแต่รอบ 2 PR B)
 
-* แถวที่มีป้าย **[รอบ 2]** ในตารางข้างบน: ค่าอยู่ใน `AuditAction` แล้วตั้งแต่ PR 0 ของรอบ 2; `APPROVAL_TIMEOUT` ถูกเขียนแล้วโดย PR T ส่วน Action ของ PR H ยังไม่มีผู้เขียน
+* แถวที่มีป้าย **[รอบ 2]** ในตารางข้างบน: มีผู้เขียนครบแล้ว `APPROVAL_TIMEOUT` เขียนโดย PR T ส่วน `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED` และ `OFFER_CANCELLED_BY_ASSIGNMENT` เขียนโดยส่วน Backend ของ PR H
 * ชื่อช่องของ `OFFER_CANCELLED_BY_ASSIGNMENT` ต้องเป็น `cancelled_outreach_id` ห้ามใช้ `cancelled_outreach_ids` หรือ `outreach_id` เพราะ `outreach_service._cancellation_reasons()` ใช้สองชื่อนั้นหาเหตุที่ยกเลิก และแถว Audit ล่าสุดชนะ ถ้าใช้ชื่อซ้ำ `cancellation_reason` ของรายการ Offer จะเปลี่ยนจาก `CONFLICTING_ASSIGNMENT` เป็น `CANCELLED` โดยไม่มี Error
 * `MANUAL_ASSIGNMENT_CREATED` ใช้ `cancelled_outreach_ids` เหมือน `ASSIGNMENT_CREATED` และ PR H ต้องเพิ่ม Action นี้ในตารางของ `_cancellation_reasons()` ให้ได้ `CONFLICTING_ASSIGNMENT`
 * `APPROVAL_TIMEOUT` มี `outreach_id` และ PR T ให้ `_cancellation_reasons()` คืน `APPROVAL_TIMEOUT` สำหรับ Offer นั้น
@@ -1518,9 +1520,11 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 
 | Route หรือหน้า | สิ่งที่เปลี่ยน | PR |
 |---|---|---|
-| `GET /cases?status=MANUAL_HANDOFF,FAILED` (ใหม่) | รายการเคสที่รอรับช่วง คืนเฉพาะเคสของหอที่ผู้เรียกเป็น Head Nurse เคส `FAILED` อยู่ในรายการแต่กดจัดการไม่ได้ ผลเมื่อไม่ส่ง `status` กำหนดใน PR H | H |
-| Route จัดคนเอง และ Route ปิดเคสโดยไม่มีคนแทน (ใหม่) | Path และรูปของคำขอยังไม่ได้ตั้ง PR H ตั้งแล้วเขียนลงข้อนี้ ผู้เรียกที่ไม่ใช่ Head Nurse ของหอเดียวกับเวรได้ `403` การจัดที่ไม่ผ่าน Hard Rules ถูกปฏิเสธพร้อมรหัสกฎ | H |
-| หน้า `/handoff` (ใหม่) | รายการเคส, รายการคนให้เลือกพร้อมรหัสกฎที่ทำให้จัดไม่ได้ของแต่ละคน, คำเตือนเมื่อคนที่เลือกมี Offer ค้างในเคสอื่น, ช่องเหตุผลของการปิดเคส เจ้าของหน้าคือคน 1 | H |
+| `GET /cases?status=MANUAL_HANDOFF,FAILED` (ใหม่, ต้องมี `X-Demo-User`) | คืน List ของ `{id, status, shift_id, ward_id, required_replacement_time, created_at, headcount_gap, assigned_count, can_manage}` เรียงตาม `id` เฉพาะเคสของหอที่ผู้เรียกเป็น Head Nurse `headcount_gap` เป็น `null` เมื่อเคสยังไม่มีแถว Gap `can_manage` เป็นจริงเฉพาะ `MANUAL_HANDOFF` `status` เป็นค่าบังคับ รับทั้งแบบคั่นจุลภาคและแบบส่งซ้ำ ไม่ส่งหรือค่าที่ไม่ใช่ `CaseStatus` ได้ `422` ผู้เรียกที่ไม่ใช่ Head Nurse ได้ `403` Head Nurse ของหออื่นได้ List ว่าง | H (ทำแล้ว) |
+| `GET /cases/{id}/handoff/candidates` (ใหม่) | พนักงาน Active ของหอของเวร `{staff_id, first_name, last_name, role_id, role_name, blocking_rules, other_case_ids}` `blocking_rules` คือรหัส Hard Rules ที่ไม่ผ่านตอนอ่าน (ไม่ล็อก) `other_case_ids` คือเคสที่กำลังเดินซึ่งคนนั้นมี Offer ที่ยังมีผล `404` / `403` ตามลำดับ | H (ทำแล้ว) |
+| `POST /cases/{id}/handoff/assignments` (ใหม่) | Body `{staff_id, reason?, confirm_conflicts?}` คืน `{manual_assignment_id, assignment_id, staff_id, case_id, case_status, cancelled_outreach_ids}` ลำดับ Error: `404` เคสไม่มี → `403` Role หรือหอ → `409` เคสไม่อยู่ `MANUAL_HANDOFF` → `422` คนที่ไม่ใช่พนักงาน Active ของหอ → `409` ไม่ผ่าน Hard Rules (`detail = {code: "HARD_RULES_FAILED", message, failed_rules}`) → `422` เหตุผลยาวเกิน 500 → `409` มี Offer ในเคสอื่นที่ขัดและยังไม่ส่ง `confirm_conflicts: true` (`detail = {code: "CONFLICTING_OFFERS", message, case_ids}`) | H (ทำแล้ว) |
+| `POST /cases/{id}/handoff/close` (ใหม่) | Body `{reason}` คืน `{case_id, case_status}` ลำดับ Error: `404` → `403` → `409` เคสไม่อยู่ `MANUAL_HANDOFF` → `422` เหตุผลว่างหรือยาวเกิน 500 | H (ทำแล้ว) |
+| หน้า `/handoff` (ใหม่) | ทำในชื่อ Head Nurse 900 รายการเคสจาก `GET /cases?status=MANUAL_HANDOFF,FAILED` เคส `FAILED` แสดงว่าจัดการไม่ได้ กด Manage แล้วเห็นพนักงานของหอพร้อมเหตุที่จัดไม่ได้ (รหัสกฎแปลเป็นข้อความ) ปุ่ม Assign ของคนที่ติดกฎกดไม่ได้ ช่องหมายเหตุไม่บังคับ เมื่อได้ `CONFLICTING_OFFERS` แสดงคำเตือนพร้อมเลขเคสและปุ่มยืนยันที่ส่ง `confirm_conflicts: true` เมื่อได้ `HARD_RULES_FAILED` แสดงกฎที่ติด ช่องเหตุผลของการปิดเคสบังคับ ไม่เกิน 500 ตัวอักษร ส่งค่าที่ตัดช่องว่างแล้ว ลิงก์ "Handoff" อยู่ในแถบเมนู | H (ทำแล้ว) |
 | `POST /approvals/{id}/decision` | ผู้กดที่ไม่ใช่ Head Nurse ของหอเดียวกับเวรได้ `403` พร้อม `detail` บอกเหตุ | W (ทำแล้ว) |
 | `POST /approvals/{id}/decision` | กดเมื่อ `clock.now() >= expires_at` ได้ `409` | T |
 | `GET /approvals` | เพิ่มเส้นตายของคำขอ (`expires_at`) | T |
@@ -1741,3 +1745,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-13 | ตามรีวิว PR W: การอ่าน `SHIFT` ใน `_lock_decision()` ใช้ `populate_existing` เหมือนการอ่านตัวอื่นในฟังก์ชัน เพื่อไม่ให้ได้ `ward_id` ค่าเก่าจาก Session; เพิ่ม Test ว่าหน้า `approvals` แสดงข้อความของ `403` เมื่อ Head Nurse ต่างหอกด; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-14 | รอบ 2 PR T2: หน้า `approvals` เพิ่มคอลัมน์ "Decide by" แสดงเส้นตายของคำขอ (`expires_at` จาก `GET /approvals` ของ PR T) (R2-Q30); ข้อ 9.4 แก้ตาม; ไม่แตะ Backend | คน 1 |
 | 2026-10-14 | รอบ 2 PR B: Solver เลือกกลุ่มของ Wave แรกด้วยโมเดล CP-SAT ของ OR-Tools แทนการค้นแบบตัดกิ่ง (ข้อ 6.14) สามขั้น คือคะแนนต่ำสุด จำนวนคนน้อยสุด แล้วชุด `staff_id` น้อยสุด คะแนนคูณสเกลด้วย LCM ของตัวส่วน ไม่ปัดเศษ; `solve()` รับ `time_limit_seconds` และ `SolverResult` มี `status`; เพิ่ม `SOFT_CONSTRAINT_POLICY.solver_time_limit_seconds` (Seed = 3, Migration `c9e4a7b2d5f8` ต่อจาก `b7d2f8a1c6e4`); `CANDIDATE_PLANS.solver_status` มาจาก Solver (Golden Path เป็น `OPTIMAL`), `UNKNOWN` พาเคสไป `MANUAL_HANDOFF` ด้วยเหตุผล `SOLVER_TIMEOUT`, `MODEL_INVALID` และตัวเลขที่ใหญ่เกินทำให้เคสเป็น `FAILED`; `SOLVER_VERSION` = `"cp-sat-v1"`; การค้นของรอบ 1 ย้ายไปเป็นตัวเทียบใน Test และผลที่ PR A บันทึกไว้ยังตรงครบ 229 โจทย์; เพิ่ม `tests/perf` และ Workflow `Solver timing` สำหรับวัดเวลา ผลวัดอยู่ร่างรอบ 2 ข้อ 4.8; เพิ่ม Dependency `ortools` ทุกคนต้องสร้าง container ของ Backend ใหม่ | คน 2 |
+| 2026-10-14 | รอบ 2 PR H: ตาราง `manual_assignment` (Migration `b7d3e5a1c9f2` ต่อจากของ PR B), ตัวอ่านกลางนับคนที่จัดเอง, `orchestrator.leave_handoff()` สำหรับ T8 และ T9, ตัวยกเลิก Offer ที่ใช้ร่วมกับการอนุมัติ (ไม่แตะ Offer `SENT` ที่เลยเส้นตาย และเขียน `OFFER_CANCELLED_BY_ASSIGNMENT` ในเคสที่เสีย Offer), Route สี่ตัวในข้อ 9.4, เคสใหม่ของเวรปิดเคสเดิมที่ `MANUAL_HANDOFF`, หน้า `/handoff` และลิงก์ในแถบเมนู; ข้อ 6.12, 7.1 และ 9.4 แก้ตาม | คน 1 |

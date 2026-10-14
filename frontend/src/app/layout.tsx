@@ -28,6 +28,9 @@ export default function RootLayout({
           <Link href="/approvals" className="text-blue-700 underline">
             Approvals
           </Link>
+          <Link href="/handoff" className="text-blue-700 underline">
+            Handoff
+          </Link>
           <Link href="/demo/line-sim" className="text-blue-700 underline">
             LINE simulator
           </Link>

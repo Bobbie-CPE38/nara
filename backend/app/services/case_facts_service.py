@@ -13,7 +13,9 @@ and recheck before writing.
 Who counts, per candidate (workflow.md section 4.1):
   * assigned: the approval request of the case is approved AND the candidate
     holds a replacement roster row on the proposed shift that is ASSIGNED or
-    COMPLETED.
+    COMPLETED. Or a head nurse assigned the person to this case by hand: a
+    MANUAL_ASSIGNMENT row of the case whose roster row is ASSIGNED or COMPLETED
+    (section 6.12). A cancelled manual assignment stops counting.
   * pending: the approval request is pending AND its specific offer is still an
     ACCEPTED offer. Cancelled offers cannot reserve gap coverage.
   * open offer: unexpired SENT; the candidate is not waiting on another case.
@@ -38,6 +40,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    ManualAssignment,
     RosterAssignment,
     SafetyValidation,
     Staff,
@@ -256,7 +259,7 @@ def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:
         RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
         RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
     )
-    return set(
+    approved = set(
         db.scalars(
             select(CandidateItem.staff_id)
             .join(ApprovalRequest, ApprovalRequest.candidate_item_id == CandidateItem.id)
@@ -265,6 +268,22 @@ def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:
                 ApprovalRequest.is_pending.is_(False),
                 ApprovalRequest.is_approved.is_(True),
                 on_roster,
+            )
+        )
+    )
+    return approved | _manually_assigned_staff_ids(db, case_id)
+
+
+def _manually_assigned_staff_ids(db: Session, case_id: int) -> set[int]:
+    """People a head nurse put on the shift for this case, while the roster row stands."""
+    return set(
+        db.scalars(
+            select(RosterAssignment.staff_id)
+            .join(ManualAssignment, ManualAssignment.roster_assignment_id == RosterAssignment.id)
+            .where(
+                ManualAssignment.case_id == case_id,
+                RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
+                RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
             )
         )
     )
