@@ -4,7 +4,7 @@
 > ถ้าจะเปลี่ยนอะไรในไฟล์นี้ แจ้งทั้งทีมก่อน และแก้ใน PR เดียวกับโค้ดที่เกี่ยวข้อง
 >
 > ขอบเขต: Walking Skeleton, รอบ 1 (Merge Gap, เคสรับหลายคน, Wave) และรอบ 2 (เส้นออกจาก `MANUAL_HANDOFF`, Timeout ของการอนุมัติ, OR-Tools) ทั้งสามช่วงเสร็จแล้ว
-> อัปเดตล่าสุด: 2026-10-13
+> อัปเดตล่าสุด: 2026-10-14
 
 ## สถานะของรอบ 1
 
@@ -85,10 +85,10 @@ Contract ของรอบ 2 ตกลงแล้ว (PR #50) ไฟล์น�
 | ตัวอ่านจับคู่ด้วย `outreach_id` และแถวของรอบแรกไม่มีผลกับรอบที่สอง | T | `test_approval_timeout.py` (`test_full_retry_gets_fresh_safety_and_request_and_can_be_approved`, `test_second_timeout_has_no_third_offer`) |
 | Migration หยุดเมื่อเคสกับ Item หนึ่งคู่มี Offer มากกว่าหนึ่งแถว และ Job เขียนผลหมดเวลาเฉพาะคำขอที่ยังกดตัดสินได้ | T | `test_approval_timeout_migration.py`, `test_approval_timeout.py` (`test_inactive_history_is_not_expired`) |
 | `cancellation_reason` เป็น `APPROVAL_TIMEOUT` เมื่อคำขอหมดเวลา | T | `test_approval_timeout.py` (`test_timeout_audit_stage_and_offer_reason_are_distinct_from_rejection`) |
-| ช่องของ `OFFER_CANCELLED_BY_ASSIGNMENT` และ `cancellation_reason` ยังเป็น `CONFLICTING_ASSIGNMENT` ทั้งสองเส้นทาง | H | `test_manual_handoff.py` |
-| ตัวยกเลิก Offer ไม่แตะ Offer `SENT` ที่เลยเส้นตาย ทั้งเส้นทางจัดคนเองและเส้นทางอนุมัติ | H | `test_manual_handoff.py` |
-| การจัดคนเองถูกปฏิเสธเมื่อไม่ผ่าน Hard Rules ข้อใดข้อหนึ่ง และเวรที่จัดเองถูกนับว่าปิด Gap | H | `test_manual_handoff.py` |
-| ผู้กดที่ไม่ใช่ Head Nurse ของหอเดียวกับเวรได้ `403` | W และ H | `test_approval_decision.py`, `test_manual_handoff.py` |
+| ช่องของ `OFFER_CANCELLED_BY_ASSIGNMENT` และ `cancellation_reason` ยังเป็น `CONFLICTING_ASSIGNMENT` ทั้งสองเส้นทาง | H | `test_manual_handoff.py` (`test_confirming_cancels_the_clashing_offer_and_says_why_in_its_case`, `test_an_approval_uses_the_same_rules_for_offers_elsewhere`) |
+| ตัวยกเลิก Offer ไม่แตะ Offer `SENT` ที่เลยเส้นตาย ทั้งเส้นทางจัดคนเองและเส้นทางอนุมัติ | H | `test_manual_handoff.py` (`test_an_overdue_offer_is_left_for_the_timeout_job`, `test_an_approval_uses_the_same_rules_for_offers_elsewhere`) |
+| การจัดคนเองถูกปฏิเสธเมื่อไม่ผ่าน Hard Rules ข้อใดข้อหนึ่ง และเวรที่จัดเองถูกนับว่าปิด Gap | H | `test_manual_handoff.py` (`test_a_person_already_on_the_shift_is_refused_whatever_the_reason`, `test_each_fatigue_rule_refuses_the_assignment`, `test_a_person_outside_the_plan_counts_toward_the_gap`, `test_an_approved_replacement_and_a_manual_one_close_the_gap_together`) |
+| ผู้กดที่ไม่ใช่ Head Nurse ของหอเดียวกับเวรได้ `403` | W และ H | `test_approval_decision.py` (`test_head_nurse_of_another_ward_is_403_before_pending_and_answer`), `test_manual_handoff.py` (`test_only_a_head_nurse_of_the_shifts_ward_may_assign`) |
 | สถานะของ Solver แต่ละค่าพาเคสไปสถานะที่ถูก และผล `OPTIMAL` เท่ากับ Solver รอบ 1 | B | `tests/unit/optimization/test_solver_stages.py`, `test_optimize.py` และ Test ที่ PR A ตรึงไว้ |
 
 ---
@@ -874,7 +874,15 @@ Offer มี Timeout ตามข้อนี้ ส่วนคำขออน�
 * **จัดคนเองจาก `MANUAL_HANDOFF`:** สร้าง Roster และอาจยกเลิก Offer ของคนที่ถูกเลือกในเคสอื่น จึงใช้ลำดับเดียวกับการตัดสินอนุมัติ: `SHIFT` → Offer ที่ยังไม่จบของคนนั้นในเคสอื่น → เคส → แถว `STAFF` ของคนที่ถูกเลือก ซึ่งต้องล็อกแม้เขาไม่อยู่ใน Plan แล้วตรวจ Hard Rules ซ้ำหลังได้ Lock (ข้อ 6.12)
 * **คำขออนุมัติหมดเวลา (Job):** ยกเลิก Offer และอาจทำให้เคสส่ง Wave ถัดไป จึงใช้ลำดับของการตัดสินอนุมัติ
 * **Solver:** `create_plan()` ยังล็อก `STAFF` ของทั้ง Pool ก่อนตรวจกติกาและถือจน Commit เพดานเวลาของ Solver จำกัดเวลาค้น ไม่ได้จำกัดเวลาที่ถือ Lock นี้ (ข้อ 6.14)
-* ลำดับ Lock ในข้อนี้ยังเป็นการวิเคราะห์ ไม่มี Test พิสูจน์ PR ที่ลงมือเส้นทางนั้นต้องมี Test สอง Connection อย่างน้อยสี่กรณี: สองคนตอบรับเคสเดียวกันพร้อมกัน, คนเดียวตอบรับสองเคสพร้อมกัน, ตอบรับกับอนุมัติคนสุดท้ายพร้อมกัน, สองเคสที่ใช้ผู้สมัครชุดเดียวกันตอบ Offer แล้วส่ง Wave ถัดไปพร้อมกัน (รายการ Test อยู่ร่างรอบ 1 ข้อ 9.2)
+* ลำดับ Lock ในข้อนี้มี Test สอง Connection พิสูจน์ทุกเส้นทางที่ลงมือแล้ว (ใน `backend/tests/integration/`):
+  * สองคนตอบรับเคสเดียวกันพร้อมกัน: `test_outreach_response.py::test_two_staff_accept_same_case_concurrently_one_is_reserve`
+  * คนเดียวตอบรับสองเคสพร้อมกัน: `test_outreach_response.py::test_simultaneous_accepts_only_one_commitment`
+  * ตอบรับกับอนุมัติคนสุดท้ายพร้อมกัน: `test_approval_per_candidate.py::test_accept_racing_last_approval_never_overassigns_or_deadlocks`
+  * สองเคสที่ใช้ผู้สมัครชุดเดียวกันตอบ Offer แล้วส่ง Wave ถัดไปพร้อมกัน: `test_outreach_response.py::test_rejecting_shared_pool_cases_concurrently_sends_next_waves`
+  * Offer หมดเวลาแข่งกับ Job อีกตัวหรือกับการตอบ: `test_offer_timeout.py::test_two_jobs_or_response_racing_expiry_never_duplicate_outcomes`
+  * คำขออนุมัติหมดเวลาแข่งกับการกดตัดสิน (รอบ 2 PR T): `test_approval_timeout.py::test_two_connections_expire_once_and_never_assign_after_deadline`
+  * การจัดคนเองแข่งกับการอนุมัติคนเดียวกัน และแข่งกับการเปิดเคสใหม่ของเวร (รอบ 2 PR H): `test_manual_handoff.py::test_manual_assignment_racing_an_approval_never_gives_two_shifts`, `test_manual_handoff.py::test_manual_assignment_racing_a_successor_case_ends_in_one_consistent_state`
+  * Solver ของ PR B ถือ Lock เดิมของ `create_plan()` ไม่มีเส้นทาง Lock ใหม่ จึงไม่มี Test สอง Connection ของตัวเอง
 
 ### 6.12 เส้นออกจาก `MANUAL_HANDOFF`
 
@@ -1515,7 +1523,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 * Route / `roster_service.get_shift_roster()` ไม่เขียน DB, Audit, Commit, Explicit Flush และไม่ล็อกแถว จึงไม่ขวางการรับ Event
   อ่านได้เฉพาะข้อมูลที่ Commit แล้ว แถวของผู้มาแทนจึงปรากฏพร้อมกับเคสเป็น `RESOLVED`
 
-### 9.4 API และหน้าเว็บที่รอบ 2 จะเปลี่ยน
+### 9.4 API และหน้าเว็บที่รอบ 2 เปลี่ยน
 
 ทุกแถวทำแล้วในรอบ 2 (PR W, T, T2 และ H) ข้อนี้เก็บไว้เป็นรายการว่ารอบ 2 เปลี่ยน API และหน้าเว็บตรงไหนบ้าง
 
@@ -1749,3 +1757,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | รอบ 2 PR H: ตาราง `manual_assignment` (Migration `b7d3e5a1c9f2` ต่อจากของ PR B), ตัวอ่านกลางนับคนที่จัดเอง, `orchestrator.leave_handoff()` สำหรับ T8 และ T9, ตัวยกเลิก Offer ที่ใช้ร่วมกับการอนุมัติ (ไม่แตะ Offer `SENT` ที่เลยเส้นตาย และเขียน `OFFER_CANCELLED_BY_ASSIGNMENT` ในเคสที่เสีย Offer), Route สี่ตัวในข้อ 9.4, เคสใหม่ของเวรปิดเคสเดิมที่ `MANUAL_HANDOFF`, หน้า `/handoff` และลิงก์ในแถบเมนู; ข้อ 6.12, 7.1 และ 9.4 แก้ตาม | คน 1 |
 | 2026-10-14 | ตามรีวิว PR H: การจัดคนเองตอบผลที่ Commit แล้วแม้การแจ้งเคสอื่นหลัง Commit จะพัง (บันทึกใน log แล้วให้ Job เก็บตก เหมือน PR T); รายการเคสอ่านจำนวนคนที่ได้เข้าเวรและ Gap ของทุกเคสในจำนวนคำสั่งคงที่ ผ่าน `case_facts_service.assigned_staff_ids_by_case()` ซึ่งเป็นตัวอ่านตัวเดียวกับ `assigned_staff_ids()`; หน้า `/handoff` ไม่แสดงรายชื่อของเคสที่ตอบช้ากว่าเคสที่เลือกอยู่, อ่านข้อความของ Error แบบ List และแจ้งเมื่อเคสที่จัดการอยู่ถูกคนอื่นจัดหรือปิดไปแล้ว | คน 1 |
 | 2026-10-14 | ปิดรอบ 2: ส่วน "สถานะของรอบ 2" บอกว่าเสร็จแล้ว และตารางข้อกำหนดที่เคยยังไม่มี Test เปลี่ยนเป็นตารางที่ชี้ไฟล์ Test ของแต่ละข้อ (ตรวจแล้วว่ามีครบ); ลบป้าย "[รอบ 2 · PR X]" ที่แปลว่ายังไม่มีโค้ดออกทั้งหมด ที่มาของแต่ละกติกาดูจากตาราง "สถานะของรอบ 2"; ข้อ 4 แถว `UNRESOLVED`, ข้อ 7.1, ข้อ 9.4 และข้อ 12 แก้ตาม; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
+| 2026-10-14 | ตามรีวิว PR ปิดรอบ 2: วันที่อัปเดตบนสุดเป็น 2026-10-14; หัวข้อ 9.4 เป็นอดีต; หมายเหตุลำดับ Lock ในข้อ 6.11 ที่เขียนว่ายังไม่มี Test เปลี่ยนเป็นรายการ Test สอง Connection ของแต่ละกรณี ทั้งของรอบ 1 และรอบ 2; ตาราง Test ของ PR H ระบุชื่อฟังก์ชัน | คน 1 |

@@ -11,7 +11,14 @@
 > * `d5e8f20b63a4` แทน Snapshot สองคอลัมน์นั้นด้วย `STAFFING_GAP.effective_minimum` (รอบ 1 PR 1b ไม่ Backfill ให้ `make reset`)
 > * `e1f5a8b3c6d2` (รอบ 1 PR 1a) เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_consecutive_shifts` พร้อม CHECK (Backfill Policy เดิม = 7) และ CHECK ของ `ATTENDANCE.overtime_minutes`
 > * `d91a6c8e203f` เพิ่ม `OUTREACH_POLICY` และ CHECK เพดาน Offer มากกว่า 0 (PR 1c; Migration สร้างตารางว่าง ต้อง `make reset` เพื่อโหลด Policy ของ Demo)
+> * `f2a6b9c4d7e1` (รอบ 1 PR M) คอลัมน์ของ Merge Gap เช่น `SHIFT.merge_window_seconds`, `STAFFING_EVENTS.case_id` และ `AUDIT_LOG.event_id` รายการครบอยู่ในไฟล์ Migration
 > * `f3a7c1d9e5b2` (รอบ 1 PR 2a) เพิ่มตาราง `CANDIDATE_ITEM_TARGET` พร้อม CHECK สองข้อ, `CANDIDATE_ITEMS.working_time_snapshot_id` และ `SOFT_CONSTRAINT_POLICY.candidate_source_weight` (Backfill Policy เดิม = 200)
+> * `a4b8c2d6e9f1` (รอบ 1 PR O) `OUTREACH_POLICY.offer_timeout_seconds` และ `CANDIDATE_OUTREACH.expires_at`
+> * `b7d2f8a1c6e4` (รอบ 2 PR T) `APPROVAL_POLICY.approval_timeout_seconds`, เส้นตายและ `outreach_id` ของ `APPROVAL_REQUEST`, `SAFETY_VALIDATION.outreach_id`
+> * `c9e4a7b2d5f8` (รอบ 2 PR B) `SOFT_CONSTRAINT_POLICY.solver_time_limit_seconds`
+> * `b7d3e5a1c9f2` (รอบ 2 PR H) ตาราง `MANUAL_ASSIGNMENT` (ข้อ 31)
+>
+> **Migration head ปัจจุบัน: `b7d3e5a1c9f2`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
