@@ -1,7 +1,7 @@
 """
 Workflow orchestrator (docs/workflow.md, sections 5 and 6.2).
 
-The only code that changes STAFFING_CASES.status (D3). Three entry points:
+The only code that changes STAFFING_CASES.status (D3). Four entry points:
 
   * `advance(db, case_id)` runs handlers from the case's current status until
     it reaches a wait point or a status where automation stops.
@@ -11,6 +11,9 @@ The only code that changes STAFFING_CASES.status (D3). Three entry points:
   * `recompute(db, case_id)` leaves a wait point for the status computed from
     the remaining gap and the open offers (section 5.3), then continues like
     `advance()`. The caller does not name the next status.
+  * `leave_handoff(db, case_id, next_status)` takes T8 or T9 out of
+    MANUAL_HANDOFF (section 6.12). No handler runs and it does not commit:
+    the caller's transaction owns the change.
 
 Rules:
   * Every status change is checked against ALLOWED_TRANSITIONS and writes one
@@ -176,6 +179,36 @@ def recompute(
 
     _run_round(db, case, before=before)
     return case.status
+
+
+def leave_handoff(db: Session, case_id: int, next_status: CaseStatus) -> StaffingCase:
+    """Take a MANUAL_HANDOFF case to RESOLVED (T8) or UNRESOLVED (T9); no commit.
+
+    Callers: the manual assignment route once the gap is closed (T8), the route
+    that closes a case without a replacement (T9), and the window-close step
+    when a successor case opens for the shift (T9). Handlers and `recompute()`
+    never take these edges.
+
+    Unlike the other entry points this neither runs a round nor commits: both
+    targets are terminal, so nothing follows, and the caller writes its own rows
+    in the same transaction. A failure propagates to the caller, which rolls
+    back; the case does not become FAILED (D11 is for workflow rounds).
+
+    Raises InvalidTransitionError, without touching the case, when it is not at
+    MANUAL_HANDOFF or the target is not one of the two exits.
+    """
+    case = _load_for_update(db, case_id)
+    if case.status is not CaseStatus.MANUAL_HANDOFF:
+        raise InvalidTransitionError(
+            f"Case {case.id} is {case.status.value}, not MANUAL_HANDOFF: cannot leave handoff"
+        )
+    if next_status not in {CaseStatus.RESOLVED, CaseStatus.UNRESOLVED}:
+        raise InvalidTransitionError(
+            f"Case {case.id} cannot leave MANUAL_HANDOFF for {next_status.value}"
+        )
+    assert_transition(case.status, next_status)
+    _change_status(db, case, next_status)
+    return case
 
 
 def _apply_computed_status(db: Session, case: StaffingCase) -> None:

@@ -447,7 +447,16 @@ def test_due_timeouts_release_queued_window_in_same_tick(client, production_seed
     window = closed.json()["closed_windows"][0]
     assert window["event_ids"] == [queued.json()["event_id"]]
     assert window["case_id"] != first.json()["case_id"]
-    assert db.get(StaffingCase, first.json()["case_id"]).status == CaseStatus.MANUAL_HANDOFF
+    # The new case covers the whole shift, so it replaces the stopped one (R2-Q19)
+    assert db.get(StaffingCase, first.json()["case_id"]).status == CaseStatus.UNRESOLVED
+    closing = db.scalars(
+        select(AuditLog).where(
+            AuditLog.case_id == first.json()["case_id"],
+            AuditLog.action == AuditAction.CASE_CLOSED_UNRESOLVED,
+        )
+    ).one()
+    assert closing.payload["closed_by"] == "SUCCESSOR_CASE"
+    assert closing.payload["successor_case_id"] == window["case_id"]
     fresh = list(
         db.scalars(select(CandidateOutreach).where(CandidateOutreach.case_id == window["case_id"]))
     )

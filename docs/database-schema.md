@@ -614,7 +614,7 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | :-- | :-- | :-- | :-- | :-- | :-- |
 | `SOFT_CONSTRAINT_POLICY` | `solver_time_limit_seconds` | integer | NOT NULL | Seed = 3 งบเวลารวมของ `solve()` หนึ่งครั้ง | B |
 
-ตารางใหม่ `MANUAL_ASSIGNMENT` (PR H) หนึ่งแถวต่อการที่ Head Nurse จัดคนหนึ่งคนเข้าเวรของเคสที่อยู่ `MANUAL_HANDOFF`
+ตาราง `MANUAL_ASSIGNMENT` (PR H, **มี Migration แล้ว** `b7d3e5a1c9f2`) หนึ่งแถวต่อการที่ Head Nurse จัดคนหนึ่งคนเข้าเวรของเคสที่อยู่ `MANUAL_HANDOFF`
 
 | Field | Type | Null | Key | หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |

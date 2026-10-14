@@ -191,6 +191,8 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
                     AuditAction.CASE_RESOLVED: "CASE_RESOLVED",
                     AuditAction.MANUAL_HANDOFF: "MANUAL_HANDOFF",
                     AuditAction.ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
+                    # A head nurse assigned the person by hand (section 6.12)
+                    AuditAction.MANUAL_ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
                 }.get(row.action, "CANCELLED")
             elif payload.get("outreach_id") == outreach_id:
                 if row.action == AuditAction.APPROVAL_TIMEOUT:
