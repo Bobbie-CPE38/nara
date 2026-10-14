@@ -263,6 +263,8 @@ class EntityType(StrEnum):
     STAFF_UNAVAILABILITY = "STAFF_UNAVAILABILITY"
     SHIFT = "SHIFT"
     STAFFING_REQUIREMENTS = "STAFFING_REQUIREMENTS"
+    # Round 3 PR K: linking and unlinking a LINE account. Not written yet
+    CONTACTS = "CONTACTS"
 
 
 class AuditAction(StrEnum):
@@ -286,6 +288,8 @@ class AuditAction(StrEnum):
     OFFER_TIMEOUT = "OFFER_TIMEOUT"
     # Round 2, in the case that lost the offer to another case. Not written yet
     OFFER_CANCELLED_BY_ASSIGNMENT = "OFFER_CANCELLED_BY_ASSIGNMENT"
+    # Round 3 PR L: LINE could not deliver the offer; the offer becomes FAILED. Not written yet
+    OFFER_DELIVERY_FAILED = "OFFER_DELIVERY_FAILED"
     SAFETY_PASSED = "SAFETY_PASSED"
     SAFETY_FAILED = "SAFETY_FAILED"
     APPROVAL_REQUESTED = "APPROVAL_REQUESTED"
@@ -299,6 +303,9 @@ class AuditAction(StrEnum):
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
     UNAVAILABILITY_UPDATED = "UNAVAILABILITY_UPDATED"
+    # Round 3 PR K: a staff member's LINE account. Not written yet
+    LINE_ACCOUNT_LINKED = "LINE_ACCOUNT_LINKED"
+    LINE_ACCOUNT_UNLINKED = "LINE_ACCOUNT_UNLINKED"
     # Event side effects written when a merge window closes
     ASSIGNMENT_CANCELLED = "ASSIGNMENT_CANCELLED"
     PATIENT_COUNT_UPDATED = "PATIENT_COUNT_UPDATED"
