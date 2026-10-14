@@ -49,7 +49,7 @@
 
 Contract ของรอบ 2 ตกลงแล้ว (PR #50) ไฟล์นี้รับเฉพาะกติกาที่ข้ามคน ส่วน Spec เต็มของรอบ รวมการออกแบบข้างในของ OR-Tools อยู่ที่ `docs/round2/round2-contract-draft.md` (ในไฟล์นี้เรียกว่า "ร่างรอบ 2") รอบ 2 ไม่มีไฟล์ Spec แยกรายคน (R2-Q38) เลข R2-Q ที่อ้างในไฟล์นี้คือคำถามในร่างรอบ 2 ข้อ 7
 
-**โค้ดของรอบ 2 ยังเข้าไม่ครบ** PR 0 ของรอบ 2 เพิ่มแค่เส้น T8 กับ T9 ใน `transitions.py` และค่าใหม่ใน `enums.py` ไม่เปลี่ยนพฤติกรรมของระบบ ข้อความในไฟล์นี้ที่ขึ้นต้นด้วย **[รอบ 2]** คือกติกาที่ตกลงแล้วแต่โค้ดยังไม่ทำตาม จนกว่า PR ที่ระบุจะ merge PR T ทำแล้วใน branch นี้: การหมดเวลาคำขอ การกลับเข้าคิวหนึ่งครั้ง และการอ่านตาม Offer PR W เข้าแล้ว (#53) และ PR B ทำแล้วใน branch นี้: Solver แบบ OR-Tools ตามข้อ 6.14 ส่วน PR T2 และ H ยังไม่เข้า ข้อความที่ไม่มีป้ายนี้ยังตรงกับโค้ดปัจจุบัน
+**โค้ดของรอบ 2 ยังเข้าไม่ครบ** PR 0 ของรอบ 2 เพิ่มแค่เส้น T8 กับ T9 ใน `transitions.py` และค่าใหม่ใน `enums.py` ไม่เปลี่ยนพฤติกรรมของระบบ ข้อความในไฟล์นี้ที่ขึ้นต้นด้วย **[รอบ 2]** คือกติกาที่ตกลงแล้วแต่โค้ดยังไม่ทำตาม จนกว่า PR ที่ระบุจะ merge PR T ทำแล้วใน branch นี้: การหมดเวลาคำขอ การกลับเข้าคิวหนึ่งครั้ง และการอ่านตาม Offer PR W เข้าแล้ว (#53) และ PR B ทำแล้วใน branch นี้: Solver แบบ OR-Tools ตามข้อ 6.14 PR T2 เข้าแล้ว (#55) ส่วน PR H ยังไม่เข้า ข้อความที่ไม่มีป้ายนี้ยังตรงกับโค้ดปัจจุบัน
 
 | PR ของรอบ 2 | ใคร | เรื่อง | ข้อของไฟล์นี้ | PR บน GitHub |
 |---|---|---|---|---|
@@ -58,7 +58,7 @@ Contract ของรอบ 2 ตกลงแล้ว (PR #50) ไฟล์น�
 | 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, Transition T8 และ T9, ค่าใหม่ใน Enum | 4, 5.1, 6.12 ถึง 6.14, 7.1, 9.4 | #52 |
 | W | คน 1 | การอนุมัติจำกัดหอ | 6.12 | #53 |
 | T | คน 3 | Approval Timeout (Migration ตัวที่ 1) | 6.13 | #54 |
-| T2 | คน 1 | หน้า `approvals` แสดงเส้นตาย | 9.4 | |
+| T2 | คน 1 | หน้า `approvals` แสดงเส้นตาย | 9.4 | #55 |
 | B | คน 2 | OR-Tools (Migration ตัวที่ 2) | 6.14 | #56 |
 | H | คน 1 | เส้นออกจาก `MANUAL_HANDOFF` (Migration ตัวที่ 3) | 6.12 | |
 
@@ -1514,7 +1514,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 
 ### 9.4 API และหน้าเว็บที่รอบ 2 จะเปลี่ยน
 
-**[รอบ 2]** ทุกแถวเป็นกติกาที่ตกลงแล้ว PR T ทำแล้ว ส่วนแถว H/W/T2 ยังรอ PR ของตัวเอง; PR ที่ทำแถวไหนต้องเติมรูปของคำตอบลงข้อ 9.3 ใน PR เดียวกัน
+**[รอบ 2]** ทุกแถวเป็นกติกาที่ตกลงแล้ว PR T, W และ T2 ทำแล้ว ส่วนแถว H ยังรอ PR ของตัวเอง; PR ที่ทำแถวไหนต้องเติมรูปของคำตอบลงข้อ 9.3 ใน PR เดียวกัน
 
 | Route หรือหน้า | สิ่งที่เปลี่ยน | PR |
 |---|---|---|
@@ -1524,7 +1524,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 | `POST /approvals/{id}/decision` | ผู้กดที่ไม่ใช่ Head Nurse ของหอเดียวกับเวรได้ `403` พร้อม `detail` บอกเหตุ | W (ทำแล้ว) |
 | `POST /approvals/{id}/decision` | กดเมื่อ `clock.now() >= expires_at` ได้ `409` | T |
 | `GET /approvals` | เพิ่มเส้นตายของคำขอ (`expires_at`) | T |
-| หน้า `approvals` | แสดงเส้นตาย | T2 |
+| หน้า `approvals` | คอลัมน์ "Decide by" แสดง `expires_at` ของคำขอเป็นเวลา Bangkok หน้าเว็บไม่รู้ Clock ของ Backend จึงไม่ปิดปุ่มเองเมื่อเลยเส้นตาย คำขอที่เลยเส้นตายหายจากรายการในรอบอ่านถัดไป และถ้ากดทันก่อนนั้น API ตอบ `409` ซึ่งหน้าแสดงข้อความ | T2 (ทำแล้ว) |
 | `POST /demo/clock/advance` และหน้า `demo/control` | เพิ่ม `timed_out_approval_request_ids` | T |
 | `GET /cases/{id}` และหน้า `cases/[id]` | `candidates[].stage` มีค่าใหม่ `APPROVAL_TIMEOUT` และอ่านจากรอบล่าสุดของผู้สมัคร คนที่ได้เข้าเวรจากการจัดเองถูกนับใน `assigned_count` | T และ H |
 | รายการ Offer ของหน้า `line-sim` | `cancellation_reason` มีค่าใหม่ `APPROVAL_TIMEOUT` และยังเป็น `CONFLICTING_ASSIGNMENT` เมื่อเสียให้การจัดคนเอง | T และ H |
@@ -1739,4 +1739,5 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-13 | รอบ 2 PR T: approval timeout 900 วินาที, เส้นตาย snapshot และ offer-specific outreach_id ใน Safety/Approval (migration b7d2f8a1c6e4); Job ตามลำดับ Offer → Approval → Recovery → Window; one retry หลัง first contacts ที่ส่งได้, Safety/Approval ใหม่ทุก attempt, หมดเวลาครั้งที่สองไม่ส่งครั้งที่สาม; API 409 ที่ now >= deadline ไม่เขียน timeout, stage/cancellation_reason APPROVAL_TIMEOUT และ demo result timed_out_approval_request_ids | คน 3 |
 | 2026-10-13 | รอบ 2 PR W: การอนุมัติจำกัดหอ (R2-Q21, R2-Q53) `approval_service.decide()` รับ `home_ward_id` ของผู้กด เทียบกับ `ward_id` ของเวรด้วย `domain/staffing/ward_authority.manages_ward()` ถ้าไม่ตรงตอบ `403` ก่อนการตรวจ `409`; ข้อ 6.12, 9.2 และ 9.4 แก้ตาม; `GET /approvals` ไม่เปลี่ยน; ข้อมูล Seed มีหอเดียว ผลของ Test เดิมจึงไม่เปลี่ยน | คน 1 |
 | 2026-10-13 | ตามรีวิว PR W: การอ่าน `SHIFT` ใน `_lock_decision()` ใช้ `populate_existing` เหมือนการอ่านตัวอื่นในฟังก์ชัน เพื่อไม่ให้ได้ `ward_id` ค่าเก่าจาก Session; เพิ่ม Test ว่าหน้า `approvals` แสดงข้อความของ `403` เมื่อ Head Nurse ต่างหอกด; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
+| 2026-10-14 | รอบ 2 PR T2: หน้า `approvals` เพิ่มคอลัมน์ "Decide by" แสดงเส้นตายของคำขอ (`expires_at` จาก `GET /approvals` ของ PR T) (R2-Q30); ข้อ 9.4 แก้ตาม; ไม่แตะ Backend | คน 1 |
 | 2026-10-14 | รอบ 2 PR B: Solver เลือกกลุ่มของ Wave แรกด้วยโมเดล CP-SAT ของ OR-Tools แทนการค้นแบบตัดกิ่ง (ข้อ 6.14) สามขั้น คือคะแนนต่ำสุด จำนวนคนน้อยสุด แล้วชุด `staff_id` น้อยสุด คะแนนคูณสเกลด้วย LCM ของตัวส่วน ไม่ปัดเศษ; `solve()` รับ `time_limit_seconds` และ `SolverResult` มี `status`; เพิ่ม `SOFT_CONSTRAINT_POLICY.solver_time_limit_seconds` (Seed = 3, Migration `c9e4a7b2d5f8` ต่อจาก `b7d2f8a1c6e4`); `CANDIDATE_PLANS.solver_status` มาจาก Solver (Golden Path เป็น `OPTIMAL`), `UNKNOWN` พาเคสไป `MANUAL_HANDOFF` ด้วยเหตุผล `SOLVER_TIMEOUT`, `MODEL_INVALID` และตัวเลขที่ใหญ่เกินทำให้เคสเป็น `FAILED`; `SOLVER_VERSION` = `"cp-sat-v1"`; การค้นของรอบ 1 ย้ายไปเป็นตัวเทียบใน Test และผลที่ PR A บันทึกไว้ยังตรงครบ 229 โจทย์; เพิ่ม `tests/perf` และ Workflow `Solver timing` สำหรับวัดเวลา ผลวัดอยู่ร่างรอบ 2 ข้อ 4.8; เพิ่ม Dependency `ortools` ทุกคนต้องสร้าง container ของ Backend ใหม่ | คน 2 |

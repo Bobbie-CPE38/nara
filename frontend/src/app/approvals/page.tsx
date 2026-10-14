@@ -173,6 +173,7 @@ export default function Approvals() {
               <th>Staff</th>
               <th>Shift</th>
               <th>Requested at</th>
+              <th>Decide by</th>
               <th>Decision</th>
             </tr>
           </thead>
@@ -189,6 +190,7 @@ export default function Approvals() {
                 <td>{row.staff_id}</td>
                 <td>{row.proposed_shift_id}</td>
                 <td>{formatDateTime(row.requested_at)}</td>
+                <td>{formatDateTime(row.expires_at)}</td>
                 <td className="flex gap-2">
                   <button
                     type="button"

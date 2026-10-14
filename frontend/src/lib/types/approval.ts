@@ -9,6 +9,7 @@ export type PendingApproval = {
   staff_id: number;
   proposed_shift_id: number;
   requested_at: string;
+  /** When the request times out: deciding at or after it answers 409 (workflow.md 6.13) */
   expires_at: string;
 };
 
