@@ -1099,7 +1099,7 @@ Expired requests disappear from `GET /approvals` immediately (`expires_at > now`
 * ผลรวมของคะแนนจำนวนเต็มหลังคูณสเกลเกิน 2^60: `solve()` โยน `SolverScalingOverflowError` เคสเป็น `FAILED` ผ่าน D11 ส่วน `MODEL_INVALID`: `create_plan()` โยน `SolverModelInvalidError` ก่อนเขียนแถวใด
 * วัดเวลาซ้ำได้ด้วย `SOLVER_TIMING=1 pytest tests/perf -s -q` (ชุด Test ปกติข้ามไฟล์นี้) และ Workflow `Solver timing` บน GitHub ซึ่งรันเมื่อ PR แตะไฟล์ของ Solver หรือสั่งรันเอง ไม่ใช่ Check ที่บังคับ
 
-### 6.15 คำอธิบายอันดับ [รอบ 3 · PR E2, X]
+### 6.15 คำอธิบายอันดับ [รอบ 3 · PR X]
 
 คำอธิบายอันดับอธิบายผลที่ Solver ให้จริง ไม่คำนวณอันดับใหม่ (R3-Q2 ถึง R3-Q5, R3-Q14 ถึง R3-Q16)
 
@@ -1134,6 +1134,7 @@ Expired requests disappear from `GET /approvals` immediately (`expires_at > now`
 **หน้าที่แสดง (PR E2)** หน้า `cases/[id]` อย่างเดียว (R3-Q5)
 
 * `score = null` มีสองเหตุ: Plan ที่สร้างก่อน PR E และผู้สมัครที่ตัวเลขใน Snapshot ไม่ครบหรือไม่ลงกัน (มี Log ระดับ Error) API ไม่แยกสองเหตุนี้ หน้าต้องรับ `null` ได้ทั้งสองแบบโดยแสดงอันดับตามเดิมไม่มีคะแนน และไม่เดาเหตุผลหรือคำนวณคะแนนเอง
+* หน้าแสดงคอลัมน์ Score (ค่า `total`) ในตารางผู้สมัคร และตารางรายพจน์ของผู้สมัครที่มีคะแนน เรียงพจน์จาก `points` มากไปน้อย พจน์ที่ `points` เท่ากันคงลำดับของ API ตัวเลขปัดแสดงไม่เกินทศนิยมสองตำแหน่งเพื่อแสดงผลอย่างเดียว ผลรวมบนหน้าจึงอาจไม่เท่า `total` พอดี Plan ที่ไม่มีคะแนนเลยไม่แสดงส่วนคำอธิบาย
 
 **ประโยคจาก LLM (PR X)** รายละเอียดเต็มอยู่ในคำตอบ R3-Q15
 
@@ -1795,7 +1796,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 | Route หรือหน้า | สิ่งที่เปลี่ยน | PR |
 |---|---|---|
 | `GET /cases/{id}` | แต่ละ `candidates[]` มีช่อง `score` ตามข้อ 6.15 (`null` สำหรับ Plan ที่สร้างก่อน PR E) | E (ทำแล้ว) |
-| หน้า `cases/[id]` | แสดงคะแนนรายพจน์ เหตุผลแบบตายตัว และประโยคจาก LLM เมื่อพร้อม | E2, X |
+| หน้า `cases/[id]` | แสดงคะแนนรายพจน์ เหตุผลแบบตายตัว และประโยคจาก LLM เมื่อพร้อม | E2 (ทำแล้ว ตัวเลขและเหตุผลแบบตายตัว), X |
 | `POST /line/webhook` (ใหม่) | Webhook ของ LINE ไม่ใช้ `X-Demo-User` กันด้วยลายเซ็น ลำดับ: ลายเซ็นไม่ผ่าน `401` (ไม่เขียน DB) → ประมวลทีละ Event ในแต่ละ Transaction ของตัวเองตามข้อ 6.16: Event ซ้ำข้าม, `LINK <รหัส>` ไปทางผูกบัญชีก่อนตรวจการผูก, Postback ไปทางตอบ Offer → ตอบ `5xx` ถ้ามี Event ใดเจอ Error ที่ไม่คาดไว้ ไม่อย่างนั้น `200` (รวมการปฏิเสธทางธุรกิจ) | L |
 | `GET /me/offers` (ใหม่, ต้องมี `X-Demo-User`) | คืน List ของ `OfferView` แบบเดียวกับ `GET /demo/line-sim/offers` ของพนักงานใน Header เท่านั้น ไม่รับ `staff_id` | N |
 | `POST /me/offers/{outreach_id}/response` (ใหม่, ต้องมี `X-Demo-User`) | Body `{response}` (`ACCEPT` หรือ `REJECT`) Body ห้ามมีช่องอื่น คืน `{outreach_id, outreach_status, case_id, case_status}` แบบเดียวกับ `POST /demo/line-sim/respond` Error: `401` Header, `409` เมื่อ `record_response()` ปฏิเสธ (`OpenOfferConflictError`), `503` พร้อม `Retry-After: 1` เมื่อล็อกไม่นิ่ง (`OutreachLockRetryError`) | N |
@@ -2037,3 +2038,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | มติทีมเรื่องการลองของจริงและ Deploy: PR D เลื่อนไปรอบ 6 (งานเดิมเก็บใน branch `feat/aws-test-environment`) และไม่เป็นเงื่อนไขของรอบ 3 อีก; LINE จริงในรอบ 3 ถึง 5 ลองผ่าน Named Cloudflare Tunnel บนเครื่องคน 3 เข้า `/line/webhook` ตรงตัว ไม่อยู่ใน repo และไม่อยู่ในชุด Deploy (ข้อ 6.16); PR X ใช้ `fake` ในรอบ 3 คน 2 ตรวจเครดิตและสิทธิ์โมเดลตอนนี้ Bedrock จริง IAM และ Budget ทำในรอบ 6 (ข้อ 6.15); ลำดับในรอบ 6 และเกณฑ์ปิดรอบ 3 อยู่ใน "สถานะของรอบ 3"; แถว D ในตาราง Test เป็นของรอบ 6 ลำดับ merge ของ PR อื่นไม่เปลี่ยน | คน 1 |
 | 2026-10-14 | เปลี่ยนวิธีทดสอบ LINE จาก Named Tunnel เป็น Cloudflare Quick Tunnel เพราะไม่มีโดเมน: ไม่ต้องซื้อโดเมนหรือมี Tunnel credentials; URL ชั่วคราวต้องตั้งใหม่ใน LINE Developers เมื่อเปิดใหม่; ใช้ตัวกรอง HTTP ในเครื่องเปิดเฉพาะ `/line/webhook` แทน ingress ของ cloudflared ห้ามชี้ Tunnel เข้า Backend โดยตรง; เงื่อนไขผู้จัดและการเลื่อน AWS/Bedrock ไปรอบ 6 คงตามมติเดิม | คน 3 |
 | 2026-10-14 | ตามรีวิว Quick Tunnel: ใช้ nginx config และชุดทดสอบที่รีวิวได้ใน `dev/line-webhook-proxy` เปิดเฉพาะ POST กับ raw URI `/line/webhook` ไม่อนุญาต query string/encoding/case/path variants; body limit 1 MiB; CI ตรวจ config จริงกับ fake upstream; บันทึกผลที่ยังไม่ครบเมื่อ Tunnel ขาดระหว่างทดสอบ | คน 3 |
+| 2026-10-14 | รอบ 3 PR E2: หน้า `cases/[id]` แสดงคอลัมน์ Score และตารางรายพจน์ (`ScoreBreakdown`) ของผู้สมัครที่มี `score` เรียงพจน์จาก `points` มากไปน้อย เหตุผลแบบตายตัวต่อชื่อพจน์และต่อ `first_wave` อยู่ใน `SCORE_TERM_INFO` และ `FIRST_WAVE_INFO`; `score = null` แสดงอันดับตามเดิมไม่มีคะแนนและไม่เดาเหตุผล; หน้าไม่คำนวณคะแนนเอง `loadCase()` ตรวจรูปของ `score` | คน 2 |
