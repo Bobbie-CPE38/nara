@@ -1146,7 +1146,7 @@ Expired requests disappear from `GET /approvals` immediately (`expires_at > now`
 * **เตรียมตั้งแต่รอบ 3:** คน 2 ตรวจว่าเครดิตการแข่งขันครอบคลุม Bedrock และบัญชีมีสิทธิ์ใช้โมเดลที่เลือกใน Region ที่ตกลง ถ้าต้องขอสิทธิ์ให้ขอตอนนี้ เพื่อรู้ข้อจำกัดก่อนจบ PR X
 * **รอบ 6:** เชื่อมต่อและทดสอบ Bedrock จริง ทดสอบ 20 ถึง 30 เคสเพื่อเลือกโมเดล และใช้ IAM Role ของเครื่อง Deploy คน 2 ตั้ง Budget และขีดจำกัดการเรียกก่อนเรียกจริงครั้งแรก
 
-### 6.16 LINE จริง [รอบ 3 · PR K]
+### 6.16 LINE จริง
 
 LINE จริงอยู่คู่กับหน้าจำลอง ทุกทางที่ตอบ Offer ต้องผ่าน `outreach_service.record_response()` ตัวเดียว กติกาเส้นตาย การพัก Offer และลำดับ Lock จึงยังมีที่เดียว (R3-Q6 ถึง R3-Q11, R3-Q17, R3-Q18, R3-Q22) จุดที่มีป้าย [ตรวจกับเอกสาร LINE] ตรวจแล้วตามลิงก์ในร่างรอบ 3 ข้อ 8
 
@@ -1191,13 +1191,19 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 * การปฏิเสธทางธุรกิจ (`OpenOfferConflictError`, ยังไม่ได้ผูกบัญชี): rollback ผลของการตอบ แล้ว Insert แถวกันซ้ำและ Commit แยก ตอบในแชต และตอบ `200`
 * LINE ส่ง Event ซ้ำเฉพาะเมื่อเปิด "Webhook redelivery" ใน LINE Developers Console ซึ่งค่าเริ่มต้นปิด คน 3 เปิดใน Channel ที่ใช้ลอง (รอบ 3 ถึง 5 ผ่าน Tunnel รอบ 6 ในส่วน LINE ของ PR D) [ตรวจกับเอกสาร LINE]
 
-**ผูกบัญชี LINE (PR K)** ไม่มีหน้าเว็บ (R3-Q9 แบบลดขอบเขต, R3-Q22)
+**ผูกบัญชี LINE (PR K ทำแล้ว)** ไม่มีหน้าเว็บ (R3-Q9 แบบลดขอบเขต, R3-Q22)
 
 * ผู้ดูแลออกรหัสและปลดการผูกผ่านคำสั่ง พนักงานส่ง `LINK <รหัส>` ในแชต รหัสสุ่ม อายุ 10 นาที ใช้ครั้งเดียว เก็บเป็น hash ในตารางใหม่ (Migration)
 * Event ของ `LINK` ผ่านตารางกันซ้ำตัวเดียวกับคำตอบ Offer แถวกันซ้ำ Insert ใน Transaction ของการผูก และ Commit พร้อมการผูกและ Audit (ทางนี้ไม่เรียก `lock_case_for_outreach()` จึงไม่มีการล็อกใหม่ที่ rollback แถวทิ้ง) Event ที่ LINE ส่งซ้ำหลังผูกสำเร็จจึงถูกกันด้วยแถวกันซ้ำ ไม่ได้ข้อความว่ารหัสถูกใช้แล้ว ส่วนการปฏิเสธที่คาดไว้ (รหัสผิด, หมดอายุ, ถูกใช้แล้ว, บัญชี LINE ผูกกับคนอื่นอยู่) ใช้กติกาเดียวกับการปฏิเสธทางธุรกิจของคำตอบ Offer: rollback การผูก, Insert แถวกันซ้ำและ Commit แยก, ตอบในแชต และตอบ `200`
 * ทั้งระบบอ่าน `CONTACTS.line_uid` ผ่านตัวอ่านตัวเดียว บัญชี LINE หนึ่งบัญชีผูกได้กับพนักงานคนเดียว (Unique Constraint) และห้ามเขียนทับบัญชีที่ผูกแล้วอัตโนมัติ
 * การใช้รหัสทำใน Transaction เดียว: ตั้งรหัสเป็นใช้แล้วแบบมีเงื่อนไข (ยังไม่ถูกใช้และยังไม่หมดอายุ ตัวเดียวกับที่ล็อกแถว) เขียนการผูก และเขียน `LINE_ACCOUNT_LINKED` แล้ว Commit พร้อมกัน ส่วนใดพังทั้งหมด rollback และรหัสยังใช้ได้ สองคำขอที่ใช้รหัสเดียวกันพร้อมกันสำเร็จได้ตัวเดียว
 * `userId` ของผู้ผูกมาจาก Event ที่ผ่านลายเซ็นแล้วเท่านั้น
+* คำสั่งใน Backend container คือ `python -m app.line_accounts issue-code --staff-id 201` และ `python -m app.line_accounts unlink --staff-id 201` CLI เรียก Backend ผ่าน `POST /internal/line-accounts/{staff_id}/issue-code` และ `/unlink` ที่กันด้วย `X-Internal-Secret`/`INTERNAL_JOB_SECRET` เพื่อใช้ Clock เดียวกับ Demo ไม่มีหน้าเว็บหรือ Route ออกรหัสที่ไม่ตรวจสิทธิ์ ผลรหัสตอบ `Cache-Control: no-store` และแสดงรหัสหลัง Commit เท่านั้น
+* Migration `d7f0b3c5e9a2` ต่อจาก `c6e9a2b4d8f1` เพิ่ม `LINE_ACCOUNT_LINK_CODE` (สุ่ม 192 bit, SHA-256 hash, created/expires/used/revoked timestamps) และ `uq_contacts_line_uid` ครอบทุก line_uid ที่ไม่เป็น NULL รวม Contact ที่ inactive; legacy UID ซ้ำต้องแก้โดยผู้ดูแลก่อน Migration ไม่ลบหรือโอนข้อมูลเอง PR X ต่อจาก head นี้
+* รหัสหมดอายุที่ `now >= expires_at` ตาม Backend Clock เช่นเดียวกับ Offer; Demo ที่ freeze ต้องเลื่อน Clock จึงหมดอายุ Staff ต้อง active และส่ง LINK ในแชตแบบหนึ่งต่อหนึ่ง ก่อนออกรหัสให้ปลดบัญชีเดิม (รวม Contact ที่ inactive) การล็อกเรียง Staff → code → Contacts ของคนนั้น ไม่ล็อก Offer/Case
+* ปลดบัญชีล้างเฉพาะ line_uid คง Contact ID/line_id/is_active และ revoke รหัสที่ยังไม่ใช้เพื่อห้ามรหัสเก่ากลับมาผูกใหม่ ต้องออกรหัสใหม่หลังปลด ปลดซ้ำไม่มี Audit เพิ่มเมื่อไม่มีบัญชีอยู่แล้ว ส่วนการปลดของ Staff inactive ทำได้
+* ก่อนส่ง/Retry ของ pending intent ตัวส่งตรวจว่าบัญชีที่ใช้งานได้ปัจจุบันตรงกับผู้รับเดิม หลังปลดหรือเปลี่ยนบัญชี intent ที่ไม่ตรงเป็น `NO_CONTACT` โดย Offer ยังเป็น SENT ไม่ส่ง ไม่เขียน failure audit และไม่ recompute; ไม่เปลี่ยน payload/retry key ไปหาบัญชีใหม่ งานส่งที่อยู่ระหว่าง HTTP แล้วเรียกคืนไม่ได้ แต่คำตอบหลังปลดถูกปฏิเสธจากตัวอ่านบัญชี Existing NO_CONTACT ไม่ถูกส่งย้อนหลังหลังผูกใหม่
+* ขั้นตอนใช้งาน ลำดับ Lock และผลทดสอบอยู่ `docs/round3/pr-K-handoff.md`
 
 **ส่ง Offer (PR L)**
 
@@ -1302,8 +1308,8 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 | `CASE_CLOSED_UNRESOLVED` | เส้นทางปิดเคสโดยไม่มีคนแทน หรือขั้นปิด Window เมื่อเคสใหม่ของเวรเปิด | user (Head Nurse) หรือ `workflow_orchestrator` เมื่อระบบปิด | STAFFING_CASES | `reason`, `closed_by` (`HEAD_NURSE` หรือ `SUCCESSOR_CASE`), `successor_case_id` (มีเมื่อระบบปิด) |
 | `OFFER_CANCELLED_BY_ASSIGNMENT` | ตัวยกเลิก Offer ที่ขัดกับเวรใหม่ เขียนใน**เคสที่เสีย Offer** หนึ่งแถวต่อ Offer | ผู้กระทำของการจัดนั้น | CANDIDATE_OUTREACH | `cancelled_outreach_id` (เอกพจน์), `staff_id`, `by_case_id` (เคสที่เอาคนไป), `assignment_id` (Roster ที่ทำให้ขัด), `source` (`MANUAL_ASSIGNMENT` หรือ `APPROVAL`) |
 | `OFFER_DELIVERY_FAILED` | ตัวส่ง Offer ของ LINE เมื่อตั้ง Offer เป็น `FAILED` (ข้อ 6.16) | `outreach_agent` | CANDIDATE_OUTREACH | `outreach_id`, `staff_id`, `attempts` (จำนวนครั้งที่นับ), `last_result` (รหัส HTTP เป็นข้อความ หรือ `TIMEOUT`) |
-| `LINE_ACCOUNT_LINKED` [รอบ 3 · PR K] | Webhook เมื่อรับ `LINK <รหัส>` ที่ใช้ได้ ใน Transaction เดียวกับการผูก | user (พนักงานที่ผูก) | CONTACTS | `contact_id`, `staff_id` |
-| `LINE_ACCOUNT_UNLINKED` [รอบ 3 · PR K] | คำสั่งปลดการผูกของผู้ดูแล | `system` | CONTACTS | `contact_id`, `staff_id` |
+| `LINE_ACCOUNT_LINKED` | Webhook เมื่อรับ `LINK <รหัส>` ที่ใช้ได้ ใน Transaction เดียวกับการผูก | user (พนักงานที่ผูก) | CONTACTS | `contact_id`, `staff_id` |
+| `LINE_ACCOUNT_UNLINKED` | คำสั่งปลดการผูกของผู้ดูแล | `system` | CONTACTS | `contact_id`, `staff_id` |
 
 * `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` เพิ่มใน `AuditAction` แล้ว และ `SHIFT`, `STAFFING_REQUIREMENTS` เพิ่มใน `EntityType` แล้ว (PR 0) และ PART B เขียนแถวพวกนี้ตั้งแต่ PR M
 * Actor ของ `OFFER_TIMEOUT` คือ `outreach_agent` และผู้เขียนคือ `offer_timeout_service` (PR O); Actor และชื่อ Key ใน payload ของ Action สามตัวของ Event ชนิดใหม่ และ Key `reason` ของ `EVENT_IGNORED` กำหนดแล้วใน PR M ตามตารางข้างบน
@@ -1316,7 +1322,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 * ชื่อช่องของ `OFFER_CANCELLED_BY_ASSIGNMENT` ต้องเป็น `cancelled_outreach_id` ห้ามใช้ `cancelled_outreach_ids` หรือ `outreach_id` เพราะ `outreach_service._cancellation_reasons()` ใช้สองชื่อนั้นหาเหตุที่ยกเลิก และแถว Audit ล่าสุดชนะ ถ้าใช้ชื่อซ้ำ `cancellation_reason` ของรายการ Offer จะเปลี่ยนจาก `CONFLICTING_ASSIGNMENT` เป็น `CANCELLED` โดยไม่มี Error
 * `MANUAL_ASSIGNMENT_CREATED` ใช้ `cancelled_outreach_ids` เหมือน `ASSIGNMENT_CREATED` และ PR H ต้องเพิ่ม Action นี้ในตารางของ `_cancellation_reasons()` ให้ได้ `CONFLICTING_ASSIGNMENT`
 * `APPROVAL_TIMEOUT` มี `outreach_id` และ PR T ให้ `_cancellation_reasons()` คืน `APPROVAL_TIMEOUT` สำหรับ Offer นั้น
-* `OFFER_DELIVERY_FAILED` เขียนแล้วโดย `line_delivery_service` (PR L) ส่วน `LINE_ACCOUNT_LINKED` และ `LINE_ACCOUNT_UNLINKED` ยังรอ PR K
+* `OFFER_DELIVERY_FAILED` เขียนโดย `line_delivery_service` (PR L); `LINE_ACCOUNT_LINKED` และ `LINE_ACCOUNT_UNLINKED` เขียนโดย `line_account_service` (PR K)
 * `OFFER_DELIVERY_FAILED` มี `case_id` ของ Offer และใช้ช่อง `outreach_id` ซึ่ง `_cancellation_reasons()` อ่านด้วย แต่ไม่กระทบ เพราะ Offer ที่ `FAILED` ไม่ใช่ `CANCELLED` และไม่เปลี่ยนเป็น `CANCELLED` ภายหลัง ถ้า PR L เปลี่ยนข้อนี้ต้องเพิ่ม Action นี้ในตารางของ `_cancellation_reasons()`
 * `LINE_ACCOUNT_LINKED` และ `LINE_ACCOUNT_UNLINKED` ไม่ใช่เรื่องของเคสหรือ Event จึงมี `case_id = NULL` และ `event_id = NULL` และไม่เก็บ `line_uid` ใน payload
 
@@ -1503,7 +1509,7 @@ Router ทุกตัวของขั้นที่ 4 มีไฟล์แ�
 | `api/routes/roster.py` | `/roster` |
 | `api/routes/line_sim.py` | `/demo/line-sim` |
 | `api/routes/demo.py` | `/demo` (`/demo/reset` และ `/demo/clock/advance`) |
-| `api/routes/internal.py` | `/internal` (เพิ่มและลงทะเบียนใน PR M สำหรับ Route ที่ Service ของ Job เรียก) |
+| `api/routes/internal.py` | `/internal` (Job และคำสั่งผู้ดูแลผูก/ปลด LINE ของ PR K กันด้วย Internal Secret) |
 
 Error สองตัวนี้ถูกแปลงเป็น HTTP ให้ที่เดียวใน `api/exception_handlers.py` Route ไม่ต้อง `try/except` เอง
 
@@ -1616,6 +1622,8 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 * `timed_out_outreach_ids` คือ Offer ที่คำขอนี้ตั้งเป็น `TIMEOUT` (ข้อ 6.9) และ `recovered_case_ids` คือเคสที่รออยู่ซึ่งรอบเก็บตกคำนวณสถานะใหม่ให้ (ข้อ 5.3) ทั้งสองเรียงตาม ID และเป็น `[]` เมื่อไม่มี หน้า `demo/control` ใช้แสดงว่าการเลื่อน Clock ทำให้ Offer ไหนหมดเวลา Route ของ Job ไม่คืนสองค่านี้
 * `closed_windows` มีหนึ่งรายการต่อเวรที่ปิด Window ในคำขอนี้ เรียงตาม `shift_id` Window ที่ไม่เปิดเคสมี `case_id` และ `case_status` เป็น `null` (Event ของมันเป็น `IGNORED`)
 * `event_ids` คือ Event ทุกตัวของ Window นั้น รวมตัวที่ `IGNORED` ตาม Q44 ซึ่งไม่ได้ Link เข้าเคส
+
+**คำสั่งผู้ดูแล LINE (PR K)** `POST /internal/line-accounts/{staff_id}/issue-code` ไม่มี Body ตอบ `{code, expires_at}` หลัง Commit พร้อม `Cache-Control: no-store`; `/unlink` ตอบ `{unlinked_contacts}` ใช้ Header `X-Internal-Secret` เหมือน Job (401/503 ตามค่าตั้ง) Staff ไม่มีหรือไม่พร้อมตอนออกรหัสได้ 404 และบัญชีที่ผูกแล้วได้ 409; ID ต้องเป็น bigint บวก ไม่ใช่ Route หน้าเว็บ และไม่ยกเว้น Basic Auth บน AWS ตัว CLI เรียก loopback ของ Backend เท่านั้น ดูขั้นตอนใน `docs/round3/pr-K-handoff.md`
 
 **`POST /internal/merge-windows/close-due`** (คน 1) Header `X-Internal-Secret` ไม่มี Body ตอบ `{"closed_windows": [...]}` รูปเดียวกับข้างบน `401` เมื่อ Secret ไม่มีหรือไม่ตรง `503` เมื่อ Backend ไม่ได้ตั้ง `INTERNAL_JOB_SECRET` (ข้อ 3.8)
 
@@ -2037,3 +2045,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | มติทีมเรื่องการลองของจริงและ Deploy: PR D เลื่อนไปรอบ 6 (งานเดิมเก็บใน branch `feat/aws-test-environment`) และไม่เป็นเงื่อนไขของรอบ 3 อีก; LINE จริงในรอบ 3 ถึง 5 ลองผ่าน Named Cloudflare Tunnel บนเครื่องคน 3 เข้า `/line/webhook` ตรงตัว ไม่อยู่ใน repo และไม่อยู่ในชุด Deploy (ข้อ 6.16); PR X ใช้ `fake` ในรอบ 3 คน 2 ตรวจเครดิตและสิทธิ์โมเดลตอนนี้ Bedrock จริง IAM และ Budget ทำในรอบ 6 (ข้อ 6.15); ลำดับในรอบ 6 และเกณฑ์ปิดรอบ 3 อยู่ใน "สถานะของรอบ 3"; แถว D ในตาราง Test เป็นของรอบ 6 ลำดับ merge ของ PR อื่นไม่เปลี่ยน | คน 1 |
 | 2026-10-14 | เปลี่ยนวิธีทดสอบ LINE จาก Named Tunnel เป็น Cloudflare Quick Tunnel เพราะไม่มีโดเมน: ไม่ต้องซื้อโดเมนหรือมี Tunnel credentials; URL ชั่วคราวต้องตั้งใหม่ใน LINE Developers เมื่อเปิดใหม่; ใช้ตัวกรอง HTTP ในเครื่องเปิดเฉพาะ `/line/webhook` แทน ingress ของ cloudflared ห้ามชี้ Tunnel เข้า Backend โดยตรง; เงื่อนไขผู้จัดและการเลื่อน AWS/Bedrock ไปรอบ 6 คงตามมติเดิม | คน 3 |
 | 2026-10-14 | ตามรีวิว Quick Tunnel: ใช้ nginx config และชุดทดสอบที่รีวิวได้ใน `dev/line-webhook-proxy` เปิดเฉพาะ POST กับ raw URI `/line/webhook` ไม่อนุญาต query string/encoding/case/path variants; body limit 1 MiB; CI ตรวจ config จริงกับ fake upstream; บันทึกผลที่ยังไม่ครบเมื่อ Tunnel ขาดระหว่างทดสอบ | คน 3 |
+| 2026-10-14 | รอบ 3 PR K: รหัส LINK อายุ 10 นาที เก็บ SHA-256 hash, ใช้/revoke ครั้งเดียวตาม Backend Clock, unique LINE UID; CLI เรียก Route ภายในที่ตรวจ Internal Secret; LINK ผ่าน dedup พร้อม Contact/Code/Audit ใน Transaction เดียว; unlink รักษาประวัติและ revoke รหัสเก่า; pending send ตรวจบัญชีเดิมก่อน retry; Migration `d7f0b3c5e9a2` ต่อจาก PR L, tests สอง Connection และ Handoff ใน `docs/round3/pr-K-handoff.md` | คน 3 |

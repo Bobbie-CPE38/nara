@@ -122,6 +122,19 @@ def _claim(db: Session, outreach_id: int) -> Claim | None:
         return None
     if not row.delivery_retry_key or row.delivery_payload is None:
         raise RuntimeError("Delivery intent has no retry key or payload")
+    staff_id = db.scalar(
+        select(CandidateItem.staff_id).where(CandidateItem.id == row.candidate_item_id)
+    )
+    if staff_id is None or line_contact_service.line_uid_for_staff(
+        db, staff_id
+    ) != row.delivery_payload.get("to"):
+        # Unlink/rebind must not redirect an immutable intent to the old recipient.
+        # Keep the offer answerable through simulator/web and its normal deadline.
+        row.delivery_status = "NO_CONTACT"
+        row.delivery_claim = None
+        row.delivery_lease_until = None
+        db.commit()
+        return None
     token = str(uuid4())
     exhausted = row.delivery_attempts >= 3
     if not exhausted:

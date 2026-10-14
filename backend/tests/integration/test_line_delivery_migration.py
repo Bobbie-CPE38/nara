@@ -45,5 +45,5 @@ def test_history_gets_no_delivery_intent(production_seeded):
 
 def test_single_head_and_expected_parent():
     script = ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
-    assert script.get_heads() == ["c6e9a2b4d8f1"]
+    assert script.get_heads() == ["d7f0b3c5e9a2"]
     assert script.get_revision("c6e9a2b4d8f1").down_revision == "b7d3e5a1c9f2"
