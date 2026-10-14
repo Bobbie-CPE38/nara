@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../src/lib/api";
 import { collectSkips, isCaseId, loadCase } from "../../../src/lib/cases";
+import type { CaseDetail } from "../../../src/lib/types/case";
 import { auditEntry, caseDetail, waitingResponseAudit } from "../../fixtures/case";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -100,6 +101,12 @@ describe("loadCase", () => {
     ["a score term with a null weight", withScore({ total: 1005, first_wave: true, terms: [{ name: "t", value: 1, weight: null, points: 1 }] }), []],
     ["a score term without points", withScore({ total: 1005, first_wave: true, terms: [{ name: "t", value: 1, weight: 1 }] }), []],
     ["a candidate with a string score total", withScore({ total: "1005", first_wave: true, terms: [] }), []],
+    ["a missing explanation key", { ...caseDetail(), explanation: undefined }, []],
+    ["an explanation with an unknown status", { ...caseDetail(), explanation: { status: "DONE", text: null, provider: null, model_id: null } }, []],
+    ["a READY explanation without text", { ...caseDetail(), explanation: { status: "READY", text: null, provider: "fake", model_id: null } }, []],
+    ["a READY explanation with an empty text", { ...caseDetail(), explanation: { status: "READY", text: "", provider: "fake", model_id: null } }, []],
+    ["a READY explanation with an unknown provider", { ...caseDetail(), explanation: { status: "READY", text: "x", provider: "other", model_id: null } }, []],
+    ["a string explanation", { ...caseDetail(), explanation: "READY" }, []],
     ["a wrapped audit list", caseDetail(), { items: [] }],
     ["a null audit row", caseDetail(), [null]],
     ["an audit row without a payload", caseDetail(), [{ id: 1, action: "CASE_OPENED" }]],
@@ -122,6 +129,18 @@ describe("loadCase", () => {
 
   it("accepts a candidate whose score is null", async () => {
     const detail = caseDetail({ candidates: [{ ...caseDetail().candidates[0], score: null }] });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => json(url.endsWith("/audit") ? [] : detail)));
+    expect(await loadCase("1", new AbortController().signal)).toEqual({ detail, audit: [] });
+  });
+
+  it.each([
+    ["null", null],
+    ["PENDING", { status: "PENDING", text: null, provider: null, model_id: null }],
+    ["UNAVAILABLE", { status: "UNAVAILABLE", text: null, provider: null, model_id: null }],
+    ["READY from fake", { status: "READY", text: "[fake] x", provider: "fake", model_id: null }],
+    ["READY from bedrock", { status: "READY", text: "x", provider: "bedrock", model_id: "m-1" }],
+  ])("accepts an explanation that is %s", async (_name, explanation) => {
+    const detail = caseDetail({ explanation } as Partial<CaseDetail>);
     vi.stubGlobal("fetch", vi.fn(async (url: string) => json(url.endsWith("/audit") ? [] : detail)));
     expect(await loadCase("1", new AbortController().signal)).toEqual({ detail, audit: [] });
   });

@@ -90,6 +90,16 @@ class CandidateView(BaseModel):
     score: CandidateScore | None
 
 
+class RankExplanationView(BaseModel):
+    """The one-sentence LLM explanation of the rank. Never carries a failure reason."""
+
+    status: Literal["PENDING", "READY", "UNAVAILABLE"]
+    # The next three are set only when READY (model_id is null for the fake provider)
+    text: str | None
+    provider: Literal["fake", "bedrock"] | None
+    model_id: str | None
+
+
 class CaseDetail(BaseModel):
     """GET /cases/{id}. `status` is the key the E2E test reads."""
 
@@ -108,6 +118,8 @@ class CaseDetail(BaseModel):
     assigned_count: int
     # Empty until the solver stored a plan. Ordered by rank
     candidates: list[CandidateView]
+    # null when the latest plan has no explanation row
+    explanation: RankExplanationView | None
 
 
 class AuditEntry(BaseModel):

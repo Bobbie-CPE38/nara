@@ -15,6 +15,7 @@ dependencies = [
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.4",
     "ortools>=9.15",
+    "boto3>=1.35",
 ]
 
 [tool.setuptools.packages.find]
@@ -26,6 +27,7 @@ dev = [
     "httpx2>=2.13",  # required by FastAPI's TestClient (Starlette deprecated httpx)
     "ruff>=0.6",
     "mypy>=1.11",
+    "boto3-stubs[bedrock-runtime]",
 ]
 
 [tool.ruff]

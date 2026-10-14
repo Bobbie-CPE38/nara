@@ -22,7 +22,9 @@
 >
 > * `d7f0b3c5e9a2` (รอบ 3 PR K) ตาราง `LINE_ACCOUNT_LINK_CODE` และ UNIQUE `CONTACTS.line_uid`
 >
-> **Migration head ปัจจุบัน: `d7f0b3c5e9a2`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `e1a4c7f2b9d6` (รอบ 3 PR X) ตาราง `RANK_EXPLANATION` และ `LLM_CALL_LOG`
+>
+> **Migration head ปัจจุบัน: `e1a4c7f2b9d6`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -623,6 +625,50 @@ Commit พร้อมผลของ Event ใน Transaction เดียว �
 
 CHECK `used_at IS NULL OR revoked_at IS NULL`; รหัสที่ใช้แล้วไม่ถูก revoke ย้อนหลัง รหัสที่หมดอายุหรือ revoke ใช้ไม่ได้ ล็อก Staff → Code → Contact; เก็บประวัติไว้และไม่บันทึก hash/รหัส/LINE UID ลง Audit
 
+### 34. RANK_EXPLANATION (รอบ 3 PR X)
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `case_id` | bigint | NOT NULL | FK STAFFING_CASES |
+| `plan_id` | bigint | NOT NULL | FK CANDIDATE_PLANS |
+| `prompt_version` | text | NOT NULL | เช่น `rank-explanation-v1` |
+| `status` | text | NOT NULL | `ExplanationStatus` (ไม่มี CHECK ตาม D8) |
+| `input_hash` | text | NULL | SHA-256 hex ของ `input_payload` แบบ Canonical |
+| `input_payload` | jsonb | NULL | ที่ส่งให้ LLM จริง มีแต่ตัวเลข อันดับ ชื่อพจน์ ไม่มีชื่อหรือ `staff_id` |
+| `text` | text | NULL | ตั้งเมื่อ `READY` เท่านั้น |
+| `provider`, `model_id` | text | NULL | ตั้งเมื่อ `READY` (`model_id` เป็น NULL ของ `fake`) |
+| `attempts` | integer | NOT NULL | default 0; นับ Attempt ถาวร |
+| `claim` | uuid | NULL | ผู้ถือ Claim ของ Sweep |
+| `lease_until` | timestamptz | NULL | Claim หมดอายุหลังเวลานี้ |
+| `failure_reason` | text | NULL | ค่าของ `LlmCallStatus` หรือ `INVALID_INPUT`, `NO_CANDIDATES`, `ATTEMPTS_EXHAUSTED`; ไม่เก็บข้อความ Error ของ SDK |
+| `created_at`, `updated_at` | timestamptz | NOT NULL | Backend Clock |
+| `ready_at` | timestamptz | NULL | |
+
+UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending` บน `id` เมื่อ `status = 'PENDING'` แถวเกิดใน Transaction ของ Plan (เมื่อ `LLM_ENABLED`) และ Job เป็นผู้เติมผล
+
+### 35. LLM_CALL_LOG (รอบ 3 PR X)
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `explanation_id` | bigint | NOT NULL | FK RANK_EXPLANATION |
+| `case_id`, `plan_id` | bigint | NOT NULL | ไม่มี FK; `plan_id` มี index |
+| `provider`, `prompt_version` | text | NOT NULL | |
+| `model_id`, `region`, `input_hash` | text | NULL | |
+| `attempt` | integer | NOT NULL | เริ่มที่ 1; UNIQUE (`explanation_id`, `attempt`) |
+| `status` | text | NOT NULL | `LlmCallStatus` เริ่มที่ `IN_FLIGHT` ก่อนเรียก; ถ้าค้าง = เครื่องล่มและไม่ทราบ Token |
+| `error_type` | text | NULL | ชื่อ Exception หรือรหัส Error เท่านั้น |
+| `input_tokens`, `output_tokens`, `total_tokens` | integer | NULL | NULL = ไม่ทราบ ไม่ใช่ 0 |
+| `duration_ms` | integer | NULL | |
+| `input_price_per_mtok_usd`, `output_price_per_mtok_usd` | numeric(12,6) | NULL | ราคาต่อล้าน Token ที่ใช้ |
+| `estimated_cost_usd` | numeric(14,8) | NULL | คำนวณเมื่อทราบทั้ง Token และราคา |
+| `started_at` | timestamptz | NOT NULL | |
+| `finished_at` | timestamptz | NULL | |
+| `created_at` | timestamptz | NOT NULL | Backend Clock |
+
+ไม่เก็บ Prompt หรือข้อความตอบ
+
 ## Enum
 
 
@@ -653,6 +699,8 @@ CHECK `used_at IS NULL OR revoked_at IS NULL`; รหัสที่ใช้แ
 | `ActorType` | ACTORS.actor_type | `user`, `system`, `component` |
 | `ActorName` | ACTORS.name (ที่ไม่ใช่ user) | `system`, `workflow_orchestrator`, `staffing_gap_assessment_agent`, `constraint_fair_scheduling_agent`, `outreach_agent`, `safety_rule_engine` |
 | `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS` |
+| `ExplanationStatus` | RANK_EXPLANATION.status (รอบ 3 PR X) | `PENDING`, `READY`, `FAILED`, `SKIPPED` |
+| `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
 | `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` |
 
 

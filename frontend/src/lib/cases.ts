@@ -32,12 +32,22 @@ function isScore(value: unknown): boolean {
   );
 }
 
+/** null, or a known status; READY needs a non-empty text and a known provider. */
+function isExplanation(value: unknown): boolean {
+  if (value === null) return true;
+  if (!isRecord(value)) return false;
+  if (value.status === "PENDING" || value.status === "UNAVAILABLE") return true;
+  return value.status === "READY" && typeof value.text === "string" && value.text !== ""
+    && (value.provider === "fake" || value.provider === "bedrock");
+}
+
 function isCaseDetail(value: unknown): value is CaseDetail {
   if (!isRecord(value) || typeof value.status !== "string") return false;
   const { gap, candidates } = value;
   const gapOk =
     gap === null || (isRecord(gap) && isRecordList(gap.roles) && isRecordList(gap.skills));
-  return gapOk && isRecordList(candidates) && candidates.every(candidate => isScore(candidate.score));
+  return gapOk && isRecordList(candidates) && candidates.every(candidate => isScore(candidate.score))
+    && value.explanation !== undefined && isExplanation(value.explanation);
 }
 
 function isAuditList(value: unknown): value is AuditEntry[] {
