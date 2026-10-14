@@ -53,16 +53,17 @@ def lock_assigned_roster(
     shift_id: int,
     statuses: Collection[RosterStatus] = (RosterStatus.ASSIGNED,),
 ) -> RosterAssignment:
-    """Return the staff member's one ASSIGNED roster row in the shift, locked.
+    """Return the staff member's one roster row in the shift with a status in `statuses`, locked.
 
-    `statuses` widens what counts: closing a window also takes a COMPLETED row
+    `statuses` is ASSIGNED unless the caller widens it: closing a window also takes a COMPLETED row
     (round 3 PR R), because an event accepted while the row was ASSIGNED must
     still apply if the shift ended and the job completed the row meanwhile.
 
     Event intake already runs one request at a time per shift, through the
     shift lock that event_service takes first. So a repeated report for the
     same person simply finds no ASSIGNED row here and raises
-    NoAssignedRosterError.
+    NoAssignedRosterError. Its message keeps saying "assigned" because event
+    intake returns it to the client and only looks for ASSIGNED rows.
 
     This row lock is for writers that do not take the shift lock: it keeps
     another transaction from changing this roster row while it is cancelled.
@@ -82,7 +83,8 @@ def lock_assigned_roster(
         )
     if len(rows) > 1:
         raise RuntimeError(
-            f"Staff {staff_id} has {len(rows)} assigned roster rows in shift {shift_id}"
+            f"Staff {staff_id} has {len(rows)} roster rows in shift {shift_id}"
+            f" with status in {sorted(status.value for status in statuses)}"
         )
     return rows[0]
 
