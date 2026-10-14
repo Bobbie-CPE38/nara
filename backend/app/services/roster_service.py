@@ -1,11 +1,13 @@
 """Replacement assignment creation (workflow.md section 6.4, seam 8) and the
-roster read of a shift (section 9.3).
+roster reads of a shift and of a staff member (sections 9.3 and 9.5).
 
 The execution handler owns audit rows; the orchestrator owns status and commit.
 """
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session, aliased
+from datetime import datetime
+
+from sqlalchemy import ColumnElement, and_, exists, select
+from sqlalchemy.orm import InstrumentedAttribute, Session, aliased
 
 from app.db.models import (
     ApprovalRequest,
@@ -16,11 +18,20 @@ from app.db.models import (
     Shift,
     Staff,
     StaffingCase,
+    StaffUnavailability,
     Ward,
 )
 from app.domain.enums import AssignmentType, RosterStatus
-from app.domain.errors import ShiftNotFoundError
-from app.schemas.roster import RosterRow, RosterShift, ShiftRoster
+from app.domain.errors import ShiftNotFoundError, StaffNotFoundError
+from app.schemas.roster import (
+    RosterRow,
+    RosterShift,
+    RosterStaff,
+    ShiftRoster,
+    StaffRoster,
+    StaffRosterRow,
+)
+from app.services.unavailability_service import leave_overlaps_shift_sql
 
 
 def create_replacement(
@@ -84,6 +95,7 @@ def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
             RosterAssignment.staff_id,
             RosterAssignment.created_at,
             RosterAssignment.updated_at,
+            _is_unavailable(shift.start_at, shift.end_at).label("is_unavailable"),
             Staff.first_name,
             Staff.last_name,
             Staff.status.label("staff_status"),
@@ -110,4 +122,101 @@ def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
             is_active=shift.is_active,
         ),
         assignments=[RosterRow.model_validate(row) for row in rows],
+    )
+
+
+def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
+    """Read the staff member and every roster row they hold, without flushes, commits or locks.
+
+    Rows come back in every status, ordered by shift start, then row ID: a
+    person's shifts read as a timeline. Two statements whatever the number of
+    rows. Only the staff columns the answer needs are loaded.
+    """
+    found = (
+        db.execute(
+            select(
+                Staff.id,
+                Staff.first_name,
+                Staff.last_name,
+                Staff.status.label("staff_status"),
+                Staff.role_id,
+                Role.name.label("role_name"),
+                Staff.home_ward_id,
+                Ward.name.label("home_ward_name"),
+            )
+            .join(Role, Role.id == Staff.role_id)
+            .join(Ward, Ward.id == Staff.home_ward_id)
+            .where(Staff.id == staff_id)
+        )
+        .mappings()
+        .first()
+    )
+    if found is None:
+        raise StaffNotFoundError(f"No staff {staff_id}")
+
+    rows = db.execute(
+        select(
+            RosterAssignment.id,
+            RosterAssignment.status,
+            RosterAssignment.assignment_type,
+            RosterAssignment.candidate_source,
+            RosterAssignment.created_at,
+            RosterAssignment.updated_at,
+            _is_unavailable(Shift.start_at, Shift.end_at).label("is_unavailable"),
+            Shift.id.label("shift_id"),
+            Shift.ward_id,
+            Ward.name.label("ward_name"),
+            Shift.shift_type,
+            Shift.start_at,
+            Shift.end_at,
+            Shift.is_active,
+        )
+        .join(Shift, Shift.id == RosterAssignment.shift_id)
+        .join(Ward, Ward.id == Shift.ward_id)
+        .where(RosterAssignment.staff_id == staff_id)
+        .order_by(Shift.start_at, RosterAssignment.id)
+    ).mappings()
+    return StaffRoster(
+        staff=RosterStaff.model_validate(found),
+        assignments=[
+            StaffRosterRow(
+                id=row["id"],
+                status=row["status"],
+                assignment_type=row["assignment_type"],
+                candidate_source=row["candidate_source"],
+                shift=RosterShift(
+                    id=row["shift_id"],
+                    ward_id=row["ward_id"],
+                    ward_name=row["ward_name"],
+                    shift_type=row["shift_type"],
+                    start_at=row["start_at"],
+                    end_at=row["end_at"],
+                    is_active=row["is_active"],
+                ),
+                is_unavailable=row["is_unavailable"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+            for row in rows
+        ],
+    )
+
+
+def _is_unavailable(
+    shift_start: datetime | InstrumentedAttribute[datetime],
+    shift_end: datetime | InstrumentedAttribute[datetime],
+) -> ColumnElement[bool]:
+    """ASSIGNED, and a leave period of the row's person overlaps the shift.
+
+    The overlap is unavailability_service.leave_overlaps_shift_sql(), the UNAVAILABLE
+    hard rule in SQL. Evaluated in the row query, so the read stays at two statements.
+    """
+    return and_(
+        RosterAssignment.status == RosterStatus.ASSIGNED,
+        exists().where(
+            StaffUnavailability.staff_id == RosterAssignment.staff_id,
+            leave_overlaps_shift_sql(
+                StaffUnavailability.start_at, StaffUnavailability.end_at, shift_start, shift_end
+            ),
+        ),
     )

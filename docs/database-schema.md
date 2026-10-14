@@ -278,7 +278,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `solver_version` | text | NOT NULL |  | รอบ 2 PR B = `"cp-sat-v1"` (รอบ 1 = `"weighted-v1"`, Skeleton = `"stub"`) |
 | `hard_constraint_policy_id` | bigint | NOT NULL | FK HARD_CONSTRAINT_POLICY.id |  |
 | `soft_constraint_policy_id` | bigint | NOT NULL | FK SOFT_CONSTRAINT_POLICY.id |  |
-| `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `candidates` (ค่าของแต่ละคนเรียงตาม `rank`), `skipped` |
+| `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `weights` (ค่าน้ำหนักของ `SoftWeights` เป็นข้อความ `"เศษ/ส่วน"` พร้อม `source_order`), `candidates` (ค่าของแต่ละคนเรียงตาม `rank` มี `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` คู่กับช่อง `float` เดิมที่ใช้แสดงผลอย่างเดียว; Plan ก่อน PR E ไม่มี `weights` และช่อง `_exact`), `skipped` |
 
 
 ### 16. CANDIDATE_ITEMS

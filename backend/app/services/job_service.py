@@ -19,6 +19,7 @@ from app.services import (
     line_delivery_service,
     merge_window_service,
     offer_timeout_service,
+    roster_completion_service,
 )
 from app.services.merge_window_service import ClosedWindow
 
@@ -29,16 +30,19 @@ class DueWork:
     timed_out_outreach_ids: list[int] = field(default_factory=list)
     timed_out_approval_request_ids: list[int] = field(default_factory=list)
     recovered_case_ids: list[int] = field(default_factory=list)
+    completed_assignment_ids: list[int] = field(default_factory=list)
 
 
 def run_due_work(db: Session) -> DueWork:
-    """Expire offers and approvals, recover notifications, then close merge windows.
+    """Complete ended shifts, expire offers and approvals, recover, close windows.
 
     Case work commits per case; window work commits per shift. Releasing a case
     first lets its queued window close in this same tick. The job route still
     answers only the windows; the demo clock route also answers the timeout
     and recovery IDs.
     """
+    # First and in its own commit: it changes no count, so order does not matter
+    completed = roster_completion_service.complete_ended_shifts(db)
     expired = offer_timeout_service.expire_due_offers(db)
     approvals = approval_timeout_service.expire_due_approvals(db)
     recovered = offer_timeout_service.recover_waiting_cases(
@@ -51,4 +55,5 @@ def run_due_work(db: Session) -> DueWork:
         timed_out_outreach_ids=expired.outreach_ids,
         recovered_case_ids=recovered,
         timed_out_approval_request_ids=approvals.approval_ids,
+        completed_assignment_ids=completed,
     )

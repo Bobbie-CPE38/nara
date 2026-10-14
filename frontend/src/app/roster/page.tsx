@@ -74,7 +74,14 @@ function Roster({ shiftId }: { shiftId: number }) {
                           " (cross-ward)"}
                       </td>
                       <td className="p-3">{row.staff_status}</td>
-                      <td className="p-3 font-medium">{row.status}</td>
+                      <td className="p-3 font-medium">
+                        {row.status}
+                        {row.is_unavailable && (
+                          <span className="ml-2 rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                            On leave
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3">{row.assignment_type}</td>
                       <td className="p-3">{row.candidate_source ?? "—"}</td>
                     </tr>
@@ -85,7 +92,9 @@ function Roster({ shiftId }: { shiftId: number }) {
           )}
           <p className="text-sm text-slate-600">
             Shows every assignment, including cancelled rows. Multiple rows may
-            belong to the same staff member.
+            belong to the same staff member. &ldquo;On leave&rdquo; marks an
+            assigned person whose leave overlaps the shift: report the leave to
+            open a case for it.
           </p>
         </>
       )}

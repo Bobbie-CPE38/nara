@@ -11,6 +11,9 @@ Every term except the roster changes is a sum over the people of the group, so
 the penalty of a group is the sum of candidate_penalty() of its members. Round 1
 only adds assignments: nothing moves, and that term is 0.
 
+candidate_penalty() is the sum of candidate_penalty_terms(), the five weight x value
+lines of one person. The round 3 score breakdown (section 6.15) reads the same terms.
+
 Exact Fraction arithmetic: equal penalties must compare equal, because a tie is
 broken by staff ID. No database access, clock reads, or writes.
 """
@@ -60,15 +63,44 @@ class SoftWeights:
             raise ValueError("source_order lists a source twice")
 
 
-def candidate_penalty(metrics: SoftMetrics, weights: SoftWeights) -> Fraction:
-    """What one person adds to the penalty of a group."""
+@dataclass(frozen=True)
+class PenaltyTerm:
+    """One line of candidate_penalty: weight x value."""
+
+    name: str
+    value: Fraction
+    weight: Fraction
+
+    @property
+    def points(self) -> Fraction:
+        return self.weight * self.value
+
+
+def candidate_penalty_terms(metrics: SoftMetrics, weights: SoftWeights) -> tuple[PenaltyTerm, ...]:
+    """The terms of candidate_penalty, in the order the score breakdown shows them.
+
+    This is the only place the per-person formula is written (section 6.15).
+    """
     return (
-        weights.candidate_count
-        + weights.consecutive_shift * metrics.projected_consecutive_shifts
-        + weights.workload_imbalance * metrics.hours_this_week
-        + weights.projected_overtime * metrics.overtime_hours
-        + weights.candidate_source * source_priority(metrics.source, weights.source_order)
+        PenaltyTerm("candidate_count", Fraction(1), weights.candidate_count),
+        PenaltyTerm(
+            "consecutive_shift",
+            Fraction(metrics.projected_consecutive_shifts),
+            weights.consecutive_shift,
+        ),
+        PenaltyTerm("workload_imbalance", metrics.hours_this_week, weights.workload_imbalance),
+        PenaltyTerm("projected_overtime", metrics.overtime_hours, weights.projected_overtime),
+        PenaltyTerm(
+            "candidate_source",
+            Fraction(source_priority(metrics.source, weights.source_order)),
+            weights.candidate_source,
+        ),
     )
+
+
+def candidate_penalty(metrics: SoftMetrics, weights: SoftWeights) -> Fraction:
+    """What one person adds to the penalty of a group: the sum of the terms' points."""
+    return sum((term.points for term in candidate_penalty_terms(metrics, weights)), Fraction(0))
 
 
 def plan_penalty(

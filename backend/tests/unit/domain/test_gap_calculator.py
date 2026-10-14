@@ -144,7 +144,8 @@ def test_empty_roster_and_missing_categories() -> None:
 
 
 @pytest.mark.parametrize("status", list(RosterStatus))
-def test_only_assigned_staff_count(status: RosterStatus) -> None:
+def test_only_covering_staff_count(status: RosterStatus) -> None:
+    """ASSIGNED and COMPLETED cover the shift (round 3 PR R), nothing else does."""
     member = RosterMember(1, 1, status, RN, frozenset({ICU}))
     result = calculate_gap(
         shift_id=1,
@@ -155,7 +156,7 @@ def test_only_assigned_staff_count(status: RosterStatus) -> None:
         required_skills={ICU: 1},
         roster=[member],
     )
-    expected = 1 if status == RosterStatus.ASSIGNED else 0
+    expected = 1 if status in (RosterStatus.ASSIGNED, RosterStatus.COMPLETED) else 0
     assert result.headcount_gap == 1 - expected
     assert result.role_gaps[RN].current_count == expected
     assert result.skill_gaps[ICU].current_count == expected

@@ -11,9 +11,10 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.db.models import AuditLog, RosterAssignment, Shift, Staff, Ward
+from app.db.models import AuditLog, RosterAssignment, Shift, Staff, StaffUnavailability, Ward
 from app.domain.enums import (
     AssignmentType,
+    AvailabilityReason,
     CandidateSource,
     RosterStatus,
     ShiftType,
@@ -39,6 +40,7 @@ ROW_KEYS = {
     "role_name",
     "home_ward_id",
     "home_ward_name",
+    "is_unavailable",
     "created_at",
     "updated_at",
 }
@@ -143,6 +145,7 @@ def test_golden_roster_contract(client: TestClient, production_seeded: Session) 
         "role_name": "RN",
         "home_ward_id": 1,
         "home_ward_name": "ICU",
+        "is_unavailable": False,
         "created_at": DEMO_NOW.isoformat(),
         "updated_at": DEMO_NOW.isoformat(),
     }
@@ -202,11 +205,12 @@ def test_unknown_shift_is_404(client: TestClient) -> None:
     assert response.json() == {"detail": "No shift 999999"}
 
 
-def test_shift_id_is_required(client: TestClient) -> None:
-    response = client.get("/roster", headers=HEADERS)
+@pytest.mark.parametrize("url", ["/roster", "/roster?shift_id=1&staff_id=101"])
+def test_exactly_one_of_shift_id_and_staff_id_is_required(client: TestClient, url: str) -> None:
+    response = client.get(url, headers=HEADERS)
 
     assert response.status_code == 422
-    assert response.json()["detail"][0]["loc"] == ["query", "shift_id"]
+    assert response.json() == {"detail": "Give exactly one of shift_id and staff_id"}
 
 
 @pytest.mark.parametrize("shift_id", ["abc", "0", "-1", "1.5", "", str(2**63)])
@@ -472,3 +476,168 @@ def test_the_read_takes_two_statements_whatever_the_number_of_rows(
 
     assert _statement_count(db, NIGHT_SHIFT) == 2
     assert len(roster_service.get_shift_roster(db, NIGHT_SHIFT).assignments) == 8
+
+
+# --------------------------------------------------------------------------- #
+# Round 3 PR R: GET /roster?staff_id= and the is_unavailable flag
+# --------------------------------------------------------------------------- #
+def _leave(
+    db: Session, staff_id: int, start_at: datetime, end_at: datetime | None
+) -> StaffUnavailability:
+    period = StaffUnavailability(
+        staff_id=staff_id,
+        start_at=start_at,
+        end_at=end_at,
+        reason=AvailabilityReason.UNPLANNED_LEAVE,
+    )
+    db.add(period)
+    db.commit()
+    return period
+
+
+def _night(db: Session) -> Shift:
+    shift = db.get(Shift, NIGHT_SHIFT)
+    assert shift is not None
+    return shift
+
+
+def test_staff_roster_contract(client: TestClient, production_seeded: Session) -> None:
+    db = production_seeded
+    _assign(db, 202, shift_id=NIGHT_SHIFT)
+
+    response = client.get("/roster?staff_id=202", headers=HEADERS)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["staff"] == {
+        "id": 202,
+        "first_name": db.get(Staff, 202).first_name,  # type: ignore[union-attr]
+        "last_name": db.get(Staff, 202).last_name,  # type: ignore[union-attr]
+        "staff_status": "ACTIVE",
+        "role_id": 1,
+        "role_name": "RN",
+        "home_ward_id": 1,
+        "home_ward_name": "ICU",
+    }
+    # By shift start: the night shift comes before the day shift
+    assert [row["shift"]["id"] for row in body["assignments"]] == [NIGHT_SHIFT, DAY_SHIFT]
+    first = body["assignments"][0]
+    assert set(first) == {
+        "id",
+        "status",
+        "assignment_type",
+        "candidate_source",
+        "shift",
+        "is_unavailable",
+        "created_at",
+        "updated_at",
+    }
+    assert first["shift"] == {
+        "id": NIGHT_SHIFT,
+        "ward_id": 1,
+        "ward_name": "ICU",
+        "shift_type": "NIGHT",
+        "start_at": "2026-10-09T23:00:00+07:00",
+        "end_at": "2026-10-10T07:00:00+07:00",
+        "is_active": True,
+    }
+    assert (first["status"], first["is_unavailable"]) == ("ASSIGNED", False)
+
+
+def test_staff_without_rows_is_an_empty_list_and_unknown_staff_is_404(
+    client: TestClient,
+) -> None:
+    empty = client.get("/roster?staff_id=201", headers=HEADERS)
+    unknown = client.get("/roster?staff_id=999999", headers=HEADERS)
+
+    assert (empty.status_code, empty.json()["assignments"]) == (200, [])
+    assert (unknown.status_code, unknown.json()) == (404, {"detail": "No staff 999999"})
+
+
+@pytest.mark.parametrize("staff_id", ["abc", "0", "-1", str(2**63)])
+def test_staff_id_outside_the_bigint_range_is_422(client: TestClient, staff_id: str) -> None:
+    assert client.get(f"/roster?staff_id={staff_id}", headers=HEADERS).status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "flagged"),
+    [
+        # Overlaps the shift, also by one second at either edge
+        (timedelta(hours=-1), timedelta(hours=1), True),
+        (timedelta(hours=7, minutes=59, seconds=59), timedelta(hours=9), True),
+        (timedelta(hours=-5), timedelta(seconds=1), True),
+        # An open end counts
+        (timedelta(hours=-5), None, True),
+        # Touching the shift is not overlapping, like the UNAVAILABLE rule
+        (timedelta(hours=8), timedelta(hours=9), False),
+        (timedelta(hours=-5), timedelta(0), False),
+    ],
+)
+def test_an_assigned_person_with_overlapping_leave_is_flagged(
+    client: TestClient,
+    production_seeded: Session,
+    start: timedelta,
+    end: timedelta | None,
+    flagged: bool,
+) -> None:
+    db = production_seeded
+    begin = _night(db).start_at
+    _leave(db, 101, begin + start, None if end is None else begin + end)
+
+    by_shift = {row["staff_id"]: row["is_unavailable"] for row in _assignments(client)}
+    by_staff = client.get("/roster?staff_id=101", headers=HEADERS).json()["assignments"]
+
+    assert by_shift == {101: flagged, 102: False, 103: False, 104: False, 105: False}
+    assert [row["is_unavailable"] for row in by_staff] == [flagged]
+
+
+@pytest.mark.parametrize(
+    "status",
+    [RosterStatus.CANCELLED, RosterStatus.COMPLETED, RosterStatus.PENDING_APPROVAL],
+)
+def test_only_assigned_rows_are_flagged(
+    client: TestClient, production_seeded: Session, status: RosterStatus
+) -> None:
+    db = production_seeded
+    _row(db, 101).status = status
+    db.commit()
+    night = _night(db)
+    _leave(db, 101, night.start_at, night.end_at)
+
+    rows = {row["staff_id"]: row for row in _assignments(client)}
+
+    assert rows[101]["is_unavailable"] is False
+
+
+def test_leave_of_another_person_does_not_flag(
+    client: TestClient, production_seeded: Session
+) -> None:
+    db = production_seeded
+    night = _night(db)
+    _leave(db, 201, night.start_at, night.end_at)
+
+    assert not any(row["is_unavailable"] for row in _assignments(client))
+
+
+def test_the_staff_read_takes_two_statements_whatever_the_number_of_rows(
+    production_seeded: Session,
+) -> None:
+    db = production_seeded
+    statements: list[str] = []
+
+    def record(conn: object, cursor: object, statement: str, *rest: object) -> None:
+        statements.append(statement)
+
+    for shift_id in (NIGHT_SHIFT, DAY_SHIFT):
+        _assign(db, 201, shift_id=shift_id)
+    night = _night(db)
+    _leave(db, 201, night.start_at, None)
+    connection = db.connection()
+    event.listen(connection, "before_cursor_execute", record)
+    try:
+        roster = roster_service.get_staff_roster(db, 201)
+    finally:
+        event.remove(connection, "before_cursor_execute", record)
+
+    assert len(statements) == 2
+    assert [row.is_unavailable for row in roster.assignments] == [True, True]

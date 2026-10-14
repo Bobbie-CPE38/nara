@@ -19,7 +19,7 @@ from fractions import Fraction
 from math import ceil
 from types import MappingProxyType
 
-from app.domain.enums import RosterStatus
+from app.domain.enums import COVERING_ROSTER_STATUSES
 from app.domain.staffing.coverage import RosterMember
 
 
@@ -114,7 +114,9 @@ def calculate_gap(
     required_skills: Mapping[int, int],
     roster: Iterable[RosterMember],
 ) -> GapResult:
-    """Compare distinct ASSIGNED staff against the headcount and role/skill requirements.
+    """Compare distinct covering staff against the headcount and role/skill requirements.
+
+    Covering means ASSIGNED or COMPLETED (COVERING_ROSTER_STATUSES).
 
     effective_minimum = effective_minimum_for(...) and
     headcount_gap = max(effective_minimum - assigned staff, 0).
@@ -140,7 +142,7 @@ def calculate_gap(
 
     assigned: dict[int, RosterMember] = {}
     for member in roster:
-        if member.shift_id != shift_id or member.status != RosterStatus.ASSIGNED:
+        if member.shift_id != shift_id or member.status not in COVERING_ROSTER_STATUSES:
             continue
         previous = assigned.get(member.staff_id)
         if previous is not None and previous != member:

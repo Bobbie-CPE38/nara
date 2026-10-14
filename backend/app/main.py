@@ -5,14 +5,34 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.exception_handlers import register_exception_handlers
-from app.api.routes import approvals, cases, demo, events, internal, line_sim, line_webhook, roster
+from app.api.routes import (
+    approvals,
+    cases,
+    demo,
+    events,
+    internal,
+    line_sim,
+    line_webhook,
+    roster,
+    unavailability,
+)
 from app.core.config import settings
 from app.db.session import engine
 
 app = FastAPI(title="Staffing API")
 
 # Register each router once; route implementations live in their own modules.
-for module in (demo, events, cases, approvals, roster, line_sim, internal, line_webhook):
+for module in (
+    demo,
+    events,
+    cases,
+    approvals,
+    roster,
+    line_sim,
+    internal,
+    line_webhook,
+    unavailability,
+):
     app.include_router(module.router)
 
 register_exception_handlers(app)

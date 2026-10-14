@@ -80,17 +80,19 @@ def test_ratio_gives_the_same_answer_as_comparing_with_required_staff() -> None:
                 assert by_product is (staff < required_staff_for(patients, ratio))
 
 
-def test_only_assigned_rows_count_and_each_person_once() -> None:
+def test_only_covering_rows_count_and_each_person_once() -> None:
     roster = [
         nurse(101),
         nurse(101),
         nurse(102, status=RosterStatus.CANCELLED),
+        # Round 3 PR R: a shift that ended keeps its people
         nurse(103, status=RosterStatus.COMPLETED),
+        nurse(104, status=RosterStatus.PENDING_APPROVAL),
     ]
 
-    # One person present: 3 patients are above the limit of 2
-    assert check(roster, patients=2).ratio_exceeded is False
-    assert check(roster, patients=3).ratio_exceeded is True
+    # Two people present (101 and 103): 5 patients are above the limit of 4
+    assert check(roster, patients=4).ratio_exceeded is False
+    assert check(roster, patients=5).ratio_exceeded is True
 
 
 # --------------------------------------------------------------------------- #
