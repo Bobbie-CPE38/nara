@@ -103,9 +103,9 @@ and the unique constraint.
 
 ## Verification
 
-- Backend: **2,237 passed, 14 skipped** (opt-in timing harness).
-- Ruff check, Ruff format check and mypy strict (159 files) passed.
-- Frontend: **289 tests passed** (11 files); typecheck passed.
+- Backend: **2,262 passed, 14 skipped** (opt-in timing harness).
+- Ruff check, Ruff format check and mypy strict (161 files) passed.
+- Frontend: **304 tests passed** (12 files); typecheck passed.
 - `git diff --check` and `grep -ri "aws_secret\|AKIA"` over `.env.example`,
   `docker-compose.yml` and `backend/app`: clean.
 - `alembic heads` prints exactly `e1a4c7f2b9d6`.
