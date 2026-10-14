@@ -4,7 +4,7 @@
 > ถ้าจะเปลี่ยนอะไรในไฟล์นี้ แจ้งทั้งทีมก่อน และแก้ใน PR เดียวกับโค้ดที่เกี่ยวข้อง
 >
 > ขอบเขต: Walking Skeleton, รอบ 1 (Merge Gap, เคสรับหลายคน, Wave) และรอบ 2 (เส้นออกจาก `MANUAL_HANDOFF`, Timeout ของการอนุมัติ, OR-Tools) ทั้งสามช่วงเสร็จแล้ว
-> รอบ 3 (คำอธิบายอันดับ, LINE จริง, หน้าเว็บพยาบาล) กำลังทำ กติกาที่มีป้าย **[รอบ 3 · PR X]** คือข้อตกลงที่ PR นั้นยังไม่ได้ทำ
+> รอบ 3 (คำอธิบายอันดับ, LINE จริง, หน้าเว็บพยาบาล, งานค้างของ Roster) เสร็จแล้วทางโค้ด LINE และ LLM ทดสอบกับตัวแทน (fake) ยังไม่ได้ลองกับบริการจริง ดู "สถานะของรอบ 3" กติกาที่มีป้าย **[รอบ 6 · PR D]** เป็นของที่เลื่อนไปรอบ 6
 > อัปเดตล่าสุด: 2026-10-15
 
 ## สถานะของรอบ 1
@@ -98,7 +98,7 @@ Contract ของรอบ 2 ตกลงแล้ว (PR #50) ไฟล์น�
 
 Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์นี้รับเฉพาะกติกาที่ข้ามคน ส่วน Spec เต็มของรอบอยู่ที่ `docs/round3/round3-contract-draft.md` (ในไฟล์นี้เรียกว่า "ร่างรอบ 3") เลข R3-Q ที่อ้างในไฟล์นี้คือคำถามใน `docs/round3/round3-questions.md` คำตอบเป็นการตัดสินใจร่วมกันของทั้งสามคน
 
-**รอบ 3 กำลังทำ** กติกาของรอบ 3 ในไฟล์นี้อยู่ที่ส่วนนี้, ข้อ 6.15 ถึง 6.17, 7.1 และ 9.5 กติกาที่ยังไม่มีโค้ดมีป้าย **[รอบ 3 · PR X]** บอกว่า PR ไหนต้องทำ PR นั้นลบป้ายออกเมื่อทำแล้ว
+**รอบ 3 เสร็จแล้ว** PR ทุกตัวในตารางข้างล่างยกเว้น D เข้า `staging` ครบ โค้ดตรงกับกติกาของรอบ 3 ในไฟล์นี้ (ส่วนนี้, ข้อ 6.15 ถึง 6.18, 7.1 และ 9.5) กติกาข้อไหนมาจาก PR ไหนดูได้จากคอลัมน์ "ข้อของไฟล์นี้" ของตารางข้างล่าง ส่วนของ PR D ที่ยังไม่มีโค้ดมีป้าย **[รอบ 6 · PR D]**
 
 | PR ของรอบ 3 | ใคร | เรื่อง | ข้อของไฟล์นี้ | PR บน GitHub |
 |---|---|---|---|---|
@@ -109,7 +109,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | L | คน 3 | LINE จริง: Webhook, กันซ้ำ, ส่ง Offer (Migration ตัวที่ 1) | 6.16 | #62 |
 | K | คน 3 | ผูกบัญชี LINE (Migration ตัวที่ 2) | 6.16 | #68 |
 | X | คน 2 | ประโยคอธิบายจาก LLM (Migration ตัวที่ 3 `e1a4c7f2b9d6`) | 6.15, 9.3, 9.5 | #70 |
-| R | คน 1 | งานค้างของ Roster และการลา: `COMPLETED`, `GET /roster?staff_id=`, ธง `is_unavailable`, แก้ `end_at` ของการลา | 6.18, 9.5 | |
+| R | คน 1 | งานค้างของ Roster และการลา: `COMPLETED`, `GET /roster?staff_id=`, ธง `is_unavailable`, แก้ `end_at` ของการลา | 6.18, 9.5 | #64 |
 | N | คน 1 | หน้าเว็บพยาบาล "ข้อเสนอเข้าเวรของฉัน" | 6.17, 9.5 | #69 |
 | D | ทั้งสามคน (คน 1 รวบรวม PR) | สภาพแวดล้อมบน AWS **เลื่อนไปรอบ 6** (มติทีม 2026-10-14) งานที่ทำแล้วเก็บใน branch `feat/aws-test-environment` | 6.16, 6.17 | |
 
@@ -121,6 +121,20 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 * **Bedrock จริง:** เลื่อนไปรอบ 6 พร้อม Deploy รอบ 3 ถึง 5 ใช้ `fake` (ข้อ 6.15)
 * **D:** เปิดเครื่อง AWS ในรอบ 6 ลำดับในรอบ 6 คือ เปิดเครื่องและผ่าน `check-gate.sh` ก่อน จากนั้นคน 2 ลอง Bedrock ด้วย IAM Role ของเครื่อง และคน 3 ย้าย Webhook จาก Tunnel มาที่เครื่องแล้วปิด Tunnel
 * **การปิดรอบ 3:** ไม่รอ D และต้องระบุตามหลักฐานว่าอะไรทดสอบด้วย fake และอะไรผ่านบริการจริงแล้ว การทดสอบ Bedrock จริงและการทดสอบระบบบน AWS เป็นเกณฑ์ของรอบ 6
+
+**อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง (ตอนปิดรอบ 3)** หลักฐานคือ Description ของ PR และไฟล์ Handoff ใน `docs/round3/`
+
+| เรื่อง | ทดสอบแล้วด้วย | บริการจริง |
+|---|---|---|
+| ส่ง Offer และรับคำตอบผ่าน LINE (L) | Test กับ PostgreSQL จริงและตัวแทน HTTP ของ LINE API รวม Test สอง Connection | ยังไม่ได้ลอง PR #62 และ `pr-L-handoff.md` เขียนว่ายังไม่ได้ลองกับ Channel ของทีม |
+| ผูกบัญชี LINE (K) | Test กับ PostgreSQL จริงและตัวแทน LINE API | ยังไม่ได้ลอง PR #68 และ `pr-K-handoff.md` เขียนว่ายังไม่ได้ผูกกับ LINE จริงหรือตรวจผ่าน Tunnel สาธารณะ |
+| ด่าน HTTP หน้า Quick Tunnel (`dev/line-webhook-proxy`) | nginx config จริงกับ Backend จำลองใน CI | ยังไม่ได้ลองผ่าน URL สาธารณะ PR #66 เขียนว่าไม่ได้เรียก Tunnel สาธารณะหรือ Channel จริง |
+| ประโยคจาก LLM (X) | ตัวเชื่อม `fake` และตัวเชื่อม `bedrock` ทดสอบออฟไลน์ด้วย botocore `Stubber` | ไม่เรียก Bedrock จริงตามมติ เป็นงานของรอบ 6 |
+| เครดิตและสิทธิ์โมเดลของ Bedrock (งานเตรียมของคน 2) | | ยังไม่มีบันทึกใน repo |
+| หน้าเว็บ (E2, N) และงานของ Roster (R) | Test ของ Frontend และ Backend และลองบน Stack ในเครื่องผ่าน Browser | ไม่ใช้บริการภายนอก |
+| สภาพแวดล้อมบน AWS (D) | `check-gate.sh` กับ Caddy ในเครื่อง (branch `feat/aws-test-environment` ยังไม่เข้า `staging`) | รอบ 6 |
+
+ถ้าทีมได้ลอง LINE จริงผ่าน Tunnel แล้วแต่ยังไม่ได้บันทึก ให้เพิ่มผลพร้อมวันที่และสิ่งที่ผ่านจริงในตารางนี้ ห้ามอ้างว่าผ่านครบถ้า Tunnel ขาดกลางทาง (ข้อ 6.16)
 
 เรื่องที่ยังอยู่ในร่างรอบ 3 ไม่ได้ย้ายเข้าไฟล์นี้
 
@@ -135,34 +149,34 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 
 ถ้ากติกาที่ย้ายเข้าไฟล์นี้แล้วไม่ตรงกับร่างรอบ 3 ให้ยึดไฟล์นี้
 
-**Test ของข้อกำหนดที่พังเงียบได้** ข้อกำหนดข้างล่างผิดแล้วไม่มี Error PR ที่ทำต้องมี Test ของแต่ละข้อ ตอนปิดรอบจะตรวจและใส่ชื่อไฟล์ Test
+**Test ของข้อกำหนดที่พังเงียบได้** PR 0 เคยระบุว่าข้อกำหนดข้างล่างผิดแล้วไม่มี Error และ PR ที่ทำต้องมี Test ตอนปิดรอบตรวจแล้วว่ามีครบ ไฟล์อยู่ใต้ `backend/tests/integration/` ยกเว้นที่ระบุ
 
-| ข้อกำหนด | PR |
-|---|---|
-| แก้ Policy หลังวางแผนแล้ว คะแนนรายพจน์ของ Plan เดิมไม่เปลี่ยน และผลรวมยังเท่ากับ `penalty_exact` | E |
-| ชั่วโมงไม่เต็มชั่วโมง (เช่น 20 นาที) กับค่าน้ำหนักที่เป็นเศษส่วน ผลรวมรายพจน์เท่ากับ `penalty_exact` พอดี | E |
-| Plan ที่ไม่มีช่องใหม่ใน Snapshot ได้ `score = null` ไม่เดาจาก Policy ปัจจุบัน | E |
-| ลายเซ็นไม่ผ่านหรือไม่มี Header ได้ `401` และไม่มีแถวใดถูกเขียน | L |
-| บังคับให้การล็อกใน `record_response()` เริ่มใหม่หนึ่งครั้ง แล้วแถวกันซ้ำกับผลของการตอบยังถูก Commit ด้วยกัน และ Event ที่ส่งซ้ำไม่ถูกประมวลอีก | L |
-| Event เดียวกันมาพร้อมกันสองครั้ง ได้ผลทางธุรกิจครั้งเดียว | L |
-| การปฏิเสธทางธุรกิจได้ `200` พร้อมแถวกันซ้ำ ส่วน Error ที่ไม่คาดไว้ได้ `5xx` และไม่มีแถวกันซ้ำ | L |
-| ผู้ส่งที่ไม่ได้ผูกบัญชี หรือ `postback.data` ที่ชี้ Offer ของคนอื่น ไม่เปลี่ยน Offer | L |
-| เครื่องล่มหลัง Wave Commit แต่ก่อนส่งครั้งแรก แล้ว Job ส่งให้ | L |
-| `409` ของ Retry key นับว่ารับแล้ว `429` ไม่นับในสามครั้ง `401` และ `403` ไม่ตั้ง Offer เป็น `FAILED` | L |
-| Offer ที่ถูกรับ ยกเลิก หมดเวลา หรือเคสหยุดแล้ว ไม่ถูกส่งซ้ำและไม่ถูกเขียนทับด้วย `FAILED` | L |
-| รหัสผูกบัญชีเดียวกันถูกใช้พร้อมกันสองครั้ง สำเร็จได้ครั้งเดียว และถ้าการเขียนพัง รหัสยังใช้ได้ | K |
-| เปิดหน้าซ้ำหรือ Polling `GET /cases/{id}` ไม่เรียก LLM (Gateway ถูกเรียก 0 ครั้ง) | X (`test_rank_explanation.py`) |
-| Sweep พร้อมกันสองตัว (สอง Connection) เรียก LLM ครั้งเดียวต่อ Plan | X (`test_rank_explanation.py`) |
-| ตั้ง `bedrock` แล้วเรียกไม่สำเร็จ ไม่สลับไปใช้ `fake` เงียบ ๆ และหน้าได้ `UNAVAILABLE` | X (`test_rank_explanation.py`, `test_llm_service.py`) |
-| LLM ล้มเหลวไม่เปลี่ยนสถานะเคสและไม่มี `WORKFLOW_FAILED` | X (`test_rank_explanation.py`) |
-| ข้อมูลที่ส่งให้ LLM ไม่มีชื่อพนักงานหรือ `staff_id` (ตรวจทั้ง Key และ Value) | X (`test_rank_explanation.py`) |
-| Attempt ไม่เกิน `1 + LLM_MAX_RETRIES` แม้เครื่องล่มกลางการเรียก (Lease หมดแล้ว `attempts` เต็ม ได้ `FAILED` โดยไม่เรียก) | X (`test_rank_explanation.py`) |
-| เลื่อน Demo Clock เกิน Lease ระหว่างที่การเรียกยังรันอยู่ Sweep ถัดไปไม่เรียกซ้ำใน Plan เดียว (Lease ใช้นาฬิกาฐานข้อมูล) | X (`test_rank_explanation.py`) |
-| เคสถึงสถานะสุดท้ายขณะที่ประโยคยัง `PENDING` หน้ายัง Poll จนเป็น `READY` หรือ `UNAVAILABLE` | X (`CaseView.test.tsx`) |
-| Route ของหน้าเว็บพยาบาลไม่สนใจ `staff_id` ที่ส่งมาใน Query หรือ Body | N (`test_me_offers.py`) |
-| ตั้งเวรที่จบแล้วเป็น `COMPLETED` แล้ว Gap, Hard Rules (รวมเวลาพักหลังเวรนั้น) และชั่วโมงทำงานเท่าเดิม | R (`test_roster_completion.py`) |
-| การลาหรือการยกเลิกที่รับไว้ก่อนเวรจบยังถูกประมวลหลัง Job ตั้ง `COMPLETED` รวมกรณีที่ Window รอเคสที่ยังเดิน | R (`test_roster_completion_events.py`) |
-| เรียกเครื่องทดสอบบน AWS โดยไม่มีรหัส Basic Auth ถูกปฏิเสธ ส่วน Path ของ Webhook เรียกได้ และข้อยกเว้นไม่ครอบ Path อื่น | D (ลองบนเครื่องในรอบ 6 ไม่ใช่เกณฑ์ปิดรอบ 3) |
+| ข้อกำหนด | PR | Test อยู่ที่ |
+|---|---|---|
+| แก้ Policy หลังวางแผนแล้ว คะแนนรายพจน์ของ Plan เดิมไม่เปลี่ยน และผลรวมยังเท่ากับ `penalty_exact` | E | `test_case_score.py` (`test_a_policy_edit_after_planning_does_not_change_the_score`) |
+| ชั่วโมงไม่เต็มชั่วโมง (เช่น 20 นาที) กับค่าน้ำหนักที่เป็นเศษส่วน ผลรวมรายพจน์เท่ากับ `penalty_exact` พอดี | E | `test_case_score.py` (`test_fractional_weights_and_overtime_sum_exactly`), `tests/unit/domain/test_score_breakdown.py` |
+| Plan ที่ไม่มีช่องใหม่ใน Snapshot ได้ `score = null` ไม่เดาจาก Policy ปัจจุบัน | E | `test_case_score.py` (`test_a_plan_without_stored_weights_has_no_score`) |
+| ลายเซ็นไม่ผ่านหรือไม่มี Header ได้ `401` และไม่มีแถวใดถูกเขียน | L | `test_line_messaging.py` (`test_signature_is_checked_before_json_or_database`) |
+| บังคับให้การล็อกใน `record_response()` เริ่มใหม่หนึ่งครั้ง แล้วแถวกันซ้ำกับผลของการตอบยังถูก Commit ด้วยกัน และ Event ที่ส่งซ้ำไม่ถูกประมวลอีก | L | `test_line_delivery_races.py` (`test_actual_lock_restart_keeps_the_webhook_id`), `test_line_messaging.py` (`test_dedup_callback_runs_after_the_lock_helper_returns`, `test_webhook_response_and_duplicate_have_one_effect`) |
+| Event เดียวกันมาพร้อมกันสองครั้ง ได้ผลทางธุรกิจครั้งเดียว | L | `test_line_messaging.py` (`test_two_connections_process_same_webhook_once`) |
+| การปฏิเสธทางธุรกิจได้ `200` พร้อมแถวกันซ้ำ ส่วน Error ที่ไม่คาดไว้ได้ `5xx` และไม่มีแถวกันซ้ำ | L | `test_line_messaging.py` (`test_unbound_wrong_owner_and_malformed_actions_are_acknowledged`, `test_unexpected_failure_rolls_back_event_and_response`, `test_lock_retry_has_no_dedup_row`) |
+| ผู้ส่งที่ไม่ได้ผูกบัญชี หรือ `postback.data` ที่ชี้ Offer ของคนอื่น ไม่เปลี่ยน Offer | L | `test_line_messaging.py` (`test_unbound_wrong_owner_and_malformed_actions_are_acknowledged`) |
+| เครื่องล่มหลัง Wave Commit แต่ก่อนส่งครั้งแรก แล้ว Job ส่งให้ | L | `test_line_messaging.py` (`test_intent_is_atomic_and_restart_recovers_it`, `test_claim_lease_prevents_duplicate_workers_and_recovers_crash`) |
+| `409` ของ Retry key นับว่ารับแล้ว `429` ไม่นับในสามครั้ง `401` และ `403` ไม่ตั้ง Offer เป็น `FAILED` | L | `test_line_messaging.py` (`test_line_acceptance_stops_retries`, `test_configuration_and_rate_errors_do_not_consume_attempts`) |
+| Offer ที่ถูกรับ ยกเลิก หมดเวลา หรือเคสหยุดแล้ว ไม่ถูกส่งซ้ำและไม่ถูกเขียนทับด้วย `FAILED` | L | `test_line_messaging.py` (`test_answer_or_cancellation_during_send_is_never_overwritten`, `test_expired_and_stopped_intents_do_not_send`) |
+| รหัสผูกบัญชีเดียวกันถูกใช้พร้อมกันสองครั้ง สำเร็จได้ครั้งเดียว และถ้าการเขียนพัง รหัสยังใช้ได้ | K | `test_line_account_races.py` (`test_same_code_is_consumed_once_across_connections`), `test_line_account_linking.py` (`test_failed_link_rolls_back_contact_code_audit_and_dedup`) |
+| เปิดหน้าซ้ำหรือ Polling `GET /cases/{id}` ไม่เรียก LLM (Gateway ถูกเรียก 0 ครั้ง) | X | `test_rank_explanation.py` (`test_polling_never_calls_the_llm`, `test_demo_clock_advance_does_not_call_the_gateway`) |
+| Sweep พร้อมกันสองตัว (สอง Connection) เรียก LLM ครั้งเดียวต่อ Plan | X | `test_rank_explanation.py` (`test_two_concurrent_sweeps_make_one_call`) |
+| ตั้ง `bedrock` แล้วเรียกไม่สำเร็จ ไม่สลับไปใช้ `fake` เงียบ ๆ และหน้าได้ `UNAVAILABLE` | X | `test_rank_explanation.py` และ `tests/unit/services/test_llm_service.py` (`test_bedrock_failure_never_falls_back_to_fake` ทั้งสองไฟล์) |
+| LLM ล้มเหลวไม่เปลี่ยนสถานะเคสและไม่มี `WORKFLOW_FAILED` | X | `test_rank_explanation.py` (`test_llm_failure_does_not_touch_the_case`) |
+| ข้อมูลที่ส่งให้ LLM ไม่มีชื่อพนักงานหรือ `staff_id` (ตรวจทั้ง Key และ Value) | X | `test_rank_explanation.py` (`test_payload_has_no_personal_data`) |
+| Attempt ไม่เกิน `1 + LLM_MAX_RETRIES` แม้เครื่องล่มกลางการเรียก (Lease หมดแล้ว `attempts` เต็ม ได้ `FAILED` โดยไม่เรียก) | X | `test_rank_explanation.py` (`test_a_crash_cannot_exceed_the_attempt_bound`) |
+| เลื่อน Demo Clock เกิน Lease ระหว่างที่การเรียกยังรันอยู่ Sweep ถัดไปไม่เรียกซ้ำใน Plan เดียว (Lease ใช้นาฬิกาฐานข้อมูล) | X | `test_rank_explanation.py` (`test_the_lease_follows_real_time_not_the_demo_clock`) |
+| เคสถึงสถานะสุดท้ายขณะที่ประโยคยัง `PENDING` หน้ายัง Poll จนเป็น `READY` หรือ `UNAVAILABLE` | X | `frontend/tests/unit/components/case/CaseView.test.tsx` ("when the case is already final": "keeps polling while PENDING, then shows the sentence and stops", "stops when PENDING turns UNAVAILABLE") |
+| Route ของหน้าเว็บพยาบาลไม่สนใจ `staff_id` ที่ส่งมาใน Query หรือ Body | N | `test_me_offers.py` (`test_staff_id_in_the_query_is_ignored`, `test_body_with_any_other_field_is_refused_without_writes`) |
+| ตั้งเวรที่จบแล้วเป็น `COMPLETED` แล้ว Gap, Hard Rules (รวมเวลาพักหลังเวรนั้น) และชั่วโมงทำงานเท่าเดิม | R | `test_roster_completion.py` (`test_completing_a_shift_moves_no_gap_fatigue_check_or_working_time`) |
+| การลาหรือการยกเลิกที่รับไว้ก่อนเวรจบยังถูกประมวลหลัง Job ตั้ง `COMPLETED` รวมกรณีที่ Window รอเคสที่ยังเดิน | R | `test_roster_completion_events.py` (`test_a_leave_reported_before_the_end_applies_after_the_job_runs`, `test_a_cancellation_reported_before_the_end_applies_after_the_job_runs`, `test_a_leave_held_back_by_a_running_case_applies_once_the_case_ends`) |
+| เรียกเครื่องทดสอบบน AWS โดยไม่มีรหัส Basic Auth ถูกปฏิเสธ ส่วน Path ของ Webhook เรียกได้ และข้อยกเว้นไม่ครอบ Path อื่น | D (รอบ 6) | ยังไม่มีใน `staging` ลองบนเครื่องในรอบ 6 ด้วย `deploy/aws/check-gate.sh` จาก branch `feat/aws-test-environment` ไม่ใช่เกณฑ์ปิดรอบ 3 |
 
 ---
 
@@ -1243,7 +1257,7 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 * LINE รับแล้วไม่ได้แปลว่าคนได้อ่าน เช่น คนบล็อกบัญชีไว้ [ตรวจกับเอกสาร LINE] Offer แบบนั้นหมดเวลาตามกติกาเดิม
 * ข้อความที่แสดงเส้นตายในแชตใช้เวลาของ Clock ของระบบ การเลื่อน Clock ใน Demo จึงทำให้เวลาในแชตไม่ตรงกับนาฬิกาบนโทรศัพท์
 
-### 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง [รอบ 3 · PR D]
+### 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง
 
 NTT ยืนยันแล้วว่าการแข่งขันใช้ LINE Messaging API ได้ งาน LINE จึงเดินตามข้อ 6.16 ทีมตกลงเพิ่มหน้าเว็บ "ข้อเสนอเข้าเวรของฉัน" เป็นช่องทางเสริม LINE ใช้รับการแจ้งเตือนและตอบเร็ว หน้าเว็บใช้ดูรายการ ติดตามสถานะ และตอบได้ด้วย
 
@@ -1254,7 +1268,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * **การอัปเดตหน้า:** อ่านรายการใหม่เป็นระยะ ไม่เพิ่มระบบแจ้งเตือนใหม่ และไม่เพิ่มฟีเจอร์จัดเวรอื่นใน PR N
 * **ตัวตนจำลอง:** รอบนี้ใช้ Header `X-Demo-User` เดิม หน้าและเอกสารต้องเขียนว่าเป็นโหมด Demo และไม่อ้างว่ามีระบบ Login จริง ผู้เรียกตั้ง Header นี้เองได้อิสระ การไม่รับ `staff_id` จึงกันแค่ความผิดพลาดของหน้าเว็บ ไม่ได้กันคนที่ตั้ง Header เป็นรหัสของคนอื่น ข้อนี้เป็นจริงกับทุก Route ที่ใช้ `X-Demo-User` รวมการอนุมัติของ Head Nurse
 * **หน้าที่ทำแล้ว (PR N):** หน้า `/me/offers` (ลิงก์ "My offers" ในแถบเมนู) เปิดครั้งแรกให้เลือกตัวตนจำลองหนึ่งครั้งจากพนักงาน Demo ที่ไม่ใช่ผู้อนุมัติ 900 แล้วเก็บไว้ใน `localStorage` ของ Browser นั้น ค่าที่เก็บไว้ไม่อยู่ในรายการถือว่ายังไม่ได้เข้า และถ้า Browser ไม่ให้ใช้ Storage จะจำได้จนกว่าจะโหลดหน้าใหม่ ระหว่างเข้าอยู่มีป้าย "Demo mode" กับปุ่ม Sign out แทนตัวเลือกสลับพนักงาน หน้าเรียกแค่สอง Route ข้างบน ตารางและปุ่มตอบใช้ Component `OfferList` ตัวเดียวกับหน้า `demo/line-sim` ส่วนหน้าแต่ละหน้าเป็นผู้เลือก API ที่ใช้อ่านและตอบ
-* **ด่านของเครื่องทดสอบบน AWS (PR D, เลื่อนไปรอบ 6):** เครื่องเปิดเป็น HTTPS สาธารณะ และพยาบาลที่ผูก LINE จริงจะมี Offer จริงบนเครื่องนั้น PR D จึงใส่ HTTP Basic Auth ที่ Reverse proxy ครอบทั้งหน้าเว็บและ API ยกเว้น Path ของ Webhook ของ LINE ซึ่งกันด้วยลายเซ็น ข้อยกเว้นผูกกับ Path ของ Webhook ตรงตัว ไม่ใช้ Prefix รหัสเก็บใน Parameter Store ไม่มีด่านนี้ห้ามเปิดเครื่องให้เข้าจากภายนอก รหัสตัวเดียวให้ทุกคนที่เข้าได้มีสิทธิ์เท่ากัน ใช้ได้กับเครื่อง Demo เท่านั้น
+* **[รอบ 6 · PR D] ด่านของเครื่องทดสอบบน AWS (เลื่อนไปรอบ 6):** เครื่องเปิดเป็น HTTPS สาธารณะ และพยาบาลที่ผูก LINE จริงจะมี Offer จริงบนเครื่องนั้น PR D จึงใส่ HTTP Basic Auth ที่ Reverse proxy ครอบทั้งหน้าเว็บและ API ยกเว้น Path ของ Webhook ของ LINE ซึ่งกันด้วยลายเซ็น ข้อยกเว้นผูกกับ Path ของ Webhook ตรงตัว ไม่ใช้ Prefix รหัสเก็บใน Parameter Store ไม่มีด่านนี้ห้ามเปิดเครื่องให้เข้าจากภายนอก รหัสตัวเดียวให้ทุกคนที่เข้าได้มีสิทธิ์เท่ากัน ใช้ได้กับเครื่อง Demo เท่านั้น
 
 ### 6.18 งานค้างของ Roster และการลา
 
@@ -1823,7 +1837,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 |---|---|---|
 | `GET /cases/{id}` | แต่ละ `candidates[]` มีช่อง `score` ตามข้อ 6.15 (`null` สำหรับ Plan ที่สร้างก่อน PR E) และช่อง `explanation` ระดับบนสุด (`null`, `PENDING`, `READY`, `UNAVAILABLE`) | E (ทำแล้ว), X (ทำแล้ว) |
 | หน้า `cases/[id]` | แสดงคะแนนรายพจน์ เหตุผลแบบตายตัว และประโยคจาก LLM เมื่อพร้อม | E2 (ทำแล้ว ตัวเลขและเหตุผลแบบตายตัว), X (ทำแล้ว) |
-| `POST /line/webhook` (ใหม่) | Webhook ของ LINE ไม่ใช้ `X-Demo-User` กันด้วยลายเซ็น ลำดับ: ลายเซ็นไม่ผ่าน `401` (ไม่เขียน DB) → ประมวลทีละ Event ในแต่ละ Transaction ของตัวเองตามข้อ 6.16: Event ซ้ำข้าม, `LINK <รหัส>` ไปทางผูกบัญชีก่อนตรวจการผูก, Postback ไปทางตอบ Offer → ตอบ `5xx` ถ้ามี Event ใดเจอ Error ที่ไม่คาดไว้ ไม่อย่างนั้น `200` (รวมการปฏิเสธทางธุรกิจ) | L |
+| `POST /line/webhook` (ใหม่) | Webhook ของ LINE ไม่ใช้ `X-Demo-User` กันด้วยลายเซ็น ลำดับ: ลายเซ็นไม่ผ่าน `401` (ไม่เขียน DB) → ประมวลทีละ Event ในแต่ละ Transaction ของตัวเองตามข้อ 6.16: Event ซ้ำข้าม, `LINK <รหัส>` ไปทางผูกบัญชีก่อนตรวจการผูก, Postback ไปทางตอบ Offer → ตอบ `5xx` ถ้ามี Event ใดเจอ Error ที่ไม่คาดไว้ ไม่อย่างนั้น `200` (รวมการปฏิเสธทางธุรกิจ) | L (ทำแล้ว), K (ทำแล้ว ทาง `LINK`) |
 | `GET /me/offers` (ใหม่, ต้องมี `X-Demo-User`) | คืน List ของ `OfferView` แบบเดียวกับ `GET /demo/line-sim/offers` ของพนักงานใน Header เท่านั้น ไม่รับ `staff_id` (ส่ง `staff_id` มาใน Query ถูกข้าม) | N (ทำแล้ว) |
 | `POST /me/offers/{outreach_id}/response` (ใหม่, ต้องมี `X-Demo-User`) | Body `{response}` (`ACCEPT` หรือ `REJECT`) Body ห้ามมีช่องอื่น คืน `{outreach_id, outreach_status, case_id, case_status}` แบบเดียวกับ `POST /demo/line-sim/respond` Error: `401` Header, `409` เมื่อ `record_response()` ปฏิเสธ (`OpenOfferConflictError`), `503` พร้อม `Retry-After: 1` เมื่อล็อกไม่นิ่ง (`OutreachLockRetryError`), `422` เมื่อ Body มีช่องอื่นหรือ `outreach_id` ไม่ใช่ bigint บวก | N (ทำแล้ว) |
 | หน้า `/me/offers` "ข้อเสนอเข้าเวรของฉัน" (ใหม่) | ตามข้อ 6.17 | N (ทำแล้ว) |
@@ -1832,7 +1846,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 | หน้า `roster` | แถวที่ `is_unavailable` เป็นจริงมีป้าย "On leave" ต่อท้ายสถานะ | R (ทำแล้ว) |
 | `PATCH /unavailability/{id}` (ใหม่, ต้องมี `X-Demo-User`) | Body `{end_at}` คืน `{unavailability_id, staff_id, start_at, end_at, previous_end_at, overlapping_assignment_ids, overlapping_offers: [{outreach_id, case_id, status}]}` ลำดับ Error ตามข้อ 6.18 | R (ทำแล้ว) |
 
-Path ของสองตัวท้ายตกลงใน PR 0 ส่วน Path ของ Webhook ตั้งใน PR 0 และคน 3 เปลี่ยนได้ใน PR L ถ้าแจ้งในข้อ 13 ของไฟล์นี้
+Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 และไม่เปลี่ยนตลอดรอบ 3 ทุกแถวทำแล้ว ข้อนี้เก็บไว้เป็นรายการว่ารอบ 3 เปลี่ยน API และหน้าเว็บตรงไหนบ้าง
 
 ---
 
@@ -2070,3 +2084,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-15 | รอบ 3 PR X: ประโยคอธิบายอันดับจาก LLM ผ่าน `llm_service` (ตัวเชื่อม `fake` และ `bedrock` ทดสอบแบบ Offline) เข้าคิวด้วยแถว `PENDING` ใน Transaction ของ Plan สร้างเฉพาะตอน Job tick ผ่าน Background Task ของ Route ภายใน (Claim/Lease, `attempts` ถาวรไม่เกิน `1 + LLM_MAX_RETRIES`, `LLM_CALL_LOG` ทุก Attempt); Payload มีแต่ตัวเลขและอันดับ; `GET /cases/{id}` เพิ่มช่อง `explanation` และหน้า `cases/[id]` แสดงประโยค; ตาราง `RANK_EXPLANATION` และ `LLM_CALL_LOG` กับ Enum `ExplanationStatus`, `LlmCallStatus` (Migration `e1a4c7f2b9d6` ต่อจาก PR K); Test ของข้อกำหนดที่พังเงียบได้ 6 ข้อ; Handoff ใน `docs/round3/pr-X-handoff.md` | คน 2 |
 | 2026-10-15 | ตามรีวิว PR X (#70): Lease ของ Job อ่านเวลาจากนาฬิกาฐานข้อมูล ไม่ใช้ Demo Clock (ข้อยกเว้นของ D10 ในข้อ 6.15), ตรวจข้อความจาก LLM ปฏิเสธอักขระควบคุมทุกตัว (Unicode `Cc` ยกเว้นขึ้นบรรทัดใหม่) และตัวควบคุมทิศทางข้อความ, หน้า `cases/[id]` Poll ต่อเมื่อเคสสุดท้ายแล้วแต่ประโยคยัง `PENDING` | คน 2 |
 | 2026-10-15 | รอบ 3 PR N: `GET /me/offers` และ `POST /me/offers/{outreach_id}/response` ใน `api/routes/me.py` อ่านด้วย `list_offers()` และตอบด้วย `record_response()` ผ่านตัวเดียวกับหน้าจำลอง (`api/offer_responses.answer_offer()`) ไม่รับ `staff_id` (Query ถูกข้าม Body ที่มีช่องอื่นได้ `422`); หน้า `/me/offers` เข้าด้วยตัวตนจำลองที่เก็บใน `localStorage` มีป้าย Demo mode และ Sign out ไม่มีตัวเลือกสลับพนักงาน เขียนชัดว่า Accept ยังไม่ใช่การได้เข้าเวร; ตาราง Offer ย้ายเป็น `components/outreach/OfferList.tsx` ใช้ร่วมกับ `demo/line-sim` ไม่มี Migration | คน 1 |
+| 2026-10-15 | ปิดรอบ 3: PR ทุกตัวยกเว้น D เข้า `staging` ครบ (#60 ถึง #64 และ #67 ถึง #70 รวม #65, #66 ของมติเรื่อง D และ Tunnel); ส่วน "สถานะของรอบ 3" บอกว่าเสร็จแล้ว ใส่ #64 ในแถว R และเพิ่มตารางว่าอะไรทดสอบด้วย fake และอะไรผ่านบริการจริง (LINE จริงและ Bedrock จริงยังไม่ได้ลอง); ตาราง Test ของข้อกำหนดที่พังเงียบได้ชี้ไฟล์และชื่อ Test ที่ตรวจแล้วว่ามีจริง; ป้ายที่เหลือเป็น **[รอบ 6 · PR D]** ที่ข้อย่อยด่านของเครื่อง AWS ในข้อ 6.17 (ส่วนหน้าเว็บพยาบาลของข้อนั้นทำแล้วใน PR N); ข้อ 9.5 บอกว่าทุกแถวทำแล้ว ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
