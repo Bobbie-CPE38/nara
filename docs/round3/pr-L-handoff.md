@@ -1,7 +1,8 @@
 # PR L — Real LINE delivery and webhook responses
 
 Branch: `feat/line-messaging`, based on staging after PR 0. This PR does not
-implement LINK-code issuance, unlinking or the nurse page (PR K and PR N).
+implement the nurse page (PR N). Account linking/unlinking is implemented
+by PR K; see `docs/round3/pr-K-handoff.md`.
 
 ## Configuration
 
@@ -60,7 +61,7 @@ with the same retry key. No network call holds workflow locks.
   offer stays `SENT`, with no payload, HTTP attempts, failure audit or recompute.
   The nurse can answer from the simulator or nurse page; unanswered offers
   expire under the existing rule. PR L
-  tests use Contact fixtures; real end-to-end account linking needs PR K.
+  tests use Contact fixtures; real account linking uses PR K's administrator CLI.
 
 ## Webhook
 
@@ -81,8 +82,8 @@ are processed before returning 503 if any failed; only failed events retry.
 
 Replies run after the HTTP response, best effort and never retried. Rejections
 are acknowledged as rejections, without acceptance wording. Expired offers get an
-expiry explanation. Unsupported event types are acknowledged; PR K extends
-the dispatcher for LINK messages using the same dedup table.
+expiry explanation. Unsupported event types are acknowledged; PR K handles
+LINK messages before binding lookup using the same dedup table.
 
 ## Verification and remaining scope
 
@@ -100,7 +101,7 @@ of real-mode paths. No test credentials are production credentials.
 Real LINE delivery, HTTP latency and account settings still need validation
 with the team's channel via the development-only Quick Tunnel and local
 HTTP filter below, or PR D's AWS environment in round 6. No live LINE
-test, developer-database migration, PR K command or AWS deployment is claimed
+test, developer-database migration or AWS deployment is claimed
 by this implementation.
 
 ## Local LINE testing before round 6

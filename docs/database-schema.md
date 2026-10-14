@@ -20,7 +20,9 @@
 >
 > * `c6e9a2b4d8f1` (รอบ 3 PR L) งานส่งในแถว Offer และตาราง `LINE_WEBHOOK_EVENT`
 >
-> **Migration head ปัจจุบัน: `c6e9a2b4d8f1`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `d7f0b3c5e9a2` (รอบ 3 PR K) ตาราง `LINE_ACCOUNT_LINK_CODE` และ UNIQUE `CONTACTS.line_uid`
+>
+> **Migration head ปัจจุบัน: `d7f0b3c5e9a2`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -326,6 +328,8 @@ CHECK `ck_candidate_item_target_role_id_matches_target_type`: `(target_type = 'R
 | `is_active` | boolean | NOT NULL |  |  |
 
 
+PR K เพิ่ม `uq_contacts_line_uid` UNIQUE ทุก line_uid ที่ไม่เป็น NULL รวมแถว inactive; NULL ซ้ำได้ Migration หยุดเมื่อ legacy UID ซ้ำโดยไม่แก้เจ้าของเอง
+
 ### 18. CANDIDATE_OUTREACH
 
 
@@ -348,7 +352,7 @@ CHECK `ck_candidate_item_target_role_id_matches_target_type`: `(target_type = 'R
 | `delivery_status` | text | NULL | `PENDING`, `ACCEPTED` (LINE รับ API แล้ว ไม่ใช่ผู้สมัครตอบรับ), `FAILED`, `CANCELLED`, `NO_CONTACT` (ไม่มีบัญชี LINE ให้ส่ง; Offer ยังเป็น SENT); NULL สำหรับโหมดจำลองและประวัติเดิม |
 | `delivery_attempts` | integer | NOT NULL | Default 0, CHECK 0 ถึง 3; 429/401/403 ไม่นับ |
 | `delivery_retry_key` | text | NULL | UUID ที่ใช้เหมือนเดิมทุกครั้งต่อ Offer |
-| `delivery_payload` | jsonb | NULL | ผู้รับและข้อความคงที่ ไม่เปลี่ยนระหว่าง retry; ไม่มี binding ให้เป็น NULL และสถานะ NO_CONTACT โดยไม่เปลี่ยนสถานะ Offer |
+| `delivery_payload` | jsonb | NULL | ผู้รับและข้อความคงที่ ไม่เปลี่ยนระหว่าง retry; Offer ใหม่ไม่มี binding ให้เป็น NULL/NO_CONTACT; intent เดิมที่ binding เปลี่ยนเก็บ payload เดิมแต่หยุดส่งเป็น NO_CONTACT โดยไม่เปลี่ยนสถานะ Offer |
 | `delivery_next_attempt_at` | timestamptz | NULL | เวลาลองครั้งถัดไปจาก backend clock |
 | `delivery_claim` | text | NULL | UUID ของผู้ส่งที่จองงานครั้งนี้ |
 | `delivery_lease_until` | timestamptz | NULL | หมดสิทธิ์จองหลัง 60 วินาที ให้ Job เก็บตกเมื่อ process ล่ม |
@@ -604,6 +608,20 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | `processed_at` | timestamptz | NOT NULL | | เวลาจาก backend clock เมื่อจัดการ Event |
 
 Commit พร้อมผลของ Event ใน Transaction เดียว ส่วนการปฏิเสธทางธุรกิจบันทึกแถว terminal แล้วตอบ 200 ไม่เก็บข้อความรหัส LINK, Signature หรือ reply token
+
+### 33. LINE_ACCOUNT_LINK_CODE (รอบ 3 PR K)
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `staff_id` | bigint | NOT NULL | FK STAFF; index |
+| `code_hash` | text | NOT NULL | UNIQUE SHA-256 hex 64 ตัว; ไม่เก็บรหัสจริง |
+| `created_at` | timestamptz | NOT NULL | Backend Clock |
+| `expires_at` | timestamptz | NOT NULL | created_at + 10 นาที; CHECK > created_at |
+| `used_at` | timestamptz | NULL | ใช้สำเร็จพร้อม Contact/Audit/dedup ใน Transaction เดียว |
+| `revoked_at` | timestamptz | NULL | revoke รหัสที่ยังไม่ใช้เมื่อปลดบัญชี |
+
+CHECK `used_at IS NULL OR revoked_at IS NULL`; รหัสที่ใช้แล้วไม่ถูก revoke ย้อนหลัง รหัสที่หมดอายุหรือ revoke ใช้ไม่ได้ ล็อก Staff → Code → Contact; เก็บประวัติไว้และไม่บันทึก hash/รหัส/LINE UID ลง Audit
 
 ## Enum
 

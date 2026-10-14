@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import re
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -15,9 +16,10 @@ from app.core.constants import MAX_BIGINT
 from app.db.models import LineWebhookEvent
 from app.domain.enums import CandidateResponse
 from app.integrations.line import client
-from app.services import line_contact_service, outreach_service
+from app.services import line_account_service, line_contact_service, outreach_service
 
 logger = logging.getLogger(__name__)
+_LINK_COMMAND = re.compile(r"LINK(?:\s+|$)", re.IGNORECASE | re.ASCII)
 
 
 def valid_signature(body: bytes, signature: str | None) -> bool:
@@ -79,8 +81,8 @@ def _business_refusal(db: Session, event_id: str) -> bool:
 def process_event(db: Session, event: dict[str, Any]) -> None:
     """Process an event or raise for retry. Expected refusals are terminal, not HTTP errors.
 
-    Unsupported event types are acknowledged without workflow changes. PR K
-    extends this dispatcher for LINK messages using the same event table.
+    LINK text is handled before binding lookup. Unsupported event types are
+    acknowledged without workflow changes. Each LINK owns its dedup transaction.
     """
     event_id = event.get("webhookEventId")
     if not isinstance(event_id, str) or not event_id or len(event_id) > 256:
@@ -89,6 +91,29 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
         db.rollback()
         return
     try:
+        message = event.get("message")
+        text = message.get("text") if isinstance(message, dict) else None
+        command = _LINK_COMMAND.match(text) if isinstance(text, str) else None
+        if (
+            event.get("type") == "message"
+            and isinstance(message, dict)
+            and message.get("type") == "text"
+            and isinstance(text, str)
+            and command is not None
+        ):
+            source = event.get("source")
+            uid = source.get("userId") if isinstance(source, dict) else None
+            if (
+                not isinstance(source, dict)
+                or source.get("type") != "user"
+                or not isinstance(uid, str)
+            ):
+                raise line_account_service.InvalidLinkCodeError("Invalid LINE sender")
+            line_account_service.link(db, text[command.end() :].strip(), uid)
+            _remember(db, event_id)
+            db.commit()
+            _reply(db, event, "ผูกบัญชี LINE สำเร็จแล้ว")
+            return
         if event.get("type") != "postback":
             _remember(db, event_id)
             db.commit()
@@ -132,6 +157,16 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
         if _duplicate(error):
             return
         raise
+    except line_account_service.LineAccountError as error:
+        if _business_refusal(db, event_id):
+            _reply(
+                db,
+                event,
+                "บัญชี LINE หรือพนักงานนี้ผูกบัญชีแล้ว ให้ผู้ดูแลปลดก่อน"
+                if isinstance(error, line_account_service.LineAccountAlreadyBoundError)
+                else "รหัสผูกบัญชีไม่ถูกต้อง หมดอายุ ถูกใช้แล้ว หรือพนักงานไม่พร้อมใช้งาน",
+            )
+        return
     except outreach_service.OpenOfferConflictError as error:
         if _business_refusal(db, event_id):
             _reply(
