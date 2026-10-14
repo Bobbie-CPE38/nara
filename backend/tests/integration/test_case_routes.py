@@ -217,6 +217,7 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
         "gap",
         "assigned_count",
         "candidates",
+        "explanation",
     }
     assert (body["id"], body["event_ids"], body["shift_id"]) == (
         case.id,

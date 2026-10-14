@@ -1,6 +1,12 @@
-import { FIRST_WAVE_INFO, SCORE_TERM_INFO } from "@/lib/constants";
+import {
+  EXPLANATION_FAKE_NOTE,
+  EXPLANATION_NOT_READY,
+  EXPLANATION_SOURCE_NOTE,
+  FIRST_WAVE_INFO,
+  SCORE_TERM_INFO,
+} from "@/lib/constants";
 import { formatScore } from "@/lib/format";
-import type { CandidateScore, CandidateView } from "@/lib/types/case";
+import type { CandidateScore, CandidateView, RankExplanation } from "@/lib/types/case";
 
 function ScoreTable({ staffId, score }: { staffId: number; score: CandidateScore }) {
   // A copy, so the API array is not changed. The sort is stable, so equal points keep the API order.
@@ -35,8 +41,24 @@ function ScoreTable({ staffId, score }: { staffId: number; score: CandidateScore
   );
 }
 
+/** The LLM sentence when READY, else the not-ready text. It never replaces the numbers below it. */
+function Explanation({ explanation }: { explanation: RankExplanation | null }) {
+  if (explanation?.status !== "READY") return <p>{EXPLANATION_NOT_READY}</p>;
+  return (
+    <>
+      <p style={{ whiteSpace: "pre-line" }}>{explanation.text}</p>
+      <p className="text-sm text-gray-500">{EXPLANATION_SOURCE_NOTE}</p>
+      {explanation.provider === "fake" && <p className="text-sm text-gray-500">{EXPLANATION_FAKE_NOTE}</p>}
+      {explanation.model_id && <p className="text-sm text-gray-500">{`Model: ${explanation.model_id}`}</p>}
+    </>
+  );
+}
+
 /** Score of each candidate that has one, as the API sent it. Candidates without a score are left out. */
-export function ScoreBreakdown({ candidates }: { candidates: CandidateView[] }) {
+export function ScoreBreakdown({ candidates, explanation }: {
+  candidates: CandidateView[];
+  explanation: RankExplanation | null;
+}) {
   const scored = candidates.flatMap(candidate => (candidate.score ? [{ candidate, score: candidate.score }] : []));
   if (scored.length === 0) return null;
   return (
@@ -45,6 +67,9 @@ export function ScoreBreakdown({ candidates }: { candidates: CandidateView[] }) 
       <p className="mt-2 text-sm text-gray-500">
         Points decide which group becomes the first wave: the group that covers the gap with the fewest points in total. Inside the first wave and inside the reserve, people are ordered by source, then hours this week, consecutive shifts, overtime and staff ID, so points may not follow rank.
       </p>
+      <section aria-label="Ranking explanation" className="mt-2">
+        <Explanation explanation={explanation} />
+      </section>
       {scored.map(({ candidate, score }) => (
         <div key={candidate.candidate_item_id}>
           <h4 className="mt-4 font-semibold">

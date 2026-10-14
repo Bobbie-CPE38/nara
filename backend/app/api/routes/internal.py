@@ -3,14 +3,14 @@
 import secrets
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Path, Response, status
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Path, Response, status
 
 from app.api.dependencies import DbSession
 from app.core.config import settings
 from app.core.constants import MAX_BIGINT
 from app.schemas.job import DueWorkResult
 from app.schemas.line_account import IssuedLineCode, UnlinkedLineAccount
-from app.services import job_service, line_account_service
+from app.services import explanation_service, job_service, line_account_service
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -31,6 +31,7 @@ def _require_job_secret(sent: str | None) -> None:
 @router.post("/merge-windows/close-due")
 def close_due_merge_windows(
     db: DbSession,
+    background_tasks: BackgroundTasks,
     x_internal_secret: Annotated[str | None, Header(alias=SECRET_HEADER)] = None,
 ) -> DueWorkResult:
     """Expire offers, recover missed notifications and close due windows.
@@ -39,7 +40,10 @@ def close_due_merge_windows(
     skipped and tried again on the next call.
     """
     _require_job_secret(x_internal_secret)
-    return DueWorkResult.of(job_service.run_due_work(db))
+    result = DueWorkResult.of(job_service.run_due_work(db))
+    # LLM sentences run after the response with their own Session, so the tick never waits
+    background_tasks.add_task(explanation_service.run_pending_in_new_session)
+    return result
 
 
 @router.post("/line-accounts/{staff_id}/issue-code", response_model=IssuedLineCode)

@@ -325,6 +325,29 @@ class AuditAction(StrEnum):
     REQUIREMENT_UPDATED = "REQUIREMENT_UPDATED"
 
 
+# Round 3 PR X: LLM ranking explanation
+class ExplanationStatus(StrEnum):
+    PENDING = "PENDING"
+    READY = "READY"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+
+
+# Round 3 PR X: one row per LLM attempt. IN_FLIGHT is written before the call, so if it
+# stays, the attempt crashed and its usage is unknown
+class LlmCallStatus(StrEnum):
+    IN_FLIGHT = "IN_FLIGHT"
+    SUCCEEDED = "SUCCEEDED"
+    # Retryable
+    TIMEOUT = "TIMEOUT"
+    THROTTLED = "THROTTLED"
+    SERVICE_ERROR = "SERVICE_ERROR"
+    # Not retryable
+    CONFIG_ERROR = "CONFIG_ERROR"
+    TRUNCATED = "TRUNCATED"
+    INVALID_OUTPUT = "INVALID_OUTPUT"
+
+
 # Exact non-transition audit sequence expected by the Golden Case E2E test.
 # Its one-person gap has ceil(1.1 * 1) = 2 candidates: wave 1 sends to
 # both 201 and 202, hence two consecutive OFFER_SENT rows.

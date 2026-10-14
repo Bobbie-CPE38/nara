@@ -55,6 +55,7 @@ export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
         source: "SAME_WARD", outreach_status: null, stage: "NOT_CONTACTED",
         score: score(1020, false, [1, 2, 0, 5, 0]) },
     ],
+    explanation: null,
     ...overrides,
   };
 }

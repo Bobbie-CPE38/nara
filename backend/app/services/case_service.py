@@ -20,6 +20,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    RankExplanation,
     Role,
     SafetyValidation,
     Skill,
@@ -39,7 +40,7 @@ from app.domain.constraints.score_breakdown import (
     score_from_snapshot,
     weights_from_snapshot,
 )
-from app.domain.enums import OutreachStatus
+from app.domain.enums import ExplanationStatus, OutreachStatus
 from app.domain.errors import CaseNotFoundError
 from app.schemas.case import (
     AuditEntry,
@@ -49,6 +50,7 @@ from app.schemas.case import (
     CaseDetail,
     GapCount,
     GapView,
+    RankExplanationView,
     ScoreTerm,
 )
 from app.services import case_facts_service
@@ -78,6 +80,7 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
         gap=_latest_gap(db, case.id),
         assigned_count=len(case_facts_service.assigned_staff_ids(db, case.id)),
         candidates=_latest_candidates(db, case.id),
+        explanation=_latest_explanation(db, case.id),
     )
 
 
@@ -184,16 +187,45 @@ def _latest_gap(db: Session, case_id: int) -> GapView | None:
     )
 
 
-def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
+def _latest_plan(db: Session, case_id: int) -> CandidatePlan | None:
     # The latest plan as in section 6.4, seam 1. Unlike seam 1, no plan is not
     # an error here: this is a read route, and a case that has not reached the
     # solver yet simply has no candidates to show (section 9.3)
-    plan = db.scalar(
+    return db.scalar(
         select(CandidatePlan)
         .where(CandidatePlan.case_id == case_id)
         .order_by(CandidatePlan.id.desc())
         .limit(1)
     )
+
+
+def _latest_explanation(db: Session, case_id: int) -> RankExplanationView | None:
+    """The newest explanation row of the latest plan; null if there is no plan or row.
+
+    FAILED and SKIPPED both read as UNAVAILABLE, and only a READY row exposes its
+    text, provider and model. The failure reason is never returned.
+    """
+    plan = _latest_plan(db, case_id)
+    if plan is None:
+        return None
+    row = db.scalar(
+        select(RankExplanation)
+        .where(RankExplanation.plan_id == plan.id)
+        .order_by(RankExplanation.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    if row.status == ExplanationStatus.READY:
+        return RankExplanationView(
+            status="READY", text=row.text, provider=row.provider, model_id=row.model_id
+        )
+    status = "PENDING" if row.status == ExplanationStatus.PENDING else "UNAVAILABLE"
+    return RankExplanationView(status=status, text=None, provider=None, model_id=None)
+
+
+def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
+    plan = _latest_plan(db, case_id)
     if plan is None:
         return []
     plan_id = plan.id

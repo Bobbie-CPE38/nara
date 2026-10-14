@@ -5,7 +5,7 @@
 >
 > ขอบเขต: Walking Skeleton, รอบ 1 (Merge Gap, เคสรับหลายคน, Wave) และรอบ 2 (เส้นออกจาก `MANUAL_HANDOFF`, Timeout ของการอนุมัติ, OR-Tools) ทั้งสามช่วงเสร็จแล้ว
 > รอบ 3 (คำอธิบายอันดับ, LINE จริง, หน้าเว็บพยาบาล) กำลังทำ กติกาที่มีป้าย **[รอบ 3 · PR X]** คือข้อตกลงที่ PR นั้นยังไม่ได้ทำ
-> อัปเดตล่าสุด: 2026-10-14
+> อัปเดตล่าสุด: 2026-10-15
 
 ## สถานะของรอบ 1
 
@@ -108,12 +108,12 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | E2 | คน 2 | คำอธิบายอันดับ (หน้า `cases/[id]`) | 6.15, 9.5 | #67 |
 | L | คน 3 | LINE จริง: Webhook, กันซ้ำ, ส่ง Offer (Migration ตัวที่ 1) | 6.16 | #62 |
 | K | คน 3 | ผูกบัญชี LINE (Migration ตัวที่ 2) | 6.16 | #68 |
-| X | คน 2 | ประโยคอธิบายจาก LLM (Migration ตัวที่ 3) | 6.15 | |
+| X | คน 2 | ประโยคอธิบายจาก LLM (Migration ตัวที่ 3 `e1a4c7f2b9d6`) | 6.15, 9.3, 9.5 | |
 | R | คน 1 | งานค้างของ Roster และการลา: `COMPLETED`, `GET /roster?staff_id=`, ธง `is_unavailable`, แก้ `end_at` ของการลา | 6.18, 9.5 | |
 | N | ตกลงตอนแตก branch | หน้าเว็บพยาบาล "ข้อเสนอเข้าเวรของฉัน" | 6.17, 9.5 | |
 | D | ทั้งสามคน (คน 1 รวบรวม PR) | สภาพแวดล้อมบน AWS **เลื่อนไปรอบ 6** (มติทีม 2026-10-14) งานที่ทำแล้วเก็บใน branch `feat/aws-test-environment` | 6.16, 6.17 | |
 
-ลำดับ merge: 0 ก่อนทุกตัวยกเว้น D, E ก่อน E2 และ X, L ก่อน K, N หลัง L และ K, Migration ต่อกันเป็นเส้นเดียว `b7d3e5a1c9f2` → L → K → X (ลำดับนี้เป็นข้อเสนอในร่างรอบ 3 ข้อ 6 ถ้า X พร้อมก่อน ให้ตกลงสลับตอนนั้น) รอบ 3 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R3-Q13)
+ลำดับ merge: 0 ก่อนทุกตัวยกเว้น D, E ก่อน E2 และ X, L ก่อน K, N หลัง L และ K, Migration ต่อกันเป็นเส้นเดียว `b7d3e5a1c9f2` → L → K → X (head ปัจจุบันหลัง X คือ `e1a4c7f2b9d6`; ลำดับนี้เป็นข้อเสนอในร่างรอบ 3 ข้อ 6 ถ้า X พร้อมก่อน ให้ตกลงสลับตอนนั้น) รอบ 3 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R3-Q13)
 
 **เลื่อน D และการลองของจริง (มติทีม 2026-10-14)** แทนเงื่อนไขเดิมที่ D ต้องเสร็จก่อนลอง LINE จริงและ Bedrock จริงในรอบ 3
 
@@ -151,6 +151,12 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | `409` ของ Retry key นับว่ารับแล้ว `429` ไม่นับในสามครั้ง `401` และ `403` ไม่ตั้ง Offer เป็น `FAILED` | L |
 | Offer ที่ถูกรับ ยกเลิก หมดเวลา หรือเคสหยุดแล้ว ไม่ถูกส่งซ้ำและไม่ถูกเขียนทับด้วย `FAILED` | L |
 | รหัสผูกบัญชีเดียวกันถูกใช้พร้อมกันสองครั้ง สำเร็จได้ครั้งเดียว และถ้าการเขียนพัง รหัสยังใช้ได้ | K |
+| เปิดหน้าซ้ำหรือ Polling `GET /cases/{id}` ไม่เรียก LLM (Gateway ถูกเรียก 0 ครั้ง) | X (`test_rank_explanation.py`) |
+| Sweep พร้อมกันสองตัว (สอง Connection) เรียก LLM ครั้งเดียวต่อ Plan | X (`test_rank_explanation.py`) |
+| ตั้ง `bedrock` แล้วเรียกไม่สำเร็จ ไม่สลับไปใช้ `fake` เงียบ ๆ และหน้าได้ `UNAVAILABLE` | X (`test_rank_explanation.py`, `test_llm_service.py`) |
+| LLM ล้มเหลวไม่เปลี่ยนสถานะเคสและไม่มี `WORKFLOW_FAILED` | X (`test_rank_explanation.py`) |
+| ข้อมูลที่ส่งให้ LLM ไม่มีชื่อพนักงานหรือ `staff_id` (ตรวจทั้ง Key และ Value) | X (`test_rank_explanation.py`) |
+| Attempt ไม่เกิน `1 + LLM_MAX_RETRIES` แม้เครื่องล่มกลางการเรียก (Lease หมดแล้ว `attempts` เต็ม ได้ `FAILED` โดยไม่เรียก) | X (`test_rank_explanation.py`) |
 | Route ของหน้าเว็บพยาบาลไม่สนใจ `staff_id` ที่ส่งมาใน Query หรือ Body | N |
 | ตั้งเวรที่จบแล้วเป็น `COMPLETED` แล้ว Gap, Hard Rules (รวมเวลาพักหลังเวรนั้น) และชั่วโมงทำงานเท่าเดิม | R (`test_roster_completion.py`) |
 | การลาหรือการยกเลิกที่รับไว้ก่อนเวรจบยังถูกประมวลหลัง Job ตั้ง `COMPLETED` รวมกรณีที่ Window รอเคสที่ยังเดิน | R (`test_roster_completion_events.py`) |
@@ -1099,7 +1105,7 @@ Expired requests disappear from `GET /approvals` immediately (`expires_at > now`
 * ผลรวมของคะแนนจำนวนเต็มหลังคูณสเกลเกิน 2^60: `solve()` โยน `SolverScalingOverflowError` เคสเป็น `FAILED` ผ่าน D11 ส่วน `MODEL_INVALID`: `create_plan()` โยน `SolverModelInvalidError` ก่อนเขียนแถวใด
 * วัดเวลาซ้ำได้ด้วย `SOLVER_TIMING=1 pytest tests/perf -s -q` (ชุด Test ปกติข้ามไฟล์นี้) และ Workflow `Solver timing` บน GitHub ซึ่งรันเมื่อ PR แตะไฟล์ของ Solver หรือสั่งรันเอง ไม่ใช่ Check ที่บังคับ
 
-### 6.15 คำอธิบายอันดับ [รอบ 3 · PR X]
+### 6.15 คำอธิบายอันดับ
 
 คำอธิบายอันดับอธิบายผลที่ Solver ให้จริง ไม่คำนวณอันดับใหม่ (R3-Q2 ถึง R3-Q5, R3-Q14 ถึง R3-Q16)
 
@@ -1136,16 +1142,21 @@ Expired requests disappear from `GET /approvals` immediately (`expires_at > now`
 * `score = null` มีสองเหตุ: Plan ที่สร้างก่อน PR E และผู้สมัครที่ตัวเลขใน Snapshot ไม่ครบหรือไม่ลงกัน (มี Log ระดับ Error) API ไม่แยกสองเหตุนี้ หน้าต้องรับ `null` ได้ทั้งสองแบบโดยแสดงอันดับตามเดิมไม่มีคะแนน และไม่เดาเหตุผลหรือคำนวณคะแนนเอง
 * หน้าแสดงคอลัมน์ Score (ค่า `total`) ในตารางผู้สมัคร และตารางรายพจน์ของผู้สมัครที่มีคะแนน เรียงพจน์จาก `points` มากไปน้อย พจน์ที่ `points` เท่ากันคงลำดับของ API ตัวเลขปัดแสดงไม่เกินทศนิยมสองตำแหน่งเพื่อแสดงผลอย่างเดียว ผลรวมบนหน้าจึงอาจไม่เท่า `total` พอดี Plan ที่ไม่มีคะแนนเลยไม่แสดงส่วนคำอธิบาย ข้อความบนหน้าบอกว่าคะแนนใช้เลือกกลุ่ม Wave แรก ส่วนอันดับในแต่ละกลุ่มเรียงตาม `ranking_key` (แหล่งที่มา, ชั่วโมงในสัปดาห์, เวรติดกัน, OT, Staff ID) คะแนนจึงอาจไม่เรียงตามอันดับ หน้าไม่คำนวณ `ranking_key` เอง
 
-**ประโยคจาก LLM (PR X)** รายละเอียดเต็มอยู่ในคำตอบ R3-Q15
+**ประโยคจาก LLM (PR X ทำแล้ว)** รายละเอียดเต็มอยู่ในคำตอบ R3-Q15
 
-* Job สร้างประโยคครั้งเดียวต่อ Plan แล้วเก็บลงตาราง (Migration) หน้าแสดงตัวเลขทันทีและแสดงประโยคเมื่อพร้อม การเปิดหน้าซ้ำไม่เรียก LLM ใหม่
-* เรียกผ่านตัวกลางเดียว `llm_service` ซึ่งมีตัวเชื่อม `bedrock` (Amazon Bedrock แบบ On-demand) และ `fake` LLM ใช้ไม่ได้ให้แสดงตัวเลขและเหตุผลแบบตายตัว พร้อมข้อความว่า "คำอธิบายยังไม่พร้อม" ห้ามสลับไป `fake` เงียบ ๆ
-* ส่งให้ LLM แค่ตัวเลข เป้าหมาย อันดับ และชื่อพจน์ ไม่ส่งชื่อพนักงาน แยก `plan_penalty` (ใช้เลือกกลุ่ม) ออกจาก `ranking_key` (ใช้เรียงใน Plan) LLM ห้ามคำนวณคะแนนใหม่ เปลี่ยนอันดับ หรือตัดสินอะไร
-* การสร้างประโยคไม่ถือ Lock ของ Workflow และไม่ทำให้เคสเป็น `FAILED` บันทึกการเรียกทุกครั้ง (token, เวลา, สถานะ, attempt, ค่าใช้จ่ายประมาณ)
-* ค่าตั้งเริ่มต้น `LLM_ENABLED=false`, `LLM_PROVIDER=fake`, เพดาน 1,024 token ต่อคำตอบ, Timeout 15 วินาที, Retry ไม่เกินหนึ่งครั้ง โมเดลยังไม่ล็อก ต้องทดสอบ 20 ถึง 30 เคสก่อนยืนยัน
-* **ขอบเขตของรอบ 3 (มติทีม 2026-10-14):** PR X ทำตัวกลางและเส้นทางทดสอบด้วย `fake` ไม่เรียก Bedrock จริง ตัวเชื่อม `bedrock` ใช้ credential provider chain มาตรฐานของ boto3 ไม่ฝัง Access Key ในโค้ด และอ่าน Region กับชื่อโมเดลจาก env เพื่อเปลี่ยนไปใช้บริการจริงด้วยค่าตั้งอย่างเดียว
+* Job สร้างประโยคครั้งเดียวต่อ Plan แล้วเก็บลงตาราง `RANK_EXPLANATION` (Migration `e1a4c7f2b9d6`) หน้าแสดงตัวเลขทันทีและแสดงประโยคเมื่อพร้อม การเปิดหน้าซ้ำหรือ Polling ไม่เรียก LLM (`GET /cases/{id}` อ่าน DB อย่างเดียว)
+* เรียกผ่านตัวกลางเดียว `llm_service` ซึ่งมีตัวเชื่อม `bedrock` (Amazon Bedrock Converse แบบ On-demand) และ `fake` เลือกตัวเชื่อมจาก `LLM_PROVIDER` อย่างเดียว LLM ใช้ไม่ได้ให้แสดงตัวเลขและเหตุผลแบบตายตัว พร้อมข้อความว่า "คำอธิบายยังไม่พร้อม" ห้ามสลับไป `fake` เงียบ ๆ
+* **ตารางและค่าคงที่** `RANK_EXPLANATION` หนึ่งแถวต่อ (`plan_id`, `prompt_version`) (UNIQUE) สถานะ `PENDING`, `READY`, `FAILED`, `SKIPPED` เก็บ `input_payload`/`input_hash`, `text`, `provider`, `model_id`, `attempts`, `claim`, `lease_until`, `failure_reason` (ค่าของ `LlmCallStatus` หรือ `INVALID_INPUT`, `NO_CANDIDATES`, `ATTEMPTS_EXHAUSTED` ไม่เก็บข้อความ Error ของ SDK) ส่วน `LLM_CALL_LOG` หนึ่งแถวต่อ Attempt (UNIQUE `explanation_id`, `attempt`) `PROMPT_VERSION = "rank-explanation-v1"` ตัวเลขใน Prompt ทุกตัวมาจาก Backend
+* **เข้าคิว** `optimize.handle()` เรียก `explanation_service.enqueue()` หลังเขียน `SOLVER_EXECUTED` เมื่อ `LLM_ENABLED` เปิดและ Plan มีผู้สมัคร เพิ่มแค่แถว `PENDING` ใน Transaction เดียวกับ Plan (ใน Savepoint ของ D11 จึง rollback พร้อม Plan) ไม่สร้าง Payload และไม่เรียก Network ใน Workflow ถ้า `LLM_ENABLED=false` ไม่มีแถวและ API คืน `explanation = null`
+* **สร้างเฉพาะตอน Job tick** `POST /internal/merge-windows/close-due` ตั้ง `BackgroundTasks` ให้ `explanation_service.run_pending_in_new_session()` เปิด Session ใหม่หลังตอบ Ticker จึงไม่รอ LLM ประโยคจึงช้าได้ไม่เกินราว `JOB_INTERVAL_SECONDS` (ค่าเริ่มต้น 30 วินาที) บวกเวลาเรียก ไม่เพิ่มใน `job_service.run_due_work()` และ `POST /demo/clock/advance` ไม่เรียก LLM Sweep หนึ่งรอบทำไม่เกิน 3 แถว (`MAX_PER_SWEEP`) Sweep ซ้อนกันปลอดภัยด้วย `FOR UPDATE SKIP LOCKED` กับ Lease
+* **Claim/Lease/Attempt** Claim ตั้ง `claim` (UUID) กับ `lease_until = now + max(60, timeout × (retries+1) + 30)` วินาที แล้ว Commit ก่อนเรียก ระหว่างเรียกไม่มี Transaction หรือ Lock ค้าง ก่อนเรียกทุกครั้งเพิ่ม `attempts` และเขียนแถว `LLM_CALL_LOG` สถานะ `IN_FLIGHT` แล้ว Commit (นับ Attempt ถาวร) จึงเรียกได้ไม่เกิน `1 + LLM_MAX_RETRIES` ครั้งต่อแถว แม้เครื่องล่มกลางการเรียก ลองซ้ำเฉพาะ `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR` ส่วน `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` ไม่ลองซ้ำและแถวเป็น `FAILED` ตัวเชื่อมที่ Raise ถูกบันทึกเป็น `SERVICE_ERROR` พร้อมชื่อชนิด Exception แถว `IN_FLIGHT` ที่ค้างหลังเครื่องล่มคงไว้ตามเดิม (= ไม่ทราบ Token) เมื่อ Lease หมดและ `attempts` เต็มแล้ว Claim รอบถัดไปตั้ง `FAILED` (`ATTEMPTS_EXHAUSTED`) โดยไม่เรียก ถ้า Snapshot ไม่มี `weights`, ตัวเลขไม่ลงกัน (`ScoreMismatchError`) หรือไม่มีผู้สมัคร แถวเป็น `SKIPPED` โดยไม่เรียก ถ้า `LLM_ENABLED` เปิดแต่ `bedrock` ไม่มี `LLM_MODEL_ID`/`AWS_REGION` (`llm_ready` เป็นเท็จ) Sweep บันทึก Error โดยไม่แสดงค่า ไม่เรียก และแถวคง `PENDING`
+* **Payload ที่ส่ง** อ่านจาก `input_snapshot` และ `objective_score` ของ Plan เท่านั้น: `targets` (รหัสกับจำนวน), `plan_penalty` (`value` กับคำอธิบายว่าใช้เลือกกลุ่ม Wave แรก), `ranking_key` (ลำดับ `candidate_source`, `hours_this_week`, `projected_consecutive_shifts`, `overtime_hours`, `staff_id` กับคำอธิบายว่าใช้เรียงใน Plan), `candidate_count` และ `candidates` สูงสุด 10 คนแรกตามอันดับ (`rank`, `first_wave`, `total`, `terms[{name, value, weight, points}]`, ค่า `ranking_key` ของคนนั้นโดยแหล่งที่มาเป็นตำแหน่งตัวเลข) ไม่มี `staff_id`, ชื่อ, LINE ID หรือข้อความอิสระ ผู้สมัครอ้างด้วย "อันดับ N" เท่านั้น `input_hash` คือ SHA-256 ของ JSON แบบ Canonical (`sort_keys`, ไม่มีช่องว่าง) ของ Payload ที่เก็บคู่กับ `input_payload` ผลของ LLM ต้องไม่ว่าง ไม่เกิน 2,000 ตัวอักษร และไม่มีตัวควบคุมนอกจากขึ้นบรรทัดใหม่ ไม่อย่างนั้นเป็น `INVALID_OUTPUT` รอบ 3 ตรวจรูปแบบเท่านั้น ไม่ตรวจว่าตัวเลขในประโยคตรง Payload (เป็นตัวชี้วัดของรอบ 6)
+* **บันทึกการเรียก** `LLM_CALL_LOG` เก็บ Provider, Model, Region, `input_hash`, สถานะ, ชนิด Error, Token (NULL = ไม่ทราบ ไม่ใช่ 0), เวลา, ราคาต่อล้าน Token และค่าใช้จ่ายประมาณ (คำนวณเมื่อทราบทั้ง Token และราคาเท่านั้น `fake` ราคา 0 จึงเป็น 0) ไม่บันทึก Prompt, ข้อความตอบ หรือข้อความ Error ของ SDK ใน Log หรือ DB ค่า `LLM_*_PRICE_*` ที่ว่าง (Compose ส่งค่าที่ไม่ตั้งเป็น "") ถือเป็น `None`
+* **API** `GET /cases/{id}` มีช่อง `explanation` (ข้อ 9.3, 9.5) ของ Plan ล่าสุด: `null`, `PENDING`, `READY` (`text`, `provider`, `model_id`) หรือ `UNAVAILABLE` (`FAILED` และ `SKIPPED`) ไม่คืน `failure_reason`, Token หรือ Payload หน้า `cases/[id]` แสดงประโยคใน `ScoreBreakdown` หลังข้อความนำ ก่อนรายผู้สมัคร และแสดง "คำอธิบายยังไม่พร้อม" ในกรณีอื่นทั้งหมด ถ้า `provider = fake` แสดงหมายเหตุว่าเป็นข้อความทดสอบ ข้อจำกัดที่ทราบ: หน้า Poll ทุก 2 วินาทีและหยุดเมื่อเคสถึงสถานะสุดท้าย ประโยคที่มาหลังจากนั้นจะเห็นเมื่อโหลดหน้าใหม่
+* ค่าตั้งเริ่มต้น `LLM_ENABLED=false`, `LLM_PROVIDER=fake`, เพดาน 1,024 token ต่อคำตอบ (`LLM_MAX_OUTPUT_TOKENS`), Timeout 15 วินาทีต่อ Attempt (`LLM_REQUEST_TIMEOUT_SECONDS`), Retry ไม่เกินหนึ่งครั้ง (`LLM_MAX_RETRIES`) โมเดลยังไม่ล็อก ต้องทดสอบ 20 ถึง 30 เคสก่อนยืนยัน `bedrock` ใช้ boto3 ปิด Retry ของ SDK (`total_max_attempts = 1`) และ `temperature = 0`
+* **ขอบเขตของรอบ 3 (มติทีม 2026-10-14):** PR X ทำตัวกลางและเส้นทางทดสอบด้วย `fake` ไม่เรียก Bedrock จริงที่ใดเลย (Test ของ `bedrock` ใช้ `botocore.stub.Stubber` แบบ Offline) ตัวเชื่อม `bedrock` ใช้ credential provider chain มาตรฐานของ boto3 ไม่ฝัง Access Key ในโค้ด และอ่าน Region กับชื่อโมเดลจาก env เพื่อเปลี่ยนไปใช้บริการจริงด้วยค่าตั้งอย่างเดียว
 * **เตรียมตั้งแต่รอบ 3:** คน 2 ตรวจว่าเครดิตการแข่งขันครอบคลุม Bedrock และบัญชีมีสิทธิ์ใช้โมเดลที่เลือกใน Region ที่ตกลง ถ้าต้องขอสิทธิ์ให้ขอตอนนี้ เพื่อรู้ข้อจำกัดก่อนจบ PR X
-* **รอบ 6:** เชื่อมต่อและทดสอบ Bedrock จริง ทดสอบ 20 ถึง 30 เคสเพื่อเลือกโมเดล และใช้ IAM Role ของเครื่อง Deploy คน 2 ตั้ง Budget และขีดจำกัดการเรียกก่อนเรียกจริงครั้งแรก
+* **รอบ 6:** เชื่อมต่อและทดสอบ Bedrock จริง ทดสอบ 20 ถึง 30 เคสเพื่อเลือกโมเดล และใช้ IAM Role ของเครื่อง Deploy คน 2 ตั้ง Budget และขีดจำกัดการเรียกก่อนเรียกจริงครั้งแรก (PR X ยังไม่มีเพดานจำนวนคำขอช่วงทดลอง: ตัวกันตอนนี้คือ `LLM_ENABLED`, เข้าคิวเฉพาะ Plan ใหม่, 3 แถวต่อ Sweep และไม่เกิน 2 Attempt ต่อแถว) Handoff อยู่ `docs/round3/pr-X-handoff.md`
 
 ### 6.16 LINE จริง
 
@@ -1200,7 +1211,7 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 * การใช้รหัสทำใน Transaction เดียว: ตั้งรหัสเป็นใช้แล้วแบบมีเงื่อนไข (ยังไม่ถูกใช้และยังไม่หมดอายุ ตัวเดียวกับที่ล็อกแถว) เขียนการผูก และเขียน `LINE_ACCOUNT_LINKED` แล้ว Commit พร้อมกัน ส่วนใดพังทั้งหมด rollback และรหัสยังใช้ได้ สองคำขอที่ใช้รหัสเดียวกันพร้อมกันสำเร็จได้ตัวเดียว
 * `userId` ของผู้ผูกมาจาก Event ที่ผ่านลายเซ็นแล้วเท่านั้น
 * คำสั่งใน Backend container คือ `python -m app.line_accounts issue-code --staff-id 201` และ `python -m app.line_accounts unlink --staff-id 201` CLI เรียก Backend ผ่าน `POST /internal/line-accounts/{staff_id}/issue-code` และ `/unlink` ที่กันด้วย `X-Internal-Secret`/`INTERNAL_JOB_SECRET` เพื่อใช้ Clock เดียวกับ Demo ไม่มีหน้าเว็บหรือ Route ออกรหัสที่ไม่ตรวจสิทธิ์ ผลรหัสตอบ `Cache-Control: no-store` และแสดงรหัสหลัง Commit เท่านั้น
-* Migration `d7f0b3c5e9a2` ต่อจาก `c6e9a2b4d8f1` เพิ่ม `LINE_ACCOUNT_LINK_CODE` (สุ่ม 192 bit, SHA-256 hash, created/expires/used/revoked timestamps) และ `uq_contacts_line_uid` ครอบทุก line_uid ที่ไม่เป็น NULL รวม Contact ที่ inactive; legacy UID ซ้ำต้องแก้โดยผู้ดูแลก่อน Migration ไม่ลบหรือโอนข้อมูลเอง PR X ต่อจาก head นี้
+* Migration `d7f0b3c5e9a2` ต่อจาก `c6e9a2b4d8f1` เพิ่ม `LINE_ACCOUNT_LINK_CODE` (สุ่ม 192 bit, SHA-256 hash, created/expires/used/revoked timestamps) และ `uq_contacts_line_uid` ครอบทุก line_uid ที่ไม่เป็น NULL รวม Contact ที่ inactive; legacy UID ซ้ำต้องแก้โดยผู้ดูแลก่อน Migration ไม่ลบหรือโอนข้อมูลเอง PR X (`e1a4c7f2b9d6`) ต่อจาก head นี้
 * คำสั่ง LINK ไม่สนตัวพิมพ์ใหญ่เล็กและรับ ASCII whitespace เช่น space/tab/newline ระหว่างคำสั่งกับรหัส ส่วนตัวรหัสยัง case-sensitive; Staff ที่ไม่มี user Actor ถูกปฏิเสธก่อนออกรหัสหรือใช้รหัส LINK ไม่ retry วนเมื่อ actor หาย
 * ออกรหัสหลายใบยังแยกประวัติและไม่ทับกันตาม R3-Q22; รหัสที่ยังไม่หมดอายุใช้ได้จนมีการผูกสำเร็จหรือผู้ดูแล unlink ซึ่ง revoke รหัสที่ยังไม่ใช้ทั้งหมด ไม่ revoke ตอน issue โดยอัตโนมัติ
 * รหัสหมดอายุที่ `now >= expires_at` ตาม Backend Clock เช่นเดียวกับ Offer; Demo ที่ freeze ต้องเลื่อน Clock จึงหมดอายุ Staff ต้อง active และส่ง LINK ในแชตแบบหนึ่งต่อหนึ่ง ก่อนออกรหัสให้ปลดบัญชีเดิม (รวม Contact ที่ inactive) การล็อกเรียง Staff → code → Contacts ของคนนั้น ไม่ล็อก Offer/Case
@@ -1659,7 +1670,8 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
        {"name": "workload_imbalance", "value": 0, "weight": 1, "points": 0},
        {"name": "projected_overtime", "value": 0, "weight": 2, "points": 0},
        {"name": "candidate_source", "value": 0, "weight": 200, "points": 0}]}}
-  ]
+  ],
+  "explanation": {"status": "READY", "text": "[fake] ...", "provider": "fake", "model_id": null}
 }
 ```
 
@@ -1672,6 +1684,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 * `candidates` เป็น `[]` จนกว่า Solver จะบันทึก Plan ใช้ Plan ที่ `id` มากสุดของเคส (Seam 1) เรียงตาม `rank`
 * `outreach_status` เป็น `null` จนกว่าจะมี Outreach ของผู้สมัครคนนั้น ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
 * `score` คือคะแนนรายพจน์ของผู้สมัคร คำนวณตอนอ่านจาก Snapshot ของ Plan ล่าสุดเท่านั้น (ข้อ 6.15) เป็น `null` สำหรับ Plan ที่สร้างก่อน PR E และสำหรับผู้สมัครที่ตัวเลขใน Snapshot ไม่ครบหรือไม่ลงกัน (บันทึก Log ระดับ Error ไม่ทำให้ทั้งหน้าล้ม)
+* `explanation` คือประโยคจาก LLM ของ Plan ล่าสุด (ข้อ 6.15) อ่านจากแถวล่าสุดของ `RANK_EXPLANATION` ของ Plan นั้น (ไม่เรียก LLM) เป็น `null` เมื่อไม่มี Plan หรือ Plan นั้นไม่มีแถว (`LLM_ENABLED` ปิด, Plan เก่า) `status` เป็น `PENDING` (รอ Job), `READY` (มี `text`, `provider` เป็น `fake` หรือ `bedrock`, `model_id` เป็น `null` ของ `fake`) หรือ `UNAVAILABLE` (`FAILED` หรือ `SKIPPED`) `text`, `provider` และ `model_id` เป็น `null` เมื่อไม่ใช่ `READY` ไม่คืนเหตุผลที่ล้มเหลว, Token หรือ Payload
 * `stage` คือขั้นของผู้สมัครในเคสนี้ตามข้อ 4.1 คำนวณตอนอ่าน ไม่มีคอลัมน์เก็บ ใช้ข้อแรกที่ตรงตามลำดับ: ได้เข้าเวรแล้ว (`ASSIGNED`), อนุมัติแล้ว (`APPROVED`), ไม่อนุมัติ (`APPROVAL_REJECTED`), Safety ไม่ผ่าน (`SAFETY_FAILED`), ไม่มี Offer (`NOT_CONTACTED`), Offer `ACCEPTED` และรออนุมัติ (`WAITING_APPROVAL`), Offer `ACCEPTED` อย่างเดียว (`ACCEPTED` คือสำรองตาม Q28), นอกนั้น `OFFER_` ตามด้วยสถานะของ Offer "ได้เข้าเวรแล้ว" กับ "รออนุมัติ" ใช้เงื่อนไขเดียวกับ `case_facts_service` คำขอที่ยัง Pending แต่ Offer ถูกยกเลิกจึงเป็น `OFFER_CANCELLED` Offer ที่ยัง `SENT` เลย `expires_at` แล้วแต่ Job ยังไม่ตั้ง `TIMEOUT` ยังเป็น `OFFER_SENT` ทั้งที่เคสไม่รอ Offer นั้นแล้ว (ข้อ 6.9) `stage` อ่านสถานะที่เก็บ ไม่ได้เทียบ `clock.now()`
 
 **`GET /cases/{id}/audit`** (คน 1) ไม่ต้องมี `X-Demo-User` ไม่มีเคส ID นั้น → `404` ID นอกช่วง `bigint` (1 ถึง 9223372036854775807) → `422`
@@ -1805,8 +1818,8 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 
 | Route หรือหน้า | สิ่งที่เปลี่ยน | PR |
 |---|---|---|
-| `GET /cases/{id}` | แต่ละ `candidates[]` มีช่อง `score` ตามข้อ 6.15 (`null` สำหรับ Plan ที่สร้างก่อน PR E) | E (ทำแล้ว) |
-| หน้า `cases/[id]` | แสดงคะแนนรายพจน์ เหตุผลแบบตายตัว และประโยคจาก LLM เมื่อพร้อม | E2 (ทำแล้ว ตัวเลขและเหตุผลแบบตายตัว), X |
+| `GET /cases/{id}` | แต่ละ `candidates[]` มีช่อง `score` ตามข้อ 6.15 (`null` สำหรับ Plan ที่สร้างก่อน PR E) และช่อง `explanation` ระดับบนสุด (`null`, `PENDING`, `READY`, `UNAVAILABLE`) | E (ทำแล้ว), X (ทำแล้ว) |
+| หน้า `cases/[id]` | แสดงคะแนนรายพจน์ เหตุผลแบบตายตัว และประโยคจาก LLM เมื่อพร้อม | E2 (ทำแล้ว ตัวเลขและเหตุผลแบบตายตัว), X (ทำแล้ว) |
 | `POST /line/webhook` (ใหม่) | Webhook ของ LINE ไม่ใช้ `X-Demo-User` กันด้วยลายเซ็น ลำดับ: ลายเซ็นไม่ผ่าน `401` (ไม่เขียน DB) → ประมวลทีละ Event ในแต่ละ Transaction ของตัวเองตามข้อ 6.16: Event ซ้ำข้าม, `LINK <รหัส>` ไปทางผูกบัญชีก่อนตรวจการผูก, Postback ไปทางตอบ Offer → ตอบ `5xx` ถ้ามี Event ใดเจอ Error ที่ไม่คาดไว้ ไม่อย่างนั้น `200` (รวมการปฏิเสธทางธุรกิจ) | L |
 | `GET /me/offers` (ใหม่, ต้องมี `X-Demo-User`) | คืน List ของ `OfferView` แบบเดียวกับ `GET /demo/line-sim/offers` ของพนักงานใน Header เท่านั้น ไม่รับ `staff_id` | N |
 | `POST /me/offers/{outreach_id}/response` (ใหม่, ต้องมี `X-Demo-User`) | Body `{response}` (`ACCEPT` หรือ `REJECT`) Body ห้ามมีช่องอื่น คืน `{outreach_id, outreach_status, case_id, case_status}` แบบเดียวกับ `POST /demo/line-sim/respond` Error: `401` Header, `409` เมื่อ `record_response()` ปฏิเสธ (`OpenOfferConflictError`), `503` พร้อม `Retry-After: 1` เมื่อล็อกไม่นิ่ง (`OutreachLockRetryError`) | N |
@@ -2051,3 +2064,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | รอบ 3 PR E2: หน้า `cases/[id]` แสดงคอลัมน์ Score และตารางรายพจน์ (`ScoreBreakdown`) ของผู้สมัครที่มี `score` เรียงพจน์จาก `points` มากไปน้อย เหตุผลแบบตายตัวต่อชื่อพจน์และต่อ `first_wave` อยู่ใน `SCORE_TERM_INFO` และ `FIRST_WAVE_INFO`; `score = null` แสดงอันดับตามเดิมไม่มีคะแนนและไม่เดาเหตุผล; หน้าไม่คำนวณคะแนนเอง `loadCase()` ตรวจรูปของ `score` | คน 2 |
 | 2026-10-14 | ตามรีวิว PR E2 (#67): `loadCase()` ตรวจทุกพจน์ของ `score` (`name` เป็นข้อความ, `value`, `weight`, `points` เป็นตัวเลขจำกัด) ชื่อพจน์ที่ไม่รู้จักยังแสดงตามเดิม; เหตุผลของ `workload_imbalance` เป็นชั่วโมงตาม Roster ที่ Commit แล้วในสัปดาห์ ณ ตอนวางแผน (รวมเวรที่ยังไม่เริ่ม); หัวข้อเป็น "Score breakdown" และบอกว่าคะแนนเลือกกลุ่ม Wave แรก อันดับในกลุ่มเรียงตาม `ranking_key` | คน 2 |
 | 2026-10-14 | รอบ 3 PR K: รหัส LINK อายุ 10 นาที เก็บ SHA-256 hash, ใช้/revoke ครั้งเดียวตาม Backend Clock, unique LINE UID; CLI เรียก Route ภายในที่ตรวจ Internal Secret; LINK ผ่าน dedup พร้อม Contact/Code/Audit ใน Transaction เดียว; unlink รักษาประวัติและ revoke รหัสเก่า; pending send ตรวจบัญชีเดิมก่อน retry; Migration `d7f0b3c5e9a2` ต่อจาก PR L, tests สอง Connection และ Handoff ใน `docs/round3/pr-K-handoff.md` | คน 3 |
+| 2026-10-15 | รอบ 3 PR X: ประโยคอธิบายอันดับจาก LLM ผ่าน `llm_service` (ตัวเชื่อม `fake` และ `bedrock` ทดสอบแบบ Offline) เข้าคิวด้วยแถว `PENDING` ใน Transaction ของ Plan สร้างเฉพาะตอน Job tick ผ่าน Background Task ของ Route ภายใน (Claim/Lease, `attempts` ถาวรไม่เกิน `1 + LLM_MAX_RETRIES`, `LLM_CALL_LOG` ทุก Attempt); Payload มีแต่ตัวเลขและอันดับ; `GET /cases/{id}` เพิ่มช่อง `explanation` และหน้า `cases/[id]` แสดงประโยค; ตาราง `RANK_EXPLANATION` และ `LLM_CALL_LOG` กับ Enum `ExplanationStatus`, `LlmCallStatus` (Migration `e1a4c7f2b9d6` ต่อจาก PR K); Test ของข้อกำหนดที่พังเงียบได้ 6 ข้อ; Handoff ใน `docs/round3/pr-X-handoff.md` | คน 2 |
