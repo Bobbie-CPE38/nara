@@ -104,7 +104,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 |---|---|---|---|---|
 | เอกสาร | คน 1 | ร่างรอบ 3 และไฟล์คำถาม | | #60 |
 | 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, ค่าใหม่ใน Enum, Path ของ API สำหรับผู้สมัคร | 6.15 ถึง 6.17, 7.1, 9.5 | #61 |
-| E | คน 2 | คำอธิบายอันดับ (Backend): ช่องใหม่ใน Snapshot และช่อง `score` | 6.15 | |
+| E | คน 2 | คำอธิบายอันดับ (Backend): ช่องใหม่ใน Snapshot และช่อง `score` | 6.15 | #63 |
 | E2 | คน 2 | คำอธิบายอันดับ (หน้า `cases/[id]`) | 6.15, 9.5 | |
 | L | คน 3 | LINE จริง: Webhook, กันซ้ำ, ส่ง Offer (Migration ตัวที่ 1) | 6.16 | |
 | K | คน 3 | ผูกบัญชี LINE (Migration ตัวที่ 2) | 6.16 | |
@@ -1110,7 +1110,7 @@ Expired requests disappear from `GET /approvals` immediately (`expires_at > now`
 **การคำนวณตอนอ่าน**
 
 * คำนวณรายพจน์ด้วยสูตรของ `penalties.candidate_penalty()` จาก `weights` และช่อง `_exact` ใน Snapshot เท่านั้น ห้ามอ่านค่าน้ำหนักจาก Policy เพราะ Policy ถูกแก้ทับในแถวเดิมได้ (เช่น Seed `ignore_workload()`) และห้ามใช้ช่องที่เป็น `float`
-* ผลรวมรายพจน์ต้องเท่ากับ `Fraction(penalty_exact)` พอดี ไม่เท่าคือบั๊ก ไม่ปัดให้ตรง การเทียบทำใน Backend เท่านั้น ถ้าไม่เท่า หรือ Plan ที่มี `weights` มีผู้สมัครใน `candidates` ของเคสที่ไม่มีรายการใน Snapshot ระบบโยน `ScoreMismatchError` และ `GET /cases/{id}` ตอบ `500` (ไม่ซ่อนแถว แบบเดียวกับ `GET /roster` ในข้อ 9.3)
+* ผลรวมรายพจน์ต้องเท่ากับ `Fraction(penalty_exact)` พอดี ไม่เท่าคือบั๊ก ไม่ปัดให้ตรง การเทียบทำใน Backend เท่านั้น Plan ที่มี `weights` ต้องมีช่อง `_exact` และ `first_wave` ครบทุกรายการ ถ้าไม่ครบ ไม่เท่า หรือผู้สมัครของเคสไม่มีรายการใน Snapshot ถือว่าเป็นบั๊ก (`ScoreMismatchError`) ห้ามถือเป็น Plan เก่า ตัวอ่านคืน `score = null` เฉพาะผู้สมัครคนนั้น บันทึก Log ระดับ Error แล้วหน้าเคสที่เหลือยังตอบ `200` ไม่ปัดให้ตรง และถ้าอ่าน `weights` ไม่ได้ ผู้สมัครทุกคนได้ `score = null` พร้อม Log เช่นกัน
 * Plan ที่ไม่มีช่องใหม่ (สร้างก่อน PR E) ได้ `score = null` และหน้าแสดงอันดับตามเดิมโดยไม่มีคะแนน
 
 **รูปใน API** ช่อง `score` ในแต่ละ `candidates[]` ของ `GET /cases/{id}` (ข้อ 9.5)
@@ -1597,7 +1597,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 * `assigned_count` คือจำนวนคนที่เคสนี้จัดเข้าเวรแล้ว นับแบบเดียวกับ "ได้เข้าเวรแล้ว" ของข้อ 5.3 (`case_facts_service.assigned_staff_ids()`) เคสยังขาดคนอีก `max(gap.headcount_gap - assigned_count, 0)` หน้า `approvals` ใช้ค่านี้บอกว่าเคสของแต่ละคำขอยังขาดกี่คน (PR 5) ค่านี้นับเฉพาะจำนวนคน เคสที่ได้ 0 ยังรออนุมัติอยู่ได้เมื่อยังขาด Role หรือ Skill
 * `candidates` เป็น `[]` จนกว่า Solver จะบันทึก Plan ใช้ Plan ที่ `id` มากสุดของเคส (Seam 1) เรียงตาม `rank`
 * `outreach_status` เป็น `null` จนกว่าจะมี Outreach ของผู้สมัครคนนั้น ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
-* `score` คือคะแนนรายพจน์ของผู้สมัคร คำนวณตอนอ่านจาก Snapshot ของ Plan ล่าสุดเท่านั้น (ข้อ 6.15) เป็น `null` สำหรับ Plan ที่สร้างก่อน PR E และตอบ `500` เมื่อตัวเลขใน Snapshot ไม่ลงกัน
+* `score` คือคะแนนรายพจน์ของผู้สมัคร คำนวณตอนอ่านจาก Snapshot ของ Plan ล่าสุดเท่านั้น (ข้อ 6.15) เป็น `null` สำหรับ Plan ที่สร้างก่อน PR E และสำหรับผู้สมัครที่ตัวเลขใน Snapshot ไม่ครบหรือไม่ลงกัน (บันทึก Log ระดับ Error ไม่ทำให้ทั้งหน้าล้ม)
 * `stage` คือขั้นของผู้สมัครในเคสนี้ตามข้อ 4.1 คำนวณตอนอ่าน ไม่มีคอลัมน์เก็บ ใช้ข้อแรกที่ตรงตามลำดับ: ได้เข้าเวรแล้ว (`ASSIGNED`), อนุมัติแล้ว (`APPROVED`), ไม่อนุมัติ (`APPROVAL_REJECTED`), Safety ไม่ผ่าน (`SAFETY_FAILED`), ไม่มี Offer (`NOT_CONTACTED`), Offer `ACCEPTED` และรออนุมัติ (`WAITING_APPROVAL`), Offer `ACCEPTED` อย่างเดียว (`ACCEPTED` คือสำรองตาม Q28), นอกนั้น `OFFER_` ตามด้วยสถานะของ Offer "ได้เข้าเวรแล้ว" กับ "รออนุมัติ" ใช้เงื่อนไขเดียวกับ `case_facts_service` คำขอที่ยัง Pending แต่ Offer ถูกยกเลิกจึงเป็น `OFFER_CANCELLED` Offer ที่ยัง `SENT` เลย `expires_at` แล้วแต่ Job ยังไม่ตั้ง `TIMEOUT` ยังเป็น `OFFER_SENT` ทั้งที่เคสไม่รอ Offer นั้นแล้ว (ข้อ 6.9) `stage` อ่านสถานะที่เก็บ ไม่ได้เทียบ `clock.now()`
 
 **`GET /cases/{id}/audit`** (คน 1) ไม่ต้องมี `X-Demo-User` ไม่มีเคส ID นั้น → `404` ID นอกช่วง `bigint` (1 ถึง 9223372036854775807) → `422`
@@ -1958,4 +1958,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | ตามรีวิว PR ปิดรอบ 2: วันที่อัปเดตบนสุดเป็น 2026-10-14; หัวข้อ 9.4 เป็นอดีต; หมายเหตุลำดับ Lock ในข้อ 6.11 ที่เขียนว่ายังไม่มี Test เปลี่ยนเป็นรายการ Test สอง Connection ของแต่ละกรณี ทั้งของรอบ 1 และรอบ 2; ตาราง Test ของ PR H ระบุชื่อฟังก์ชัน | คน 1 |
 | 2026-10-14 | รอบ 3 PR 0: ส่วน "สถานะของรอบ 3" พร้อมตาราง PR, ลำดับ merge และ Test ของข้อกำหนดที่พังเงียบได้; ข้อ 6.15 คำอธิบายอันดับ, 6.16 LINE จริง, 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง; ข้อ 7.1 เพิ่ม `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED`; ข้อ 9 และ 9.5 เพิ่ม `POST /line/webhook`, `GET /me/offers`, `POST /me/offers/{outreach_id}/response`; `enums.py` เพิ่มสาม Action และ `EntityType.CONTACTS` ยังไม่มีผู้เขียน ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-14 | ตามรีวิว PR 0 ของรอบ 3 (#61): ข้อ 6.15 กำหนด `value` ของทุกพจน์ (`candidate_count` เป็น 1, `candidate_source` เป็นตำแหน่งใน `source_order` เริ่มที่ 0); ข้อ 6.16 และ 9.5 กำหนดว่าแต่ละ Event ใน body มี Transaction และแถวกันซ้ำของตัวเอง, `LINK <รหัส>` ถูกประมวลก่อนตรวจการผูก และผ่านตารางกันซ้ำใน Transaction ของการผูก; ตารางสถานะของรอบ 3 ใส่ #61 | คน 1 |
-| 2026-10-14 | รอบ 3 PR E: `create_plan()` เก็บ `weights` (รวม `source_order`) และ `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` ใน `input_snapshot` (ไม่มี Migration); `penalties.candidate_penalty_terms()` เป็นสูตรเดียวของรายพจน์ และ `candidate_penalty()` เป็นผลรวมของมัน; `GET /cases/{id}` เพิ่ม `score` ในแต่ละ `candidates[]` คำนวณตอนอ่านจาก Snapshot ด้วย `Fraction` (`null` สำหรับ Plan ก่อน PR E, `ScoreMismatchError` ตอบ `500`); ข้อ 6.15 เติมรูป Snapshot จริงและลำดับ `terms`, ข้อ 9.3 เพิ่มตัวอย่าง `score`, ข้อ 9.5 แถว E ทำแล้ว | คน 2 |
+| 2026-10-14 | รอบ 3 PR E: `create_plan()` เก็บ `weights` (รวม `source_order`) และ `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` ใน `input_snapshot` (ไม่มี Migration); `penalties.candidate_penalty_terms()` เป็นสูตรเดียวของรายพจน์ และ `candidate_penalty()` เป็นผลรวมของมัน; `GET /cases/{id}` เพิ่ม `score` ในแต่ละ `candidates[]` คำนวณตอนอ่านจาก Snapshot ด้วย `Fraction` (`null` สำหรับ Plan ก่อน PR E; ผู้สมัครที่ Snapshot ไม่ครบหรือไม่ลงกันได้ `null` พร้อม Log ระดับ Error ไม่ทำให้ทั้งหน้าล้ม); ข้อ 6.15 เติมรูป Snapshot จริงและลำดับ `terms`, ข้อ 9.3 เพิ่มตัวอย่าง `score`, ข้อ 9.5 แถว E ทำแล้ว | คน 2 |

@@ -103,18 +103,37 @@ def test_display_number() -> None:
     assert part == 0.25 and isinstance(part, float)
 
 
-@pytest.mark.parametrize("key", ["hours_this_week_exact", "overtime_hours_exact", "penalty_exact"])
-def test_an_entry_without_an_exact_key_has_no_score(key: str) -> None:
+@pytest.mark.parametrize(
+    "key",
+    ["hours_this_week_exact", "overtime_hours_exact", "penalty_exact", "first_wave"],
+)
+def test_an_entry_missing_a_field_raises(key: str) -> None:
     item = entry(FRESH, WEIGHTS)
     del item[key]
 
-    assert score_from_snapshot(WEIGHTS, item) is None
+    with pytest.raises(ScoreMismatchError):
+        score_from_snapshot(WEIGHTS, item)
+
+
+def test_an_exact_field_that_is_not_text_raises() -> None:
+    item = entry(FRESH, WEIGHTS)
+    item["penalty_exact"] = 1005.0
+
+    with pytest.raises(ScoreMismatchError):
+        score_from_snapshot(WEIGHTS, item)
+
+
+def test_weights_missing_a_key_raise() -> None:
+    raw = weights_snapshot(WEIGHTS)
+    del raw["candidate_source"]
+
+    with pytest.raises(ScoreMismatchError):
+        weights_from_snapshot(raw)
 
 
 def test_the_terms_sum_to_the_stored_penalty() -> None:
     score = score_from_snapshot(WEIGHTS, entry(FRESH, WEIGHTS))
 
-    assert score is not None
     assert score.total == 1005
     assert [term.points for term in score.terms] == [1000, 5, 0, 0, 0]
     assert score.first_wave is True
@@ -123,7 +142,6 @@ def test_the_terms_sum_to_the_stored_penalty() -> None:
 def test_a_fractional_case_sums_exactly() -> None:
     score = score_from_snapshot(FRACTIONAL, entry(TIRED, FRACTIONAL))
 
-    assert score is not None
     assert score.total == candidate_penalty(TIRED, FRACTIONAL)
     assert (
         score.total == Fraction(1000) + Fraction(9, 10) + Fraction(22, 21) + Fraction(1, 12) + 200

@@ -1,7 +1,8 @@
 """`score` of GET /cases/{id} (docs/workflow.md, section 6.15), on real plans of the Solver.
 
 The score is rebuilt from the plan's snapshot alone, so it must survive a policy
-edit, and a plan without stored weights must answer null.
+edit, and a plan without stored weights must answer null. A broken entry of a plan
+with weights loses only its own score and is logged.
 """
 
 from collections.abc import Iterator
@@ -17,11 +18,10 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
 from app.db.models import Attendance, CandidatePlan, SoftConstraintPolicy, StaffingCase
-from app.domain.constraints.score_breakdown import ScoreMismatchError, display_number
+from app.domain.constraints.score_breakdown import display_number
 from app.domain.enums import CaseStatus
 from app.main import app
 from app.seed.scenarios import soft_constraint
-from app.services import case_service
 from app.workflow.handlers import optimize
 from tests.integration.case_rows import leave, make_case, record_gap
 from tests.integration.conftest import DEMO_NOW
@@ -153,16 +153,80 @@ def test_a_plan_without_stored_weights_has_no_score(client: TestClient, seeded: 
     assert [c["score"] for c in candidates] == [None, None, None]
 
 
-def test_a_tampered_penalty_is_a_loud_error(seeded: Session) -> None:
-    """Service level: TestClient would re-raise the error instead of answering 500."""
+def _edit_candidate(db: Session, case: StaffingCase, staff_id: int, change: Any) -> None:
+    plan = _plan(db, case)
+    snapshot = dict(plan.input_snapshot)
+    rows = [dict(row) for row in snapshot["candidates"]]
+    change(next(row for row in rows if row["staff_id"] == staff_id))
+    snapshot["candidates"] = rows
+    plan.input_snapshot = snapshot
+    db.flush()
+
+
+def _tamper(row: dict[str, Any]) -> None:
+    row["penalty_exact"] = "1006/1"
+
+
+def _drop(key: str) -> Any:
+    return lambda row: row.pop(key)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        _tamper,
+        _drop("hours_this_week_exact"),
+        _drop("overtime_hours_exact"),
+        _drop("penalty_exact"),
+    ],
+    ids=["tampered", "no-hours", "no-overtime", "no-penalty"],
+)
+def test_a_broken_entry_loses_only_its_own_score_and_is_logged(
+    client: TestClient, seeded: Session, caplog: pytest.LogCaptureFixture, change: Any
+) -> None:
+    """A plan with weights is never read as a legacy plan, and one bad entry
+    must not take the whole case page down. Nothing is rounded to fit."""
+    case = _planned_case(seeded)
+    _edit_candidate(seeded, case, 201, change)
+
+    with caplog.at_level("ERROR", logger="app.services.case_service"):
+        candidates = _candidates(client, case)
+
+    assert [c["staff_id"] for c in candidates] == [201, 202, 203]
+    assert candidates[0]["score"] is None
+    assert candidates[1]["score"] is not None and candidates[2]["score"] is not None
+    assert any("staff 201" in record.getMessage() for record in caplog.records)
+
+
+def test_a_candidate_missing_from_the_snapshot_loses_its_score(
+    client: TestClient, seeded: Session, caplog: pytest.LogCaptureFixture
+) -> None:
     case = _planned_case(seeded)
     plan = _plan(seeded, case)
     snapshot = dict(plan.input_snapshot)
-    rows = [dict(row) for row in snapshot["candidates"]]
-    rows[0]["penalty_exact"] = "1006/1"
-    snapshot["candidates"] = rows
+    snapshot["candidates"] = [r for r in snapshot["candidates"] if r["staff_id"] != 202]
     plan.input_snapshot = snapshot
     seeded.flush()
 
-    with pytest.raises(ScoreMismatchError):
-        case_service.get_case_detail(seeded, case.id)
+    with caplog.at_level("ERROR", logger="app.services.case_service"):
+        candidates = _candidates(client, case)
+
+    assert [c["score"] is None for c in candidates] == [False, True, False]
+    assert any("staff 202" in record.getMessage() for record in caplog.records)
+
+
+def test_unreadable_weights_give_null_scores_and_an_error_log(
+    client: TestClient, seeded: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    case = _planned_case(seeded)
+    plan = _plan(seeded, case)
+    snapshot = dict(plan.input_snapshot)
+    snapshot["weights"] = {"candidate_count": "1000/1"}
+    plan.input_snapshot = snapshot
+    seeded.flush()
+
+    with caplog.at_level("ERROR", logger="app.services.case_service"):
+        candidates = _candidates(client, case)
+
+    assert [c["score"] for c in candidates] == [None, None, None]
+    assert any("weights" in record.getMessage() for record in caplog.records)

@@ -7,6 +7,8 @@ frozen after a reset, so rows of one case can share the same time
 (docs/workflow.md, section 6.4).
 """
 
+import logging
+
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -49,6 +51,8 @@ from app.schemas.case import (
     ScoreTerm,
 )
 from app.services import case_facts_service
+
+logger = logging.getLogger(__name__)
 
 _OFFER_STAGES: dict[OutreachStatus, CandidateStage] = {
     OutreachStatus.PENDING: "OFFER_PENDING",
@@ -263,25 +267,34 @@ def _scores(plan: CandidatePlan, staff_ids: list[int]) -> dict[int, CandidateSco
     """The score of each candidate, rebuilt from the plan's snapshot alone (section 6.15).
 
     Never reads the current policy or the float fields. A plan without stored
-    weights predates PR E and gets null. A candidate the snapshot does not know
-    is a bug, so it raises instead of hiding the row.
+    weights predates PR E and gets null. A plan with weights whose entry is missing,
+    incomplete or does not add up is a bug: that candidate gets null and an error
+    is logged, so the rest of the case page still answers. Nothing is rounded to fit.
     """
     snapshot = plan.input_snapshot
     if "weights" not in snapshot:
         return dict.fromkeys(staff_ids)
-    weights = weights_from_snapshot(snapshot["weights"])
+    try:
+        weights = weights_from_snapshot(snapshot["weights"])
+    except ScoreMismatchError:
+        logger.exception("Plan %s: the stored weights cannot be read", plan.id)
+        return dict.fromkeys(staff_ids)
     entries = {entry["staff_id"]: entry for entry in snapshot["candidates"]}
     scores: dict[int, CandidateScore | None] = {}
     for staff_id in staff_ids:
-        if staff_id not in entries:
-            raise ScoreMismatchError(f"the snapshot of plan {plan.id} has no staff {staff_id}")
-        scores[staff_id] = _score_view(score_from_snapshot(weights, entries[staff_id]))
+        try:
+            if staff_id not in entries:
+                raise ScoreMismatchError(f"the snapshot has no entry for staff {staff_id}")
+            scores[staff_id] = _score_view(score_from_snapshot(weights, entries[staff_id]))
+        except ScoreMismatchError:
+            logger.exception(
+                "Plan %s: the score of staff %s cannot be explained", plan.id, staff_id
+            )
+            scores[staff_id] = None
     return scores
 
 
-def _score_view(score: ScoreBreakdown | None) -> CandidateScore | None:
-    if score is None:
-        return None
+def _score_view(score: ScoreBreakdown) -> CandidateScore:
     return CandidateScore(
         total=display_number(score.total),
         terms=[
