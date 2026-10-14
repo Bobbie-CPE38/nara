@@ -109,22 +109,41 @@ Person 3 uses Cloudflare Quick Tunnel: no Cloudflare account, purchased domain
 or tunnel token is required. Its temporary `trycloudflare.com` hostname changes
 when the tunnel restarts; update and Verify the LINE webhook URL each time.
 
-Route LINE → Quick Tunnel → a loopback-only local HTTP filter → Backend.
-The filter forwards only the exact `/line/webhook` path, preserving the raw
-request body and `x-line-signature`. All other paths return 404, including
-`/line/webhook/`, `/line/webhook/anything`, `/demo/reset` and `/internal/...`.
-The public webhook path has no `/api` prefix. Backend signature checks remain
-required. Do not point Quick Tunnel directly at the backend port; the filter,
-not cloudflared ingress, enforces the path restriction.
+Route LINE → Quick Tunnel → the stock nginx development proxy → Backend.
+Secret-free config and its Docker regression tests are committed under
+`dev/line-webhook-proxy/` for review by people 1 and 2. No hand-written
+forwarding service is used. The separate development Compose file publishes
+only `127.0.0.1:18080`; it is not included in the main or AWS Compose files.
 
-Before opening the tunnel, verify the signed webhook and denied paths locally;
-repeat the checks through the public URL. Person 3 owns this setup and shares
-secret-free reproduction instructions with people 1 and 2. Local tunnel/filter
-configuration and LINE secrets stay outside the repo. No cloudflared process,
+The gate permits only POST with the original raw request URI `/line/webhook`.
+nginx uses case-sensitive matching of `$request_method:$request_uri`, not the
+normalized `$uri`. Query strings are denied: `/line/webhook?x=1` returns 404.
+The raw body and `x-line-signature` are preserved; Backend verifies signatures.
+Body limit is 1 MiB; oversized Content-Length and chunked requests return 413
+without reaching the upstream. The public path has no `/api` prefix.
+
+Verify that all these paths return 404 without reaching Backend:
+`/line/webhook/`, `/line/webhook/anything`, `/line/webhooks`,
+`/line/webhook?x=1`, `/line/%77ebhook`, `/line/webhook%2F`, `//line/webhook`,
+`/line//webhook`, `/line/webhook/..`, `/LINE/webhook`, `/line/Webhook`,
+`/demo/reset`, `/internal/merge-windows/close-due`, `/api/line/webhook` and `/`.
+GET, HEAD, PUT, PATCH, DELETE and OPTIONS on the exact path return 404;
+TRACE returns 405 from nginx before the gate. No denied method reaches Backend.
+
+CI exercises the real config against an isolated fake upstream and asserts
+that denied requests never reach it. Person 3 must run the tests, start the
+local proxy and run the local gate check, then repeat it through the public URL
+using `check_gate.py`; see `dev/line-webhook-proxy/README.md`. Do not point the
+Quick Tunnel directly at Backend. LINE secrets and machine-specific secret
+configuration remain outside the repo; only reviewable secret-free config,
+tests and instructions are committed. Person 3 owns setup and shares those
+instructions with people 1 and 2.
+
+Quick Tunnels are for testing/development and have no uptime guarantee. If
+organisers disallow the tunnel, the proxy/tunnel is not ready, or it drops
+mid-test, use the fake LINE API/simulator and record precisely which live checks
+remain incomplete. Do not claim an interrupted run passed end-to-end. In round 6,
+switch LINE to the AWS HTTPS endpoint and stop the tunnel. No cloudflared process,
 container or configuration belongs in the main Compose file or AWS deployment.
-
-If the organisers do not permit the tunnel, or the tunnel/filter is not ready,
-use the fake LINE API and simulator and record that live integration remains
-untested. In round 6, switch LINE to the AWS HTTPS endpoint and stop the tunnel.
 
 References: [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
