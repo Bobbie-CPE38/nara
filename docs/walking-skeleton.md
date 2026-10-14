@@ -293,3 +293,14 @@ Branch ที่แตกก่อน PR #29 ต้อง Merge `staging` เข
 | 3 | เคสหยุดที่ `MANUAL_HANDOFF` พร้อมเหตุผล, Working Time Snapshot | การจัดการเคสหลัง `MANUAL_HANDOFF`, Escalation, Score Breakdown และคำอธิบายอันดับ, LINE จริง |
 | 4 | รวม Event ของเวรเดียวกันเป็นเคสเดียว และ Lock ต่อ Shift (Merge Gap) | Cross-Ward, ผู้อนุมัติเป็น Supervisor, Approval Timeout, Auto-Approval |
 | 5, 6 | | ทั้งหมด |
+
+### สถานะหลังรอบ 2
+
+รอบ 2 เสร็จแล้ว ดึงงานของคน 1 และคน 3 มาจากลำดับ 3 และ 4 รายชื่อ PR อยู่ที่ `docs/workflow.md` ส่วน "สถานะของรอบ 2" ตารางรอบที่ปรับแล้วอยู่ที่ `docs/round1/next-move.md`
+
+| ลำดับในตารางข้างบน | ทำแล้วในรอบ 2 | ยังไม่ได้ทำ |
+|---|---|---|
+| 2 | OR-Tools (Solver สามขั้น เพดานเวลา 3 วินาที ผลเท่ารอบ 1 เมื่อ `OPTIMAL`) | |
+| 3 | การจัดการเคสหลัง `MANUAL_HANDOFF` (Head Nurse จัดคนที่ผ่าน Hard Rules ทุกข้อ หรือปิดเคสพร้อมเหตุผล), Escalation (คือการส่งไป `MANUAL_HANDOFF` ไม่มีฟีเจอร์แยก) | Score Breakdown และคำอธิบายอันดับ, LINE จริง |
+| 4 | Approval Timeout (900 วินาที กลับไปต่อท้ายคิวได้หนึ่งครั้ง), การอนุมัติจำกัดหอ | Cross-Ward, ผู้อนุมัติเป็น Supervisor, Auto-Approval |
+| 5, 6 | | ทั้งหมด |
