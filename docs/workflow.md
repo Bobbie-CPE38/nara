@@ -146,6 +146,7 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 | รหัสผูกบัญชีเดียวกันถูกใช้พร้อมกันสองครั้ง สำเร็จได้ครั้งเดียว และถ้าการเขียนพัง รหัสยังใช้ได้ | K |
 | Route ของหน้าเว็บพยาบาลไม่สนใจ `staff_id` ที่ส่งมาใน Query หรือ Body | N |
 | ตั้งเวรที่จบแล้วเป็น `COMPLETED` แล้ว Gap, Hard Rules (รวมเวลาพักหลังเวรนั้น) และชั่วโมงทำงานเท่าเดิม | R (`test_roster_completion.py`) |
+| การลาหรือการยกเลิกที่รับไว้ก่อนเวรจบยังถูกประมวลหลัง Job ตั้ง `COMPLETED` รวมกรณีที่ Window รอเคสที่ยังเดิน | R (`test_roster_completion_events.py`) |
 | เรียกเครื่องทดสอบบน AWS โดยไม่มีรหัส Basic Auth ถูกปฏิเสธ ส่วน Path ของ Webhook เรียกได้ และข้อยกเว้นไม่ครอบ Path อื่น | D (ลองบนเครื่อง) |
 
 ---
@@ -1203,6 +1204,8 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 **Roster ของเวรที่จบแล้วเป็น `COMPLETED`**
 
 * `roster_completion_service.complete_ended_shifts()` เป็นขั้นแรกของ `job_service.run_due_work()` (ข้อ 3.8) ตั้งแถว `ASSIGNED` ที่ `SHIFT.end_at <= clock.now()` เป็น `COMPLETED` แล้ว Commit
+* **ไม่ทับ Event ที่รับไว้แล้ว:** แถวของคนที่ยังมี Event กลุ่มพนักงาน (`STAFF_UNAVAILABLE`, `ASSIGNMENT_CANCELLED`) ค้างเป็น `RECEIVED` ในเวรนั้นจะไม่ถูกตั้งเป็น `COMPLETED` เพราะตอนปิด Window ต้องเจอแถวนั้น ไม่อย่างนั้นการลาที่รับไว้ก่อนเวรจบจะถูก `IGNORED` เป็น `NO_ASSIGNED_ROSTER` และไม่มีแถวการลา แถวนั้นจะถูกตั้งในรอบแรกหลัง Event ถูกประมวล รวมกรณีที่ Window ต้องรอเคสที่ยังเดินอยู่จนเลยเวลาจบเวร
+* **กันชั้นที่สอง:** ตอนปิด Window `_assigned_roster()` รับแถว `COMPLETED` ด้วย (`lock_assigned_roster(statuses=COVERING_ROSTER_STATUSES)`) เผื่อ Job ตั้งแถวเป็น `COMPLETED` ไปก่อนในจังหวะที่ชนกันพอดี Event ที่รับไว้แล้วจึงยังยกเลิกแถวได้ ส่วนการรับ Event ใหม่ยังต้องเจอแถว `ASSIGNED` เหมือนเดิม การแจ้งลาหลังเวรจบแล้วจึงได้ `409`
 * ล็อกแถวด้วย `FOR UPDATE SKIP LOCKED` แถวที่ Transaction อื่นถืออยู่ (เช่น การแจ้งลากำลังยกเลิกแถว) ถูกข้ามแล้วทำในรอบถัดไป ขั้นนี้จึงไม่รอ Lock และไม่ขัดลำดับ Lock ของการรับ Event (ข้อ 6.11)
 * ไม่มี Audit เพราะไม่มี `AuditAction` ของการเปลี่ยนนี้ เวลาที่เปลี่ยนดูจาก `ROSTER_ASSIGNMENT.updated_at`
 * **`COMPLETED` นับเหมือน `ASSIGNED` ทุกที่** ไม่อย่างนั้นเวรเมื่อวานจะหายจากการนับโดยไม่มี Error และคนที่เพิ่งลงเวรดึกจะผ่านกฎเวลาพัก
@@ -1213,12 +1216,12 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 
 **`GET /roster?staff_id=`** Filter ใหม่ของ Route เดิม (ข้อ 9.5) ต้องส่ง `shift_id` หรือ `staff_id` อย่างใดอย่างหนึ่งพอดี คืนตัวพนักงานและทุกแถว Roster ของคนนั้นทุกสถานะ พร้อมข้อมูลเวรของแต่ละแถว เรียงตามเวลาเริ่มเวร แล้วตาม `id` อ่านสอง Statement เสมอ
 
-**ธง `is_unavailable`** ทุกแถวของ `GET /roster` ทั้งสองแบบ เป็นจริงเมื่อแถวเป็น `ASSIGNED` และคนนั้นมี `STAFF_UNAVAILABILITY` ที่ทับเวร ใช้เงื่อนไขทับเดียวกับรหัส `UNAVAILABLE` ของ Hard Rules: ช่วงลาเริ่มก่อนเวรจบ และไม่มี `end_at` หรือ `end_at` หลังเวรเริ่ม (แตะขอบพอดีไม่นับ) คำนวณในคำสั่งเดียวกับแถว การรับ Event ยกเลิก Roster พร้อมการลาเสมอ ธงนี้จึงเกิดเมื่อมีการลาที่ไม่ได้มาจาก Event ทับเวร เช่น การลาที่ถูกแก้ให้ยาวขึ้น หน้า `roster` แสดงป้าย "On leave" ต่อท้ายสถานะของแถวที่ธงเป็นจริง
+**ธง `is_unavailable`** ทุกแถวของ `GET /roster` ทั้งสองแบบ เป็นจริงเมื่อแถวเป็น `ASSIGNED` และคนนั้นมี `STAFF_UNAVAILABILITY` ที่ทับเวร ใช้เงื่อนไขทับเดียวกับรหัส `UNAVAILABLE` ของ Hard Rules: ช่วงลาเริ่มก่อนเวรจบ และไม่มี `end_at` หรือ `end_at` หลังเวรเริ่ม (แตะขอบพอดีไม่นับ) กติกานี้มีที่เดียวต่อภาษา: `context.leave_overlaps_shift()` ใน Python ซึ่งกฎ `UNAVAILABLE` เรียก และ `unavailability_service.leave_overlaps_shift_sql()` ใน SQL ซึ่ง `GET /roster` และการแก้วันกลับเรียก `test_leave_overlap_rule.py` ตรวจว่าสองตัวตอบตรงกันทุกกรณีขอบ คำนวณในคำสั่งเดียวกับแถว การรับ Event ยกเลิก Roster พร้อมการลาเสมอ ธงนี้จึงเกิดเมื่อมีการลาที่ไม่ได้มาจาก Event ทับเวร เช่น การลาที่ถูกแก้ให้ยาวขึ้น หน้า `roster` แสดงป้าย "On leave" ต่อท้ายสถานะของแถวที่ธงเป็นจริง
 
 **แก้วันกลับของการลา (`PATCH /unavailability/{id}`)**
 
 * Body `{end_at}` ต้องมีเขตเวลา และห้ามมีช่องอื่น ตั้งกลับเป็นไม่มีวันกลับไม่ได้ ใช้กับการลาที่ `end_at` เป็น `NULL` อยู่เพื่อใส่วันกลับได้
-* ลำดับ: `401` Header → `404` ไม่มีช่วงลานั้น → `403` ไม่ใช่ Head Nurse หรือไม่ใช่ Head Nurse ของหอประจำของคนลา (`manages_ward()` เดียวกับการอนุมัติ) → `422` `end_at` ไม่หลัง `start_at`
+* ลำดับ: `401` Header → `422` รูปของ Body (ไม่มี `end_at`, ไม่มีเขตเวลา, มีช่องอื่น) ซึ่ง FastAPI ตรวจก่อนเข้า Handler จึงมาก่อน `404` และ `403` → `404` ไม่มีช่วงลานั้น → `403` ไม่ใช่ Head Nurse หรือไม่ใช่ Head Nurse ของหอประจำของคนลา (`manages_ward()` เดียวกับการอนุมัติ) → `422` `end_at` ไม่หลัง `start_at`
 * ล็อกแถว `STAFF` ของคนลาก่อน (`hard_rule_service.lock_staff()`) แล้วล็อกแถวการลา การวางแผนของคนเดียวกันจึงเห็นช่วงลาก่อนหรือหลังการแก้ทั้งก้อน
 * เขียน `UNAVAILABILITY_UPDATED` (ข้อ 7.1) แล้ว Commit พร้อมการแก้
 * ไม่แตะ Roster หรือ Offer ใด คำตอบบอกแถว Roster ที่ `ASSIGNED` และ Offer ที่ `SENT` หรือ `ACCEPTED` ของเคสที่ยังไม่หยุด ซึ่งช่วงลาใหม่ทับเวร Head Nurse ตัดสินเองว่าจะแจ้ง Event ต่อหรือไม่ แถว Roster พวกนั้นขึ้นธง `is_unavailable` ใน `GET /roster`
@@ -1985,3 +1988,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | รอบ 3 PR 0: ส่วน "สถานะของรอบ 3" พร้อมตาราง PR, ลำดับ merge และ Test ของข้อกำหนดที่พังเงียบได้; ข้อ 6.15 คำอธิบายอันดับ, 6.16 LINE จริง, 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง; ข้อ 7.1 เพิ่ม `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED`; ข้อ 9 และ 9.5 เพิ่ม `POST /line/webhook`, `GET /me/offers`, `POST /me/offers/{outreach_id}/response`; `enums.py` เพิ่มสาม Action และ `EntityType.CONTACTS` ยังไม่มีผู้เขียน ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-14 | ตามรีวิว PR 0 ของรอบ 3 (#61): ข้อ 6.15 กำหนด `value` ของทุกพจน์ (`candidate_count` เป็น 1, `candidate_source` เป็นตำแหน่งใน `source_order` เริ่มที่ 0); ข้อ 6.16 และ 9.5 กำหนดว่าแต่ละ Event ใน body มี Transaction และแถวกันซ้ำของตัวเอง, `LINK <รหัส>` ถูกประมวลก่อนตรวจการผูก และผ่านตารางกันซ้ำใน Transaction ของการผูก; ตารางสถานะของรอบ 3 ใส่ #61 | คน 1 |
 | 2026-10-14 | รอบ 3 PR R: Job ตั้ง Roster ของเวรที่จบแล้วเป็น `COMPLETED` (`roster_completion_service` ขั้นแรกของ `run_due_work()`); `COMPLETED` นับเหมือน `ASSIGNED` ใน `COMMITTED_ROSTER_STATUSES` และ `COVERING_ROSTER_STATUSES` (ใหม่ ใช้ใน Gap และ Threshold); `GET /roster?staff_id=` และธง `is_unavailable` พร้อมป้าย "On leave" ในหน้า `roster`; `PATCH /unavailability/{id}` แก้วันกลับพร้อม `UNAVAILABILITY_UPDATED` และบอกเวรกับ Offer ที่ทับ; ข้อ 3.4, 3.6, 3.8, 6.18 (ใหม่), 7.1, 9, 9.3, 9.5 และ 12 แก้ตาม | คน 1 |
+| 2026-10-14 | ตามรีวิว PR R (#64): การตั้ง `COMPLETED` ข้ามแถวที่ยังมี Event กลุ่มพนักงานค้าง และการปิด Window รับแถว `COMPLETED` ด้วย การลาที่รับไว้ก่อนเวรจบจึงไม่ถูก `IGNORED`; เงื่อนไขทับของการลากับเวรเหลือหนึ่งตัวใน Python และหนึ่งตัวใน SQL พร้อม Test ที่เทียบกัน; ลำดับ Error ของ `PATCH /unavailability/{id}` ระบุว่า `422` ของรูป Body มาก่อน `404` และ `403` | คน 1 |

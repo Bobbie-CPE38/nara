@@ -30,6 +30,7 @@ from app.db.models import (
 )
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
+    COVERING_ROSTER_STATUSES,
     ActorName,
     AuditAction,
     CaseStatus,
@@ -348,8 +349,13 @@ def _assigned_roster(db: Session, event: StaffingEvent) -> RosterAssignment:
     """The roster row of the event's person, locked after the shift (section 6.11)."""
     assert event.staff_id is not None  # staff-group events always have one
     try:
+        # COMPLETED too: the job may have completed the row after the event was
+        # accepted, and the accepted report must still apply (round 3 PR R)
         return unavailability_service.lock_assigned_roster(
-            db, staff_id=event.staff_id, shift_id=event.shift_id
+            db,
+            staff_id=event.staff_id,
+            shift_id=event.shift_id,
+            statuses=COVERING_ROSTER_STATUSES,
         )
     except NoAssignedRosterError as error:
         # A second report for the same person in one window: the first one

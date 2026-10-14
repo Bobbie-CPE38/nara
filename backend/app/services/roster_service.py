@@ -6,7 +6,7 @@ The execution handler owns audit rows; the orchestrator owns status and commit.
 
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, and_, exists, or_, select
+from sqlalchemy import ColumnElement, and_, exists, select
 from sqlalchemy.orm import InstrumentedAttribute, Session, aliased
 
 from app.db.models import (
@@ -31,6 +31,7 @@ from app.schemas.roster import (
     StaffRoster,
     StaffRosterRow,
 )
+from app.services.unavailability_service import leave_overlaps_shift_sql
 
 
 def create_replacement(
@@ -207,15 +208,15 @@ def _is_unavailable(
 ) -> ColumnElement[bool]:
     """ASSIGNED, and a leave period of the row's person overlaps the shift.
 
-    The overlap of the UNAVAILABLE hard rule (domain/constraints/hard_rules.py):
-    the period starts before the shift ends and has no end or ends after the
-    shift starts. Evaluated in the row query, so the read stays at two statements.
+    The overlap is unavailability_service.leave_overlaps_shift_sql(), the UNAVAILABLE
+    hard rule in SQL. Evaluated in the row query, so the read stays at two statements.
     """
     return and_(
         RosterAssignment.status == RosterStatus.ASSIGNED,
         exists().where(
             StaffUnavailability.staff_id == RosterAssignment.staff_id,
-            StaffUnavailability.start_at < shift_end,
-            or_(StaffUnavailability.end_at.is_(None), StaffUnavailability.end_at > shift_start),
+            leave_overlaps_shift_sql(
+                StaffUnavailability.start_at, StaffUnavailability.end_at, shift_start, shift_end
+            ),
         ),
     )

@@ -215,7 +215,7 @@ def test_extending_reports_the_assigned_shifts_and_offers_it_now_covers_and_chan
 
 
 # --------------------------------------------------------------------------- #
-# Refusals: 401 → 404 → 403 → 422, nothing written
+# Refusals: 401 → 422 body shape → 404 → 403 → 422 end not after start, nothing written
 # --------------------------------------------------------------------------- #
 def test_refusals_and_their_order(client: TestClient, production_seeded: Session) -> None:
     db = production_seeded
@@ -264,6 +264,40 @@ def test_the_body_needs_one_aware_end_at_and_nothing_else(
 
     assert response.status_code == 422
     assert audits(db) == []
+
+
+def test_the_header_comes_first_then_the_shape_of_the_body(
+    client: TestClient, production_seeded: Session
+) -> None:
+    """401 before anything, then 422 for a malformed body even on an unknown
+    period or for a caller who may not edit: FastAPI validates the body before
+    the handler looks anything up."""
+    db = production_seeded
+    period = night_leave(db)
+    bad = {"end_at": "2026-10-10T09:00:00"}  # no time zone
+
+    assert client.patch("/unavailability/9000000", json=bad).status_code == 401
+    unknown = client.patch("/unavailability/9000000", headers=HEAD_NURSE, json=bad)
+    not_allowed = client.patch(
+        f"/unavailability/{period.id}", headers={"X-Demo-User": "101"}, json=bad
+    )
+
+    assert (unknown.status_code, not_allowed.status_code) == (422, 422)
+    assert audits(db) == []
+
+
+def test_the_403_names_the_rule_the_caller_breaks(
+    client: TestClient, production_seeded: Session
+) -> None:
+    db = production_seeded
+    period = night_leave(db)
+    _, end = shift_bounds(db, NIGHT_SHIFT)
+
+    response = patch(client, period.id, end, headers=other_ward_head_nurse(db))
+
+    assert response.json() == {
+        "detail": "Only the head nurse of the person's ward can change a leave period"
+    }
 
 
 @pytest.mark.parametrize("period_id", ["0", "-1", "abc", str(2**63)])

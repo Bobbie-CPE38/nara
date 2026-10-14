@@ -18,7 +18,11 @@ UnavailabilityId = Annotated[int, Path(ge=1, le=MAX_BIGINT)]
 def change_end_at(
     unavailability_id: UnavailabilityId, body: EndAtChange, db: DbSession, user: DemoUser
 ) -> EndAtChangeResult:
-    """404 → 403 → 422, then the change and its audit row in one commit."""
+    """401 header → 422 body shape → 404 → 403 → 422 end not after start.
+
+    FastAPI checks the header dependency, then the body, before this runs. Then
+    the change and its audit row in one commit.
+    """
     try:
         update = unavailability_service.update_end_at(
             db,

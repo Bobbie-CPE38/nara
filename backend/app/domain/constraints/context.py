@@ -201,6 +201,17 @@ def week_start(moment: datetime) -> datetime:
 # --------------------------------------------------------------------------- #
 # Values of one candidate after adding the proposed shift
 # --------------------------------------------------------------------------- #
+def leave_overlaps_shift(
+    leave_start: datetime, leave_end: datetime | None, shift_start: datetime, shift_end: datetime
+) -> bool:
+    """A leave period covers part of a shift. No end means it has not ended.
+
+    Touching at a boundary is not overlapping. The UNAVAILABLE rule uses this, and
+    unavailability_service.leave_overlaps_shift_sql() is the same rule in SQL.
+    """
+    return leave_start < shift_end and (leave_end is None or leave_end > shift_start)
+
+
 def is_on_proposed_shift(context: CandidateContext) -> bool:
     """True when the candidate already holds a committed row on the proposed shift."""
     return any(

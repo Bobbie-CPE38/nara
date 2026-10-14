@@ -7,11 +7,13 @@ roster row; its caller (event_service) owns the audit rows and the transaction.
 update_end_at() owns its own audit row and commit.
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import ColumnElement, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, DateTime, and_, literal, or_, select
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.core import clock
 from app.core.constants import HEAD_NURSE_ROLE
@@ -44,8 +46,18 @@ class NoAssignedRosterError(LookupError):
     """
 
 
-def lock_assigned_roster(db: Session, *, staff_id: int, shift_id: int) -> RosterAssignment:
+def lock_assigned_roster(
+    db: Session,
+    *,
+    staff_id: int,
+    shift_id: int,
+    statuses: Collection[RosterStatus] = (RosterStatus.ASSIGNED,),
+) -> RosterAssignment:
     """Return the staff member's one ASSIGNED roster row in the shift, locked.
+
+    `statuses` widens what counts: closing a window also takes a COMPLETED row
+    (round 3 PR R), because an event accepted while the row was ASSIGNED must
+    still apply if the shift ended and the job completed the row meanwhile.
 
     Event intake already runs one request at a time per shift, through the
     shift lock that event_service takes first. So a repeated report for the
@@ -60,7 +72,7 @@ def lock_assigned_roster(db: Session, *, staff_id: int, shift_id: int) -> Roster
         .where(
             RosterAssignment.staff_id == staff_id,
             RosterAssignment.shift_id == shift_id,
-            RosterAssignment.status == RosterStatus.ASSIGNED,
+            RosterAssignment.status.in_(list(statuses)),
         )
         .with_for_update(key_share=True)
     ).all()
@@ -137,7 +149,8 @@ def update_end_at(
     """Change when a leave period ends, write UNAVAILABILITY_UPDATED, then commit.
 
     Check order: 404 period → 403 role, then ward of the person (the ward rule
-    of approvals, R2-Q21) → 422 end not after start. The STAFF row is locked
+    of approvals, R2-Q21) → 422 end not after start. The route answers 401 for
+    the header and 422 for the shape of the body before this runs. The STAFF row is locked
     first, so a plan of the same person sees the period before or after the
     change, never half of it. Nothing else changes: roster rows and offers the
     new period overlaps stay as they are and are only reported. GET /roster
@@ -152,7 +165,7 @@ def update_end_at(
     staff_ward = db.scalar(select(Staff.home_ward_id).where(Staff.id == period.staff_id))
     if staff_ward is None or not manages_ward(home_ward_id=home_ward_id, ward_id=staff_ward):
         raise UnavailabilityForbiddenError(
-            "The staff member is not a head nurse of the person's ward"
+            "Only the head nurse of the person's ward can change a leave period"
         )
 
     hard_rule_service.lock_staff(db, [period.staff_id])
@@ -198,12 +211,31 @@ def _iso(moment: datetime) -> str:
     return moment.astimezone(clock.APP_TIMEZONE).isoformat()
 
 
-def _overlaps(start_at: datetime, end_at: datetime) -> tuple[ColumnElement[bool], ...]:
-    """The overlap of the UNAVAILABLE hard rule, against SHIFT columns.
+Moment = datetime | ColumnElement[datetime] | InstrumentedAttribute[datetime]
+# STAFF_UNAVAILABILITY.end_at is nullable
+OpenMoment = Moment | InstrumentedAttribute[datetime | None] | None
 
-    After update_end_at() the period always has an end.
+
+def leave_overlaps_shift_sql(
+    leave_start: Moment, leave_end: OpenMoment, shift_start: Moment, shift_end: Moment
+) -> ColumnElement[bool]:
+    """domain.constraints.context.leave_overlaps_shift() as a SQL condition.
+
+    Each argument is a column or a Python time. A NULL leave_end column, or None,
+    means the leave has not ended. The only SQL copy of the rule: GET /roster and
+    the overlap report of update_end_at() both use it.
     """
-    return (Shift.start_at < end_at, Shift.end_at > start_at)
+    starts_before_end = _sql(leave_start) < _sql(shift_end)
+    if leave_end is None:
+        return starts_before_end
+    end = _sql(leave_end)
+    return and_(starts_before_end, or_(end.is_(None), end > _sql(shift_start)))
+
+
+def _sql(moment: Moment | InstrumentedAttribute[datetime | None]) -> ColumnElement[Any]:
+    if isinstance(moment, datetime):
+        return literal(moment, DateTime(timezone=True))
+    return moment.expression if isinstance(moment, InstrumentedAttribute) else moment
 
 
 def _overlapping_assignments(
@@ -216,7 +248,7 @@ def _overlapping_assignments(
             .where(
                 RosterAssignment.staff_id == staff_id,
                 RosterAssignment.status == RosterStatus.ASSIGNED,
-                *_overlaps(start_at, end_at),
+                leave_overlaps_shift_sql(start_at, end_at, Shift.start_at, Shift.end_at),
             )
             .order_by(RosterAssignment.id)
         )
@@ -235,7 +267,7 @@ def _overlapping_offers(
             CandidateItem.staff_id == staff_id,
             CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
             StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
-            *_overlaps(start_at, end_at),
+            leave_overlaps_shift_sql(start_at, end_at, Shift.start_at, Shift.end_at),
         )
         .order_by(CandidateOutreach.id)
     ).all()
