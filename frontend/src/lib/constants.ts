@@ -50,6 +50,21 @@ export const CANDIDATE_STAGE_INFO: ReadonlyMap<string, { label: string; tone: St
   ["ASSIGNED", { label: "Assigned to the shift", tone: "ok" }],
 ]);
 
+/** Fixed reason of each score term (docs/workflow.md, section 6.15). A Map, so an unknown term is undefined. */
+export const SCORE_TERM_INFO: ReadonlyMap<string, string> = new Map([
+  ["candidate_count", "Same for everyone: each person called in adds this"],
+  ["consecutive_shift", "Shifts in a row with this shift added"],
+  ["workload_imbalance", "Committed roster hours this week when the plan was created"],
+  ["projected_overtime", "Overtime hours already worked this week"],
+  ["candidate_source", "Position of their source in the source priority, 0 is the closest"],
+]);
+
+/** Fixed reason for first_wave (docs/workflow.md, section 6.15). */
+export const FIRST_WAVE_INFO = {
+  true: "First wave: chosen to fill the gap",
+  false: "Reserve: ranked after the first wave",
+} as const;
+
 /** Skip reason codes (docs/database-schema.md, Candidate Skip Reasons). */
 export const SKIP_REASON_INFO: ReadonlyMap<string, string> = new Map([
   ["STAFF_NOT_ACTIVE", "Not an active staff member"],

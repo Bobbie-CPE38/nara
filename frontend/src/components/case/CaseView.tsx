@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
+import { ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
 import { SkippedTable } from "@/components/candidate/SkippedTable";
 import { GapTable } from "@/components/case/GapTable";
 import { usePolling } from "@/hooks/usePolling";
@@ -78,6 +79,7 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
           candidates={detail.candidates}
           stopped={isFinal({ detail, audit }) || detail.status === "MANUAL_HANDOFF"}
         />
+        <ScoreBreakdown candidates={detail.candidates} />
         {skips.length > 0 && (
           <>
             <h3 className="mt-4 font-semibold">Skipped</h3>
