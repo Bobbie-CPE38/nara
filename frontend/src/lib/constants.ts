@@ -54,7 +54,7 @@ export const CANDIDATE_STAGE_INFO: ReadonlyMap<string, { label: string; tone: St
 export const SCORE_TERM_INFO: ReadonlyMap<string, string> = new Map([
   ["candidate_count", "Same for everyone: each person called in adds this"],
   ["consecutive_shift", "Shifts in a row with this shift added"],
-  ["workload_imbalance", "Hours already worked this week"],
+  ["workload_imbalance", "Committed roster hours this week when the plan was created"],
   ["projected_overtime", "Overtime hours already worked this week"],
   ["candidate_source", "Position of their source in the source priority, 0 is the closest"],
 ]);

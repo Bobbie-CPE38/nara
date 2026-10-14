@@ -509,13 +509,15 @@ describe("CaseView", () => {
       render(<CaseView caseId="1" />);
       await tick();
 
-      expect(screen.getByRole("heading", { name: "Why this order" })).toBeTruthy();
+      expect(screen.getByRole("heading", { name: "Score breakdown" })).toBeTruthy();
+      expect(screen.getByText(/^Points decide which group becomes the first wave/)).toBeTruthy();
+      expect(screen.queryByText(/Fewer points is better/)).toBeNull();
       for (const staff of [201, 202, 203]) {
         expect(screen.getByRole("table", { name: `Score of staff ${staff}` })).toBeTruthy();
       }
       expect(rows("Score of staff 202")).toEqual([
         ["candidate_countSame for everyone: each person called in adds this", "1", "1000", "1000"],
-        ["workload_imbalanceHours already worked this week", "8", "1", "8"],
+        ["workload_imbalanceCommitted roster hours this week when the plan was created", "8", "1", "8"],
         ["consecutive_shiftShifts in a row with this shift added", "1", "5", "5"],
         ["projected_overtimeOvertime hours already worked this week", "0", "2", "0"],
         ["candidate_sourcePosition of their source in the source priority, 0 is the closest", "0", "200", "0"],
@@ -523,6 +525,20 @@ describe("CaseView", () => {
       expect(screen.getByRole("heading", { name: "Rank 2 · Phanu Demo (202) · 1013 points" })).toBeTruthy();
       expect(screen.getByText("First wave: chosen to fill the gap")).toBeTruthy();
       expect(screen.getAllByText("Reserve: ranked after the first wave")).toHaveLength(2);
+    });
+
+    it("keeps the API rank when a higher rank has more points", async () => {
+      const [a, b, c] = caseDetail().candidates;
+      serve(caseDetail({
+        candidates: [{ ...a, score: score(1020, true, [1, 4, 0, 0, 0]) }, { ...b, score: score(1013, true, [1, 1, 8, 0, 0]) }, c],
+      }), waitingResponseAudit());
+      render(<CaseView caseId="1" />);
+      await tick();
+
+      expect(rows("Candidates").slice(0, 2).map(cells => [cells[1], cells[5]])).toEqual([["201", "1020"], ["202", "1013"]]);
+      const headings = screen.getAllByRole("heading", { level: 4 }).map(heading => heading.textContent ?? "");
+      expect(headings[0].startsWith("Rank 1")).toBe(true);
+      expect(headings[1].startsWith("Rank 2")).toBe(true);
     });
 
     it("keeps the API order for terms with equal points", async () => {
@@ -552,7 +568,7 @@ describe("CaseView", () => {
       render(<CaseView caseId="1" />);
       await tick();
 
-      expect(screen.queryByRole("heading", { name: "Why this order" })).toBeNull();
+      expect(screen.queryByRole("heading", { name: "Score breakdown" })).toBeNull();
       expect(screen.queryByRole("table", { name: /^Score of staff/ })).toBeNull();
       expect(rows("Candidates")).toEqual([
         ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—"],
@@ -572,7 +588,7 @@ describe("CaseView", () => {
       expect(rows("Candidates")[0][5]).toBe("999");
       expect(screen.getByRole("heading", { name: "Rank 1 · Arunee Demo (201) · 999 points" })).toBeTruthy();
       expect(rows("Score of staff 201").find(cells => cells[0].startsWith("workload_imbalance")))
-        .toEqual(["workload_imbalanceHours already worked this week", "0.33", "1", "0.33"]);
+        .toEqual(["workload_imbalanceCommitted roster hours this week when the plan was created", "0.33", "1", "0.33"]);
     });
 
     it("shows a term name it does not know as it is, without a reason", async () => {
@@ -597,6 +613,15 @@ describe("CaseView", () => {
     [
       "a candidate with a malformed score",
       () => json(caseDetail({ candidates: [{ ...caseDetail().candidates[0], score: "1005" as unknown as null }] })),
+      () => json([]),
+    ],
+    [
+      "a candidate with a score term whose name is an object",
+      () => {
+        const bad = score(1005, true, [1, 1, 0, 0, 0]);
+        bad.terms[0] = { ...bad.terms[0], name: { invalid: true } as unknown as string };
+        return json(caseDetail({ candidates: [{ ...caseDetail().candidates[0], score: bad }] }));
+      },
       () => json([]),
     ],
   ])("shows an error instead of crashing on %s", async (_name, detail, audit) => {

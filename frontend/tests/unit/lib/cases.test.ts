@@ -94,6 +94,11 @@ describe("loadCase", () => {
     ["a candidate with a string score", withScore("1005"), []],
     ["a candidate with a score without terms", withScore({ total: 1005, first_wave: true }), []],
     ["a candidate with score terms that are not records", withScore({ total: 1005, first_wave: true, terms: [1] }), []],
+    ["a score term with an object name", withScore({ total: 1005, first_wave: true, terms: [{ name: {}, value: 1, weight: 1, points: 1 }] }), []],
+    ["a score term without a name", withScore({ total: 1005, first_wave: true, terms: [{ value: 1, weight: 1, points: 1 }] }), []],
+    ["a score term with a string value", withScore({ total: 1005, first_wave: true, terms: [{ name: "t", value: "1", weight: 1, points: 1 }] }), []],
+    ["a score term with a null weight", withScore({ total: 1005, first_wave: true, terms: [{ name: "t", value: 1, weight: null, points: 1 }] }), []],
+    ["a score term without points", withScore({ total: 1005, first_wave: true, terms: [{ name: "t", value: 1, weight: 1 }] }), []],
     ["a candidate with a string score total", withScore({ total: "1005", first_wave: true, terms: [] }), []],
     ["a wrapped audit list", caseDetail(), { items: [] }],
     ["a null audit row", caseDetail(), [null]],
@@ -106,6 +111,13 @@ describe("loadCase", () => {
     await expect(loadCase("1", new AbortController().signal)).rejects.toThrow(
       "Unexpected response from the API",
     );
+  });
+
+  it("accepts a score term with a name it does not know", async () => {
+    const terms = [{ name: "A_TERM_ADDED_LATER", value: 1, weight: 1, points: 1 }];
+    const detail = withScore({ total: 1005, first_wave: true, terms });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => json(url.endsWith("/audit") ? [] : detail)));
+    expect(await loadCase("1", new AbortController().signal)).toEqual({ detail, audit: [] });
   });
 
   it("accepts a candidate whose score is null", async () => {

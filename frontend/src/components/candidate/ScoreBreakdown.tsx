@@ -41,13 +41,15 @@ export function ScoreBreakdown({ candidates }: { candidates: CandidateView[] }) 
   if (scored.length === 0) return null;
   return (
     <>
-      <h3 className="mt-4 font-semibold">Why this order</h3>
-      <p className="mt-2 text-sm text-gray-500">Penalty points stored with the plan. Fewer points is better.</p>
+      <h3 className="mt-4 font-semibold">Score breakdown</h3>
+      <p className="mt-2 text-sm text-gray-500">
+        Points decide which group becomes the first wave: the group that covers the gap with the fewest points in total. Inside the first wave and inside the reserve, people are ordered by source, then hours this week, consecutive shifts, overtime and staff ID, so points may not follow rank.
+      </p>
       {scored.map(({ candidate, score }) => (
         <div key={candidate.candidate_item_id}>
-          <h3 className="mt-4 font-semibold">
+          <h4 className="mt-4 font-semibold">
             {`Rank ${candidate.rank} · ${candidate.first_name} ${candidate.last_name} (${candidate.staff_id}) · ${formatScore(score.total)} points`}
-          </h3>
+          </h4>
           <p>{FIRST_WAVE_INFO[score.first_wave ? "true" : "false"]}</p>
           <ScoreTable staffId={candidate.staff_id} score={score} />
         </div>
