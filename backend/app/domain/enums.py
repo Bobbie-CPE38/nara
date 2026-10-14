@@ -301,7 +301,7 @@ class AuditAction(StrEnum):
     OFFER_TIMEOUT = "OFFER_TIMEOUT"
     # Round 2, in the case that lost the offer to another case. Not written yet
     OFFER_CANCELLED_BY_ASSIGNMENT = "OFFER_CANCELLED_BY_ASSIGNMENT"
-    # Round 3 PR L: LINE could not deliver the offer; the offer becomes FAILED. Not written yet
+    # Round 3 PR L: LINE delivery failed; written by line_delivery_service.
     OFFER_DELIVERY_FAILED = "OFFER_DELIVERY_FAILED"
     SAFETY_PASSED = "SAFETY_PASSED"
     SAFETY_FAILED = "SAFETY_FAILED"

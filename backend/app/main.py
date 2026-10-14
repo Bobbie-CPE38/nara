@@ -12,6 +12,7 @@ from app.api.routes import (
     events,
     internal,
     line_sim,
+    line_webhook,
     roster,
     unavailability,
 )
@@ -20,9 +21,18 @@ from app.db.session import engine
 
 app = FastAPI(title="Staffing API")
 
-# Every router of walking-skeleton step 4 is registered here once, so a route
-# PR adds routes to its own file and never edits this one
-for module in (demo, events, cases, approvals, roster, line_sim, internal, unavailability):
+# Register each router once; route implementations live in their own modules.
+for module in (
+    demo,
+    events,
+    cases,
+    approvals,
+    roster,
+    line_sim,
+    internal,
+    line_webhook,
+    unavailability,
+):
     app.include_router(module.router)
 
 register_exception_handlers(app)

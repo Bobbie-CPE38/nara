@@ -1,4 +1,6 @@
-from pydantic import Field
+from typing import Literal
+
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +14,19 @@ class Settings(BaseSettings):
     # Shared with the job service that calls the /internal routes. Unset = those
     # routes answer 503. The value comes from the environment, never from the repo
     internal_job_secret: str | None = Field(default=None, min_length=8)
+    line_mode: Literal["simulation", "real"] = "simulation"
+    line_channel_secret: SecretStr | None = None
+    line_channel_access_token: SecretStr | None = None
+
+    @property
+    def real_line_enabled(self) -> bool:
+        return bool(
+            self.line_mode == "real"
+            and self.line_channel_secret
+            and self.line_channel_secret.get_secret_value()
+            and self.line_channel_access_token
+            and self.line_channel_access_token.get_secret_value()
+        )
 
 
 settings = Settings()

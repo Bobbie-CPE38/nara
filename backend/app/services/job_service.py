@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.services import (
     approval_timeout_service,
+    line_delivery_service,
     merge_window_service,
     offer_timeout_service,
     roster_completion_service,
@@ -47,8 +48,10 @@ def run_due_work(db: Session) -> DueWork:
     recovered = offer_timeout_service.recover_waiting_cases(
         db, excluded_case_ids=expired.failed_case_ids | approvals.failed_case_ids
     )
+    closed = merge_window_service.close_due_windows(db)
+    line_delivery_service.dispatch_pending(db)
     return DueWork(
-        closed_windows=merge_window_service.close_due_windows(db),
+        closed_windows=closed,
         timed_out_outreach_ids=expired.outreach_ids,
         recovered_case_ids=recovered,
         timed_out_approval_request_ids=approvals.approval_ids,

@@ -56,6 +56,9 @@ services:
       # Shared with the job service. The default is for local development only
       INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:-local-dev-only}
       PYTHONUNBUFFERED: "1"
+      LINE_MODE: ${LINE_MODE:-simulation}
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
     command: >
       sh -c "
       pip install --no-cache-dir -e ".[dev]" &&
