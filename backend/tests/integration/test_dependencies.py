@@ -4,7 +4,7 @@ from collections.abc import Iterator
 from unittest import mock
 
 import pytest
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, object_session
@@ -204,7 +204,7 @@ def test_status_written_as_a_plain_string_in_this_session_is_accepted(
 
 
 def test_get_db_yields_a_session_and_never_commits() -> None:
-    generator = get_db()
+    generator = get_db(BackgroundTasks())
     db = next(generator)
     db.add(Role(name="GET_DB_PROBE"))
     db.flush()
@@ -219,7 +219,7 @@ def test_get_db_yields_a_session_and_never_commits() -> None:
 
 
 def test_get_db_session_has_the_production_settings() -> None:
-    generator = get_db()
+    generator = get_db(BackgroundTasks())
     db = next(generator)
     try:
         assert db.autoflush is False

@@ -16,8 +16,12 @@ from app.db.models.candidate_outreach import CandidateOutreach
 from app.db.models.candidate_plan import CandidatePlan
 from app.db.models.contact import Contact
 from app.db.models.hard_constraint_policy import HardConstraintPolicy
+from app.db.models.line_account_link_code import LineAccountLinkCode
+from app.db.models.line_webhook_event import LineWebhookEvent
+from app.db.models.llm_call_log import LlmCallLog
 from app.db.models.manual_assignment import ManualAssignment
 from app.db.models.outreach_policy import OutreachPolicy
+from app.db.models.rank_explanation import RankExplanation
 from app.db.models.role import Role
 from app.db.models.roster_assignment import RosterAssignment
 from app.db.models.safety_validation import SafetyValidation
@@ -51,8 +55,12 @@ __all__ = [
     "CandidatePlan",
     "Contact",
     "HardConstraintPolicy",
+    "LlmCallLog",
     "ManualAssignment",
+    "LineWebhookEvent",
+    "LineAccountLinkCode",
     "OutreachPolicy",
+    "RankExplanation",
     "Role",
     "RosterAssignment",
     "SafetyValidation",

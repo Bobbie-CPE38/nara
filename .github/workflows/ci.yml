@@ -100,3 +100,14 @@ jobs:
       # Catches what tsc and vitest miss: a page that type-checks but cannot be built
       - name: Build (next build)
         run: npm run build
+
+  line-webhook-proxy:
+    name: Development LINE webhook proxy gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Test real nginx config with isolated fake backend
+        run: python3 dev/line-webhook-proxy/test_proxy.py

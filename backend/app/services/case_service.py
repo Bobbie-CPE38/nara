@@ -7,6 +7,9 @@ frozen after a reset, so rows of one case can share the same time
 (docs/workflow.md, section 6.4).
 """
 
+import logging
+from typing import Any
+
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
@@ -17,6 +20,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    RankExplanation,
     Role,
     SafetyValidation,
     Skill,
@@ -27,17 +31,31 @@ from app.db.models import (
     StaffingGapRole,
     StaffingGapSkill,
 )
-from app.domain.enums import OutreachStatus
+from app.domain.constraints.score_breakdown import (
+    CandidateScore as ScoreBreakdown,
+)
+from app.domain.constraints.score_breakdown import (
+    ScoreMismatchError,
+    display_number,
+    score_from_snapshot,
+    weights_from_snapshot,
+)
+from app.domain.enums import ExplanationStatus, OutreachStatus
 from app.domain.errors import CaseNotFoundError
 from app.schemas.case import (
     AuditEntry,
+    CandidateScore,
     CandidateStage,
     CandidateView,
     CaseDetail,
     GapCount,
     GapView,
+    RankExplanationView,
+    ScoreTerm,
 )
 from app.services import case_facts_service
+
+logger = logging.getLogger(__name__)
 
 _OFFER_STAGES: dict[OutreachStatus, CandidateStage] = {
     OutreachStatus.PENDING: "OFFER_PENDING",
@@ -62,6 +80,7 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
         gap=_latest_gap(db, case.id),
         assigned_count=len(case_facts_service.assigned_staff_ids(db, case.id)),
         candidates=_latest_candidates(db, case.id),
+        explanation=_latest_explanation(db, case.id),
     )
 
 
@@ -168,24 +187,55 @@ def _latest_gap(db: Session, case_id: int) -> GapView | None:
     )
 
 
-def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
+def _latest_plan(db: Session, case_id: int) -> CandidatePlan | None:
     # The latest plan as in section 6.4, seam 1. Unlike seam 1, no plan is not
     # an error here: this is a read route, and a case that has not reached the
     # solver yet simply has no candidates to show (section 9.3)
-    plan_id = db.scalar(
-        select(CandidatePlan.id)
+    return db.scalar(
+        select(CandidatePlan)
         .where(CandidatePlan.case_id == case_id)
         .order_by(CandidatePlan.id.desc())
         .limit(1)
     )
-    if plan_id is None:
+
+
+def _latest_explanation(db: Session, case_id: int) -> RankExplanationView | None:
+    """The newest explanation row of the latest plan; null if there is no plan or row.
+
+    FAILED and SKIPPED both read as UNAVAILABLE, and only a READY row exposes its
+    text, provider and model. The failure reason is never returned.
+    """
+    plan = _latest_plan(db, case_id)
+    if plan is None:
+        return None
+    row = db.scalar(
+        select(RankExplanation)
+        .where(RankExplanation.plan_id == plan.id)
+        .order_by(RankExplanation.id.desc())
+        .limit(1)
+    )
+    if row is None:
+        return None
+    if row.status == ExplanationStatus.READY:
+        return RankExplanationView(
+            status="READY", text=row.text, provider=row.provider, model_id=row.model_id
+        )
+    status = "PENDING" if row.status == ExplanationStatus.PENDING else "UNAVAILABLE"
+    return RankExplanationView(status=status, text=None, provider=None, model_id=None)
+
+
+def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
+    plan = _latest_plan(db, case_id)
+    if plan is None:
         return []
+    plan_id = plan.id
     items = db.execute(
         select(CandidateItem, Staff.first_name, Staff.last_name)
         .join(Staff, Staff.id == CandidateItem.staff_id)
         .where(CandidateItem.plan_id == plan_id)
         .order_by(CandidateItem.rank, CandidateItem.id)
     ).all()
+    scores = _scores(plan, [item.staff_id for item, _, _ in items])
 
     # The newest outreach of each item: ascending id, so a later row overwrites
     latest_offers = {
@@ -240,9 +290,74 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
                 is_assigned=item.staff_id in assigned,
                 is_pending=item.staff_id in pending,
             ),
+            score=scores[item.staff_id],
         )
         for item, first_name, last_name in items
     ]
+
+
+def _scores(plan: CandidatePlan, staff_ids: list[int]) -> dict[int, CandidateScore | None]:
+    """The score of each candidate, rebuilt from the plan's snapshot alone (section 6.15).
+
+    Never reads the current policy or the float fields. A plan without stored
+    weights predates PR E and gets null. A plan with weights whose entry is missing,
+    incomplete or does not add up is a bug: that candidate gets null and an error
+    is logged, so the rest of the case page still answers. Nothing is rounded to fit.
+    """
+    snapshot = plan.input_snapshot
+    if "weights" not in snapshot:
+        return dict.fromkeys(staff_ids)
+    try:
+        weights = weights_from_snapshot(snapshot["weights"])
+    except ScoreMismatchError:
+        logger.exception("Plan %s: the stored weights cannot be read", plan.id)
+        return dict.fromkeys(staff_ids)
+    entries = _snapshot_entries(plan)
+    scores: dict[int, CandidateScore | None] = {}
+    for staff_id in staff_ids:
+        try:
+            if staff_id not in entries:
+                raise ScoreMismatchError(f"the snapshot has no entry for staff {staff_id}")
+            scores[staff_id] = _score_view(score_from_snapshot(weights, entries[staff_id]))
+        except ScoreMismatchError:
+            logger.exception(
+                "Plan %s: the score of staff %s cannot be explained", plan.id, staff_id
+            )
+            scores[staff_id] = None
+    return scores
+
+
+def _snapshot_entries(plan: CandidatePlan) -> dict[int, Any]:
+    """The snapshot entries by staff ID. An entry that cannot be identified is logged
+    and left out, so its candidate falls into the missing-entry handling of _scores."""
+    rows = plan.input_snapshot.get("candidates")
+    if not isinstance(rows, list):
+        logger.error("Plan %s: the snapshot has no list of candidates", plan.id)
+        return {}
+    entries: dict[int, Any] = {}
+    for row in rows:
+        staff_id = row.get("staff_id") if isinstance(row, dict) else None
+        if not isinstance(staff_id, int):
+            logger.error("Plan %s: a snapshot entry has no staff ID: %r", plan.id, row)
+            continue
+        entries[staff_id] = row
+    return entries
+
+
+def _score_view(score: ScoreBreakdown) -> CandidateScore:
+    return CandidateScore(
+        total=display_number(score.total),
+        terms=[
+            ScoreTerm(
+                name=term.name,
+                value=display_number(term.value),
+                weight=display_number(term.weight),
+                points=display_number(term.points),
+            )
+            for term in score.terms
+        ],
+        first_wave=score.first_wave,
+    )
 
 
 def _stage(

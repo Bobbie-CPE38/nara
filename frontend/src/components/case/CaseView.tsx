@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
+import { ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
 import { SkippedTable } from "@/components/candidate/SkippedTable";
 import { GapTable } from "@/components/case/GapTable";
 import { usePolling } from "@/hooks/usePolling";
@@ -18,6 +19,16 @@ import { formatDateTime, formatValue } from "@/lib/format";
 
 function isFinal({ detail }: CaseSnapshot) {
   return TERMINAL_CASE_STATUSES.has(detail.status);
+}
+
+// The sentence comes from the job after the case may already be final: keep reading until it
+// is READY or UNAVAILABLE. No explanation row (LLM off, old plan) gives nothing to wait for.
+function isWaitingForExplanation({ detail }: CaseSnapshot) {
+  return detail.explanation?.status === "PENDING";
+}
+
+function isDone(snapshot: CaseSnapshot) {
+  return isFinal(snapshot) && !isWaitingForExplanation(snapshot);
 }
 
 // 404: no such case. 422: the ID is outside the bigint range. A retry gives the same answer.
@@ -53,7 +64,11 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
           </p>
         )}
         <p className="text-sm text-gray-500">
-          {isFinal({ detail, audit }) ? "Final status. Updates stopped." : "Updating every 2 seconds."}
+          {!isFinal({ detail, audit })
+            ? "Updating every 2 seconds."
+            : isWaitingForExplanation({ detail, audit })
+              ? "Final status. Still updating every 2 seconds until the explanation is ready."
+              : "Final status. Updates stopped."}
         </p>
         <dl className="mt-2 grid grid-cols-2 gap-2">
           <dt>Shift</dt>
@@ -78,6 +93,7 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
           candidates={detail.candidates}
           stopped={isFinal({ detail, audit }) || detail.status === "MANUAL_HANDOFF"}
         />
+        <ScoreBreakdown candidates={detail.candidates} explanation={detail.explanation} />
         {skips.length > 0 && (
           <>
             <h3 className="mt-4 font-semibold">Skipped</h3>
@@ -99,7 +115,7 @@ export function CaseView({ caseId }: { caseId: string }) {
   const { data, error, isLoading } = usePolling(load, {
     intervalMs: POLL_INTERVAL_MS,
     enabled: valid,
-    stopOnData: isFinal,
+    stopOnData: isDone,
     stopOnError: isGone,
   });
   const httpStatus = error instanceof ApiError ? error.status : undefined;

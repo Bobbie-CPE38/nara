@@ -24,3 +24,13 @@ export function formatValue(value: unknown): string {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
+
+const scoreNumber = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2, useGrouping: false });
+
+/**
+ * A score number for display only: at most 2 decimals, no separators, no trailing zeros.
+ * The backend checks the exact sum, so rounded points may not add up on screen.
+ */
+export function formatScore(value: number): string {
+  return scoreNumber.format(value);
+}

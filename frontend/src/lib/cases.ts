@@ -18,12 +18,36 @@ function isRecordList(value: unknown): value is Record<string, unknown>[] {
   return Array.isArray(value) && value.every(isRecord);
 }
 
+/** A record with a string name and finite numbers for value, weight and points. */
+function isScoreTerm(value: unknown): boolean {
+  return isRecord(value) && typeof value.name === "string"
+    && Number.isFinite(value.value) && Number.isFinite(value.weight) && Number.isFinite(value.points);
+}
+
+/** null, or a record with a finite total, a boolean first_wave and a list of valid score terms. */
+function isScore(value: unknown): boolean {
+  return value === null || (
+    isRecord(value) && Number.isFinite(value.total)
+    && typeof value.first_wave === "boolean" && Array.isArray(value.terms) && value.terms.every(isScoreTerm)
+  );
+}
+
+/** null, or a known status; READY needs a non-empty text and a known provider. */
+function isExplanation(value: unknown): boolean {
+  if (value === null) return true;
+  if (!isRecord(value)) return false;
+  if (value.status === "PENDING" || value.status === "UNAVAILABLE") return true;
+  return value.status === "READY" && typeof value.text === "string" && value.text !== ""
+    && (value.provider === "fake" || value.provider === "bedrock");
+}
+
 function isCaseDetail(value: unknown): value is CaseDetail {
   if (!isRecord(value) || typeof value.status !== "string") return false;
   const { gap, candidates } = value;
   const gapOk =
     gap === null || (isRecord(gap) && isRecordList(gap.roles) && isRecordList(gap.skills));
-  return gapOk && isRecordList(candidates);
+  return gapOk && isRecordList(candidates) && candidates.every(candidate => isScore(candidate.score))
+    && value.explanation !== undefined && isExplanation(value.explanation);
 }
 
 function isAuditList(value: unknown): value is AuditEntry[] {

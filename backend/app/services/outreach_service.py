@@ -5,13 +5,14 @@ foreign-case notifications run after that commit in separate transactions.
 """
 
 import logging
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import timedelta
 
 from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
+from app.core.config import settings
 from app.db.models import (
     ApprovalRequest,
     AuditLog,
@@ -44,6 +45,10 @@ logger = logging.getLogger(__name__)
 
 class OpenOfferConflictError(ValueError):
     """The selected offer is not answerable by this staff member."""
+
+
+class OfferExpiredError(OpenOfferConflictError):
+    """A deadline refusal, independent of the human-readable exception wording."""
 
 
 class OutreachLockRetryError(ValueError):
@@ -240,10 +245,13 @@ def send_offer(
     ]
     db.add_all(offers)
     db.flush()
-    # The mock sends before commit. A real LINE adapter must use a transactional
-    # outbox so rolled-back waves cannot deliver offers that do not exist.
     for item, outreach in zip(items, offers, strict=True):
-        line_mock.send_offer(staff_id=item.staff_id, outreach_id=outreach.id)
+        if settings.real_line_enabled:
+            from app.services import line_delivery_service
+
+            line_delivery_service.prepare_delivery(db, outreach, item)
+        else:
+            line_mock.send_offer(staff_id=item.staff_id, outreach_id=outreach.id)
     return offers
 
 
@@ -376,7 +384,13 @@ def recompute_affected_cases(
 
 
 def record_response(
-    db: Session, *, staff_id: int, actor_id: int, outreach_id: int, response: CandidateResponse
+    db: Session,
+    *,
+    staff_id: int,
+    actor_id: int,
+    outreach_id: int,
+    response: CandidateResponse,
+    after_lock: Callable[[Session], None] | None = None,
 ) -> tuple[CandidateOutreach, StaffingCase]:
     """Answer the authenticated user's selected offer, even if other offers are open."""
     from app.workflow import orchestrator
@@ -391,13 +405,17 @@ def record_response(
     if outreach is None:
         raise OpenOfferConflictError("The selected offer is not available for this staff member")
     case = lock_case_for_outreach(db, outreach.case_id)
+    # Webhook dedup must survive the lock helper's transaction restarts and be
+    # outside D11's savepoint, alongside the response, never a separate commit.
+    if after_lock is not None:
+        after_lock(db)
     if case.status in AUTOMATION_STOPPED_STATUSES:
         raise OpenOfferConflictError("This case has stopped; the offer cannot be answered")
     if outreach.status is not OutreachStatus.SENT:
         raise OpenOfferConflictError("The selected offer is no longer SENT; refresh offers")
     now = clock.now()
     if outreach.expires_at is None or outreach.expires_at <= now:
-        raise OpenOfferConflictError("The selected offer has expired; refresh offers")
+        raise OfferExpiredError("The selected offer has expired; refresh offers")
     if response is CandidateResponse.ACCEPT and case_facts_service.staff_waiting_on_another_case(
         db, case.id, {staff_id}
     ):

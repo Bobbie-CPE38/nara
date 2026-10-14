@@ -23,6 +23,23 @@ export type GapView = {
   skills: GapCount[];
 };
 
+/** One term of a score: points = weight x value, as stored with the plan */
+export type ScoreTerm = { name: string; value: number; weight: number; points: number };
+
+/** Terms are in formula order. first_wave tells a first-wave pick from a reserve */
+export type CandidateScore = { total: number; terms: ScoreTerm[]; first_wave: boolean };
+
+/** The LLM sentence about the plan's ranking. PENDING and UNAVAILABLE carry no text. The numbers stay the source of truth */
+export type RankExplanation = {
+  status: "PENDING" | "READY" | "UNAVAILABLE";
+  /** Only when READY */
+  text: string | null;
+  /** Only when READY. "fake" is a test adapter, not a real model */
+  provider: "fake" | "bedrock" | null;
+  /** Only when READY. null for fake */
+  model_id: string | null;
+};
+
 export type CandidateView = {
   candidate_item_id: number;
   rank: number;
@@ -34,6 +51,8 @@ export type CandidateView = {
   outreach_status: string | null;
   /** Where the candidate is in the case (docs/workflow.md, section 4.1) */
   stage: string;
+  /** Numbers come from the plan's snapshot (docs/workflow.md, section 6.15). null means no score, for a reason the API does not give */
+  score: CandidateScore | null;
 };
 
 /** GET /cases/{id} */
@@ -52,6 +71,8 @@ export type CaseDetail = {
   assigned_count: number;
   /** Empty until the solver stored a plan. Ordered by rank */
   candidates: CandidateView[];
+  /** null when the latest plan has no explanation row (LLM off, an old plan, no plan) */
+  explanation: RankExplanation | null;
 };
 
 /** One item of GET /cases/{id}/audit */

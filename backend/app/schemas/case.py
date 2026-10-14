@@ -55,6 +55,27 @@ CandidateStage = Literal[
 ]
 
 
+class ScoreTerm(BaseModel):
+    """One term of the penalty: points = weight * value (docs/workflow.md, section 6.15)."""
+
+    name: Literal[
+        "candidate_count",
+        "consecutive_shift",
+        "workload_imbalance",
+        "projected_overtime",
+        "candidate_source",
+    ]
+    value: int | float
+    weight: int | float
+    points: int | float
+
+
+class CandidateScore(BaseModel):
+    total: int | float
+    terms: list[ScoreTerm]
+    first_wave: bool
+
+
 class CandidateView(BaseModel):
     candidate_item_id: int
     rank: int
@@ -65,6 +86,18 @@ class CandidateView(BaseModel):
     # null until an offer was created for this candidate
     outreach_status: OutreachStatus | None
     stage: CandidateStage
+    # null for a plan created before PR E: its snapshot has no exact values
+    score: CandidateScore | None
+
+
+class RankExplanationView(BaseModel):
+    """The one-sentence LLM explanation of the rank. Never carries a failure reason."""
+
+    status: Literal["PENDING", "READY", "UNAVAILABLE"]
+    # The next three are set only when READY (model_id is null for the fake provider)
+    text: str | None
+    provider: Literal["fake", "bedrock"] | None
+    model_id: str | None
 
 
 class CaseDetail(BaseModel):
@@ -85,6 +118,8 @@ class CaseDetail(BaseModel):
     assigned_count: int
     # Empty until the solver stored a plan. Ordered by rank
     candidates: list[CandidateView]
+    # null when the latest plan has no explanation row
+    explanation: RankExplanationView | None
 
 
 class AuditEntry(BaseModel):

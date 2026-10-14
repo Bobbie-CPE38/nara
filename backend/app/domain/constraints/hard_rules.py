@@ -20,6 +20,7 @@ from app.domain.constraints.context import (
     daily_hours,
     hours,
     is_on_proposed_shift,
+    leave_overlaps_shift,
     other_committed_shifts,
     projected_consecutive_shifts,
     was_removed_from_proposed_shift,
@@ -47,7 +48,7 @@ def unavailable(context: CandidateContext, policy: HardRulePolicy) -> bool:
         return True
     shift = context.proposed_shift
     return any(
-        period.start_at < shift.end_at and (period.end_at is None or period.end_at > shift.start_at)
+        leave_overlaps_shift(period.start_at, period.end_at, shift.start_at, shift.end_at)
         for period in context.unavailability
     )
 

@@ -32,6 +32,8 @@ export type ShiftRoster = {
     role_name: string;
     home_ward_id: number;
     home_ward_name: string;
+    /** ASSIGNED, and a leave period of the person overlaps the shift. */
+    is_unavailable: boolean;
     created_at: string;
     updated_at: string;
   }[];

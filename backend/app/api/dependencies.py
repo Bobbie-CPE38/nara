@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import BackgroundTasks, Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,13 +28,22 @@ _STAFF_ID_PATTERN = re.compile(r"[1-9][0-9]{0,18}")
 MAX_STAFF_ID = MAX_BIGINT
 
 
-def get_db() -> Iterator[Session]:
+def get_db(background_tasks: BackgroundTasks) -> Iterator[Session]:
     """One session per request. Services and the orchestrator commit, not this."""
     with SessionLocal() as db:
+        from app.services import line_background_service
+
+        # All HTTP entry points can create waves, including event, demo and
+        # internal job routes. Defer LINE I/O until their response is sent.
+        # A test reusing a Session across requests retains these schedulers in
+        # db.info; configure replaces them for each new BackgroundTasks object.
+        line_background_service.configure(db, background_tasks)
         yield db
 
 
-DbSession = Annotated[Session, Depends(get_db)]
+# Close request transactions before sending the response and running LINE tasks.
+# Request-scoped teardown would retain read locks until background delivery ends.
+DbSession = Annotated[Session, Depends(get_db, scope="function")]
 
 
 def _unauthorized(detail: str) -> HTTPException:

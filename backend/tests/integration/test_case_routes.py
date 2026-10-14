@@ -217,6 +217,7 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
         "gap",
         "assigned_count",
         "candidates",
+        "explanation",
     }
     assert (body["id"], body["event_ids"], body["shift_id"]) == (
         case.id,
@@ -293,7 +294,10 @@ def test_candidates_come_from_the_latest_plan_in_rank_order(
         "source",
         "outreach_status",
         "stage",
+        "score",
     }
+    # The helper plans store an empty snapshot: no exact values, so no score
+    assert [c["score"] for c in body["candidates"]] == [None, None, None]
     assert (first["first_name"], first["source"]) == ("Arunee", "SAME_WARD")
 
 

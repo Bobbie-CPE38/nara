@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+/** Default time between reads; pages that say how often they update use this. */
+export const DEFAULT_POLL_INTERVAL_MS = 2000;
+
 export type PollingOptions<T = unknown> = {
   intervalMs?: number;
   enabled?: boolean;
@@ -17,7 +20,7 @@ export type PollingOptions<T = unknown> = {
 export function usePolling<T>(
   load: (signal: AbortSignal) => Promise<T>,
   {
-    intervalMs = 2000,
+    intervalMs = DEFAULT_POLL_INTERVAL_MS,
     enabled = true,
     timeoutMs = 10000,
     stopOnData,

@@ -5,15 +5,36 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.exception_handlers import register_exception_handlers
-from app.api.routes import approvals, cases, demo, events, internal, line_sim, roster
+from app.api.routes import (
+    approvals,
+    cases,
+    demo,
+    events,
+    internal,
+    line_sim,
+    line_webhook,
+    me,
+    roster,
+    unavailability,
+)
 from app.core.config import settings
 from app.db.session import engine
 
 app = FastAPI(title="Staffing API")
 
-# Every router of walking-skeleton step 4 is registered here once, so a route
-# PR adds routes to its own file and never edits this one
-for module in (demo, events, cases, approvals, roster, line_sim, internal):
+# Register each router once; route implementations live in their own modules.
+for module in (
+    demo,
+    events,
+    cases,
+    approvals,
+    roster,
+    line_sim,
+    me,
+    internal,
+    line_webhook,
+    unavailability,
+):
     app.include_router(module.router)
 
 register_exception_handlers(app)

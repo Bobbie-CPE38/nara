@@ -6,7 +6,12 @@ from fractions import Fraction
 
 import pytest
 
-from app.domain.constraints.penalties import SoftWeights, candidate_penalty, plan_penalty
+from app.domain.constraints.penalties import (
+    SoftWeights,
+    candidate_penalty,
+    candidate_penalty_terms,
+    plan_penalty,
+)
 from app.domain.constraints.soft_metrics import SoftMetrics
 from app.domain.enums import CandidateSource
 
@@ -93,3 +98,56 @@ def test_a_weight_must_be_a_fraction() -> None:
 def test_a_repeated_source_raises() -> None:
     with pytest.raises(ValueError):
         replace(WEIGHTS, source_order=(SAME, SAME))
+
+
+FRACTIONAL = SoftWeights(
+    candidate_count=Fraction(1000),
+    consecutive_shift=Fraction(3, 10),
+    workload_imbalance=Fraction(1, 7),
+    projected_overtime=Fraction(2),
+    roster_change=Fraction(300),
+    candidate_source=Fraction(200),
+    source_order=(SAME, FLOAT, CROSS),
+)
+
+
+@pytest.mark.parametrize("weights", [WEIGHTS, FRACTIONAL], ids=["whole", "fractional"])
+@pytest.mark.parametrize(
+    "item",
+    [
+        metrics(),
+        metrics(hours=8, run=2, source=FLOAT),
+        SoftMetrics(
+            staff_id=1,
+            source=CROSS,
+            hours_this_week=Fraction(22, 3),
+            projected_consecutive_shifts=4,
+            overtime_hours=Fraction(1, 3),
+        ),
+    ],
+    ids=["fresh", "float_pool", "seven_hours_twenty_minutes"],
+)
+def test_the_terms_sum_to_the_candidate_penalty(item: SoftMetrics, weights: SoftWeights) -> None:
+    terms = candidate_penalty_terms(item, weights)
+
+    assert sum((term.points for term in terms), Fraction(0)) == candidate_penalty(item, weights)
+
+
+def test_the_terms_come_in_a_fixed_order() -> None:
+    names = [term.name for term in candidate_penalty_terms(metrics(), WEIGHTS)]
+
+    assert names == [
+        "candidate_count",
+        "consecutive_shift",
+        "workload_imbalance",
+        "projected_overtime",
+        "candidate_source",
+    ]
+
+
+@pytest.mark.parametrize("source", [SAME, FLOAT, CROSS])
+def test_count_is_one_and_source_is_its_position(source: CandidateSource) -> None:
+    terms = {term.name: term for term in candidate_penalty_terms(metrics(source=source), WEIGHTS)}
+
+    assert terms["candidate_count"].value == 1
+    assert terms["candidate_source"].value == WEIGHTS.source_order.index(source)

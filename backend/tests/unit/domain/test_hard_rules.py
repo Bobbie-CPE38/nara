@@ -213,7 +213,8 @@ def test_every_broken_rule_is_reported_in_contract_order() -> None:
         (RosterStatus.ASSIGNED, True),
         (RosterStatus.PENDING_APPROVAL, True),
         (RosterStatus.CANCELLED, False),
-        (RosterStatus.COMPLETED, False),
+        # Round 3 PR R: an ended shift still counts for every fatigue rule
+        (RosterStatus.COMPLETED, True),
     ],
 )
 def test_only_committed_rows_put_the_candidate_on_the_shift(
@@ -244,7 +245,8 @@ def test_a_cancelled_row_on_another_shift_does_not_block() -> None:
         (RosterStatus.ASSIGNED, True),
         (RosterStatus.PENDING_APPROVAL, True),
         (RosterStatus.CANCELLED, False),
-        (RosterStatus.COMPLETED, False),
+        # Round 3 PR R: an ended shift still counts for every fatigue rule
+        (RosterStatus.COMPLETED, True),
     ],
 )
 def test_only_committed_rows_on_other_shifts_count(status: RosterStatus, clashes: bool) -> None:

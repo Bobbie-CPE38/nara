@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../src/lib/api";
 import { collectSkips, isCaseId, loadCase } from "../../../src/lib/cases";
+import type { CaseDetail } from "../../../src/lib/types/case";
 import { auditEntry, caseDetail, waitingResponseAudit } from "../../fixtures/case";
 
 afterEach(() => vi.unstubAllGlobals());
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
+
+/** A case whose first candidate carries the given raw score. */
+const withScore = (score: unknown) =>
+  ({ ...caseDetail(), candidates: [{ ...caseDetail().candidates[0], score }] });
 
 describe("isCaseId", () => {
   it.each(["1", "42", "9223372036854775807", "9999999999999999999"])("accepts %j", value => {
@@ -86,6 +91,22 @@ describe("loadCase", () => {
     ["a null candidate", { ...caseDetail(), candidates: [null] }, []],
     ["a gap without its lists", { ...caseDetail(), gap: { id: 1, headcount_gap: 1 } }, []],
     ["a missing gap key", { ...caseDetail(), gap: undefined }, []],
+    ["a candidate without a score", withScore(undefined), []],
+    ["a candidate with a string score", withScore("1005"), []],
+    ["a candidate with a score without terms", withScore({ total: 1005, first_wave: true }), []],
+    ["a candidate with score terms that are not records", withScore({ total: 1005, first_wave: true, terms: [1] }), []],
+    ["a score term with an object name", withScore({ total: 1005, first_wave: true, terms: [{ name: {}, value: 1, weight: 1, points: 1 }] }), []],
+    ["a score term without a name", withScore({ total: 1005, first_wave: true, terms: [{ value: 1, weight: 1, points: 1 }] }), []],
+    ["a score term with a string value", withScore({ total: 1005, first_wave: true, terms: [{ name: "t", value: "1", weight: 1, points: 1 }] }), []],
+    ["a score term with a null weight", withScore({ total: 1005, first_wave: true, terms: [{ name: "t", value: 1, weight: null, points: 1 }] }), []],
+    ["a score term without points", withScore({ total: 1005, first_wave: true, terms: [{ name: "t", value: 1, weight: 1 }] }), []],
+    ["a candidate with a string score total", withScore({ total: "1005", first_wave: true, terms: [] }), []],
+    ["a missing explanation key", { ...caseDetail(), explanation: undefined }, []],
+    ["an explanation with an unknown status", { ...caseDetail(), explanation: { status: "DONE", text: null, provider: null, model_id: null } }, []],
+    ["a READY explanation without text", { ...caseDetail(), explanation: { status: "READY", text: null, provider: "fake", model_id: null } }, []],
+    ["a READY explanation with an empty text", { ...caseDetail(), explanation: { status: "READY", text: "", provider: "fake", model_id: null } }, []],
+    ["a READY explanation with an unknown provider", { ...caseDetail(), explanation: { status: "READY", text: "x", provider: "other", model_id: null } }, []],
+    ["a string explanation", { ...caseDetail(), explanation: "READY" }, []],
     ["a wrapped audit list", caseDetail(), { items: [] }],
     ["a null audit row", caseDetail(), [null]],
     ["an audit row without a payload", caseDetail(), [{ id: 1, action: "CASE_OPENED" }]],
@@ -97,6 +118,31 @@ describe("loadCase", () => {
     await expect(loadCase("1", new AbortController().signal)).rejects.toThrow(
       "Unexpected response from the API",
     );
+  });
+
+  it("accepts a score term with a name it does not know", async () => {
+    const terms = [{ name: "A_TERM_ADDED_LATER", value: 1, weight: 1, points: 1 }];
+    const detail = withScore({ total: 1005, first_wave: true, terms });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => json(url.endsWith("/audit") ? [] : detail)));
+    expect(await loadCase("1", new AbortController().signal)).toEqual({ detail, audit: [] });
+  });
+
+  it("accepts a candidate whose score is null", async () => {
+    const detail = caseDetail({ candidates: [{ ...caseDetail().candidates[0], score: null }] });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => json(url.endsWith("/audit") ? [] : detail)));
+    expect(await loadCase("1", new AbortController().signal)).toEqual({ detail, audit: [] });
+  });
+
+  it.each([
+    ["null", null],
+    ["PENDING", { status: "PENDING", text: null, provider: null, model_id: null }],
+    ["UNAVAILABLE", { status: "UNAVAILABLE", text: null, provider: null, model_id: null }],
+    ["READY from fake", { status: "READY", text: "[fake] x", provider: "fake", model_id: null }],
+    ["READY from bedrock", { status: "READY", text: "x", provider: "bedrock", model_id: "m-1" }],
+  ])("accepts an explanation that is %s", async (_name, explanation) => {
+    const detail = caseDetail({ explanation } as Partial<CaseDetail>);
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => json(url.endsWith("/audit") ? [] : detail)));
+    expect(await loadCase("1", new AbortController().signal)).toEqual({ detail, audit: [] });
   });
 
   it("accepts a case that has no gap, candidates or audit rows yet", async () => {
