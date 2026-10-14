@@ -3,7 +3,7 @@
 Revision ID: c9e4a7b2d5f8
 Revises: b7d2f8a1c6e4
 
-Existing policy rows get a 5 second limit.
+Existing policy rows get a 3 second limit.
 """
 
 import sqlalchemy as sa
@@ -18,7 +18,7 @@ depends_on = None
 def upgrade() -> None:
     op.add_column(
         "soft_constraint_policy",
-        sa.Column("solver_time_limit_seconds", sa.Integer(), nullable=False, server_default="5"),
+        sa.Column("solver_time_limit_seconds", sa.Integer(), nullable=False, server_default="3"),
     )
     op.alter_column("soft_constraint_policy", "solver_time_limit_seconds", server_default=None)
     op.create_check_constraint(

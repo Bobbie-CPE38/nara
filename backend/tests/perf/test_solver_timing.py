@@ -5,7 +5,7 @@ Skipped unless the environment has SOLVER_TIMING=1, so the normal suite never ru
     SOLVER_TIMING=1 pytest tests/perf -s -q
 
 Two things are measured for each size, on three random data sets each:
-  * Part 1: solve() alone with the 5 second limit, on candidates built in memory.
+  * Part 1: solve() alone with a 3 second limit, on candidates built in memory.
   * Part 2: the whole of create_plan() on the seeded database with that many
     candidates, and how much of it is solve(). The limit bounds only the search,
     while the database locks are held for the whole of create_plan().
@@ -49,7 +49,7 @@ pytestmark = pytest.mark.skipif(
     reason="Timing harness: set SOLVER_TIMING=1 to run it",
 )
 
-TIME_LIMIT = 5
+TIME_LIMIT = 3
 # (gap, candidates): the table of contract section 4.6
 SIZES = ((1, 3), (1, 300), (2, 300), (5, 60), (5, 300), (10, 30), (10, 300))
 DATA_SETS = 3

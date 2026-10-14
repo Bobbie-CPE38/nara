@@ -418,7 +418,7 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | `optimization_priority` | jsonb | NOT NULL |  |  |
 | `effective_from` | timestamptz | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |
-| `solver_time_limit_seconds` | integer | NOT NULL | CHECK > 0 | Seed = 5; เพดานเวลารวมของการเรียก `solve()` หนึ่งครั้ง (`workflow.md` ข้อ 6.14) Migration `c9e4a7b2d5f8` เติม 5 ให้ Policy เดิม รอบ 2 PR B |
+| `solver_time_limit_seconds` | integer | NOT NULL | CHECK > 0 | Seed = 3; เพดานเวลารวมของการเรียก `solve()` หนึ่งครั้ง (`workflow.md` ข้อ 6.14) Migration `c9e4a7b2d5f8` เติม 3 ให้ Policy เดิม รอบ 2 PR B |
 
 ค่า Seed ของรอบ 1: `candidate_count_weight = 1000`, `candidate_source_weight = 200`, `workload_imbalance_weight = 1`, `consecutive_shift_weight = 5`, `projected_overtime_weight = 2`, `roster_change_weight = 300` Weight ต้องไม่ติดลบ ไม่งั้น Solver โยน Error และเคสเป็น `FAILED`
 
@@ -612,7 +612,7 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 
 | ตาราง | คอลัมน์ | Type | Null | หมายเหตุ | PR |
 | :-- | :-- | :-- | :-- | :-- | :-- |
-| `SOFT_CONSTRAINT_POLICY` | `solver_time_limit_seconds` | integer | NOT NULL | Seed = 5 งบเวลารวมของ `solve()` หนึ่งครั้ง | B |
+| `SOFT_CONSTRAINT_POLICY` | `solver_time_limit_seconds` | integer | NOT NULL | Seed = 3 งบเวลารวมของ `solve()` หนึ่งครั้ง | B |
 
 ตารางใหม่ `MANUAL_ASSIGNMENT` (PR H) หนึ่งแถวต่อการที่ Head Nurse จัดคนหนึ่งคนเข้าเวรของเคสที่อยู่ `MANUAL_HANDOFF`
 
