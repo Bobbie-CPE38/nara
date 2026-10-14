@@ -27,15 +27,26 @@ from app.db.models import (
     StaffingGapRole,
     StaffingGapSkill,
 )
+from app.domain.constraints.score_breakdown import (
+    CandidateScore as ScoreBreakdown,
+)
+from app.domain.constraints.score_breakdown import (
+    ScoreMismatchError,
+    display_number,
+    score_from_snapshot,
+    weights_from_snapshot,
+)
 from app.domain.enums import OutreachStatus
 from app.domain.errors import CaseNotFoundError
 from app.schemas.case import (
     AuditEntry,
+    CandidateScore,
     CandidateStage,
     CandidateView,
     CaseDetail,
     GapCount,
     GapView,
+    ScoreTerm,
 )
 from app.services import case_facts_service
 
@@ -172,20 +183,22 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
     # The latest plan as in section 6.4, seam 1. Unlike seam 1, no plan is not
     # an error here: this is a read route, and a case that has not reached the
     # solver yet simply has no candidates to show (section 9.3)
-    plan_id = db.scalar(
-        select(CandidatePlan.id)
+    plan = db.scalar(
+        select(CandidatePlan)
         .where(CandidatePlan.case_id == case_id)
         .order_by(CandidatePlan.id.desc())
         .limit(1)
     )
-    if plan_id is None:
+    if plan is None:
         return []
+    plan_id = plan.id
     items = db.execute(
         select(CandidateItem, Staff.first_name, Staff.last_name)
         .join(Staff, Staff.id == CandidateItem.staff_id)
         .where(CandidateItem.plan_id == plan_id)
         .order_by(CandidateItem.rank, CandidateItem.id)
     ).all()
+    scores = _scores(plan, [item.staff_id for item, _, _ in items])
 
     # The newest outreach of each item: ascending id, so a later row overwrites
     latest_offers = {
@@ -240,9 +253,48 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
                 is_assigned=item.staff_id in assigned,
                 is_pending=item.staff_id in pending,
             ),
+            score=scores[item.staff_id],
         )
         for item, first_name, last_name in items
     ]
+
+
+def _scores(plan: CandidatePlan, staff_ids: list[int]) -> dict[int, CandidateScore | None]:
+    """The score of each candidate, rebuilt from the plan's snapshot alone (section 6.15).
+
+    Never reads the current policy or the float fields. A plan without stored
+    weights predates PR E and gets null. A candidate the snapshot does not know
+    is a bug, so it raises instead of hiding the row.
+    """
+    snapshot = plan.input_snapshot
+    if "weights" not in snapshot:
+        return dict.fromkeys(staff_ids)
+    weights = weights_from_snapshot(snapshot["weights"])
+    entries = {entry["staff_id"]: entry for entry in snapshot["candidates"]}
+    scores: dict[int, CandidateScore | None] = {}
+    for staff_id in staff_ids:
+        if staff_id not in entries:
+            raise ScoreMismatchError(f"the snapshot of plan {plan.id} has no staff {staff_id}")
+        scores[staff_id] = _score_view(score_from_snapshot(weights, entries[staff_id]))
+    return scores
+
+
+def _score_view(score: ScoreBreakdown | None) -> CandidateScore | None:
+    if score is None:
+        return None
+    return CandidateScore(
+        total=display_number(score.total),
+        terms=[
+            ScoreTerm(
+                name=term.name,
+                value=display_number(term.value),
+                weight=display_number(term.weight),
+                points=display_number(term.points),
+            )
+            for term in score.terms
+        ],
+        first_wave=score.first_wave,
+    )
 
 
 def _stage(

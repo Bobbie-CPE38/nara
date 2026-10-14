@@ -6,6 +6,8 @@ import dataclasses
 import threading
 from collections.abc import Iterator
 from datetime import datetime, timedelta
+from decimal import Decimal
+from fractions import Fraction
 from typing import Any
 
 import pytest
@@ -15,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 from app.db.models import (
     Actor,
+    Attendance,
     AuditLog,
     CandidateItem,
     CandidateItemTarget,
@@ -30,6 +33,9 @@ from app.db.models import (
     StaffWorkingTimeSnapshot,
 )
 from app.db.session import SessionLocal, engine
+from app.domain.constraints.penalties import candidate_penalty
+from app.domain.constraints.score_breakdown import fraction_text, weights_from_snapshot
+from app.domain.constraints.soft_metrics import SoftMetrics
 from app.domain.enums import (
     ActorName,
     AuditAction,
@@ -185,6 +191,20 @@ def test_writes_one_optimal_plan(seeded: Session) -> None:
     assert [row["staff_id"] for row in snapshot["candidates"]] == [201, 202, 203]
     assert [row["first_wave"] for row in snapshot["candidates"]] == [True, True, False]
     assert [row["penalty"] for row in snapshot["candidates"]] == [1005, 1018, 1018]
+    assert [row["penalty_exact"] for row in snapshot["candidates"]] == [
+        "1005/1",
+        "1018/1",
+        "1018/1",
+    ]
+    assert snapshot["weights"] == {
+        "candidate_count": "1000/1",
+        "consecutive_shift": "5/1",
+        "workload_imbalance": "1/1",
+        "projected_overtime": "2/1",
+        "roster_change": "300/1",
+        "candidate_source": "200/1",
+        "source_order": [source.value for source in CandidateSource],
+    }
     assert snapshot["skipped"] == [
         {"staff_id": 101, "reason": "ALREADY_ON_SHIFT"},
         {"staff_id": 102, "reason": "ALREADY_ON_SHIFT"},
@@ -193,6 +213,46 @@ def test_writes_one_optimal_plan(seeded: Session) -> None:
         {"staff_id": 105, "reason": "UNAVAILABLE"},
         {"staff_id": 900, "reason": "ROLE_MISMATCH"},
     ]
+
+
+def test_a_fractional_plan_stores_exact_values(seeded: Session) -> None:
+    """20 minutes of overtime and fractional weights: the "n/d" text keeps what floats lose."""
+    policy = seeded.get(SoftConstraintPolicy, 1)
+    assert policy is not None
+    policy.projected_overtime_weight = Decimal("0.3")
+    policy.workload_imbalance_weight = Decimal("0.25")
+    seeded.add(
+        Attendance(
+            staff_id=202,
+            check_in_at=DEMO_NOW - timedelta(hours=12),
+            check_out_at=DEMO_NOW - timedelta(hours=3),
+            work_minutes=540,
+            overtime_minutes=20,
+            synced_at=DEMO_NOW,
+        )
+    )
+    seeded.flush()
+    case = _make_case(seeded)
+
+    optimize.handle(seeded, case)
+
+    [plan] = _plans(seeded, case)
+    snapshot = plan.input_snapshot
+    weights = weights_from_snapshot(snapshot["weights"])
+    assert weights.projected_overtime == Fraction(3, 10)
+    assert weights.workload_imbalance == Fraction(1, 4)
+    row = next(row for row in snapshot["candidates"] if row["staff_id"] == 202)
+    assert row["overtime_hours_exact"] == "1/3"
+    assert isinstance(row["overtime_hours"], float)
+    metrics = SoftMetrics(
+        staff_id=202,
+        source=CandidateSource(row["source"]),
+        hours_this_week=Fraction(row["hours_this_week_exact"]),
+        projected_consecutive_shifts=row["projected_consecutive_shifts"],
+        overtime_hours=Fraction(row["overtime_hours_exact"]),
+    )
+    assert row["penalty_exact"] == fraction_text(candidate_penalty(metrics, weights))
+    assert Fraction(row["penalty_exact"]).denominator != 1
 
 
 def test_plan_ranks_the_golden_case_candidates_for_the_case_shift(seeded: Session) -> None:

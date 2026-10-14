@@ -55,6 +55,27 @@ CandidateStage = Literal[
 ]
 
 
+class ScoreTerm(BaseModel):
+    """One term of the penalty: points = weight * value (docs/workflow.md, section 6.15)."""
+
+    name: Literal[
+        "candidate_count",
+        "consecutive_shift",
+        "workload_imbalance",
+        "projected_overtime",
+        "candidate_source",
+    ]
+    value: int | float
+    weight: int | float
+    points: int | float
+
+
+class CandidateScore(BaseModel):
+    total: int | float
+    terms: list[ScoreTerm]
+    first_wave: bool
+
+
 class CandidateView(BaseModel):
     candidate_item_id: int
     rank: int
@@ -65,6 +86,8 @@ class CandidateView(BaseModel):
     # null until an offer was created for this candidate
     outreach_status: OutreachStatus | None
     stage: CandidateStage
+    # null for a plan created before PR E: its snapshot has no exact values
+    score: CandidateScore | None
 
 
 class CaseDetail(BaseModel):

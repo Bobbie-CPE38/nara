@@ -19,7 +19,8 @@ create_plan() is the Solver step (OR-Tools since round 2 PR B):
      FEASIBLE when time ran out with a plan in hand). MODEL_INVALID raises
      SolverModelInvalidError and nothing is written.
   5. Store the plan with every candidate left, not only the first wave, and the
-     CANDIDATE_ITEM_TARGET rows of the first wave.
+     CANDIDATE_ITEM_TARGET rows of the first wave. The snapshot keeps the weights and
+     the exact "n/d" values of each candidate (section 6.15).
 
 Rules:
   * Never commits and writes no audit row. The `optimize` handler logs
@@ -60,7 +61,8 @@ from app.db.models import (
 )
 from app.domain.constraints.codes import OFFER_LIMIT_REACHED, HardRuleCode
 from app.domain.constraints.context import local_day, projected_consecutive_shifts, week_start
-from app.domain.constraints.penalties import SoftWeights, candidate_penalty
+from app.domain.constraints.penalties import SoftWeights
+from app.domain.constraints.score_breakdown import display_number, exact_fields, weights_snapshot
 from app.domain.constraints.soft_metrics import SoftMetrics
 from app.domain.enums import (
     CandidateSource,
@@ -176,16 +178,11 @@ def create_plan(db: Session, case: StaffingCase) -> PlanResult:
             "week_start": week_start(captured_at).isoformat(),
             "gap_id": case_gap.gap.id,
             "targets": _targets_snapshot(case_gap),
+            "weights": weights_snapshot(weights),
             "candidates": [
-                {
-                    "staff_id": candidate.metrics.staff_id,
-                    "source": candidate.metrics.source.value,
-                    "hours_this_week": _number(candidate.metrics.hours_this_week),
-                    "projected_consecutive_shifts": candidate.metrics.projected_consecutive_shifts,
-                    "overtime_hours": _number(candidate.metrics.overtime_hours),
-                    "penalty": _number(candidate_penalty(candidate.metrics, weights)),
-                    "first_wave": candidate.metrics.staff_id in result.first_wave,
-                }
+                _candidate_snapshot(
+                    candidate, weights, first_wave=candidate.filler.staff_id in result.first_wave
+                )
                 for candidate in ranked
             ],
             "skipped": [{"staff_id": row.staff_id, "reason": row.reason} for row in skipped],
@@ -283,6 +280,19 @@ def _targets_snapshot(case_gap: CaseGap) -> dict[str, Any]:
     }
 
 
-def _number(value: Fraction) -> int | float:
-    """A JSON number: whole values stay integers."""
-    return value.numerator if value.denominator == 1 else float(value)
+def _candidate_snapshot(
+    candidate: SolverCandidate, weights: SoftWeights, *, first_wave: bool
+) -> dict[str, Any]:
+    """One candidate of the snapshot: display numbers plus the exact "n/d" text (section 6.15)."""
+    metrics = candidate.metrics
+    exact = exact_fields(metrics, weights)
+    return {
+        "staff_id": metrics.staff_id,
+        "source": metrics.source.value,
+        "hours_this_week": display_number(metrics.hours_this_week),
+        "projected_consecutive_shifts": metrics.projected_consecutive_shifts,
+        "overtime_hours": display_number(metrics.overtime_hours),
+        "penalty": display_number(Fraction(exact["penalty_exact"])),
+        "first_wave": first_wave,
+        **exact,
+    }

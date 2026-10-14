@@ -1089,25 +1089,33 @@ Expired requests disappear from `GET /approvals` immediately (`expires_at > now`
 * ผลรวมของคะแนนจำนวนเต็มหลังคูณสเกลเกิน 2^60: `solve()` โยน `SolverScalingOverflowError` เคสเป็น `FAILED` ผ่าน D11 ส่วน `MODEL_INVALID`: `create_plan()` โยน `SolverModelInvalidError` ก่อนเขียนแถวใด
 * วัดเวลาซ้ำได้ด้วย `SOLVER_TIMING=1 pytest tests/perf -s -q` (ชุด Test ปกติข้ามไฟล์นี้) และ Workflow `Solver timing` บน GitHub ซึ่งรันเมื่อ PR แตะไฟล์ของ Solver หรือสั่งรันเอง ไม่ใช่ Check ที่บังคับ
 
-### 6.15 คำอธิบายอันดับ [รอบ 3 · PR E, E2, X]
+### 6.15 คำอธิบายอันดับ [รอบ 3 · PR E2, X]
 
 คำอธิบายอันดับอธิบายผลที่ Solver ให้จริง ไม่คำนวณอันดับใหม่ (R3-Q2 ถึง R3-Q5, R3-Q14 ถึง R3-Q16)
 
 **สิ่งที่ `create_plan()` เก็บเพิ่มใน `input_snapshot` (PR E)** `input_snapshot` เป็น `JSONB` การเพิ่ม key จึงไม่มี Migration
 
-* `weights`: ค่าน้ำหนักหกตัวของ `SoftWeights` ที่ใช้วางแผนจริง แต่ละตัวเป็นข้อความ `"เศษ/ส่วน"` จาก `Fraction` และ `source_order` เป็นรายการชื่อแหล่งที่มาตามลำดับ
+* `weights`: ค่าน้ำหนักหกตัวของ `SoftWeights` ที่ใช้วางแผนจริง แต่ละตัวเป็นข้อความ `"เศษ/ส่วน"` จาก `Fraction` และ `source_order` เป็นรายการชื่อแหล่งที่มาตามลำดับ อยู่ใน `weights` เอง รูปเป็นดังนี้ (`source_order` เป็นค่าของ `CandidateSource` ตามที่ Seed ไว้)
+
+```json
+"weights": {"candidate_count": "1000/1", "consecutive_shift": "5/1", "workload_imbalance": "1/1",
+            "projected_overtime": "2/1", "roster_change": "300/1", "candidate_source": "200/1",
+            "source_order": ["SAME_WARD", "..."]}
+```
+
+* ข้อความ `"เศษ/ส่วน"` เป็นรูปนี้เสมอ แม้เป็นจำนวนเต็ม (เช่น `"1005/1"`, `"1/3"`) เพื่อให้มีรูปเดียว ตัวอ่านรับเฉพาะข้อความ ไม่รับ `int` หรือ `float`
 * ในแต่ละ `candidates[]`: `hours_this_week_exact`, `overtime_hours_exact` และ `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` จาก `Fraction`
-* ช่องเดิม (`hours_this_week`, `overtime_hours`, `penalty`) คงไว้ตามเดิม เพราะ `_number()` เปลี่ยนค่าที่ไม่ใช่จำนวนเต็มเป็น `float` จึงใช้แสดงผลได้อย่างเดียว
+* ช่องเดิม (`hours_this_week`, `overtime_hours`, `penalty`) คงไว้ตามเดิม เพราะ `display_number()` เปลี่ยนค่าที่ไม่ใช่จำนวนเต็มเป็น `float` จึงใช้แสดงผลได้อย่างเดียว
 
 **การคำนวณตอนอ่าน**
 
 * คำนวณรายพจน์ด้วยสูตรของ `penalties.candidate_penalty()` จาก `weights` และช่อง `_exact` ใน Snapshot เท่านั้น ห้ามอ่านค่าน้ำหนักจาก Policy เพราะ Policy ถูกแก้ทับในแถวเดิมได้ (เช่น Seed `ignore_workload()`) และห้ามใช้ช่องที่เป็น `float`
-* ผลรวมรายพจน์ต้องเท่ากับ `Fraction(penalty_exact)` พอดี ไม่เท่าคือบั๊ก ไม่ปัดให้ตรง การเทียบทำใน Backend เท่านั้น
+* ผลรวมรายพจน์ต้องเท่ากับ `Fraction(penalty_exact)` พอดี ไม่เท่าคือบั๊ก ไม่ปัดให้ตรง การเทียบทำใน Backend เท่านั้น ถ้าไม่เท่า หรือ Plan ที่มี `weights` มีผู้สมัครใน `candidates` ของเคสที่ไม่มีรายการใน Snapshot ระบบโยน `ScoreMismatchError` และ `GET /cases/{id}` ตอบ `500` (ไม่ซ่อนแถว แบบเดียวกับ `GET /roster` ในข้อ 9.3)
 * Plan ที่ไม่มีช่องใหม่ (สร้างก่อน PR E) ได้ `score = null` และหน้าแสดงอันดับตามเดิมโดยไม่มีคะแนน
 
 **รูปใน API** ช่อง `score` ในแต่ละ `candidates[]` ของ `GET /cases/{id}` (ข้อ 9.5)
 
-* `score = {total, terms: [{name, value, weight, points}], first_wave}` หรือ `null`
+* `score = {total, terms: [{name, value, weight, points}], first_wave}` หรือ `null` `terms` เรียงตามสูตรของ `candidate_penalty()` เสมอ: `candidate_count`, `consecutive_shift`, `workload_imbalance`, `projected_overtime`, `candidate_source` ไม่เรียงตาม `points` (การเรียงเพื่อแสดงเป็นหน้าที่ของหน้าเว็บ) `first_wave` มาจากรายการใน Snapshot
 * `name` คือชื่อค่าน้ำหนักใน `penalties.py`: `candidate_count`, `consecutive_shift`, `workload_imbalance`, `projected_overtime`, `candidate_source` ไม่มี `roster_change` เพราะเป็น 0 ในรอบนี้และไม่ใช่ของรายคน
 * `points = weight × value` ทุกพจน์ และ `value` ของแต่ละพจน์คือตัวคูณใน `candidate_penalty()`: `candidate_count` มี `value = 1` เสมอ เพราะค่าน้ำหนักถูกบวกตรง ๆ หนึ่งครั้งต่อคน, `consecutive_shift` คือ `projected_consecutive_shifts`, `workload_imbalance` คือ `hours_this_week_exact`, `projected_overtime` คือ `overtime_hours_exact` และ `candidate_source` คือ `source_priority(source, source_order)` ซึ่งเป็นตำแหน่งของแหล่งที่มาใน `source_order` เริ่มที่ 0 (แหล่งที่ใกล้ที่สุดได้ 0) ไม่ใช่ค่าดิบ
 * `total` ใช้ค่าเดียวกับ `penalty_exact` ตัวเลขใน API เป็นค่าสำหรับแสดงผล
@@ -1570,7 +1578,13 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
   "assigned_count": 0,
   "candidates": [
     {"candidate_item_id": 1, "rank": 1, "staff_id": 201, "first_name": "Arunee", "last_name": "Demo",
-     "source": "SAME_WARD", "outreach_status": "SENT", "stage": "OFFER_SENT"}
+     "source": "SAME_WARD", "outreach_status": "SENT", "stage": "OFFER_SENT",
+     "score": {"total": 1005, "first_wave": true, "terms": [
+       {"name": "candidate_count", "value": 1, "weight": 1000, "points": 1000},
+       {"name": "consecutive_shift", "value": 1, "weight": 5, "points": 5},
+       {"name": "workload_imbalance", "value": 0, "weight": 1, "points": 0},
+       {"name": "projected_overtime", "value": 0, "weight": 2, "points": 0},
+       {"name": "candidate_source", "value": 0, "weight": 200, "points": 0}]}}
   ]
 }
 ```
@@ -1583,6 +1597,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
 * `assigned_count` คือจำนวนคนที่เคสนี้จัดเข้าเวรแล้ว นับแบบเดียวกับ "ได้เข้าเวรแล้ว" ของข้อ 5.3 (`case_facts_service.assigned_staff_ids()`) เคสยังขาดคนอีก `max(gap.headcount_gap - assigned_count, 0)` หน้า `approvals` ใช้ค่านี้บอกว่าเคสของแต่ละคำขอยังขาดกี่คน (PR 5) ค่านี้นับเฉพาะจำนวนคน เคสที่ได้ 0 ยังรออนุมัติอยู่ได้เมื่อยังขาด Role หรือ Skill
 * `candidates` เป็น `[]` จนกว่า Solver จะบันทึก Plan ใช้ Plan ที่ `id` มากสุดของเคส (Seam 1) เรียงตาม `rank`
 * `outreach_status` เป็น `null` จนกว่าจะมี Outreach ของผู้สมัครคนนั้น ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
+* `score` คือคะแนนรายพจน์ของผู้สมัคร คำนวณตอนอ่านจาก Snapshot ของ Plan ล่าสุดเท่านั้น (ข้อ 6.15) เป็น `null` สำหรับ Plan ที่สร้างก่อน PR E และตอบ `500` เมื่อตัวเลขใน Snapshot ไม่ลงกัน
 * `stage` คือขั้นของผู้สมัครในเคสนี้ตามข้อ 4.1 คำนวณตอนอ่าน ไม่มีคอลัมน์เก็บ ใช้ข้อแรกที่ตรงตามลำดับ: ได้เข้าเวรแล้ว (`ASSIGNED`), อนุมัติแล้ว (`APPROVED`), ไม่อนุมัติ (`APPROVAL_REJECTED`), Safety ไม่ผ่าน (`SAFETY_FAILED`), ไม่มี Offer (`NOT_CONTACTED`), Offer `ACCEPTED` และรออนุมัติ (`WAITING_APPROVAL`), Offer `ACCEPTED` อย่างเดียว (`ACCEPTED` คือสำรองตาม Q28), นอกนั้น `OFFER_` ตามด้วยสถานะของ Offer "ได้เข้าเวรแล้ว" กับ "รออนุมัติ" ใช้เงื่อนไขเดียวกับ `case_facts_service` คำขอที่ยัง Pending แต่ Offer ถูกยกเลิกจึงเป็น `OFFER_CANCELLED` Offer ที่ยัง `SENT` เลย `expires_at` แล้วแต่ Job ยังไม่ตั้ง `TIMEOUT` ยังเป็น `OFFER_SENT` ทั้งที่เคสไม่รอ Offer นั้นแล้ว (ข้อ 6.9) `stage` อ่านสถานะที่เก็บ ไม่ได้เทียบ `clock.now()`
 
 **`GET /cases/{id}/audit`** (คน 1) ไม่ต้องมี `X-Demo-User` ไม่มีเคส ID นั้น → `404` ID นอกช่วง `bigint` (1 ถึง 9223372036854775807) → `422`
@@ -1716,7 +1731,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 
 | Route หรือหน้า | สิ่งที่เปลี่ยน | PR |
 |---|---|---|
-| `GET /cases/{id}` | แต่ละ `candidates[]` มีช่อง `score` ตามข้อ 6.15 (`null` สำหรับ Plan ที่สร้างก่อน PR E) | E |
+| `GET /cases/{id}` | แต่ละ `candidates[]` มีช่อง `score` ตามข้อ 6.15 (`null` สำหรับ Plan ที่สร้างก่อน PR E) | E (ทำแล้ว) |
 | หน้า `cases/[id]` | แสดงคะแนนรายพจน์ เหตุผลแบบตายตัว และประโยคจาก LLM เมื่อพร้อม | E2, X |
 | `POST /line/webhook` (ใหม่) | Webhook ของ LINE ไม่ใช้ `X-Demo-User` กันด้วยลายเซ็น ลำดับ: ลายเซ็นไม่ผ่าน `401` (ไม่เขียน DB) → ประมวลทีละ Event ในแต่ละ Transaction ของตัวเองตามข้อ 6.16: Event ซ้ำข้าม, `LINK <รหัส>` ไปทางผูกบัญชีก่อนตรวจการผูก, Postback ไปทางตอบ Offer → ตอบ `5xx` ถ้ามี Event ใดเจอ Error ที่ไม่คาดไว้ ไม่อย่างนั้น `200` (รวมการปฏิเสธทางธุรกิจ) | L |
 | `GET /me/offers` (ใหม่, ต้องมี `X-Demo-User`) | คืน List ของ `OfferView` แบบเดียวกับ `GET /demo/line-sim/offers` ของพนักงานใน Header เท่านั้น ไม่รับ `staff_id` | N |
@@ -1943,3 +1958,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-14 | ตามรีวิว PR ปิดรอบ 2: วันที่อัปเดตบนสุดเป็น 2026-10-14; หัวข้อ 9.4 เป็นอดีต; หมายเหตุลำดับ Lock ในข้อ 6.11 ที่เขียนว่ายังไม่มี Test เปลี่ยนเป็นรายการ Test สอง Connection ของแต่ละกรณี ทั้งของรอบ 1 และรอบ 2; ตาราง Test ของ PR H ระบุชื่อฟังก์ชัน | คน 1 |
 | 2026-10-14 | รอบ 3 PR 0: ส่วน "สถานะของรอบ 3" พร้อมตาราง PR, ลำดับ merge และ Test ของข้อกำหนดที่พังเงียบได้; ข้อ 6.15 คำอธิบายอันดับ, 6.16 LINE จริง, 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง; ข้อ 7.1 เพิ่ม `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED`; ข้อ 9 และ 9.5 เพิ่ม `POST /line/webhook`, `GET /me/offers`, `POST /me/offers/{outreach_id}/response`; `enums.py` เพิ่มสาม Action และ `EntityType.CONTACTS` ยังไม่มีผู้เขียน ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-14 | ตามรีวิว PR 0 ของรอบ 3 (#61): ข้อ 6.15 กำหนด `value` ของทุกพจน์ (`candidate_count` เป็น 1, `candidate_source` เป็นตำแหน่งใน `source_order` เริ่มที่ 0); ข้อ 6.16 และ 9.5 กำหนดว่าแต่ละ Event ใน body มี Transaction และแถวกันซ้ำของตัวเอง, `LINK <รหัส>` ถูกประมวลก่อนตรวจการผูก และผ่านตารางกันซ้ำใน Transaction ของการผูก; ตารางสถานะของรอบ 3 ใส่ #61 | คน 1 |
+| 2026-10-14 | รอบ 3 PR E: `create_plan()` เก็บ `weights` (รวม `source_order`) และ `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` ใน `input_snapshot` (ไม่มี Migration); `penalties.candidate_penalty_terms()` เป็นสูตรเดียวของรายพจน์ และ `candidate_penalty()` เป็นผลรวมของมัน; `GET /cases/{id}` เพิ่ม `score` ในแต่ละ `candidates[]` คำนวณตอนอ่านจาก Snapshot ด้วย `Fraction` (`null` สำหรับ Plan ก่อน PR E, `ScoreMismatchError` ตอบ `500`); ข้อ 6.15 เติมรูป Snapshot จริงและลำดับ `terms`, ข้อ 9.3 เพิ่มตัวอย่าง `score`, ข้อ 9.5 แถว E ทำแล้ว | คน 2 |
