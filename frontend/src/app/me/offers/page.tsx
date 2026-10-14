@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { type OfferApi, OfferList } from "@/components/outreach/OfferList";
+import { DEFAULT_POLL_INTERVAL_MS } from "@/hooks/usePolling";
 import { createDemoApi } from "@/lib/api";
 import {
   DEMO_APPROVER_ID,
@@ -105,7 +106,7 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => vo
       <p className="mt-4">
         Accepting an offer does not put you on the shift. You are assigned only
         after the head nurse approves and the system confirms the assignment.
-        Updates every 2 seconds.
+        Updates every {DEFAULT_POLL_INTERVAL_MS / 1000} seconds.
       </p>
       <OfferList
         staffId={staffId}

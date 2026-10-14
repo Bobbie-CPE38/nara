@@ -11,7 +11,7 @@ from fastapi import APIRouter, Path
 from pydantic import BaseModel, ConfigDict
 
 from app.api.dependencies import DbSession, DemoUser
-from app.api.routes.line_sim import ResponseResult, answer_offer
+from app.api.offer_responses import ResponseResult, answer_offer
 from app.core.constants import MAX_BIGINT
 from app.domain.enums import CandidateResponse
 from app.schemas.outreach import OfferView

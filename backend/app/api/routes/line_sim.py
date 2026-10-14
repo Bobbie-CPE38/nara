@@ -2,13 +2,13 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.orm import Session
 
-from app.api.dependencies import CurrentUser, DbSession, DemoUser
+from app.api.dependencies import DbSession, DemoUser
+from app.api.offer_responses import ResponseResult, answer_offer
 from app.core.constants import MAX_BIGINT
-from app.domain.enums import CandidateResponse, CaseStatus, OutreachStatus
+from app.domain.enums import CandidateResponse
 from app.schemas.outreach import OfferView
 from app.services import outreach_service
 
@@ -31,39 +31,6 @@ class ResponseRequest(BaseModel):
     response: CandidateResponse
 
 
-class ResponseResult(BaseModel):
-    outreach_id: int
-    outreach_status: OutreachStatus
-    case_id: int
-    case_status: CaseStatus
-
-
 @router.post("/respond", response_model=ResponseResult)
 def respond(body: ResponseRequest, db: DbSession, user: DemoUser) -> ResponseResult:
     return answer_offer(db, user, body.outreach_id, body.response)
-
-
-def answer_offer(
-    db: Session, user: CurrentUser, outreach_id: int, response: CandidateResponse
-) -> ResponseResult:
-    """Answer as the header user; also used by the nurse page route (/me/offers)."""
-    try:
-        outreach, case = outreach_service.record_response(
-            db,
-            staff_id=user.staff.id,
-            actor_id=user.actor_id,
-            outreach_id=outreach_id,
-            response=response,
-        )
-    except outreach_service.OutreachLockRetryError as error:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error), headers={"Retry-After": "1"}
-        ) from error
-    except outreach_service.OpenOfferConflictError as error:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error)) from error
-    return ResponseResult(
-        outreach_id=outreach.id,
-        outreach_status=outreach.status,
-        case_id=case.id,
-        case_status=case.status,
-    )

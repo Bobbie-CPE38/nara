@@ -186,6 +186,67 @@ describe("My shift offers", () => {
     expect(screen.queryByText("SENT")).toBeNull();
   });
 
+  it("shows none of the previous nurse's rows after signing in as someone else", async () => {
+    let releaseSecond: (offers: Offer[]) => void = () => {};
+    request.mockImplementation(async <T,>(path: string, options?: { demoUser?: number }) => {
+      if (options?.demoUser === 203) {
+        return new Promise<Offer[]>((resolve) => {
+          releaseSecond = resolve;
+        }) as Promise<T>;
+      }
+      return [offer] as T;
+    });
+    render(<MyOffersPage />);
+    await signInAs(202);
+    await screen.findByRole("button", { name: "Accept offer 1" });
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await signInAs(203);
+    // 203's read has not answered yet: 202's offer must not be on screen meanwhile.
+    expect(await screen.findByText(/Demo mode: signed in as staff 203/)).toBeTruthy();
+    expect(screen.getByText("Loading offers…")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Accept offer 1" })).toBeNull();
+    const second = { ...offer, id: 9, staff_id: 203 };
+    releaseSecond([second]);
+    expect(await screen.findByRole("button", { name: "Accept offer 9" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Accept offer 1" })).toBeNull();
+    const afterSwitch = request.mock.calls.slice(
+      request.mock.calls.findIndex(([, options]) => options?.demoUser === 203),
+    );
+    expect(afterSwitch.every(([, options]) => options?.demoUser === 203)).toBe(true);
+  });
+
+  it("shows a 503 and lets the nurse try again", async () => {
+    replies((path) =>
+      path === "/me/offers"
+        ? [offer]
+        : new ApiError(503, { detail: "The offer is busy. Try again." }),
+    );
+    render(<MyOffersPage />);
+    await signInAs(202);
+    fireEvent.click(await screen.findByRole("button", { name: "Accept offer 1" }));
+    expect(await screen.findByText("The offer is busy. Try again.")).toBeTruthy();
+    const accept = await screen.findByRole("button", { name: "Accept offer 1" });
+    expect((accept as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("explains an expired offer and disables both buttons", async () => {
+    replies(() => [
+      {
+        ...offer,
+        status: "TIMEOUT",
+        can_accept: false,
+        can_reject: false,
+        blocked_reason: "OFFER_EXPIRED",
+      },
+    ]);
+    render(<MyOffersPage />);
+    await signInAs(202);
+    expect(await screen.findByText(/This offer has expired/)).toBeTruthy();
+    for (const name of ["Accept offer 1", "Reject offer 1"]) {
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
   it("still works when storage is blocked", async () => {
     const getItem = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("blocked");
