@@ -11,7 +11,14 @@
 > * `d5e8f20b63a4` แทน Snapshot สองคอลัมน์นั้นด้วย `STAFFING_GAP.effective_minimum` (รอบ 1 PR 1b ไม่ Backfill ให้ `make reset`)
 > * `e1f5a8b3c6d2` (รอบ 1 PR 1a) เพิ่ม `HARD_CONSTRAINT_POLICY.maximum_consecutive_shifts` พร้อม CHECK (Backfill Policy เดิม = 7) และ CHECK ของ `ATTENDANCE.overtime_minutes`
 > * `d91a6c8e203f` เพิ่ม `OUTREACH_POLICY` และ CHECK เพดาน Offer มากกว่า 0 (PR 1c; Migration สร้างตารางว่าง ต้อง `make reset` เพื่อโหลด Policy ของ Demo)
+> * `f2a6b9c4d7e1` (รอบ 1 PR M) คอลัมน์ของ Merge Gap เช่น `SHIFT.merge_window_seconds`, `STAFFING_EVENTS.case_id` และ `AUDIT_LOG.event_id` รายการครบอยู่ในไฟล์ Migration
 > * `f3a7c1d9e5b2` (รอบ 1 PR 2a) เพิ่มตาราง `CANDIDATE_ITEM_TARGET` พร้อม CHECK สองข้อ, `CANDIDATE_ITEMS.working_time_snapshot_id` และ `SOFT_CONSTRAINT_POLICY.candidate_source_weight` (Backfill Policy เดิม = 200)
+> * `a4b8c2d6e9f1` (รอบ 1 PR O) `OUTREACH_POLICY.offer_timeout_seconds` และ `CANDIDATE_OUTREACH.expires_at`
+> * `b7d2f8a1c6e4` (รอบ 2 PR T) `APPROVAL_POLICY.approval_timeout_seconds`, เส้นตายและ `outreach_id` ของ `APPROVAL_REQUEST`, `SAFETY_VALIDATION.outreach_id`
+> * `c9e4a7b2d5f8` (รอบ 2 PR B) `SOFT_CONSTRAINT_POLICY.solver_time_limit_seconds`
+> * `b7d3e5a1c9f2` (รอบ 2 PR H) ตาราง `MANUAL_ASSIGNMENT` (ข้อ 31)
+>
+> **Migration head ปัจจุบัน: `b7d3e5a1c9f2`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -552,6 +559,23 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 `actor_type` ถูกย้ายไปอยู่ที่ `ACTORS` ไม่มีในตารางนี้แล้ว
 
 
+### 31. MANUAL_ASSIGNMENT **(ใหม่ในรอบ 2)**
+
+หนึ่งแถวต่อการที่ Head Nurse จัดคนหนึ่งคนเข้าเวรของเคสที่อยู่ `MANUAL_HANDOFF` (รอบ 2 PR H, Migration `b7d3e5a1c9f2`) ผูกแถว Roster กับเคส ซึ่ง `ROSTER_ASSIGNMENT` ทำเองไม่ได้
+
+| Field | Type | Null | Key | หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `case_id` | bigint | NOT NULL | FK STAFFING_CASES.id | เคสที่เวรนี้ปิด Gap ให้ |
+| `roster_assignment_id` | bigint | NOT NULL | FK ROSTER_ASSIGNMENT.id, UNIQUE | เวรหนึ่งแถวปิด Gap ให้ได้เคสเดียว ผู้ถูกจัด เวร และสถานะอ่านจากแถวนี้ ไม่เก็บซ้ำ |
+| `assigned_by` | bigint | NOT NULL | FK STAFF.id | Head Nurse ที่กด |
+| `reason` | text | NULL |  | หมายเหตุของการจัด ไม่เกิน 500 ตัวอักษร ไม่มีผลต่อการตรวจกฎ |
+| `created_at` | timestamptz | NOT NULL |  |  |
+
+* ไม่มีคอลัมน์รหัสกฎที่ข้าม เพราะการจัดคนเองต้องผ่าน Hard Rules ทุกข้อ (R2-Q14)
+* ไม่ผูกกับ `CANDIDATE_ITEMS` เพราะคนที่ถูกเลือกอาจไม่อยู่ใน Plan
+
+
 ---
 
 
@@ -585,7 +609,7 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | `ActorType` | ACTORS.actor_type | `user`, `system`, `component` |
 | `ActorName` | ACTORS.name (ที่ไม่ใช่ user) | `system`, `workflow_orchestrator`, `staffing_gap_assessment_agent`, `constraint_fair_scheduling_agent`, `outreach_agent`, `safety_rule_engine` |
 | `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` |
-| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าของรอบ 2 ที่ยังไม่มีโค้ดเขียน: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` |
+| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` |
 
 
 **กลุ่มของ EventType**
@@ -604,29 +628,6 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 
 
 ---
-
-
-## Schema ที่รอบ 2 จะเพิ่ม (ยังไม่มี Migration)
-
-ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `b7d2f8a1c6e4`) ข้อนี้คือของที่ Contract รอบ 2 ตกลงแล้วแต่ยังไม่มี Migration (PR T ย้ายขึ้นตารางจริงแล้ว) PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบนใน PR เดียวกัน ลำดับ Migration คือ T → B → H กติกาอยู่ `docs/workflow.md` ข้อ 6.12 ถึง 6.14
-
-| ตาราง | คอลัมน์ | Type | Null | หมายเหตุ | PR |
-| :-- | :-- | :-- | :-- | :-- | :-- |
-| `SOFT_CONSTRAINT_POLICY` | `solver_time_limit_seconds` | integer | NOT NULL | Seed = 3 งบเวลารวมของ `solve()` หนึ่งครั้ง | B |
-
-ตาราง `MANUAL_ASSIGNMENT` (PR H, **มี Migration แล้ว** `b7d3e5a1c9f2`) หนึ่งแถวต่อการที่ Head Nurse จัดคนหนึ่งคนเข้าเวรของเคสที่อยู่ `MANUAL_HANDOFF`
-
-| Field | Type | Null | Key | หมายเหตุ |
-| :-- | :-- | :-- | :-- | :-- |
-| `id` | bigint | NOT NULL | PK |  |
-| `case_id` | bigint | NOT NULL | FK STAFFING_CASES.id | เคสที่เวรนี้ปิด Gap ให้ |
-| `roster_assignment_id` | bigint | NOT NULL | FK ROSTER_ASSIGNMENT.id, UNIQUE | เวรหนึ่งแถวปิด Gap ให้ได้เคสเดียว ผู้ถูกจัด เวร และสถานะอ่านจากแถวนี้ ไม่เก็บซ้ำ |
-| `assigned_by` | bigint | NOT NULL | FK STAFF.id | Head Nurse ที่กด |
-| `reason` | text | NULL |  | หมายเหตุของการจัด ไม่เกิน 500 ตัวอักษร ไม่มีผลต่อการตรวจกฎ |
-| `created_at` | timestamptz | NOT NULL |  |  |
-
-* ไม่มีคอลัมน์รหัสกฎที่ข้าม เพราะการจัดคนเองต้องผ่าน Hard Rules ทุกข้อ (R2-Q14)
-* ไม่ผูกกับ `CANDIDATE_ITEMS` เพราะคนที่ถูกเลือกอาจไม่อยู่ใน Plan
 
 
 ## Constraint ที่ควรใส่ใน Migration แรก
