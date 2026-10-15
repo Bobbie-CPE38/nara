@@ -235,7 +235,7 @@ def _check(
             status, role_id = staff[staff_id]
             subject = subjects[staff_id]
             proposed = _proposed_slot(shift, subject.cover)
-            entries, linked_duty, duties = _apply_cover(
+            entries, linked_duty, duties, existing_duty = _apply_cover(
                 db, shift, proposed, subject.cover, staff_id, roster.get(staff_id, ())
             )
             contexts[staff_id] = CandidateContext(
@@ -250,6 +250,7 @@ def _check(
                 target_skill_ids=subject.targets.skill_ids,
                 linked_duty=linked_duty,
                 recorded_duties=duties,
+                existing_proposed_duty=existing_duty,
             )
 
     return {
@@ -276,7 +277,7 @@ def _apply_cover(
     cover: Cover,
     staff_id: int,
     rows: Sequence[_Row],
-) -> tuple[tuple[RosterEntry, ...], ShiftSlot | None, tuple[ShiftSlot, ...]]:
+) -> tuple[tuple[RosterEntry, ...], ShiftSlot | None, tuple[ShiftSlot, ...], ShiftSlot | None]:
     """Apply T1's hypothetical source cut before grouping persisted transfer duties.
 
     Physical rows preserve identity for ALREADY_ON_SHIFT/UNAVAILABLE/SHIFT_CONFLICT.
@@ -354,7 +355,21 @@ def _apply_cover(
                 break
             parent = ancestor.transferred_from_assignment_id
             ancestor = candidates.get(parent) if parent is not None else None
-    return tuple(row.entry for row in projected), linked, tuple(duty.shift for duty in duties)
+    proposed_assignments = {
+        row.assignment_id
+        for row in projected
+        if row.entry.shift.shift_id == proposed.shift_id
+        and row.entry.status in COMMITTED_ROSTER_STATUSES
+    }
+    existing = next(
+        (duty.shift for duty in duties if duty.assignment_ids & proposed_assignments), None
+    )
+    return (
+        tuple(row.entry for row in projected),
+        linked,
+        tuple(duty.shift for duty in duties),
+        existing,
+    )
 
 
 def _refuse_source(db: Session, assignment_id: int, staff_id: int) -> NoReturn:

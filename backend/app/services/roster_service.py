@@ -59,14 +59,21 @@ def create_replacement(
     if shift is None:
         raise LookupError(f"No shift {item.proposed_shift_id}")
 
+    start, end = roster_time_service.effective_interval(
+        shift_start_at=shift.start_at,
+        shift_end_at=shift.end_at,
+        actual_start_at=item.cover_start_at,
+        actual_end_at=item.cover_end_at,
+    )
+    whole_shift = start == shift.start_at and end == shift.end_at
     assignment = RosterAssignment(
         staff_id=item.staff_id,
         shift_id=item.proposed_shift_id,
         status=RosterStatus.ASSIGNED,
         assignment_type=AssignmentType.REPLACEMENT,
         candidate_source=item.source,
-        actual_start_at=item.cover_start_at,
-        actual_end_at=item.cover_end_at,
+        actual_start_at=None if whole_shift else item.cover_start_at,
+        actual_end_at=None if whole_shift else item.cover_end_at,
     )
     db.add(assignment)
     db.flush()

@@ -15,11 +15,14 @@ Branch: `feat/roster-duty-intervals`. Integrates T1 (#78) from staging.
 - The originating shift determines a duty's day, week and night classification.
   Snapshot loading includes a one-day lookahead to retain a Sunday duty's Monday tail.
 - Hard Rules keep physical roster rows for identity/cancellation/overlap checks.
-  Fatigue rules use recorded duty groups. T1's proposed Cover/source cut is applied
+  Fatigue rules use recorded duty groups. If the proposed shift is already a
+  non-root member, its entire existing duty is counted once; ALREADY_ON_SHIFT still
+  rejects it through the physical roster rows. T1's proposed Cover/source cut is applied
   before grouping, and the retained source ancestry joins the proposed duty once.
 - Completion uses actual end with the queued staff-event safeguard unchanged.
-- Replacement creation copies the accepted candidate's stored Cover endpoints; NULLs
-  retain whole-shift behavior. Transfer cutting/link writing remains C2/C3.
+- Replacement creation validates effective endpoints and copies a partial Cover. A Cover
+  equal to both scheduled endpoints is stored as NULL/NULL, retaining whole-shift
+  fallback behavior if the schedule changes. Transfer cutting/link writing remains C2/C3.
 - Both Roster APIs expose the three raw fields on each assignment; nested Shift
   times remain scheduled times. The staff timeline orders by effective start.
 - The Roster page shows the effective interval and source assignment ID per row.
@@ -42,10 +45,27 @@ T3's work; actual transfer execution remains C2/C3. These are not implemented he
 
 ## Verified
 
-- Backend: 2,335 passed, 14 timing tests skipped in the main run.
+- Backend: 2,348 passed, 14 timing tests skipped in the main run.
 - Solver timing: the 14 skipped tests passed separately.
 - Ruff check, Ruff format check, mypy and `git diff --check`: passed.
 - One Alembic head, correct T1 parent; schema/model check reports no new operations.
 - Frontend: 315 passed, TypeScript and production build passed.
 - Local additive migration and read-only HTTP smoke: health and Roster return 200;
   the existing LINE binding remains present. No Demo reset was performed.
+
+## Writer invariants and bounded-read limitations
+
+- The database CHECK checks `actual_start_at < actual_end_at` only when both are
+  non-NULL. It cannot validate a mixed-NULL interval against another table's Shift
+  endpoints. `roster_time_service.effective_interval()` checks the resolved endpoints;
+  replacement creation calls it while holding the Shift lock. C2/C3 must also call
+  it before writing/cutting roster intervals, and future schedule-edit writers must
+  revalidate affected overrides. Direct SQL bypasses this application validation.
+- Lookahead loads next-week segments to complete Sunday duties; `working_time_at()`
+  excludes their own next-week hours and future-start run entries. A regression test
+  proves those rows are loaded without changing the current snapshot.
+- If a source is outside the bounded read window (or absent from the committed
+  input), the remaining destination becomes a standalone duty. Its own start sets
+  its day/week, which can differ from the complete chain's attribution. This is a
+  known limitation, explicitly tested at the Sunday/Monday boundary; no omitted
+  prefix is guessed or reconstructed.

@@ -328,3 +328,91 @@ def test_t2_has_one_migration_head_after_t1():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
     assert len(script.get_heads()) == 1
     assert script.get_revision("b8d4f1a6c2e9").down_revision == "a9c3e7f1b5d2"
+
+
+@pytest.mark.parametrize("via_cover", [False, True])
+def test_existing_proposed_non_root_segment_counts_the_whole_duty_once(seeded, via_cover):
+    from app.db.models import StaffingRequirement
+    from app.domain.constraints.codes import HardRuleCode
+    from app.services import hard_rule_service
+    from app.services.hard_rule_service import Cover
+
+    source, destination, shifts = pair(seeded)
+    # The requested shift is the six-hour destination, not the root shift.
+    covers = (
+        {201: Cover(destination.actual_start_at, shifts[1].end_at, None)} if via_cover else None
+    )
+    if not via_cover:
+        shifts[1].start_at = destination.actual_start_at
+    seeded.add(StaffingRequirement(shift_id=shifts[1].id, required_staff=1, minimum_staff=1))
+    seeded.flush()
+    check = hard_rule_service.check_staff(seeded, shift=shifts[1], staff_ids=[201], covers=covers)[
+        201
+    ]
+    assert check.result.failed_rules == (HardRuleCode.ALREADY_ON_SHIFT,)
+    assert check.context.existing_proposed_duty.shift_id == source.shift_id
+    assert check.result.details["daily_hours"] == 8
+    assert check.result.details["weekly_hours"] == 8
+    assert check.result.details["projected_consecutive_shifts"] == 1
+
+
+def test_explicit_whole_shift_cover_keeps_null_fallback_when_the_shift_changes(seeded):
+    from tests.integration.case_rows import approval, short_case
+
+    case, items = short_case(seeded)
+    shift = seeded.get(Shift, case.shift_id)
+    item = items[201]
+    item.cover_start_at, item.cover_end_at = shift.start_at, shift.end_at
+    request = approval(seeded, case, item, approved=True)
+    row = roster_service.create_replacement(seeded, case, approval=request)
+    assert row.actual_start_at is None and row.actual_end_at is None
+    shift.end_at += timedelta(hours=1)
+    seeded.flush()
+    view = roster_service.get_shift_roster(seeded, shift.id)
+    assert view.shift.end_at == shift.end_at
+    saved = next(assignment for assignment in view.assignments if assignment.id == row.id)
+    assert saved.actual_start_at is None and saved.actual_end_at is None
+
+
+def test_lookahead_does_not_leak_next_week_shifts_into_current_snapshot(seeded):
+    from app.domain.constraints.soft_metrics import working_time_at
+
+    source, destination, shifts = pair(seeded)
+    delta = timedelta(days=2)  # Sunday 23:00 -> Monday 07:00.
+    for shift in shifts:
+        shift.start_at += delta
+        shift.end_at += delta
+    source.actual_end_at += delta
+    destination.actual_start_at += delta
+    seeded.flush()
+    moment = shifts[0].start_at
+    expected = working_time_service.capture(seeded, [201], captured_at=moment)[201].values
+    future = Shift(
+        ward_id=1,
+        patient_count=2,
+        start_at=shifts[0].end_at + timedelta(hours=12),
+        end_at=shifts[0].end_at + timedelta(hours=20),
+        shift_type=ShiftType.NIGHT,
+        is_active=True,
+    )
+    seeded.add(future)
+    seeded.flush()
+    seeded.add(
+        RosterAssignment(
+            staff_id=201,
+            shift_id=future.id,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REGULAR,
+        )
+    )
+    seeded.flush()
+    from unittest.mock import patch
+
+    with patch(
+        "app.services.working_time_service.working_time_at", wraps=working_time_at
+    ) as calculate:
+        actual = working_time_service.capture(seeded, [201], captured_at=moment)[201].values
+    assert future.id in {slot.shift_id for slot in calculate.call_args.kwargs["shifts"]}
+    assert actual == expected  # Includes hours, rest and both run counts.
+    assert actual.hours_this_week == 8
+    assert actual.consecutive_shifts == actual.consecutive_night_shifts == 1

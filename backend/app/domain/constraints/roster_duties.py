@@ -3,6 +3,8 @@
 Callers pass only committed rows of one person. Adjacency without a transfer link
 never merges duties. A missing source (outside the read window or cancelled) does
 not make the destination disappear. The root shift supplies the duty's identity.
+When the source is absent, the remaining destination uses its own start day/week;
+the reader cannot reconstruct an omitted prefix from that segment alone.
 """
 
 from collections.abc import Sequence

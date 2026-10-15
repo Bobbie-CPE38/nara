@@ -275,6 +275,8 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `updated_at` | timestamptz | NOT NULL |  |  |
 
 
+CHECK ของ `actual_start_at` / `actual_end_at` ตรวจได้เฉพาะเมื่อมีทั้งคู่ ส่วน mixed NULL ต้องตรวจปลายช่วงหลัง fallback กับเวลา Shift ผ่าน `roster_time_service.effective_interval()` ใน writer (replacement เรียกแล้ว; C2/C3 ต้องใช้ด้วยหลังล็อก Shift) การเขียน SQL โดยตรงไม่ผ่านตัวตรวจนี้
+
 ### 15. CANDIDATE_PLANS
 
 

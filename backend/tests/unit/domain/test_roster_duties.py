@@ -41,3 +41,27 @@ def test_transfer_chain_is_order_independent():
     assert joined_duties([third, first, second]) == (
         ShiftSlot(10, MONDAY, MONDAY + timedelta(hours=8)),
     )
+
+
+def test_missing_source_at_week_boundary_uses_the_remaining_segment_start():
+    from app.domain.constraints.soft_metrics import working_time_at
+
+    source = segment(1, 10, -1, 1)  # Sunday 23:00 -> Monday 01:00.
+    destination = segment(2, 20, 1, 7, 1)
+    moment = MONDAY + timedelta(hours=8)
+    complete = working_time_at(
+        moment,
+        shifts=joined_duties([source, destination]),
+        night_shift_ids={10, 20},
+        overtime_minutes=0,
+    )
+    missing = working_time_at(
+        moment,
+        shifts=joined_duties([destination]),
+        night_shift_ids={10, 20},
+        overtime_minutes=0,
+    )
+    assert complete.hours_today == complete.hours_this_week == 0
+    assert missing.hours_today == missing.hours_this_week == 6
+    assert complete.consecutive_shifts == missing.consecutive_shifts == 1
+    assert complete.rest_hours == missing.rest_hours == 1

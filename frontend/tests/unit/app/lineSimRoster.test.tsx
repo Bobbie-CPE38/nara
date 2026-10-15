@@ -818,6 +818,12 @@ describe("LINE simulator", () => {
 });
 
 describe("Roster", () => {
+  function cellUnder(table: HTMLElement, row: HTMLElement, heading: string) {
+    const headers = within(table).getAllByRole("columnheader");
+    const header = within(table).getByRole("columnheader", { name: heading });
+    return within(row).getAllByRole("cell")[headers.indexOf(header)];
+  }
+
   it("shows cancellations, replacements and their source", async () => {
     replies(() => roster);
     render(<RosterPage />);
@@ -843,13 +849,11 @@ describe("Roster", () => {
     }));
     render(<RosterPage />);
     const table = await screen.findByRole("table");
-    const cells = within(within(table).getAllByRole("row")[1]).getAllByRole(
-      "cell",
-    );
-    expect(cells[8].textContent).toBe(
+    const row = within(table).getByText("201 — Arunee Demo").closest("tr")!;
+    expect(cellUnder(table, row, "Working interval (Bangkok)").textContent).toBe(
       "2026-10-10 01:00:00 – 2026-10-10 05:00:00",
     );
-    expect(cells[9].textContent).toBe("42");
+    expect(cellUnder(table, row, "Transferred from assignment").textContent).toBe("42");
     expect(
       screen.getByText("2026-10-09 23:00:00 – 2026-10-10 07:00:00 (Bangkok)"),
     ).toBeTruthy();
@@ -864,13 +868,11 @@ describe("Roster", () => {
     }));
     render(<RosterPage />);
     const table = await screen.findByRole("table");
-    const cells = within(within(table).getAllByRole("row")[1]).getAllByRole(
-      "cell",
-    );
-    expect(cells[8].textContent).toBe(
+    const row = within(table).getByText("201 — Arunee Demo").closest("tr")!;
+    expect(cellUnder(table, row, "Working interval (Bangkok)").textContent).toBe(
       "2026-10-09 23:00:00 – 2026-10-10 01:00:00",
     );
-    expect(cells[9].textContent).toBe("—");
+    expect(cellUnder(table, row, "Transferred from assignment").textContent).toBe("—");
   });
 
   it("preserves duplicate staff and cross-ward inactive entries", async () => {
