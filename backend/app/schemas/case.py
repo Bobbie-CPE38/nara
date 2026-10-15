@@ -92,6 +92,9 @@ class CandidateView(BaseModel):
     first_name: str
     last_name: str
     source: CandidateSource
+    # The candidate's home ward (docs/workflow.md, section 9.6)
+    home_ward_id: int
+    home_ward_name: str
     # null until an offer was created for this candidate
     outreach_status: OutreachStatus | None
     stage: CandidateStage

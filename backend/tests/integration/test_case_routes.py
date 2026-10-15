@@ -18,6 +18,7 @@ from app.db.models import (
     CandidatePlan,
     RosterAssignment,
     Shift,
+    Staff,
     StaffingCase,
     StaffingEvent,
     StaffingGap,
@@ -294,6 +295,8 @@ def test_candidates_come_from_the_latest_plan_in_rank_order(
         "first_name",
         "last_name",
         "source",
+        "home_ward_id",
+        "home_ward_name",
         "outreach_status",
         "stage",
         "score",
@@ -308,6 +311,31 @@ def test_candidates_come_from_the_latest_plan_in_rank_order(
     # The helper plans store an empty snapshot: no exact values, so no score
     assert [c["score"] for c in body["candidates"]] == [None, None, None]
     assert (first["first_name"], first["source"]) == ("Arunee", "SAME_WARD")
+    assert [(c["home_ward_id"], c["home_ward_name"]) for c in body["candidates"]] == [
+        (1, "ICU")
+    ] * 3
+
+
+def test_candidate_of_another_ward_shows_that_ward(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    items = _add_plan(seeded, case, [201, 202, 203])
+    seeded.add(
+        Ward(id=90, name="Other ward", is_active=True, created_at=DEMO_NOW, updated_at=DEMO_NOW)
+    )
+    seeded.flush()
+    staff = seeded.get(Staff, 202)
+    assert staff is not None
+    staff.home_ward_id = 90
+    next(item for item in items if item.staff_id == 202).source = CandidateSource.CROSS_WARD
+    seeded.flush()
+
+    candidates = client.get(f"/cases/{case.id}").json()["candidates"]
+
+    by_staff = {c["staff_id"]: c for c in candidates}
+    assert (by_staff[202]["source"], by_staff[202]["home_ward_id"]) == ("CROSS_WARD", 90)
+    assert by_staff[202]["home_ward_name"] == "Other ward"
+    assert by_staff[201]["home_ward_name"] == "ICU"
 
 
 def test_candidate_with_cover_and_source_shows_the_times_and_the_ward_name(
