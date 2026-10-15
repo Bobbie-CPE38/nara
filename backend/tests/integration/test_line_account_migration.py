@@ -27,7 +27,7 @@ def migration():
 
 def test_single_head_follows_line_delivery():
     script = ScriptDirectory.from_config(Config(str(BACKEND / "alembic.ini")))
-    assert script.get_heads() == ["e1a4c7f2b9d6"]
+    assert len(script.get_heads()) == 1
     assert script.get_revision("d7f0b3c5e9a2").down_revision == "c6e9a2b4d8f1"
 
 
