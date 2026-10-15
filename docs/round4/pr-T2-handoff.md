@@ -15,6 +15,11 @@ Branch: `feat/roster-duty-intervals`. Integrates T1 (#78) from staging.
 - The originating shift determines a duty's day, week and night classification.
   Snapshot loading includes a one-day lookahead to retain a Sunday duty's Monday tail.
 - Hard Rules keep physical roster rows for identity/cancellation/overlap checks.
+  Several rows may share a shift ID with different effective intervals, including
+  cancelled full-shift history and committed partial rows. Existing intervals are
+  never rewritten to the proposed Cover. Identity checks still use shift ID;
+  overlap checks inspect every committed interval. Identical intervals are deduplicated,
+  while separate committed parts survive both fatigue and snapshot accounting.
   Fatigue rules use recorded duty groups. If the proposed shift is already a
   non-root member, its entire existing duty is counted once; ALREADY_ON_SHIFT still
   rejects it through the physical roster rows. T1's proposed Cover/source cut is applied
@@ -45,7 +50,7 @@ T3's work; actual transfer execution remains C2/C3. These are not implemented he
 
 ## Verified
 
-- Backend: 2,348 passed, 14 timing tests skipped in the main run.
+- Backend: 2,355 passed, 14 timing tests skipped in the main run.
 - Solver timing: the 14 skipped tests passed separately.
 - Ruff check, Ruff format check, mypy and `git diff --check`: passed.
 - One Alembic head, correct T1 parent; schema/model check reports no new operations.

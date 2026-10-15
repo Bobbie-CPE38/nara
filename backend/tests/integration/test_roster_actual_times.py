@@ -330,26 +330,32 @@ def test_t2_has_one_migration_head_after_t1():
     assert script.get_revision("b8d4f1a6c2e9").down_revision == "a9c3e7f1b5d2"
 
 
-@pytest.mark.parametrize("via_cover", [False, True])
-def test_existing_proposed_non_root_segment_counts_the_whole_duty_once(seeded, via_cover):
+@pytest.mark.parametrize("window", ["cover", "scheduled", "whole_shift"])
+def test_existing_proposed_non_root_segment_counts_the_whole_duty_once(seeded, window):
     from app.db.models import StaffingRequirement
     from app.domain.constraints.codes import HardRuleCode
     from app.services import hard_rule_service
     from app.services.hard_rule_service import Cover
 
     source, destination, shifts = pair(seeded)
-    # The requested shift is the six-hour destination, not the root shift.
+    # The requested shift is a non-root destination. A whole-shift request
+    # also overlaps the actual source prefix, which must remain visible.
     covers = (
-        {201: Cover(destination.actual_start_at, shifts[1].end_at, None)} if via_cover else None
+        {201: Cover(destination.actual_start_at, shifts[1].end_at, None)}
+        if window == "cover"
+        else None
     )
-    if not via_cover:
+    if window == "scheduled":
         shifts[1].start_at = destination.actual_start_at
     seeded.add(StaffingRequirement(shift_id=shifts[1].id, required_staff=1, minimum_staff=1))
     seeded.flush()
     check = hard_rule_service.check_staff(seeded, shift=shifts[1], staff_ids=[201], covers=covers)[
         201
     ]
-    assert check.result.failed_rules == (HardRuleCode.ALREADY_ON_SHIFT,)
+    expected = (HardRuleCode.ALREADY_ON_SHIFT,)
+    if window == "whole_shift":
+        expected += (HardRuleCode.SHIFT_CONFLICT,)
+    assert check.result.failed_rules == expected
     assert check.context.existing_proposed_duty.shift_id == source.shift_id
     assert check.result.details["daily_hours"] == 8
     assert check.result.details["weekly_hours"] == 8
@@ -416,3 +422,66 @@ def test_lookahead_does_not_leak_next_week_shifts_into_current_snapshot(seeded):
     assert actual == expected  # Includes hours, rest and both run counts.
     assert actual.hours_this_week == 8
     assert actual.consecutive_shifts == actual.consecutive_night_shifts == 1
+
+
+@pytest.mark.parametrize("on_proposed_shift", [False, True])
+def test_cancelled_full_and_assigned_partial_row_do_not_crash_hard_rules(seeded, on_proposed_shift):
+    from app.db.models import StaffingRequirement
+    from app.domain.constraints.codes import HardRuleCode
+    from app.services import hard_rule_service
+
+    source, destination, shifts = pair(seeded)
+    source.status = RosterStatus.CANCELLED
+    source.actual_end_at = None
+    destination.shift_id = source.shift_id
+    destination.actual_start_at = shifts[0].start_at + timedelta(hours=4)
+    destination.transferred_from_assignment_id = None
+    proposed = shifts[0] if on_proposed_shift else shifts[1]
+    seeded.add(StaffingRequirement(shift_id=proposed.id, required_staff=1, minimum_staff=1))
+    seeded.flush()
+
+    check = hard_rule_service.check_staff(seeded, shift=proposed, staff_ids=[201])[201]
+    snapshot = working_time_service.capture(
+        seeded, [201], captured_at=proposed.end_at + timedelta(hours=1)
+    )[201].values
+
+    assert snapshot.hours_this_week == 4
+    assert [(entry.shift.start_at, entry.shift.end_at) for entry in check.context.roster] == [
+        (shifts[0].start_at, shifts[0].end_at),
+        (destination.actual_start_at, shifts[0].end_at),
+    ]
+    if on_proposed_shift:
+        assert check.result.failed_rules == (
+            HardRuleCode.ALREADY_ON_SHIFT,
+            HardRuleCode.UNAVAILABLE,
+        )
+        assert check.result.details["weekly_hours"] == 4
+    else:
+        assert check.result.failed_rules == (HardRuleCode.SHIFT_CONFLICT,)
+        assert check.result.details["weekly_hours"] == 12
+
+
+def test_separate_committed_parts_of_one_shift_are_not_dropped(seeded):
+    from app.db.models import StaffingRequirement
+    from app.domain.constraints.codes import HardRuleCode
+    from app.services import hard_rule_service
+
+    source, destination, shifts = pair(seeded)
+    destination.shift_id = source.shift_id
+    destination.actual_start_at = shifts[0].start_at + timedelta(hours=4)
+    destination.transferred_from_assignment_id = None
+    proposed = shifts[0]
+    seeded.add(StaffingRequirement(shift_id=proposed.id, required_staff=1, minimum_staff=1))
+    seeded.flush()
+
+    check = hard_rule_service.check_staff(seeded, shift=proposed, staff_ids=[201])[201]
+    snapshot = working_time_service.capture(
+        seeded, [201], captured_at=proposed.end_at + timedelta(hours=1)
+    )[201].values
+
+    assert check.result.failed_rules == (
+        HardRuleCode.ALREADY_ON_SHIFT,
+        HardRuleCode.INSUFFICIENT_REST,
+    )
+    assert check.result.details["weekly_hours"] == snapshot.hours_this_week == 6
+    assert check.result.details["projected_consecutive_shifts"] == 2

@@ -167,6 +167,8 @@ class CandidateContext:
     recorded_duties: tuple[ShiftSlot, ...] | None = None
     # If the proposed shift is already a member of a recorded duty, retain that
     # whole duty once for diagnostics; ALREADY_ON_SHIFT still rejects the candidate.
+    # Its actual interval need not cover the requested window (e.g. a partial row
+    # on a shift proposed in full), so containment is not a context invariant.
     existing_proposed_duty: ShiftSlot | None = None
 
     def __post_init__(self) -> None:
@@ -178,21 +180,10 @@ class CandidateContext:
         object.__setattr__(self, "target_skill_ids", frozenset(self.target_skill_ids))
         if self.recorded_duties is not None:
             object.__setattr__(self, "recorded_duties", tuple(self.recorded_duties))
-        if self.existing_proposed_duty is not None:
-            if self.existing_proposed_duty not in (self.recorded_duties or ()):
-                raise ValueError("The existing proposed duty must be a recorded duty")
-            if not (
-                self.existing_proposed_duty.start_at <= self.proposed_shift.start_at
-                and self.proposed_shift.end_at <= self.existing_proposed_duty.end_at
-            ):
-                raise ValueError("The existing proposed duty must contain the proposed window")
-
-        slots = {self.proposed_shift.shift_id: self.proposed_shift}
-        for entry in self.roster:
-            known = slots.setdefault(entry.shift.shift_id, entry.shift)
-            if known != entry.shift:
-                raise ValueError(f"Conflicting times for shift_id={entry.shift.shift_id}")
-
+        if self.existing_proposed_duty is not None and self.existing_proposed_duty not in (
+            self.recorded_duties or ()
+        ):
+            raise ValueError("The existing proposed duty must be a recorded duty")
         linked = self.linked_duty
         if linked is not None:
             if linked.shift_id == self.proposed_shift.shift_id:
@@ -274,15 +265,15 @@ def was_removed_from_proposed_shift(context: CandidateContext) -> bool:
 def other_committed_shifts(context: CandidateContext) -> tuple[ShiftSlot, ...]:
     """The candidate's committed shifts other than the proposed one, by start time.
 
-    Repeated rows of one shift count once.
+    Identical intervals count once; distinct intervals on the same shift survive.
     """
     shifts = {
-        entry.shift.shift_id: entry.shift
+        entry.shift
         for entry in context.roster
         if entry.status in COMMITTED_ROSTER_STATUSES
         and entry.shift.shift_id != context.proposed_shift.shift_id
     }
-    return tuple(sorted(shifts.values(), key=_by_start))
+    return tuple(sorted(shifts, key=_by_start))
 
 
 def duty_slot(context: CandidateContext) -> ShiftSlot:
@@ -312,7 +303,7 @@ def other_duties(context: CandidateContext) -> tuple[ShiftSlot, ...]:
     linked = context.linked_duty
     if linked is None:
         return committed_duties(context)
-    return tuple(shift for shift in committed_duties(context) if shift.shift_id != linked.shift_id)
+    return tuple(shift for shift in committed_duties(context) if shift != linked)
 
 
 def committed_duties(context: CandidateContext) -> tuple[ShiftSlot, ...]:
@@ -320,10 +311,7 @@ def committed_duties(context: CandidateContext) -> tuple[ShiftSlot, ...]:
     if context.recorded_duties is None:
         return other_committed_shifts(context)
     return tuple(
-        shift
-        for shift in context.recorded_duties
-        if shift.shift_id != context.proposed_shift.shift_id
-        and shift != context.existing_proposed_duty
+        shift for shift in context.recorded_duties if shift != context.existing_proposed_duty
     )
 
 
@@ -375,7 +363,7 @@ def projected_consecutive_shifts(context: CandidateContext) -> int:
                 break
             count, run_end = 0, None
         count += 1
-        holds_proposed = holds_proposed or shift.shift_id == proposed.shift_id
+        holds_proposed = holds_proposed or shift == proposed
         # Overlapping shifts are SHIFT_CONFLICT's business, but the run still ends
         # at the latest end, not at the end of the shift that started last
         run_end = shift.end_at if run_end is None else max(run_end, shift.end_at)

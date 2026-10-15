@@ -284,16 +284,10 @@ def _apply_cover(
     Only the fatigue readers use grouped duties. An additional move links the
     entire retained chain, so a completed prefix is neither lost nor counted twice.
     """
-    projected = [
-        _Row(
-            row.assignment_id,
-            RosterEntry(proposed, row.entry.status),
-            row.transferred_from_assignment_id,
-        )
-        if row.entry.shift.shift_id == shift.id
-        else row
-        for row in rows
-    ]
+    # Existing rows keep their own effective intervals, including cancelled
+    # history and partial rows on the proposed shift. Only the selected source
+    # assignment is changed by a hypothetical transfer.
+    projected = list(rows)
     source: _Row | None = None
     moved = False
     if cover.source_assignment_id is not None:

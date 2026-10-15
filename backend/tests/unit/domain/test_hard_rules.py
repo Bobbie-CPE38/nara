@@ -672,11 +672,33 @@ def test_shift_times_must_be_aware_and_in_order() -> None:
         UnavailabilityPeriod(at(2, 8), naive)
 
 
-def test_rows_that_disagree_about_a_shift_are_rejected() -> None:
-    moved = ShiftSlot(PROPOSED.shift_id, at(3, 8), at(3, 16))
+def test_cancelled_and_committed_intervals_on_the_proposed_shift_keep_identity() -> None:
+    partial = ShiftSlot(PROPOSED.shift_id, at(2, 12), at(2, 16))
+    context = candidate(roster=(on(PROPOSED, RosterStatus.CANCELLED), on(partial)))
 
-    with pytest.raises(ValueError, match="Conflicting times for shift_id=1"):
-        candidate(roster=(on(moved, RosterStatus.CANCELLED),))
+    result = evaluate(context, POLICY)
+
+    assert HardRuleCode.ALREADY_ON_SHIFT in result.failed_rules
+    assert HardRuleCode.UNAVAILABLE in result.failed_rules
+    assert HardRuleCode.SHIFT_CONFLICT not in result.failed_rules
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_overlap_checks_every_committed_interval_of_one_shift(reverse: bool) -> None:
+    overlapping = slot(2, at(2, 12), hours=2)
+    separate = slot(2, at(3, 8), hours=2)
+    entries = (on(overlapping), on(separate))
+    context = candidate(roster=entries[::-1] if reverse else entries)
+
+    assert HardRuleCode.SHIFT_CONFLICT in evaluate(context, POLICY).failed_rules
+
+
+def test_cancelled_interval_does_not_create_a_conflict() -> None:
+    context = candidate(
+        roster=(on(slot(2, at(2, 8)), RosterStatus.CANCELLED), on(slot(2, at(4, 8))))
+    )
+
+    assert evaluate(context, POLICY).passed
 
 
 @pytest.mark.parametrize(
