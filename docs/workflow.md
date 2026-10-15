@@ -195,7 +195,7 @@ Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์น�
 | T2 | คน 3 | เวลาจริงและลิงก์การย้ายใน Roster, ตัวอ่านเวลาของ Roster | 6.20 | 0 | มี (`ROSTER_ASSIGNMENT`) | #79 |
 | T3 | คน 1 | Gap รายช่วง | 6.20, 9.6 | 0, T2 | มี (`STAFFING_GAP` และตารางรายช่วง) | |
 | T4 | คน 2 | Solver และการเลือก Wave ตามช่วง, แผนบางส่วน, ข้อความอธิบายอันดับ | 6.20 | T1, T3 | ไม่มี | |
-| C1 | คน 2 | ดึงคนว่างข้ามหอ, Float Pool | 6.19 | T1 | มี (`WARD.is_float_pool`) | |
+| C1 | คน 2 | ดึงคนว่างข้ามหอ, Float Pool | 6.19 | T1 | มี (`WARD.is_float_pool`) | [#81](https://github.com/Bobbie-CPE38/nara/pull/81) |
 | S | คน 3 | อนุมัติสองหอ, Supervisor, ตัวตรวจสิทธิ์ของคนกด | 6.21, 9.6 | C1 | มี (`APPROVAL_WARD_DECISION`, `APPROVAL_POLICY.supervisor_after_seconds`) | |
 | C2 | คน 2 | ย้ายทั้งเวร | 6.19 | C1, S | ไม่มี | |
 | C3 | คน 2 | ย้ายกลางเวร | 6.19, 6.20 | C2, T2, T3, T4 | ไม่มี | |

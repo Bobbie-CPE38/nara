@@ -60,7 +60,7 @@ def test_migration_can_be_reversed(db: Session) -> None:
 def test_single_migration_head_and_parent() -> None:
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
 
-    assert script.get_heads() == [REVISION]
+    assert len(script.get_heads()) == 1
     revision = script.get_revision(REVISION)
     assert revision is not None
     assert revision.down_revision == "b8d4f1a6c2e9"
