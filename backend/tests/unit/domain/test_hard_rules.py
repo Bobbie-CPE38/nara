@@ -18,6 +18,7 @@ from app.domain.constraints.context import (
     UnavailabilityPeriod,
     projected_consecutive_shifts,
     week_start,
+    weekly_hours,
 )
 from app.domain.constraints.evaluator import evaluate
 from app.domain.constraints.hard_rules import HARD_RULES
@@ -699,6 +700,21 @@ def test_cancelled_interval_does_not_create_a_conflict() -> None:
     )
 
     assert evaluate(context, POLICY).passed
+
+
+def test_overlapping_committed_parts_of_one_shift_are_rejected() -> None:
+    """Corrupt data: 08:00-16:00 and 12:00-20:00 would count 12:00-16:00 twice."""
+    with pytest.raises(ValueError, match="Conflicting times for shift_id=2"):
+        candidate(roster=(on(slot(2, at(3, 8))), on(slot(2, at(3, 12)))))
+
+
+def test_repeated_and_separate_committed_parts_of_one_shift_are_accepted() -> None:
+    repeated = candidate(roster=(on(slot(2, at(3, 8))), on(slot(2, at(3, 8)))))
+    # Parts that only touch (08:00-12:00 then 12:00-16:00) do not overlap
+    touching = candidate(roster=(on(slot(2, at(3, 8), hours=4)), on(slot(2, at(3, 12), hours=4))))
+
+    assert weekly_hours(repeated) == 16
+    assert weekly_hours(touching) == 16
 
 
 @pytest.mark.parametrize(

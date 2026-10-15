@@ -15,7 +15,9 @@ handler stops it (T5).
 
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
+from types import MappingProxyType
 
 from app.domain.enums import CaseStatus
 
@@ -26,11 +28,71 @@ class GapFiller:
 
     Not RosterMember: that one is a roster row and carries a shift and a status,
     which a candidate still waiting for approval does not have.
+
+    start_at/end_at is the time the person covers: the roster interval once
+    assigned, the cover window of the candidate item while pending (round 4
+    PR T3). None covers from the shift start or until the shift end. One person
+    with two intervals is two fillers with the same staff_id.
     """
 
     staff_id: int
     role_id: int
     skill_ids: frozenset[int]
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class IntervalGap:
+    """What one time slice of a case gap still misses (round 4 PR T3).
+
+    role_gaps and skill_gaps hold only the short roles and skills, like CaseGap.
+    """
+
+    start_at: datetime
+    end_at: datetime
+    headcount_gap: int
+    role_gaps: Mapping[int, int] = field(default_factory=dict)
+    skill_gaps: Mapping[int, int] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.start_at >= self.end_at:
+            raise ValueError("A gap slice must start before it ends")
+        object.__setattr__(self, "role_gaps", MappingProxyType(dict(self.role_gaps)))
+        object.__setattr__(self, "skill_gaps", MappingProxyType(dict(self.skill_gaps)))
+
+
+def intervals_closed(intervals: Iterable[IntervalGap], fillers: Iterable[GapFiller]) -> bool:
+    """True when the fillers close every slice for the whole of that slice.
+
+    Each slice is cut again wherever a filler starts or ends inside it, and every
+    piece must pass gap_closed() with only the fillers present for that whole
+    piece. Filling part of a slice, or one slice of two, does not close the gap
+    (workflow.md 6.20): the summary counts never decide this.
+    """
+    people = list(fillers)
+    for interval in intervals:
+        cuts = {interval.start_at, interval.end_at}
+        for filler in people:
+            for point in (filler.start_at, filler.end_at):
+                if point is not None and interval.start_at < point < interval.end_at:
+                    cuts.add(point)
+        points = sorted(cuts)
+        for start, end in zip(points, points[1:], strict=False):
+            present = [
+                filler
+                for filler in people
+                if (filler.start_at is None or filler.start_at <= start)
+                and (filler.end_at is None or filler.end_at >= end)
+            ]
+            if not gap_closed(
+                headcount_gap=interval.headcount_gap,
+                role_gaps=interval.role_gaps,
+                skill_gaps=interval.skill_gaps,
+                fillers=present,
+            ):
+                return False
+    return True
 
 
 def gap_closed(

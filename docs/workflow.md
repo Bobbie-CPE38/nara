@@ -193,7 +193,7 @@ Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์น�
 | 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, ค่าใหม่ใน Enum | ทุกข้อของรอบ 4 | เอกสาร | ไม่มี | #74 |
 | T1 | คน 2 | ช่วงที่มาทำได้และเวรต้นทางในรายชื่อผู้สมัคร, Safety และ Hard Rules ใช้ช่วงนี้, ช่วงทำงานต่อเนื่องตอนวางแผน | 6.20 | 0 | มี (`CANDIDATE_ITEMS`) | #78 |
 | T2 | คน 3 | เวลาจริงและลิงก์การย้ายใน Roster, ตัวอ่านเวลาของ Roster | 6.20 | 0 | มี (`ROSTER_ASSIGNMENT`) | #79 |
-| T3 | คน 1 | Gap รายช่วง | 6.20, 9.6 | 0, T2 | มี (`STAFFING_GAP` และตารางรายช่วง) | |
+| T3 | คน 1 | Gap รายช่วง | 6.20, 9.6 | 0, T2 | มี (`STAFFING_GAP` และตารางรายช่วง) | #82 |
 | T4 | คน 2 | Solver และการเลือก Wave ตามช่วง, แผนบางส่วน, ข้อความอธิบายอันดับ | 6.20 | T1, T3 | ไม่มี | |
 | C1 | คน 2 | ดึงคนว่างข้ามหอ, Float Pool | 6.19 | T1 | มี (`WARD.is_float_pool`) | [#81](https://github.com/Bobbie-CPE38/nara/pull/81) |
 | S | คน 3 | อนุมัติสองหอ, Supervisor, ตัวตรวจสิทธิ์ของคนกด | 6.21, 9.6 | C1 | มี (`APPROVAL_WARD_DECISION`, `APPROVAL_POLICY.supervisor_after_seconds`) | |
@@ -203,7 +203,7 @@ Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์น�
 | W4 | คน 1 | ข้อมูล Demo หลายหอ, หอ Float Pool, Role `SUPERVISOR` | 6.19, 6.21 | C1 | ไม่มี | |
 | U | คน 1 | หน้าเว็บของรอบ 4 | 9.6 | A, S | ไม่มี | |
 
-ลำดับ merge: 0 ก่อนทุกตัว, T3 หลัง T2, T4 หลัง T1 และ T3, C1 หลัง T1, S หลัง C1, C2 หลัง S (ห้ามมีการย้ายคนก่อนที่การอนุมัติสองหอจะมี), C3 หลัง C2 T2 T3 T4, A หลัง T1, U หลัง A และ S Migration ต่อจาก `e1a4c7f2b9d6` เป็นเส้นเดียวตามลำดับที่ merge จริง ลำดับจริงจนถึงตอนนี้คือ T1 → T2 → C1 (head ปัจจุบัน `c4e8a2f6d1b3`) ดังนั้น T3 และ S ต้อง Rebase ให้ต่อจาก `c4e8a2f6d1b3` ตัวที่ merge ทีหลังต้อง Rebase แก้ `down_revision` ให้ต่อจาก head ของ `staging` และรัน `alembic heads` ให้ได้ head เดียว รอบ 4 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R4-Q2)
+ลำดับ merge: 0 ก่อนทุกตัว, T3 หลัง T2, T4 หลัง T1 และ T3, C1 หลัง T1, S หลัง C1, C2 หลัง S (ห้ามมีการย้ายคนก่อนที่การอนุมัติสองหอจะมี), C3 หลัง C2 T2 T3 T4, A หลัง T1, U หลัง A และ S Migration ต่อจาก `e1a4c7f2b9d6` เป็นเส้นเดียวตามลำดับที่ merge จริง ลำดับจริงจนถึงตอนนี้คือ T1 → T2 → C1 → T3 (head ปัจจุบัน `c6e2b9f4a1d7`) ดังนั้น S ต้อง Rebase ให้ต่อจาก `c6e2b9f4a1d7` ตัวที่ merge ทีหลังต้อง Rebase แก้ `down_revision` ให้ต่อจาก head ของ `staging` และรัน `alembic heads` ให้ได้ head เดียว รอบ 4 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R4-Q2)
 
 * **ทำไม A รอ T1:** Test ของ A สร้างข้อมูลเอง คนข้ามหอและคน Float Pool สร้างได้ด้วยค่า `source` = `CROSS_WARD` หรือ `FLOAT_POOL` ที่มีอยู่แล้ว จึงไม่ต้องรอ C1 แต่คำขอที่มีเวรต้นทางต้องใช้คอลัมน์ `CANDIDATE_ITEMS.source_assignment_id` ที่ T1 เพิ่ม ทั้งตอนกรองและตอนสร้างข้อมูลใน Test จึงต้องรอ T1 ไม่ต้องรอ C2
 * **ถ้า C3 ไม่ทันในรอบนี้ (R4-Q38):** T2, T3 และ T4 ไปถึง `main` ตอนปิดรอบตามปกติเมื่อผ่านด่านครบ (Golden Case และ Seed Scenario เดิมได้ Gap เท่าเดิม และผลกับเวลาของ Solver กับข้อมูลแบบเดิมไม่เปลี่ยน) ไม่มีตัวเปิดปิด C2 ส่งได้เมื่อ S เข้าแล้ว
@@ -1401,7 +1401,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * **ตรวจไม่ผ่านตอนย้ายจริง (R4-Q35):** Commit การจบคำขอ (`is_pending = false` และ `is_approved = true` เพราะคนอนุมัติแล้ว ไม่ใช่การปฏิเสธ, R4-Q42 ดังนั้น `is_approved = true` ไม่ได้แปลว่าคนถูกย้ายแล้ว ดูข้อ 9.6) และยกเลิก Offer พร้อม Audit `TRANSFER_CHECK_FAILED` ที่มีเหตุผลหนึ่งใน `TransferFailureReason`: `SOURCE_COVERAGE_LOST`, `DESTINATION_WINDOW_PASSED`, `HARD_RULE_FAILED` (พร้อมรหัสกฎใน `failed_rules`) และ `SOURCE_SHIFT_STARTED` ที่ใช้เฉพาะช่วงก่อน C3 (ข้อย่อย "C2 เจอการย้ายกลางเวร") ห้ามใช้เหตุผลเวรต้นทางไม่พอกับทุกกรณี API ของคนกดตอบ `200` พร้อมผล (ข้อ 9.6) แล้วคำนวณเคสใหม่เพื่อเลื่อนตัวสำรองหรือส่ง Wave ถัดไป ไม่ทำให้เคสเป็น `FAILED` คำขอสองหอ: การตรวจทำตอนการอนุมัติที่ทำให้ครบสองหอ การอนุมัติของหอแรกเก็บไว้เป็นประวัติ `cancellation_reason` ของ Offer ที่ยกเลิกแบบนี้คือ `TRANSFER_CHECK_FAILED` (`outreach_service._cancellation_reasons()` ต้องรู้จัก Action นี้)
 * คนหนึ่งคนมี Offer ค้างหลายเคสได้ตามกติกาเดิม (ข้อ 6.8) สิ่งที่ห้ามคือเวรที่จัดแล้วทับกัน หรือการตอบรับที่ขัดกับกติกาเดิม
 
-### 6.20 เวลาจริงของ Roster, Gap รายช่วง, Solver และ Safety [รอบ 4 · PR T3, T4]
+### 6.20 เวลาจริงของ Roster, Gap รายช่วง, Solver และ Safety [รอบ 4 · PR T4]
 
 ตัวอย่างที่ใช้ทั้งข้อ: ตอนนี้ 02:00 เวรดึกจบ 08:00 หอ B มี 5 คน ต้องเหลือ 4 คนและ Role Skill ยังครบ หอ A ขาด 1 คน Y ทำที่หอ B มาแล้ว 00:00 ถึง 02:00 แล้วย้ายไปหอ A 02:00 ถึง 08:00
 
@@ -1423,6 +1423,8 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * `GET /roster` ทั้งสองแบบเพิ่ม `actual_start_at`, `actual_end_at`, `transferred_from_assignment_id` ในแต่ละแถว ช่องเวลาใน `shift` ยังเป็นเวลาแผน `create_replacement()` ตรวจลำดับปลายช่วงหลัง fallback ด้วย `roster_time_service.effective_interval()` แล้วคัดลอก partial Cover ลงเวลา actual; ถ้า Cover ตรงกับทั้งเวรเก็บ NULL ทั้งคู่เพื่อใช้ fallback ต่อเมื่อเวลาเวรเปลี่ยน หน้า Roster แสดงช่วงทำงานของแต่ละแถวโดย fallback แต่ละปลายแยกกัน และแสดงเลขแถวต้นทางของการย้าย Job เปลี่ยนเป็น `COMPLETED` ที่ปลายช่วงจริง โดยยังข้ามแถวที่มี Event พนักงานค้าง การแสดง On leave และรายการเวรที่ชนกับการแก้วันลาก็ใช้ช่วงจริงด้วย
 
 * CHECK ของ actual endpoints ตรวจเมื่อมีทั้งคู่เท่านั้น จึงไม่กันช่วงกลับด้านจากการกำหนดปลายเดียวด้วย SQL โดยตรง Writer ของ C2/C3 ต้องเรียก `effective_interval()` หลังล็อก Shift ก่อนเขียน และ writer ที่แก้เวลา Shift ต้องตรวจ overrides ที่เกี่ยวข้องด้วย
+* **แถวที่ทับกันในเวรเดียวกัน (แก้ใน PR #82):** คนหนึ่งมีแถว `COMMITTED` หลายแถวในเวรเดียวกันได้ ถ้าไม่ทับกัน เช่น 08:00 ถึง 12:00 กับ 12:00 ถึง 16:00 แถวที่เหมือนกันทุกอย่างนับครั้งเดียว แต่สองแถวที่ทับกัน เช่น 08:00 ถึง 16:00 กับ 12:00 ถึง 20:00 เป็นข้อมูลผิด เพราะช่วง 12:00 ถึง 16:00 จะถูกนับชั่วโมงซ้ำ `CandidateContext` จึงโยน `ValueError("Conflicting times for shift_id=...")` เหมือนตัวตรวจเดิมก่อน T2 แต่แคบลงเฉพาะกรณีทับกัน
+* **ตัวเขียนการย้ายยังไม่มี (แก้ใน PR #82):** `roster_service.create_replacement()` สร้างแค่แถวปลายทาง ไม่ตัดแถวต้นทางและไม่เขียน `transferred_from_assignment_id` ตัวเขียนการย้ายคือ C2 และ C3 (ข้อ 6.19) จนกว่าจะมี รายชื่อที่มี `source_assignment_id` จะถูกปฏิเสธด้วย `NotImplementedError` เพื่อไม่ให้คนเดียวอยู่สองเวรที่ทับกันโดยไม่มีลิงก์ C2 ต้องเอาตัวกันนี้ออกเมื่อเขียนการย้ายจริง
 * ถ้าเวรที่เสนอเป็นสมาชิกที่ไม่ใช่ต้นทางของ duty เดิม ตัวตรวจชั่วโมงนับ duty เดิมครั้งเดียว โดย ALREADY_ON_SHIFT ยังตรวจจากแถวจริงและปฏิเสธตามเดิม; ถ้าต้นทางหายจากช่วงข้อมูลที่โหลด ปลายทางที่เหลือใช้วัน/สัปดาห์ของเวลาเริ่มตัวเอง (ข้อจำกัดของ bounded read ไม่เดาต้นทางที่ไม่ถูกโหลด)
 
 **Gap รายช่วง (T3)**
@@ -1432,6 +1434,14 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * `headcount_gap` และตัวเลขสรุปของ Role Skill คงไว้เป็นค่าที่ขาดมากที่สุดของแต่ละด้านจากทุกช่วง ห้ามบวกข้ามช่วง แถวเก่าที่ไม่มีแถวรายช่วงถือว่าขาดทั้งเวรตามตัวเลขเดิม ไม่ย้อนเติม
 * **ตัวอ่านที่ต้องเปลี่ยนไปใช้ข้อมูลรายช่วง (ตัดสินผล):** `domain/workflow/case_status.py` (ปิดเคส `RESOLVED`), `case_facts_service`, `domain/staffing/wave_targets.py`, `wave_service`, `optimization_service`, `optimization/solver.py` และ `merge_window_service` (ตัดสินเปิดเคส) ผู้สร้างคือ `gap_calculator`, `gap_service` และ `assess_staffing` **ตัวอ่านที่ใช้ค่าสรุปต่อได้ (แสดงผล):** `schemas/case.py`, `schemas/handoff.py`, `case_service`, `handoff_service` และหน้าเว็บ **[ตรวจแล้ว]** มี 47 จุดใน 20 ไฟล์ (`git grep` บน `staging` ใน `backend/app` และ `frontend/src`)
 * การเติมคนได้เพียงบางช่วงยังปิดเคสเป็น `RESOLVED` ไม่ได้ ถ้าช่วงอื่นยังขาด
+* **T3 ทำแล้ว:**
+  * `gap_service.assess_shift()` วัดตั้งแต่ `max(Backend Clock, เวลาเริ่มเวร)` ถึงเวลาจบเวร เวรที่จบไปแล้วตอนประเมินไม่มีเวลาเหลือ จึงวัดทั้งเวรเหมือนก่อนรอบ 4 (Merge Window ปิดหลังเวรจบได้ ตาม Test ของรอบ 3 PR R) `evaluated_from` จึงเป็นเวลาเริ่มเวร
+  * `gap_calculator.calculate_gap(window=...)` แต่ละคนนับเฉพาะช่วงจริงของแถว Roster ของตัวเอง (`load_roster()` อ่านเวลาจาก `roster_time_service`) ตัดช่วงที่ทุกเวลาเข้าออกในหน้าต่าง แล้วรวมช่วงติดกันที่ตัวเลขทั้งสามด้านเท่ากัน เวรที่ไม่มีการย้ายจึงมีช่วงเดียวและตัวเลขเท่าเดิม ค่าสรุปคือช่วงที่มีคนน้อยที่สุดของแต่ละด้าน `has_gap` ดูจากช่วง
+  * `record_gap()` เขียน `evaluated_from` และแถวรายช่วงทั้งสามตาราง `get_case_gap()` คืน `intervals` (`IntervalGap` ใน `domain/workflow/case_status.py` เฉพาะ Role Skill ที่ขาด) แถวเก่าที่ไม่มีแถวรายช่วงคืนช่วงเดียวทั้งเวรตามตัวเลขสรุป
+  * การตัดสินปิด Gap ใช้ `case_status.intervals_closed()` ตัดแต่ละช่วงซ้ำที่เวลาเข้าออกของคนที่นับ ทุกชิ้นต้องผ่าน `gap_closed()` ด้วยคนที่อยู่ตลอดชิ้นนั้น `GapFiller` เพิ่ม `start_at` / `end_at` (ว่าง = ทั้งเวร) `case_facts_service` ให้คนที่ได้เวรแล้วใช้ช่วงจริงของแถว Roster `REPLACEMENT` ของเวรเคส และคนที่รออนุมัติใช้ `cover_start_at` / `cover_end_at` ของรายชื่อ
+  * เคสใช้ช่วงที่บันทึกตอนเปิดเคสตามเดิม (Q19) ไม่ตัดช่วงที่ผ่านไปแล้วตอนคำนวณเคสใหม่
+  * การเปิดเคสตอนปิด Merge Window และ `ASSESSING` ใช้ `has_gap` ของผลรายช่วง
+  * **ยังใช้ค่าสรุปจนกว่า T4 จะเปลี่ยน:** `wave_targets.py`, `wave_service`, `optimization_service` และ `optimization/solver.py` ข้อมูลแบบเดิมได้ค่าสรุปเท่ากับช่วงเดียว ผลจึงไม่เปลี่ยน `get_case_fillers()` ที่ Wave ใช้ยังสร้าง `GapFiller` แบบทั้งเวร
 
 **Solver และ Wave (T4)**
 * เงื่อนไข "ผลรวมคนที่เลือก ≥ เป้าหมาย" ของจำนวนคน Role และ Skill (`_cheapest_covering_group()`) เปลี่ยนเป็นเงื่อนไขละช่วงย่อย ช่วงย่อยตัดที่ทุกขอบของช่วงที่ขาดและทุกเวลาเริ่มจบของผู้สมัคร ผู้สมัครครอบช่วงย่อยที่อยู่ในช่วงที่มาทำได้ของตัวเอง การลดเป้าหมายที่เติมไม่ได้ทำรายช่วง ตัดผู้สมัครที่ไม่ครอบช่วงที่ขาดเลยออกก่อน
@@ -1846,7 +1856,14 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
     "headcount_gap": 1,
     "computed_at": "2026-10-09T21:00:00+07:00",
     "roles": [{"id": 1, "name": "RN", "required_count": 5, "current_count": 4, "gap_count": 1}],
-    "skills": [{"id": 1, "name": "ICU", "required_count": 2, "current_count": 2, "gap_count": 0}]
+    "skills": [{"id": 1, "name": "ICU", "required_count": 2, "current_count": 2, "gap_count": 0}],
+    "evaluated_from": "2026-10-09T23:00:00+07:00",
+    "intervals": [
+      {"start_at": "2026-10-09T23:00:00+07:00", "end_at": "2026-10-10T07:00:00+07:00",
+       "headcount": {"required_count": 5, "current_count": 4, "gap_count": 1},
+       "roles": [{"id": 1, "name": "RN", "required_count": 5, "current_count": 4, "gap_count": 1}],
+       "skills": [{"id": 1, "name": "ICU", "required_count": 2, "current_count": 2, "gap_count": 0}]}
+    ]
   },
   "assigned_count": 0,
   "candidates": [
@@ -1870,6 +1887,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
   เพราะ Requirement ถูก UPDATE ในแถวเดิม ค่าที่อ่านได้อาจไม่ใช่ค่าตอนคิด (Q20)
 * `gap` เป็น `null` จนกว่าขั้น `ASSESSING` จะบันทึก `STAFFING_GAP` ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
   ใน `roles` / `skills` ฟิลด์ `id` คือ Role ID / Skill ID
+* `gap.intervals` (รอบ 4 PR T3) คือทุกช่วงของ Gap เรียงตามเวลา รวมช่วงที่ไม่ขาด แต่ละช่วงเป็น `[start_at, end_at)` มี `headcount` และ `roles` / `skills` ของช่วงนั้น `gap.evaluated_from` คือจุดเริ่มของช่วงที่วัด ตัวอย่าง: Gap ข้างบนวัดตอน 21:00 ก่อนเวรเริ่ม จึงเริ่มที่ 23:00 และทุกคนทำทั้งเวรจึงมีช่วงเดียว ถ้า 104 ถูกย้ายออกตอน 03:00 จะมีสองช่วง คือ 23:00 ถึง 03:00 ขาด 1 คน และ 03:00 ถึง 07:00 ขาด 2 คน ส่วน `headcount_gap` เป็น 2 Gap ที่บันทึกก่อนรอบ 4 มี `evaluated_from` เป็น `null` และ `intervals` เป็น `[]` ซึ่งหมายถึงขาดทั้งเวรตามตัวเลขสรุป
 * `assigned_count` คือจำนวนคนที่เคสนี้จัดเข้าเวรแล้ว นับแบบเดียวกับ "ได้เข้าเวรแล้ว" ของข้อ 5.3 (`case_facts_service.assigned_staff_ids()`) เคสยังขาดคนอีก `max(gap.headcount_gap - assigned_count, 0)` หน้า `approvals` ใช้ค่านี้บอกว่าเคสของแต่ละคำขอยังขาดกี่คน (PR 5) ค่านี้นับเฉพาะจำนวนคน เคสที่ได้ 0 ยังรออนุมัติอยู่ได้เมื่อยังขาด Role หรือ Skill
 * `candidates` เป็น `[]` จนกว่า Solver จะบันทึก Plan ใช้ Plan ที่ `id` มากสุดของเคส (Seam 1) เรียงตาม `rank`
 * `outreach_status` เป็น `null` จนกว่าจะมี Outreach ของผู้สมัครคนนั้น ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
@@ -2032,7 +2050,7 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 
 | Route หรือหน้า | สิ่งที่เปลี่ยน | PR |
 |---|---|---|
-| `GET /cases/{id}` | `gap` เพิ่ม `evaluated_from` (ว่างได้) และ `intervals` = List ของ `{start_at, end_at, headcount: {required_count, current_count, gap_count}, roles: [GapCount], skills: [GapCount]}` เรียงตามเวลา (List ว่างสำหรับ Gap ก่อนรอบ 4) ตัวเลขสรุปเดิมเป็นค่าที่ขาดมากที่สุด | T3 |
+| `GET /cases/{id}` | `gap` เพิ่ม `evaluated_from` (ว่างได้) และ `intervals` = List ของ `{start_at, end_at, headcount: {required_count, current_count, gap_count}, roles: [GapCount], skills: [GapCount]}` เรียงตามเวลา (List ว่างสำหรับ Gap ก่อนรอบ 4) ตัวเลขสรุปเดิมเป็นค่าที่ขาดมากที่สุด รูปคำตอบอยู่ข้อ 9.3 | T3 (ทำแล้ว) |
 | `GET /cases/{id}` | แต่ละ `candidates[]` เพิ่ม `home_ward_id`, `home_ward_name`, `cover_start_at`, `cover_end_at` (ว่าง = ทั้งเวร) และ `source_assignment` = `{assignment_id, shift_id, ward_id, ward_name}` หรือ `null` (T1 ส่ง `cover_start_at`, `cover_end_at` และ `source_assignment` ซึ่งเป็น `null` จนกว่า C2 จะสร้างผู้สมัครจากการย้าย ส่วน C1 ส่ง `home_ward_id`, `home_ward_name` แล้ว) | T1, C1, C2 |
 | `GET /approvals?pending=true` | แต่ละรายการเพิ่ม `home_ward_id`, `source_ward_id` (ว่างเมื่อไม่ใช่การย้าย), `wards` = List ของ `{ward_id, side, status}` (`status` = `PENDING` หรือ `APPROVED`) และ `supervisor_from` (เวลาที่ Supervisor เริ่มกดได้) | S |
 | `GET /approvals/auto` (ใหม่, ต้องมี `X-Demo-User` ของ Head Nurse หรือ Supervisor) | คำขอที่ระบบอนุมัติเอง (`approval_mode = AUTO`) ของหอที่ผู้เรียกดูแล ใหม่สุดก่อน ไม่เกิน 50 รายการ รูปเดียวกับรายการของ `GET /approvals` บวก `decided_at` Head Nurse เห็นหอตัวเอง Supervisor เห็นทุกหอ ประวัติเป็นผลอนุมัติ รวมกรณี Execute ล้มเหลวตาม D11 จึงต้องดูสถานะเคสประกอบ | A (ทำแล้ว) |
@@ -2286,3 +2304,5 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-15 | รอบ 4 PR A: Job อนุมัติอัตโนมัติเมื่อคิวเกิน `min(ratio × active Head Nurses, incoming_count)` ล็อก Ward และชุดรวมของคำขอก่อนตัดสินผ่าน `decide()` ใน Transaction เดียวของหอ; Cross-Ward, Float Pool และคนมีเวรต้นทางนับคิวแต่ไม่อนุมัติเอง; Audit Actor `system`, `approval_mode = AUTO`, `approver_id = NULL` พร้อมจำนวนคิว/ผู้อนุมัติ/เพดาน; `GET /approvals/auto` ประวัติ 50 รายการล่าสุดตามสิทธิ์หอ; ไม่มี Migration; Handoff `docs/round4/pr-A-handoff.md` | คน 3 |
 | 2026-10-15 | ตามรีวิว PR A (#80): แยก `decide_automatic()` และส่ง Batch Context/รายการงานหลัง Commit โดยตรง ใช้ตัวตัดสินร่วมกับคนกด; ยืนยัน PostgreSQL `FOR NO KEY UPDATE`; ผล Job/Clock เพิ่มรายการ AUTO และหอที่ล้มเหลว; Test อนุมัติ AUTO แล้วไม่ถูก Timeout; ระบุ foreign-case recompute เป็น best-effort ไม่มีคิว retry โดยเฉพาะ และป้องกันการนับ failure ข้าม Thread | คน 3 |
 | 2026-10-15 | รอบ 4 PR C1: `WARD.is_float_pool` (boolean, NOT NULL, default false, revision `c4e8a2f6d1b3` ต่อจาก `b8d4f1a6c2e9`); `create_plan()` ดึง Pool ผ่าน `_pool()`: คนหอเดียวกับเวรเสมอ บวกคนของหออื่นที่ `is_active` และไม่มีเวรที่ทับ `[start_at, end_at)` แบบครึ่งเปิดตามเวลาจริงของ Roster (เป็นการกรองก่อนล็อก ส่วน Hard Rules หลังล็อกเป็นตัวกันสุดท้าย); `source` = `SAME_WARD` / `FLOAT_POOL` / `CROSS_WARD` ตามหอบ้าน; `GET /cases/{id}` เพิ่ม `candidates[].home_ward_id`, `home_ward_name` (ข้อ 6.19, 9.3, 9.6); Test ของข้อกำหนดที่พังเงียบได้ของ C1: `test_cross_ward_pool.py` (`source` ไม่ใช่ `SAME_WARD` และคะแนนแหล่งที่มาไม่เป็น 0, คนที่อยู่เวรของหออื่นไม่เข้า Pool), `test_cross_ward_approval_race.py` (สองเคสต่างหอ สอง Connection), `test_ward_float_pool_migration.py`; ไม่ย้ายคนที่อยู่เวร (C2) | คน 2 |
+| 2026-10-15 | รอบ 4 PR T3: Gap รายช่วง Migration `c6e2b9f4a1d7` ต่อจาก C1 (`c4e8a2f6d1b3`) (`STAFFING_GAP.evaluated_from` และ `STAFFING_GAP_INTERVAL`, `STAFFING_GAP_ROLE_INTERVAL`, `STAFFING_GAP_SKILL_INTERVAL` ไม่ Backfill); `calculate_gap(window=...)` วัดตั้งแต่ `max(Backend Clock, เวลาเริ่มเวร)` นับแต่ละคนตามช่วงจริงของ Roster เวรที่จบแล้ววัดทั้งเวร; ค่าสรุปคือช่วงที่ขาดมากที่สุด; `get_case_gap().intervals` และ `case_status.intervals_closed()` ตัดสินปิด Gap รายช่วง (`GapFiller` มีช่วงเวลา); `GET /cases/{id}` เพิ่ม `gap.evaluated_from` และ `gap.intervals` (ข้อ 6.20, 9.3, 9.6) Solver และ Wave ยังใช้ค่าสรุปจนกว่า T4 | คน 1 |
+| 2026-10-15 | ตามรีวิว PR T3 (#82) แก้งานเก่าของ T1, T2 และ A ที่ merge แล้ว: `CandidateContext` ปฏิเสธแถว `COMMITTED` ของเวรเดียวกันที่ทับกัน; `create_replacement()` ปฏิเสธรายชื่อที่มี `source_assignment_id` จนกว่า C2 จะเขียนการย้าย; `_apply_cover()` บอกว่าการตัดแถวต้นทางเป็นการย้ายถาวรตามข้อ 6.19 และหาช่วงทำงานด้วย dict; Auto-Approval อ้างมติ R4-Q33 R4-Q36 ตรงที่อนุมัติทั้งหมด; `approval_service.actionable_pending()` และ `lock_ward_row()` ใช้ร่วมกับ Auto-Approval; `other_duties()` รวม `committed_duties()` เข้าด้วยกัน | คน 1 |

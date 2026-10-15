@@ -42,6 +42,8 @@ export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
       computed_at: DEMO_TIME,
       roles: [{ id: 1, name: "RN", required_count: 5, current_count: 4, gap_count: 1 }],
       skills: [{ id: 1, name: "ICU", required_count: 2, current_count: 2, gap_count: 0 }],
+      evaluated_from: null,
+      intervals: [],
     },
     assigned_count: 0,
     candidates: [

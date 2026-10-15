@@ -35,6 +35,11 @@ from app.db.models.staff_working_time_snapshot import StaffWorkingTimeSnapshot
 from app.db.models.staffing_case import StaffingCase
 from app.db.models.staffing_event import StaffingEvent
 from app.db.models.staffing_gap import StaffingGap
+from app.db.models.staffing_gap_interval import (
+    StaffingGapInterval,
+    StaffingGapRoleInterval,
+    StaffingGapSkillInterval,
+)
 from app.db.models.staffing_gap_role import StaffingGapRole
 from app.db.models.staffing_gap_skill import StaffingGapSkill
 from app.db.models.staffing_requirement import StaffingRequirement
@@ -74,8 +79,11 @@ __all__ = [
     "StaffingCase",
     "StaffingEvent",
     "StaffingGap",
+    "StaffingGapInterval",
     "StaffingGapRole",
+    "StaffingGapRoleInterval",
     "StaffingGapSkill",
+    "StaffingGapSkillInterval",
     "StaffingRequirement",
     "StaffingRequirementRole",
     "StaffingRequirementSkill",

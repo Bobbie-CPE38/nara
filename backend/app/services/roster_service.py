@@ -42,6 +42,12 @@ def create_replacement(
 
     Caller holds Shift, Request, Offer, case and Staff locks. No commit or audit.
     Do not recheck Hard Rules at execution (Q38); Safety owns that check.
+
+    This creates the destination row only. A move out of another shift
+    (item.source_assignment_id) also has to cancel or cut the source row and set
+    transferred_from_assignment_id in the same transaction. That writer is
+    round 4 PR C2/C3 (workflow.md 6.19); until it exists such an item is refused,
+    so one person is never left on two overlapping shifts without a link.
     """
     db.flush()
     if approval.case_id != case.id or approval.is_pending or approval.is_approved is not True:
@@ -49,6 +55,10 @@ def create_replacement(
     item = db.get(CandidateItem, approval.candidate_item_id)
     if item is None:
         raise LookupError(f"No candidate item {approval.candidate_item_id}")
+    if item.source_assignment_id is not None:
+        raise NotImplementedError(
+            "A move out of another shift needs the transfer writer of round 4 PR C2"
+        )
     plan = db.get(CandidatePlan, item.plan_id)
     if plan is None or plan.case_id != case.id:
         raise ValueError("Approved candidate plan does not belong to this case")

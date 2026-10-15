@@ -13,14 +13,31 @@ export type GapCount = {
   gap_count: number;
 };
 
+/** Headcount of one time slice of a gap */
+export type HeadcountCount = { required_count: number; current_count: number; gap_count: number };
+
+/** One time slice [start_at, end_at) of a gap */
+export type GapIntervalView = {
+  start_at: string;
+  end_at: string;
+  headcount: HeadcountCount;
+  roles: GapCount[];
+  skills: GapCount[];
+};
+
 export type GapView = {
   id: number;
   /** The headcount target the gap was measured against */
   effective_minimum: number;
+  /** The worst slice of each dimension, for display */
   headcount_gap: number;
   computed_at: string;
   roles: GapCount[];
   skills: GapCount[];
+  /** Where the measured window starts; null for a gap written before round 4 */
+  evaluated_from: string | null;
+  /** Every slice in time order; empty for a gap written before round 4 */
+  intervals: GapIntervalView[];
 };
 
 /** One term of a score: points = weight x value, as stored with the plan */

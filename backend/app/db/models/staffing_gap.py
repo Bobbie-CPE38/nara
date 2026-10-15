@@ -19,3 +19,6 @@ class StaffingGap(Base):
     # updated in place later, so this is the only record of the target at that time
     effective_minimum: Mapped[int] = mapped_column(Integer)
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # max(Backend Clock at assessment, shift start): where the measured window
+    # begins (round 4 PR T3). NULL for a gap written before round 4
+    evaluated_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

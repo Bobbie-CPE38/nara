@@ -11,7 +11,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.engine import Connection, Transaction
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import Select
+from sqlalchemy.sql import ColumnElement, Select
 
 from app.core import clock
 from app.core.constants import HEAD_NURSE_ROLE, MAX_APPROVAL_REASON_LENGTH, SUPERVISOR_ROLE
@@ -378,9 +378,9 @@ def lock_approval_attempt(
             raise LookupError(f"No case {initial.case_id}")
         if lock_ward:
             ward_id = db.scalar(select(Shift.ward_id).where(Shift.id == initial_case.shift_id))
-            # key_share=True without read=True renders FOR NO KEY UPDATE on PostgreSQL.
-            # It conflicts with another NO KEY UPDATE, serializing ward decisions.
-            db.scalars(select(Ward).where(Ward.id == ward_id).with_for_update(key_share=True)).one()
+            if ward_id is None:
+                raise LookupError(f"No shift {initial_case.shift_id}")
+            lock_ward_row(db, ward_id)
         # No application path moves a shift to another ward, so the ward read
         # before acquiring this Shift lock remains valid for the decision
         shift = db.scalar(
@@ -489,15 +489,33 @@ def list_pending(db: Session) -> list[PendingApproval]:
             )
             .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
             .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
-            .where(
-                ApprovalRequest.is_pending.is_(True),
-                ApprovalRequest.expires_at > clock.now(),
-                case_facts_service.accepted_offer_for_request(),
-                StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
-            )
+            .where(*actionable_pending())
             .order_by(ApprovalRequest.id)
         ).mappings()
         return [PendingApproval.model_validate(row) for row in rows]
+
+
+def actionable_pending() -> tuple[ColumnElement[bool], ...]:
+    """Requests a person or the auto-approval job can still decide right now.
+
+    One definition for the pending list and the auto-approval queue. The query
+    must join STAFFING_CASES. Read the clock when the query is built.
+    """
+    return (
+        ApprovalRequest.is_pending.is_(True),
+        ApprovalRequest.expires_at > clock.now(),
+        case_facts_service.accepted_offer_for_request(),
+        StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
+    )
+
+
+def lock_ward_row(db: Session, ward_id: int) -> None:
+    """Lock the WARD row so decisions of one ward run one at a time (6.11, 6.22).
+
+    with_for_update(key_share=True) without read=True renders FOR NO KEY UPDATE
+    on PostgreSQL, which conflicts with another FOR NO KEY UPDATE.
+    """
+    db.scalars(select(Ward).where(Ward.id == ward_id).with_for_update(key_share=True)).one()
 
 
 def list_auto_approved(

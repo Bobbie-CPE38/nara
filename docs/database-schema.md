@@ -30,7 +30,9 @@
 >
 > * `c4e8a2f6d1b3` (รอบ 4 PR C1) `WARD.is_float_pool`
 >
-> **Migration head ปัจจุบัน: `c4e8a2f6d1b3`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `c6e2b9f4a1d7` (รอบ 4 PR T3) `STAFFING_GAP.evaluated_from` และตาราง Gap รายช่วง `STAFFING_GAP_INTERVAL`, `STAFFING_GAP_ROLE_INTERVAL`, `STAFFING_GAP_SKILL_INTERVAL` ไม่ Backfill
+>
+> **Migration head ปัจจุบัน: `c6e2b9f4a1d7`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -498,6 +500,7 @@ Model และ Migration `d91a6c8e203f` เพิ่มแล้วใน PR 1c
 | `headcount_gap` | integer | NOT NULL |  | `max(effective_minimum - จำนวนคนในเวร, 0)` |
 | `effective_minimum` | integer | NOT NULL |  | เป้าหมายจำนวนคนที่ใช้คิด Gap แถวนี้: `max(required_staff, minimum_staff)` เมื่อ `preserve_minimum_staffing` เปิด และ `required_staff` เมื่อปิด |
 | `computed_at` | timestamptz | NOT NULL |  |  |
+| `evaluated_from` | timestamptz | NULL |  | จุดเริ่มของช่วงที่วัด `max(Backend Clock ตอนประเมิน, เวลาเริ่มเวร)` เวรที่จบไปแล้วตอนประเมินวัดทั้งเวร จึงเป็นเวลาเริ่มเวร ว่างสำหรับแถวก่อนรอบ 4 (รอบ 4 PR T3) |
 
 
 
@@ -505,6 +508,8 @@ Model และ Migration `d91a6c8e203f` เพิ่มแล้วใน PR 1c
 `effective_minimum` คือเป้าหมายที่ใช้คิด Gap แถวนั้นจริง `required_staff` และ `minimum_staff` อ่านผ่าน `staffing_requirement_id` ไม่เก็บซ้ำ
 แต่ `required_staff` ถูก UPDATE ในแถวเดิม ค่าที่อ่านได้จึงเป็นค่าปัจจุบัน ค่าเดียวที่บอกเป้าหมายตอนคิดคือ `effective_minimum`
 Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `patients_per_nurse` และ CHECK `ck_staffing_gap_patients_per_nurse_valid`) ด้วยคอลัมน์นี้ ไม่ Backfill ทั้งขาขึ้นและขาลง และหยุดถ้ามีแถวใน `STAFFING_GAP` (ให้ `make reset` ก่อน)
+
+รอบ 4 PR T3: `headcount_gap` และตัวเลขใน `STAFFING_GAP_ROLE` กับ `STAFFING_GAP_SKILL` คือช่วงที่ขาดมากที่สุดของแต่ละด้านจากตารางรายช่วง (ข้อ 26.1 ถึง 26.3) ไม่บวกข้ามช่วง ใช้แสดงผลได้ แต่การตัดสิน `RESOLVED` อ่านตารางรายช่วง แถวที่ไม่มีแถวรายช่วง (ก่อนรอบ 4) ถือว่าขาดทั้งเวรตามตัวเลขในแถวนี้
 
 ### 25. STAFFING_GAP_ROLE
 
@@ -528,6 +533,58 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | `required_count` | integer | NOT NULL |  |  |
 | `current_count` | integer | NOT NULL |  |  |
 | `gap_count` | integer | NOT NULL |  |  |
+
+
+### 26.1 STAFFING_GAP_INTERVAL (รอบ 4 PR T3)
+
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `gap_id` | bigint | NOT NULL | FK STAFFING_GAP.id | มี Index |
+| `start_at` | timestamptz | NOT NULL |  | เริ่มช่วง |
+| `end_at` | timestamptz | NOT NULL |  | จบช่วง (ไม่รวม) |
+| `required_count` | integer | NOT NULL |  |  |
+| `current_count` | integer | NOT NULL |  | คนที่อยู่ตลอดช่วงนี้ |
+| `gap_count` | integer | NOT NULL |  |  |
+
+UNIQUE `(gap_id, start_at)`
+
+
+ช่วง `[start_at, end_at)` แบ่งตามเวลาที่คนในเวรเข้าหรือออกจริง (เวลาจริงของ `ROSTER_ASSIGNMENT` ข้อ 6.20 ของ `workflow.md`) ตั้งแต่ `STAFFING_GAP.evaluated_from` ถึงเวลาจบเวร ช่วงติดกันที่ตัวเลขเท่ากันถูกรวมเป็นช่วงเดียว เวรที่ทุกคนทำทั้งเวรจึงมีช่วงเดียว ทั้งสามตารางใช้ช่วงชุดเดียวกัน และเก็บทุกช่วงรวมช่วงที่ไม่ขาด CHECK `start_at < end_at` และ `gap_count = GREATEST(required_count - current_count, 0)` ตัวเลขไม่ติดลบ
+
+### 26.2 STAFFING_GAP_ROLE_INTERVAL (รอบ 4 PR T3)
+
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `gap_id` | bigint | NOT NULL | FK STAFFING_GAP.id | มี Index |
+| `role_id` | bigint | NOT NULL | FK ROLE.id |  |
+| `start_at` | timestamptz | NOT NULL |  | เริ่มช่วง |
+| `end_at` | timestamptz | NOT NULL |  | จบช่วง (ไม่รวม) |
+| `required_count` | integer | NOT NULL |  |  |
+| `current_count` | integer | NOT NULL |  | คนที่อยู่ตลอดช่วงนี้ |
+| `gap_count` | integer | NOT NULL |  |  |
+
+UNIQUE `(gap_id, role_id, start_at)`
+
+
+### 26.3 STAFFING_GAP_SKILL_INTERVAL (รอบ 4 PR T3)
+
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `gap_id` | bigint | NOT NULL | FK STAFFING_GAP.id | มี Index |
+| `skill_id` | bigint | NOT NULL | FK SKILL.id |  |
+| `start_at` | timestamptz | NOT NULL |  | เริ่มช่วง |
+| `end_at` | timestamptz | NOT NULL |  | จบช่วง (ไม่รวม) |
+| `required_count` | integer | NOT NULL |  |  |
+| `current_count` | integer | NOT NULL |  | คนที่อยู่ตลอดช่วงนี้ |
+| `gap_count` | integer | NOT NULL |  |  |
+
+UNIQUE `(gap_id, skill_id, start_at)`
 
 
 ### 27. SAFETY_VALIDATION
@@ -744,14 +801,10 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ## Schema ที่รอบ 4 จะเพิ่ม (ยังไม่มี Migration)
 
-ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `c4e8a2f6d1b3`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge ลำดับจริงจนถึงตอนนี้คือ T1 → T2 → C1 ดังนั้น T3 และ S ต้อง Rebase ให้ต่อจาก `c4e8a2f6d1b3`
+ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `c6e2b9f4a1d7`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge ลำดับจริงจนถึงตอนนี้คือ T1 → T2 → C1 → T3 ดังนั้น S ต้อง Rebase ให้ต่อจาก `c6e2b9f4a1d7`
 
 | ตาราง | คอลัมน์ | Type | Null | หมายเหตุ | PR |
 | :-- | :-- | :-- | :-- | :-- | :-- |
-| `STAFFING_GAP` | `evaluated_from` | timestamptz | NULL | `max(Backend Clock ตอนประเมิน, เวลาเริ่มเวร)` ว่างสำหรับแถวก่อนรอบ 4 | T3 |
-| `STAFFING_GAP_INTERVAL` (ใหม่) | `id`, `gap_id`, `start_at`, `end_at`, `required_count`, `current_count`, `gap_count` | | NOT NULL | หนึ่งแถวต่อช่วงที่แบ่งตามเวลาที่มีคนเข้าหรือออกจริง ช่วง `[start_at, end_at)` | T3 |
-| `STAFFING_GAP_ROLE_INTERVAL` (ใหม่) | เหมือนข้างบน และ `role_id` | | NOT NULL | | T3 |
-| `STAFFING_GAP_SKILL_INTERVAL` (ใหม่) | เหมือนข้างบน และ `skill_id` | | NOT NULL | | T3 |
 | `APPROVAL_WARD_DECISION` (ใหม่) | `id`, `approval_request_id`, `ward_id`, `side` (`ApprovalSide`), `approver_id`, `decided_as` (`ApproverCapacity`), `is_approved`, `reason` (NULL), `decided_at` | | NOT NULL ยกเว้น `reason` | UNIQUE `(approval_request_id, side)` | S |
 | `APPROVAL_POLICY` | `supervisor_after_seconds` | integer | NOT NULL | Seed = 600 CHECK > 0 และ < `approval_timeout_seconds` | S |
 
