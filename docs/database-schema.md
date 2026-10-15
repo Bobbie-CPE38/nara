@@ -296,7 +296,7 @@ CHECK ของ `actual_start_at` / `actual_end_at` ตรวจได้เฉ�
 | `solver_version` | text | NOT NULL |  | รอบ 2 PR B = `"cp-sat-v1"` (รอบ 1 = `"weighted-v1"`, Skeleton = `"stub"`) |
 | `hard_constraint_policy_id` | bigint | NOT NULL | FK HARD_CONSTRAINT_POLICY.id |  |
 | `soft_constraint_policy_id` | bigint | NOT NULL | FK SOFT_CONSTRAINT_POLICY.id |  |
-| `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `weights` (ค่าน้ำหนักของ `SoftWeights` เป็นข้อความ `"เศษ/ส่วน"` พร้อม `source_order`), `candidates` (ค่าของแต่ละคนเรียงตาม `rank` มี `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` คู่กับช่อง `float` เดิมที่ใช้แสดงผลอย่างเดียว; Plan ก่อน PR E ไม่มี `weights` และช่อง `_exact`), `skipped` (ช่วงที่แต่ละ `candidates[]` มีเพิ่มในรอบ 4 PR T1 คือ `cover_start_at`, `cover_end_at`, `source_assignment_id` เป็น `null` จนกว่า C2 จะสร้างผู้สมัครจากการย้าย) |
+| `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `weights` (ค่าน้ำหนักของ `SoftWeights` เป็นข้อความ `"เศษ/ส่วน"` พร้อม `source_order`), `candidates` (ค่าของแต่ละคนเรียงตาม `rank` มี `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` คู่กับช่อง `float` เดิมที่ใช้แสดงผลอย่างเดียว; Plan ก่อน PR E ไม่มี `weights` และช่อง `_exact`), `skipped` (ช่วงที่แต่ละ `candidates[]` มีเพิ่มในรอบ 4 PR T1 คือ `cover_start_at`, `cover_end_at`, `source_assignment_id` เป็น `null` จนกว่า C2 จะสร้างผู้สมัครจากการย้าย; รอบ 4 PR T4 เพิ่ม key ระดับบน `intervals` (ช่วงที่ยังขาด: `start_at`, `end_at` และ `headcount` / `roles` / `skills` รูปเดียวกับ `targets`) กับ `partial_plan` (boolean, true เมื่อ Wave แรกมาจากแผนบางส่วน) และในแต่ละ `candidates[]` ของ Wave แรกเพิ่ม `credits` (`target_type`, `selection_type`, `role_id`, `skill_id`, `start_at`, `end_at` ช่วงที่เครดิตนับ ว่าง = ทั้งเวร) ตัวอ่านคะแนนไม่สนใจ key ที่ไม่รู้จัก) |
 
 
 ### 16. CANDIDATE_ITEMS
@@ -706,7 +706,7 @@ CHECK `used_at IS NULL OR revoked_at IS NULL`; รหัสที่ใช้แ
 | `id` | bigint | NOT NULL | PK |
 | `case_id` | bigint | NOT NULL | FK STAFFING_CASES |
 | `plan_id` | bigint | NOT NULL | FK CANDIDATE_PLANS |
-| `prompt_version` | text | NOT NULL | เช่น `rank-explanation-v1` |
+| `prompt_version` | text | NOT NULL | เช่น `rank-explanation-v2` |
 | `status` | text | NOT NULL | `ExplanationStatus` (ไม่มี CHECK ตาม D8) |
 | `input_hash` | text | NULL | SHA-256 hex ของ `input_payload` แบบ Canonical |
 | `input_payload` | jsonb | NULL | ที่ส่งให้ LLM จริง มีแต่ตัวเลข อันดับ ชื่อพจน์ ไม่มีชื่อหรือ `staff_id` |
@@ -875,9 +875,10 @@ Only candidates examined and skipped in steps 3 and 4 belong in `skipped`. A can
 | `CONSECUTIVE_SHIFTS_EXCEEDED` | Consecutive shifts, counted after inserting the proposed shift, would exceed the limit. A rest of 24 hours or less keeps two shifts in the same run. | `maximum_consecutive_shifts` |
 | `SOURCE_WARD_MINIMUM_VIOLATION` | Moving the candidate out of an existing assignment would leave the source shift below its target. Until round 4 this counts headcount only and nothing sets the source shift. Round 4 PR C2 extends it to headcount, role and skill over the remaining time (`docs/workflow.md` 6.19). | `preserve_source_ward_minimum` |
 | `OFFER_LIMIT_REACHED` | Candidate already holds the maximum number of open offers: `SENT`, or `ACCEPTED` on a case that is still running. | `OUTREACH_POLICY.maximum_concurrent_offers_per_staff` |
+| `GAP_TIME_MISMATCH` | Round 4 PR T4. The candidate's cover window (`cover_start_at` to `cover_end_at`, the whole shift when empty) overlaps no time slice of the gap that is still short, so they could only work while the ward is already full. Checked in `optimization_service` before the Solver runs. Cannot happen until C2/C3 give candidates partial cover windows. | Solver planning only; not a Hard Rule |
 | `SOURCE_SHIFT_TAKEN` | Round 4 PR C2, not written yet: another candidate from the same source shift already gives this case a live offer, a pending request or a move (`docs/workflow.md` 6.19). | Wave selection only |
 
-The first eleven codes are Hard Rules. The Solver, wave selection and Safety must return the same result from the same data. `OFFER_LIMIT_REACHED` is not a Hard Rule: it is checked by the Solver and by wave selection, never by Safety, because the candidate being validated always holds the accepted offer of their own case.
+The first eleven codes are Hard Rules. The Solver, wave selection and Safety must return the same result from the same data. `GAP_TIME_MISMATCH` is not a Hard Rule either: the Solver step judges it from the gap slices and the cover window, so it is written to the plan snapshot's `skipped` only, never by wave selection or Safety. `OFFER_LIMIT_REACHED` is not a Hard Rule: it is checked by the Solver and by wave selection, never by Safety, because the candidate being validated always holds the accepted offer of their own case.
 
 The old codes `OPEN_OFFER`, `HAS_OPEN_OFFER` and `SOURCE_WARD_MINIMUM` are not used.
 
@@ -933,7 +934,7 @@ Their previous outcome is recorded by the outreach status and the matching audit
 
 `skipped` is a list of `{staff_id, reason}` with one fixed code per skipped candidate.
 
-A candidate may fail more than one rule. One code is kept: the first failed Hard Rule in the order of the Skip Reasons table above, which is also the order Safety uses for `failure_reason`. The offer limit is checked after the Hard Rules, so `OFFER_LIMIT_REACHED` appears only for a candidate who passed them. PR 2b removes the interim rule that excluded anyone holding another offer. Both the Solver and Wave selection now use the cap alone after the Hard Rules. Do not rely on database query order.
+A candidate may fail more than one rule. One code is kept: the first failed Hard Rule in the order of the Skip Reasons table above, which is also the order Safety uses for `failure_reason`. The Solver step checks the time slices after the Hard Rules and before the offer limit, so `GAP_TIME_MISMATCH` appears only for a candidate who passed the Hard Rules, in the plan snapshot's `skipped`. The offer limit is checked after the Hard Rules, so `OFFER_LIMIT_REACHED` appears only for a candidate who passed them. PR 2b removes the interim rule that excluded anyone holding another offer. Both the Solver and Wave selection now use the cap alone after the Hard Rules. Do not rely on database query order.
 
 ## OFFER_SENT Payload Example
 
