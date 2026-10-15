@@ -75,6 +75,7 @@ def pending_approvals(
 
 @router.get("/auto")
 def auto_approvals(db: DbSession, user: DemoUser) -> list[AutoApprovedApproval]:
+    """Return up to 50 automatic decisions visible to this Head Nurse or Supervisor."""
     try:
         return approval_service.list_auto_approved(
             db,

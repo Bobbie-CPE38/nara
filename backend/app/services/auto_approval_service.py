@@ -1,6 +1,6 @@
 """Drain an overloaded ward's eligible snapshot in one transaction (workflow 6.22).
 
-The caller must have no uncommitted writes. Session commits in decide() release
+The caller must have no uncommitted writes. Session commits in the shared decision path release
 savepoints, while the caller's outer transaction retains the ward and full batch
 lock set. Cross-case recomputes and LINE delivery wait until that outer commit.
 """
@@ -10,6 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from fractions import Fraction
+from threading import Lock
 
 from sqlalchemy import func, select
 from sqlalchemy.engine import Row
@@ -40,6 +41,11 @@ from app.services import (
 )
 
 logger = logging.getLogger(__name__)
+# Process-local log throttling only; database locks coordinate concurrent jobs.
+# HTTP job/clock requests may run in different threads, so protect bookkeeping.
+MAX_FAILURE_KEYS = 1024  # Bound memory for distinct ward/exception pairs.
+FAILURE_LOG_INTERVAL = 120  # First failure, then ~hourly at the default 30-second tick.
+_failure_lock = Lock()
 _failures: dict[tuple[int, type[Exception]], int] = {}
 
 
@@ -143,6 +149,7 @@ def _ward(db: Session, ward_id: int) -> list[int]:
         autoflush=False,
         expire_on_commit=False,
     ) as batch:
+        # key_share=True (without read=True) is PostgreSQL FOR NO KEY UPDATE.
         batch.scalars(select(Ward).where(Ward.id == ward_id).with_for_update(key_share=True)).one()
         pending = list(
             batch.execute(
@@ -184,7 +191,7 @@ def _ward(db: Session, ward_id: int) -> list[int]:
         _lock_batch(batch, eligible)
         transaction = connection.get_transaction()
         assert transaction is not None
-        batch.info["auto_approval_batch"] = approval_service.AutoApprovalBatch(
+        authorization = approval_service.AutoApprovalBatch(
             ward_id,
             len(pending),
             approvers,
@@ -194,20 +201,13 @@ def _ward(db: Session, ward_id: int) -> list[int]:
             transaction,
         )
         batch.info["line_delivery_scheduler"] = deliveries.add
-        batch.info["approval_notification_scheduler"] = lambda staff_id, case_id, foreign: (
-            notifications.append((staff_id, case_id, foreign))
-        )
         for row in eligible:
             try:
-                request, case = approval_service.decide(
+                request, case = approval_service.decide_automatic(
                     batch,
                     approval_id=row.id,
-                    staff_id=None,
-                    role_id=None,
-                    home_ward_id=None,
-                    actor_id=0,
-                    approved=True,
-                    automatic=True,
+                    batch=authorization,
+                    notifications=notifications,
                 )
                 decided.append(request.id)
             except (
@@ -232,13 +232,20 @@ def _ward(db: Session, ward_id: int) -> list[int]:
             )
         except Exception:
             db.rollback()
-            logger.exception("Auto-approval foreign-case recompute deferred for case %s", case_id)
+            logger.exception(
+                "Best-effort auto-approval foreign-case recompute failed for case %s; "
+                "no queued retry",
+                case_id,
+            )
     for delivery_case_id in deliveries:
         try:
             line_delivery_service.dispatch_pending(db, case_id=delivery_case_id)
         except Exception:
             db.rollback()
-            logger.exception("Auto-approval LINE delivery deferred")
+            logger.exception(
+                "Auto-approval LINE dispatch failed; durable offer intents remain "
+                "for the next job sweep"
+            )
     return decided
 
 
@@ -251,8 +258,9 @@ def approve_due_requests(db: Session) -> AutomaticApprovals:
         for attempt in range(5):
             try:
                 result.approval_ids.extend(_ward(db, ward_id))
-                for key in [key for key in _failures if key[0] == ward_id]:
-                    del _failures[key]
+                with _failure_lock:
+                    for key in [key for key in _failures if key[0] == ward_id]:
+                        del _failures[key]
                 break
             except approval_service.ApprovalLockRetryError:
                 db.rollback()
@@ -262,10 +270,12 @@ def approve_due_requests(db: Session) -> AutomaticApprovals:
             except Exception as error:
                 db.rollback()
                 key = (ward_id, type(error))
-                if len(_failures) >= 1024 and key not in _failures:
-                    del _failures[next(iter(_failures))]
-                _failures[key] = _failures.get(key, 0) + 1
-                if _failures[key] == 1 or _failures[key] % 120 == 0:
+                with _failure_lock:
+                    if len(_failures) >= MAX_FAILURE_KEYS and key not in _failures:
+                        del _failures[next(iter(_failures))]
+                    _failures[key] = _failures.get(key, 0) + 1
+                    should_log = _failures[key] == 1 or _failures[key] % FAILURE_LOG_INTERVAL == 0
+                if should_log:
                     logger.exception("Auto-approval for ward %s failed; retry next tick", ward_id)
                 result.failed_ward_ids.add(ward_id)
             break

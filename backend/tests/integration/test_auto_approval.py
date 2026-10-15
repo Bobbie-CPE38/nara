@@ -145,19 +145,15 @@ def test_oldest_request_is_decided_first(production_seeded):
     assert result.approval_ids == [rows[2].id, rows[0].id, rows[1].id]
 
 
-def test_automatic_flag_cannot_bypass_authorization_without_a_locked_batch(production_seeded):
+def test_automatic_entry_point_requires_a_locked_batch(production_seeded):
     db = production_seeded
     rows = queue(db)
     with pytest.raises(approval_service.ApproverRoleError):
-        approval_service.decide(
+        approval_service.decide_automatic(
             db,
             approval_id=rows[0].id,
-            staff_id=None,
-            role_id=None,
-            home_ward_id=None,
-            actor_id=0,
-            approved=True,
-            automatic=True,
+            batch=None,
+            notifications=[],
         )
 
 
@@ -215,7 +211,7 @@ def test_capacity_keeps_fractional_ratio_and_applies_incoming_ceiling(
 def test_unexpected_batch_failure_rolls_back_all_decisions_and_retries_next_tick(production_seeded):
     db = production_seeded
     rows = queue(db)
-    original = approval_service.decide
+    original = approval_service.decide_automatic
     calls = 0
 
     def fail_second(*args, **kwargs):
@@ -225,7 +221,7 @@ def test_unexpected_batch_failure_rolls_back_all_decisions_and_retries_next_tick
             raise RuntimeError("batch interrupted")
         return original(*args, **kwargs)
 
-    with patch.object(approval_service, "decide", side_effect=fail_second):
+    with patch.object(approval_service, "decide_automatic", side_effect=fail_second):
         result = auto_approval_service.approve_due_requests(db)
     assert result.approval_ids == []
     assert result.failed_ward_ids == {1}
@@ -399,3 +395,71 @@ def test_foreign_case_notifications_run_after_outer_ward_commit(committed_queue)
         result = auto_approval_service.approve_due_requests(db)
     assert result.approval_ids == committed_queue
     assert len(notified) == 3
+
+
+def test_timeout_job_never_times_out_an_automatically_decided_request(production_seeded):
+    from app.services import approval_timeout_service
+
+    db = production_seeded
+    rows = queue(db)
+    assert auto_approval_service.approve_due_requests(db).approval_ids == [row.id for row in rows]
+    clock.set_time(max(row.expires_at for row in rows) + timedelta(seconds=1))
+    assert approval_timeout_service.expire_due_approvals(db).approval_ids == []
+    assert auto_approval_service.approve_due_requests(db).approval_ids == []
+    for row in rows:
+        db.refresh(row)
+        assert row.is_approved is True
+        assert row.is_timed_out is False
+        assert row.is_pending is False
+    actions = list(db.scalars(select(AuditLog.action)))
+    assert actions.count(AuditAction.APPROVAL_APPROVED) == len(rows)
+    assert AuditAction.APPROVAL_TIMEOUT not in actions
+
+
+@pytest.mark.parametrize("route", ["/demo/clock/advance", "/internal/merge-windows/close-due"])
+def test_due_work_routes_report_actual_auto_approvals(production_seeded, monkeypatch, route):
+    from app.core.config import settings
+
+    db = production_seeded
+    rows = queue(db)
+    monkeypatch.setattr(settings, "internal_job_secret", "test-auto-approval")
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                route,
+                headers={"X-Internal-Secret": "test-auto-approval"},
+                **({"json": {"seconds": 1}} if route.startswith("/demo") else {}),
+            )
+        assert response.status_code == 200
+        assert response.json()["auto_approved_request_ids"] == [row.id for row in rows]
+        assert response.json()["failed_auto_approval_ward_ids"] == []
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_job_result_preserves_failed_auto_approval_wards(production_seeded):
+    from app.services import job_service
+
+    with patch.object(
+        auto_approval_service,
+        "approve_due_requests",
+        return_value=auto_approval_service.AutomaticApprovals([], {8, 2}),
+    ):
+        result = job_service.run_due_work(production_seeded)
+    assert result.failed_auto_approval_ward_ids == [2, 8]
+
+
+def test_failed_post_commit_recompute_is_explicitly_best_effort(production_seeded, caplog):
+    db = production_seeded
+    rows = queue(db)
+    with patch.object(
+        auto_approval_service.outreach_service,
+        "recompute_affected_cases",
+        side_effect=RuntimeError("post-commit error"),
+    ):
+        result = auto_approval_service.approve_due_requests(db)
+    assert result.approval_ids == [row.id for row in rows]
+    assert result.failed_ward_ids == set()
+    assert all(db.get(ApprovalRequest, row.id).is_approved for row in rows)
+    assert "no queued retry" in caplog.text
