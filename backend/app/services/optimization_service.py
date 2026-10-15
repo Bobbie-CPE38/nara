@@ -2,8 +2,11 @@
 Candidate plans for a case (docs/workflow.md sections 6.4 and 8; round 1 contract section 8.3).
 
 create_plan() is the Solver step (OR-Tools since round 2 PR B):
-  1. Pool: every staff member whose home ward is the ward of the case's shift.
-     Round 1 has no cross-ward candidates, so everyone is SAME_WARD.
+  1. Pool (section 6.19): every staff member whose home ward is the ward of the
+     case's shift (SAME_WARD), plus staff of other active wards who hold no
+     committed roster duty overlapping the shift (FLOAT_POOL when their home ward
+     is_float_pool, else CROSS_WARD). Someone on another ward's overlapping shift
+     is not pooled: moving them is a transfer (PR C2).
   2. Drop who cannot be offered the shift, each with one reason code. The first
      that applies is kept:
        * the first failed Hard Rule, in the order of HardRuleCode
@@ -23,6 +26,9 @@ create_plan() is the Solver step (OR-Tools since round 2 PR B):
      the exact "n/d" values of each candidate (section 6.15).
 
 Rules:
+  * The duty filter of the pool is a read before the staff lock. A duty committed
+    in between is caught by the Hard Rules after the lock (SHIFT_CONFLICT), which
+    judge cross-ward staff exactly as in-ward staff.
   * Never commits and writes no audit row. The `optimize` handler logs
     SOLVER_EXECUTED (and MANUAL_HANDOFF) in the same round.
   * Each call adds a new plan. Readers take the plan with the highest id of the
@@ -46,7 +52,7 @@ from decimal import Decimal
 from fractions import Fraction
 from typing import Any, NamedTuple
 
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -54,10 +60,12 @@ from app.db.models import (
     CandidateItem,
     CandidateItemTarget,
     CandidatePlan,
+    RosterAssignment,
     Shift,
     SoftConstraintPolicy,
     Staff,
     StaffingCase,
+    Ward,
 )
 from app.domain.constraints.codes import OFFER_LIMIT_REACHED, HardRuleCode
 from app.domain.constraints.context import local_day, projected_consecutive_shifts, week_start
@@ -65,6 +73,7 @@ from app.domain.constraints.penalties import SoftWeights
 from app.domain.constraints.score_breakdown import display_number, exact_fields, weights_snapshot
 from app.domain.constraints.soft_metrics import SoftMetrics
 from app.domain.enums import (
+    COMMITTED_ROSTER_STATUSES,
     CandidateSource,
     SolverStatus,
 )
@@ -76,6 +85,7 @@ from app.services import (
     gap_service,
     hard_rule_service,
     policy_service,
+    roster_time_service,
     working_time_service,
 )
 from app.services.gap_service import CaseGap
@@ -112,7 +122,8 @@ def create_plan(db: Session, case: StaffingCase) -> PlanResult:
     soft_policy = policy_service.get_soft_constraint_policy(db)
     weights = _weights(soft_policy)
 
-    pool = sorted(db.scalars(select(Staff.id).where(Staff.home_ward_id == shift.ward_id)))
+    sources = _pool(db, shift)
+    pool = sorted(sources)
     # Wait for any round that is planning the same people to commit (see Rules)
     hard_rule_service.lock_staff(db, pool)
     checks = hard_rule_service.check_staff(db, shift=shift, staff_ids=pool)
@@ -139,7 +150,7 @@ def create_plan(db: Session, case: StaffingCase) -> PlanResult:
             ),
             metrics=SoftMetrics(
                 staff_id=staff_id,
-                source=CandidateSource.SAME_WARD,
+                source=sources[staff_id],
                 hours_this_week=captured[staff_id].values.hours_this_week,
                 projected_consecutive_shifts=projected_consecutive_shifts(checks[staff_id].context),
                 overtime_hours=captured[staff_id].values.overtime_hours,
@@ -234,6 +245,46 @@ def record_item_targets(db: Session, item: CandidateItem, credits: Iterable[Targ
         for credit in credits
     )
     db.flush()
+
+
+def _pool(db: Session, shift: Shift) -> dict[int, CandidateSource]:
+    """Staff ID to source, in ID order, of everyone the Solver may consider (section 6.19).
+
+    The ward of the shift keeps all its people, so a same-ward person with a
+    conflict still reaches the Hard Rules and is skipped with a code. Other active
+    wards lend only people with no committed duty overlapping [start, end) by its
+    effective times, in any ward. Staff status is left to the Hard Rules.
+    """
+    overlapping_duty = (
+        select(RosterAssignment.id)
+        .join(Shift, Shift.id == RosterAssignment.shift_id)
+        .where(
+            RosterAssignment.staff_id == Staff.id,
+            RosterAssignment.status.in_(list(COMMITTED_ROSTER_STATUSES)),
+            roster_time_service.start_at() < shift.end_at,
+            roster_time_service.end_at() > shift.start_at,
+        )
+    )
+    rows = db.execute(
+        select(Staff.id, Staff.home_ward_id, Ward.is_float_pool)
+        .join(Ward, Ward.id == Staff.home_ward_id)
+        .where(
+            or_(
+                Staff.home_ward_id == shift.ward_id,
+                Ward.is_active & ~exists(overlapping_duty),
+            )
+        )
+        .order_by(Staff.id)
+    )
+    sources: dict[int, CandidateSource] = {}
+    for staff_id, home_ward_id, is_float_pool in rows:
+        if home_ward_id == shift.ward_id:
+            sources[staff_id] = CandidateSource.SAME_WARD
+        elif is_float_pool:
+            sources[staff_id] = CandidateSource.FLOAT_POOL
+        else:
+            sources[staff_id] = CandidateSource.CROSS_WARD
+    return sources
 
 
 def _skip_reason(check: CandidateCheck, case_gap: CaseGap, *, at_limit: bool) -> str | None:

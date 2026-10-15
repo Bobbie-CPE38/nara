@@ -40,6 +40,7 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "updated_at": (DateTime, NOT_NULL),
         "deactivated_at": (DateTime, NULL),
         "is_active": (Boolean, NOT_NULL),
+        "is_float_pool": (Boolean, NOT_NULL),
     },
     "skill": {
         "id": (BigInteger, NOT_NULL),

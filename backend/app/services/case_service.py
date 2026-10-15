@@ -296,12 +296,13 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
         return []
     plan_id = plan.id
     items = db.execute(
-        select(CandidateItem, Staff.first_name, Staff.last_name)
+        select(CandidateItem, Staff.first_name, Staff.last_name, Ward.id, Ward.name)
         .join(Staff, Staff.id == CandidateItem.staff_id)
+        .join(Ward, Ward.id == Staff.home_ward_id)
         .where(CandidateItem.plan_id == plan_id)
         .order_by(CandidateItem.rank, CandidateItem.id)
     ).all()
-    scores = _scores(plan, [item.staff_id for item, _, _ in items])
+    scores = _scores(plan, [item.staff_id for item, *_ in items])
 
     # The newest outreach of each item: ascending id, so a later row overwrites
     latest_offers = {
@@ -337,7 +338,7 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
     }
     assigned = case_facts_service.assigned_staff_ids(db, case_id)
     pending = case_facts_service.pending_staff_ids(db, case_id)
-    sources = _source_assignments(db, [item.source_assignment_id for item, _, _ in items])
+    sources = _source_assignments(db, [item.source_assignment_id for item, *_ in items])
     return [
         CandidateView(
             candidate_item_id=item.id,
@@ -346,6 +347,8 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
             first_name=first_name,
             last_name=last_name,
             source=item.source,
+            home_ward_id=home_ward_id,
+            home_ward_name=home_ward_name,
             outreach_status=outreach_status.get(item.id),
             stage=_stage(
                 outreach_status=outreach_status.get(item.id),
@@ -366,7 +369,7 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
                 else None
             ),
         )
-        for item, first_name, last_name in items
+        for item, first_name, last_name, home_ward_id, home_ward_name in items
     ]
 
 

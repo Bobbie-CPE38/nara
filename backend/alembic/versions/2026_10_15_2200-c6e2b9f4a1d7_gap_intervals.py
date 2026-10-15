@@ -1,7 +1,7 @@
 """Gap time slices (round 4 PR T3).
 
 Revision ID: c6e2b9f4a1d7
-Revises: b8d4f1a6c2e9
+Revises: c4e8a2f6d1b3
 
 STAFFING_GAP gets evaluated_from, and three child tables hold the headcount,
 role and skill counts of each time slice of a gap. No backfill: a gap without
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "c6e2b9f4a1d7"
-down_revision = "b8d4f1a6c2e9"
+down_revision = "c4e8a2f6d1b3"
 branch_labels = None
 depends_on = None
 
