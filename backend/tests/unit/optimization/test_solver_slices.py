@@ -253,7 +253,7 @@ def test_the_partial_plan_does_not_put_a_reserve_place_before_a_real_shortage() 
     result = go(candidates, intervals)
 
     assert result.status is SolverStatus.OPTIMAL
-    assert result.partial is True
+    assert result.partial is False  # the group closes the actual gap
     assert set(result.first_wave) == {2, 3}
     assert closes_the_gap(result, candidates, intervals)
 
@@ -271,8 +271,22 @@ def test_the_partial_plan_does_not_put_reserve_headcount_before_an_uncovered_sli
     result = go(candidates, intervals)
 
     assert result.status is SolverStatus.OPTIMAL
-    assert result.partial is True
+    assert result.partial is False  # the group closes the actual gap
     assert set(result.first_wave) == {2, 3}
+    assert closes_the_gap(result, candidates, intervals)
+
+
+def test_a_missing_reserve_alone_does_not_make_the_plan_partial() -> None:
+    # Gap: 1 RN. Two RN on one source shift: the wave target of 2 cannot be met, but one
+    # person closes the actual gap, so nothing real is missing
+    candidates = [cand(1, shift=7), cand(2, shift=7, worse=True)]
+    intervals = [piece(0, 8, roles={RN: 1})]
+
+    result = go(candidates, intervals)
+
+    assert result.status is SolverStatus.OPTIMAL
+    assert result.partial is False
+    assert set(result.first_wave) == {1}
     assert closes_the_gap(result, candidates, intervals)
 
 

@@ -42,11 +42,12 @@ round 2 baseline must pass unchanged).
 Candidates that share a source_shift_id are exclusive: sum(x) <= 1 (R4-Q25). With
 that constraint "cover every target" can be impossible, so a stage 1 INFEASIBLE is
 no longer a model bug there: the partial plan of R4-Q37/R4-Q39 runs instead, with
-`partial` set on the result. A fresh model gets a shortage variable per need of the
-actual gap (the 10% reserve of the wave target is not counted: a missing reserve place
-must not outweigh a real shortage), and the rounds fix in turn the headcount, then
-role, then skill shortage in person-seconds; the penalty, count and staff ID stages
-follow with the shortages fixed. A group that covers nothing gives INFEASIBLE (no plan). Without any
+`partial` set on the result when the group still misses part of the actual gap. A
+fresh model gets a shortage variable per need of the actual gap (the 10% reserve of
+the wave target is not counted: a missing reserve place must not outweigh a real
+shortage), and the rounds fix in turn the headcount, then role, then skill shortage
+in person-seconds; the penalty, count and staff ID stages follow with the shortages
+fixed. A group that covers nothing gives INFEASIBLE (no plan). Without any
 exclusive constraint selecting everyone satisfies the model, so INFEASIBLE from
 CP-SAT is still MODEL_INVALID.
 
@@ -438,6 +439,16 @@ def _cheapest_covering_group(
     def shortage_of(need: _Need) -> int:
         return max(0, need.target - sum(kept[index] for index in need.holders))
 
+    def flagged(selection: _Selection) -> _Selection:
+        """partial only when the group still misses part of the actual gap.
+
+        The partial path also runs when just the reserve cannot be filled; a group that
+        closes the real gap is an ordinary plan (R4-Q39). Without a group nothing is shown.
+        """
+        if selection.group is None:
+            return replace(selection, partial=True)
+        return replace(selection, partial=any(shortage_of(need) > 0 for need in gap_needs))
+
     def partial_plan() -> _Selection:
         """No group covers every target: cover as much as possible (R4-Q37/R4-Q39).
 
@@ -464,7 +475,7 @@ def _cheapest_covering_group(
             )
             stop = run(total)
             if stop is not None:
-                return replace(stop, partial=True)
+                return flagged(stop)
             model.add(
                 total
                 == sum(
@@ -474,7 +485,7 @@ def _cheapest_covering_group(
         if all(shortage_of(need) == need.target for need in gap_needs):
             # The best group covers nothing: there is no plan to offer
             return _Selection(None, SolverStatus.INFEASIBLE, partial=True)
-        return replace(stages(cost_expr, count_expr), partial=True)
+        return flagged(stages(cost_expr, count_expr))
 
     selection = stages(cost_sum, count_sum)
     if first_round_infeasible and exclusive:
