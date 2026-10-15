@@ -68,23 +68,32 @@ _ON_ROSTER_STATUSES = (RosterStatus.ASSIGNED, RosterStatus.COMPLETED)
 def get_case_fillers(
     db: Session, case_id: int, *, include_reserves: bool = False
 ) -> list[GapFiller]:
-    """People already credited to this case; Wave also counts accepted reserves."""
+    """People already credited to this case; Wave also counts accepted reserves.
+
+    Timed like load_case_facts() (round 4 PR T4): each filler carries the time they
+    cover. An assigned person has the roster interval, a pending or reserve one
+    the cover window of their candidate item; None means the whole shift. A person
+    with two intervals appears twice with the same staff_id, and the same
+    person, start and end appear once.
+    """
     with db.no_autoflush:
-        staff_ids = _assigned_staff_ids(db, case_id) | _pending_staff_ids(db, case_id)
-        if include_reserves:
-            staff_ids.update(
-                db.scalars(
-                    select(CandidateItem.staff_id)
-                    .join(
-                        CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id
-                    )
-                    .where(
-                        CandidateOutreach.case_id == case_id,
-                        CandidateOutreach.status == OutreachStatus.ACCEPTED,
-                    )
-                )
-            )
-        return list(_fillers(db, staff_ids).values())
+        case = db.get(StaffingCase, case_id)
+        if case is None:
+            return []
+        assigned_ids = _assigned_staff_ids(db, case_id)
+        pending_ids = _pending_staff_ids(db, case_id)
+        reserve_spans = _reserve_spans(db, case_id) if include_reserves else []
+        reserve_ids = {staff_id for staff_id, _, _ in reserve_spans}
+        fillers = _fillers(db, assigned_ids | pending_ids | reserve_ids)
+        timed = [
+            *_timed(fillers, assigned_ids, _assigned_spans(db, case, assigned_ids)),
+            *_timed(fillers, pending_ids, _pending_spans(db, case_id)),
+            *_timed(fillers, reserve_ids, reserve_spans),
+        ]
+        unique: dict[tuple[int, datetime | None, datetime | None], GapFiller] = {}
+        for filler in timed:
+            unique.setdefault((filler.staff_id, filler.start_at, filler.end_at), filler)
+        return list(unique.values())
 
 
 def load_case_facts(db: Session, case: StaffingCase) -> CaseFacts:
@@ -368,6 +377,21 @@ def _pending_spans(db: Session, case_id: int) -> list[_Span]:
                 ApprovalRequest.case_id == case_id,
                 ApprovalRequest.is_pending.is_(True),
                 accepted_offer_for_request(),
+            )
+        )
+    ]
+
+
+def _reserve_spans(db: Session, case_id: int) -> list[_Span]:
+    """Cover window of each accepted offer of the case; NULL means the whole shift."""
+    return [
+        (staff_id, start_at, end_at)
+        for staff_id, start_at, end_at in db.execute(
+            select(CandidateItem.staff_id, CandidateItem.cover_start_at, CandidateItem.cover_end_at)
+            .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+            .where(
+                CandidateOutreach.case_id == case_id,
+                CandidateOutreach.status == OutreachStatus.ACCEPTED,
             )
         )
     ]
