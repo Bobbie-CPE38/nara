@@ -548,3 +548,40 @@ def test_overlong_reason_does_not_override_decision_error_order(
     assert request_row.is_pending == pending_before
     assert request_row.is_approved is None and request_row.reason is None
     assert db.scalar(select(AuditLog.id)) is None
+
+
+def test_roster_interval_validation_failure_returns_controlled_failed_result(
+    client: TestClient, production_seeded: Session, request_row: ApprovalRequest
+) -> None:
+    from app.db.models import RosterAssignment
+    from app.domain.enums import AssignmentType
+
+    with patch(
+        "app.services.roster_time_service.effective_interval",
+        side_effect=ValueError("The effective roster interval must have start before end"),
+    ) as validate:
+        response = client.post(_url(request_row), headers=HEADERS, json={"approved": True})
+
+    validate.assert_called_once()
+    assert response.status_code == 200
+    assert response.json() == {
+        "approval_id": request_row.id,
+        "is_approved": True,
+        "case_id": request_row.case_id,
+        "case_status": "FAILED",
+    }
+    production_seeded.expire_all()
+    assert request_row.is_approved is True
+    assert request_row.is_pending is False
+    assert (
+        production_seeded.scalar(
+            select(func.count())
+            .select_from(RosterAssignment)
+            .where(RosterAssignment.assignment_type == AssignmentType.REPLACEMENT)
+        )
+        == 0
+    )
+    failure = production_seeded.scalars(
+        select(AuditLog).where(AuditLog.action == AuditAction.WORKFLOW_FAILED)
+    ).one()
+    assert failure.payload["error_type"] == "ValueError"

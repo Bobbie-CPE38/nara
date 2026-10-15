@@ -12,6 +12,8 @@ Rules:
     changes first.
   * Only roster rows in COMMITTED_ROSTER_STATUSES count. Day and week are the
     definitions of domain.constraints.context (Q14), taken at captured_at.
+    Endpoints use actual times with independent Shift fallbacks. Contiguous rows
+    joined by recorded transfer links count as one duty in the originating day/week.
   * overtime_hours is overtime already worked: the ATTENDANCE rows of the week
     (by check_in_at) that are summarised, meaning check_out_at, work_minutes and
     overtime_minutes are all set.
@@ -33,10 +35,15 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Attendance, RosterAssignment, Shift, StaffWorkingTimeSnapshot
 from app.domain.constraints.context import ShiftSlot, week_start
+from app.domain.constraints.roster_duties import DutySegment, joined_duties
 from app.domain.constraints.soft_metrics import WorkingTime, working_time_at
 from app.domain.enums import COMMITTED_ROSTER_STATUSES, ShiftType
+from app.services import roster_time_service
 
 _RUN_LOOKBACK = timedelta(days=31)
+# A duty crossing Sunday midnight needs its destination segment in the read too.
+# The hard-rule roster loader likewise assumes individual shifts are at most 24h.
+_DUTY_LOOKAHEAD = timedelta(days=1)
 
 
 class CapturedWorkingTime(NamedTuple):
@@ -55,20 +62,30 @@ def capture(
     week = week_start(captured_at)
     week_end = week + timedelta(days=7)
 
-    shifts: dict[int, list[ShiftSlot]] = {}
+    segments: dict[int, list[DutySegment]] = {}
     night_shift_ids: set[int] = set()
     roster_rows = db.execute(
-        select(RosterAssignment.staff_id, Shift.id, Shift.start_at, Shift.end_at, Shift.shift_type)
+        select(
+            RosterAssignment.id,
+            RosterAssignment.staff_id,
+            RosterAssignment.transferred_from_assignment_id,
+            Shift.id,
+            roster_time_service.start_at(),
+            roster_time_service.end_at(),
+            Shift.shift_type,
+        )
         .join(Shift, Shift.id == RosterAssignment.shift_id)
         .where(
             RosterAssignment.staff_id.in_(staff_ids),
             RosterAssignment.status.in_(list(COMMITTED_ROSTER_STATUSES)),
-            Shift.end_at > week - _RUN_LOOKBACK,
-            Shift.start_at < week_end,
+            roster_time_service.end_at() > week - _RUN_LOOKBACK,
+            roster_time_service.start_at() < week_end + _DUTY_LOOKAHEAD,
         )
     )
-    for staff_id, shift_id, start_at, end_at, shift_type in roster_rows:
-        shifts.setdefault(staff_id, []).append(ShiftSlot(shift_id, start_at, end_at))
+    for assignment_id, staff_id, source_id, shift_id, start_at, end_at, shift_type in roster_rows:
+        segments.setdefault(staff_id, []).append(
+            DutySegment(assignment_id, ShiftSlot(shift_id, start_at, end_at), source_id)
+        )
         if shift_type is ShiftType.NIGHT:
             night_shift_ids.add(shift_id)
 
@@ -90,7 +107,7 @@ def capture(
     for staff_id in sorted(set(staff_ids)):
         values = working_time_at(
             captured_at,
-            shifts=shifts.get(staff_id, ()),
+            shifts=joined_duties(segments.get(staff_id, ())),
             night_shift_ids=night_shift_ids,
             overtime_minutes=overtime_minutes.get(staff_id, 0),
         )

@@ -26,7 +26,9 @@
 >
 > * `a9c3e7f1b5d2` (รอบ 4 PR T1) `CANDIDATE_ITEMS.cover_start_at`, `cover_end_at`, `source_assignment_id` พร้อม CHECK สองข้อ
 >
-> **Migration head ปัจจุบัน: `a9c3e7f1b5d2`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `b8d4f1a6c2e9` (รอบ 4 PR T2) เวลาจริงและลิงก์การย้ายใน `ROSTER_ASSIGNMENT`
+>
+> **Migration head ปัจจุบัน: `b8d4f1a6c2e9`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -266,9 +268,14 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `status` | text | NOT NULL |  | `RosterStatus` |
 | `assignment_type` | text | NOT NULL |  | `AssignmentType` |
 | `candidate_source` | text | NULL |  | `CandidateSource` |
+| `actual_start_at` | timestamptz | NULL |  | ว่าง = `SHIFT.start_at` |
+| `actual_end_at` | timestamptz | NULL |  | ว่าง = `SHIFT.end_at`; CHECK start < end เมื่อมีทั้งคู่ |
+| `transferred_from_assignment_id` | bigint | NULL | FK ROSTER_ASSIGNMENT.id, UNIQUE | แถวต้นทางของการย้าย |
 | `created_at` | timestamptz | NOT NULL |  |  |
 | `updated_at` | timestamptz | NOT NULL |  |  |
 
+
+CHECK ของ `actual_start_at` / `actual_end_at` ตรวจได้เฉพาะเมื่อมีทั้งคู่ ส่วน mixed NULL ต้องตรวจปลายช่วงหลัง fallback กับเวลา Shift ผ่าน `roster_time_service.effective_interval()` ใน writer (replacement เรียกแล้ว; C2/C3 ต้องใช้ด้วยหลังล็อก Shift) การเขียน SQL โดยตรงไม่ผ่านตัวตรวจนี้
 
 ### 15. CANDIDATE_PLANS
 
@@ -734,12 +741,10 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ## Schema ที่รอบ 4 จะเพิ่ม (ยังไม่มี Migration)
 
-ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `a9c3e7f1b5d2`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge คาดว่า T1 → T2 → T3 → C1 → S
+ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `b8d4f1a6c2e9`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge คาดว่า T1 → T2 → T3 → C1 → S
 
 | ตาราง | คอลัมน์ | Type | Null | หมายเหตุ | PR |
 | :-- | :-- | :-- | :-- | :-- | :-- |
-| `ROSTER_ASSIGNMENT` | `actual_start_at`, `actual_end_at` | timestamptz | NULL | ว่าง = ตามเวลาของเวร CHECK start < end เมื่อมีทั้งคู่ | T2 |
-| `ROSTER_ASSIGNMENT` | `transferred_from_assignment_id` | bigint | NULL | FK ROSTER_ASSIGNMENT.id UNIQUE แถวต้นทางของการย้าย | T2 |
 | `STAFFING_GAP` | `evaluated_from` | timestamptz | NULL | `max(Backend Clock ตอนประเมิน, เวลาเริ่มเวร)` ว่างสำหรับแถวก่อนรอบ 4 | T3 |
 | `STAFFING_GAP_INTERVAL` (ใหม่) | `id`, `gap_id`, `start_at`, `end_at`, `required_count`, `current_count`, `gap_count` | | NOT NULL | หนึ่งแถวต่อช่วงที่แบ่งตามเวลาที่มีคนเข้าหรือออกจริง ช่วง `[start_at, end_at)` | T3 |
 | `STAFFING_GAP_ROLE_INTERVAL` (ใหม่) | เหมือนข้างบน และ `role_id` | | NOT NULL | | T3 |

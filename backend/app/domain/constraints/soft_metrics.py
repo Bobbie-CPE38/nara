@@ -81,7 +81,8 @@ def working_time_at(
 ) -> WorkingTime:
     """Working time of one person as of `moment`.
 
-    shifts: the person's committed shifts. Repeated rows of one shift count once.
+    shifts: committed duty intervals. Identical intervals count once; distinct
+    intervals on the same shift remain separate unless joined by a transfer link.
     overtime_minutes: overtime the person already worked in the week of `moment`.
 
     hours_today and hours_this_week add the whole shifts that start on that
@@ -96,7 +97,7 @@ def working_time_at(
     if moment.utcoffset() is None:
         raise ValueError("moment must be timezone-aware")
     distinct = sorted(
-        {shift.shift_id: shift for shift in shifts}.values(),
+        set(shifts),
         key=lambda shift: (shift.start_at, shift.end_at, shift.shift_id),
     )
     today, week = local_day(moment), week_start(moment)
