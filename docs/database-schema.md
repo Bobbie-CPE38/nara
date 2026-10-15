@@ -32,7 +32,9 @@
 >
 > * `c6e2b9f4a1d7` (รอบ 4 PR T3) `STAFFING_GAP.evaluated_from` และตาราง Gap รายช่วง `STAFFING_GAP_INTERVAL`, `STAFFING_GAP_ROLE_INTERVAL`, `STAFFING_GAP_SKILL_INTERVAL` ไม่ Backfill
 >
-> **Migration head ปัจจุบัน: `c6e2b9f4a1d7`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `f2a7c9d4e6b8` (รอบ 4 PR S) `APPROVAL_WARD_DECISION` และ `APPROVAL_POLICY.supervisor_after_seconds`
+>
+> **Migration head ปัจจุบัน: `f2a7c9d4e6b8`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -423,6 +425,7 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | `id` | bigint | NOT NULL | PK |  |
 | `ratio` | numeric | NOT NULL |  | จำนวนคำขอรออนุมัติที่ Head Nurse หนึ่งคนรับไหว ใช้คำนวณเพดานของ Auto-Approval (`docs/workflow.md` ข้อ 6.22, รอบ 4 PR A) Seed = 2 ความหมายเดิม (ตัวคูณ Ratio ผู้ป่วยต่อพยาบาล) ยกเลิกในรอบ 4 |
 | `approval_timeout_seconds` | integer | NOT NULL | CHECK > 0 | Seed = 900; ใช้ตั้งเส้นตายตอนสร้างคำขอ PR T |
+| `supervisor_after_seconds` | integer | NOT NULL | CHECK > 0 และ < approval_timeout_seconds | Seed = 600; Supervisor กดแทนได้ตั้งแต่ requested_at + ค่านี้ (PR S) |
 | `incoming_count` | integer | NOT NULL |  | เพดานสูงสุดของคิวคำขอรออนุมัติต่อหอ เพดานของ Auto-Approval คือค่าที่ต่ำกว่าระหว่าง `ratio` × จำนวน Head Nurse ที่ Active ของหอ กับค่านี้ (`docs/workflow.md` ข้อ 6.22) Seed = 10 |
 | `version` | text | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |
@@ -624,6 +627,26 @@ UNIQUE `(gap_id, skill_id, start_at)`
 | `requested_at` | timestamptz | NOT NULL |  |  |
 
 
+### 28.1 APPROVAL_WARD_DECISION (PR S)
+
+หนึ่งแถวต่อการตัดสินของคนในแต่ละฝั่ง คำขอหอเดียวใช้ DESTINATION; การย้ายใช้ DESTINATION และ SOURCE ตามหอของเวรต้นทาง ไม่ใช่หอบ้านของผู้สมัคร UNIQUE (`approval_request_id`, `side`) คำขอก่อน S ไม่ Backfill แถวประวัติ
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK | |
+| `approval_request_id` | bigint | NOT NULL | FK APPROVAL_REQUEST.id | |
+| `ward_id` | bigint | NOT NULL | FK WARD.id | |
+| `side` | text | NOT NULL | UNIQUE ร่วม | `ApprovalSide`: DESTINATION / SOURCE |
+| `approver_id` | bigint | NOT NULL | FK STAFF.id | ผู้กดจริง |
+| `decided_as` | text | NOT NULL | | `ApproverCapacity`: HEAD_NURSE / SUPERVISOR |
+| `is_approved` | boolean | NOT NULL | | |
+| `reason` | text | NULL | | เหตุผลของฝั่งนั้น |
+| `decided_at` | timestamptz | NOT NULL | | |
+
+การอนุมัติฝั่งแรกไม่เปลี่ยนผลรวมของ APPROVAL_REQUEST (`is_pending=true`, `is_approved/approver_id/decided_at=null`) ฝั่งสุดท้ายหรือการปฏิเสธจึงเขียนผลรวม Timeout คงประวัติฝั่งที่กดแล้ว Auto-Approval ไม่เขียนตารางนี้
+
+Migration ตั้ง delay ของ Policy เดิมเป็น `min(600, approval_timeout_seconds - 1)` เพื่อรองรับ Policy ที่สั้นกว่า 600 วินาที ถ้า timeout <= 1 หยุดก่อน DDL ต้องแก้ Policy ก่อนอัปเกรด ไม่เปลี่ยนเส้นตายของคำขอเดิม `supervisor_from` คำนวณจากเวลาสร้างกับ Policy ปัจจุบันเมื่ออ่าน
+
 ### 29. STRUCTURED_HANDOVER
 
 
@@ -770,6 +793,7 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `Channel` | CANDIDATE_OUTREACH.channel | `LINE` |
 | `ValidationResult` | ผลตรวจรายข้อใน validation_snapshot | `PASS`, `FAIL` |
 | `ApprovalMode` | APPROVAL_REQUEST.approval_mode | `MANUAL`, `AUTO` |
+| `ApprovalOutcome` | API การตัดสิน (ไม่เก็บเป็นคอลัมน์) | `WAITING_OTHER_WARD`, `ASSIGNED`, `REJECTED`, `TRANSFER_CANCELLED`, `EXECUTION_FAILED` |
 | `ApprovalSide` | APPROVAL_WARD_DECISION.side (รอบ 4 PR S) | `DESTINATION`, `SOURCE` |
 | `ApproverCapacity` | APPROVAL_WARD_DECISION.decided_as (รอบ 4 PR S) | `HEAD_NURSE`, `SUPERVISOR` |
 | `TransferFailureReason` | payload `reason` ของ `TRANSFER_CHECK_FAILED` (รอบ 4 PR C2) | `SOURCE_COVERAGE_LOST`, `DESTINATION_WINDOW_PASSED`, `HARD_RULE_FAILED`, `SOURCE_SHIFT_STARTED` (ใช้เฉพาะ C2 และ C3 ลบออก R4-Q43) |
@@ -799,16 +823,11 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 ---
 
 
-## Schema ที่รอบ 4 จะเพิ่ม (ยังไม่มี Migration)
+## Schema รอบ 4
 
-ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `c6e2b9f4a1d7`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge ลำดับจริงจนถึงตอนนี้คือ T1 → T2 → C1 → T3 ดังนั้น S ต้อง Rebase ให้ต่อจาก `c6e2b9f4a1d7`
+Schema ที่มี Migration ของรอบ 4 ทำครบถึง S แล้วตามรายการบนสุด: T1 → T2 → C1 → T3 → S (`f2a7c9d4e6b8`) Migration ที่เพิ่มภายหลังต้องต่อจาก head ของ staging จริงและรักษา head เดียว
 
-| ตาราง | คอลัมน์ | Type | Null | หมายเหตุ | PR |
-| :-- | :-- | :-- | :-- | :-- | :-- |
-| `APPROVAL_WARD_DECISION` (ใหม่) | `id`, `approval_request_id`, `ward_id`, `side` (`ApprovalSide`), `approver_id`, `decided_as` (`ApproverCapacity`), `is_approved`, `reason` (NULL), `decided_at` | | NOT NULL ยกเว้น `reason` | UNIQUE `(approval_request_id, side)` | S |
-| `APPROVAL_POLICY` | `supervisor_after_seconds` | integer | NOT NULL | Seed = 600 CHECK > 0 และ < `approval_timeout_seconds` | S |
-
-Role `SUPERVISOR` เป็นแถวข้อมูลใน `ROLE` ไม่มี Migration Seed เพิ่มใน PR W4
+Role `SUPERVISOR` เป็นแถวข้อมูลใน `ROLE` ไม่มี Migration PR S เพิ่ม Role (id 3) ใน Seed แล้ว PR W4 ใช้ Role นี้เพิ่มผู้ใช้งาน Supervisor และข้อมูลหลายหอ
 
 ## Constraint ที่ควรใส่ใน Migration แรก
 

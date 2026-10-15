@@ -2,26 +2,30 @@
 
 The orchestrator owns decision commits."""
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from fractions import Fraction
 from typing import Any
 
 from sqlalchemy import or_, select
-from sqlalchemy.engine import Connection, Transaction
-from sqlalchemy.orm import Session
+from sqlalchemy.engine import Connection, RowMapping, Transaction
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql import ColumnElement, Select
 
 from app.core import clock
 from app.core.constants import HEAD_NURSE_ROLE, MAX_APPROVAL_REASON_LENGTH, SUPERVISOR_ROLE
 from app.db.models import (
     ApprovalRequest,
+    ApprovalWardDecision,
+    AuditLog,
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
     Role,
+    RosterAssignment,
     Shift,
+    Staff,
     StaffingCase,
     Ward,
 )
@@ -30,16 +34,19 @@ from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     ActorName,
     ApprovalMode,
+    ApprovalOutcome,
+    ApprovalSide,
+    ApproverCapacity,
     AuditAction,
     CandidateSource,
     CaseStatus,
     EntityType,
     OutreachStatus,
 )
-from app.domain.staffing.ward_authority import manages_ward
-from app.schemas.approval import AutoApprovedApproval, PendingApproval
+from app.schemas.approval import ApprovalDecisionResult, AutoApprovedApproval, PendingApproval
 from app.services import (
     actor_service,
+    approval_wards,
     audit_service,
     case_facts_service,
     hard_rule_service,
@@ -152,6 +159,7 @@ def decide(
     actor_id: int,
     approved: bool,
     reason: str | None = None,
+    side: str | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase]:
     """Decide one candidate and execute immediately, then recompute the case.
 
@@ -175,6 +183,7 @@ def decide(
         actor_id=actor_id,
         approved=approved,
         reason=reason,
+        side=side,
     )
 
 
@@ -219,11 +228,18 @@ def _decide(
     approved: bool,
     reason: str | None = None,
     batch: AutoApprovalBatch | None = None,
+    side: str | None = None,
     notifications: list[tuple[int, int, tuple[int, ...]]] | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase]:
     """Shared lock, validation, assignment and audit path for both decision entry points."""
     request, case, item, offers = lock_approval_attempt(
-        db, approval_id, role_id, home_ward_id, lock_ward=True, restart_batch=batch is not None
+        db,
+        approval_id,
+        role_id,
+        home_ward_id,
+        lock_ward=True,
+        restart_batch=batch is not None,
+        side=side,
     )
     if batch is not None:
         target_shift = db.get(Shift, case.shift_id)
@@ -255,6 +271,27 @@ def _decide(
     }
     if clock.now() >= request.expires_at:
         raise ApprovalNotPendingError("The approval request has expired")
+    selected_side = None
+    if batch is None:
+        assert role_id is not None
+        selected_side = approval_wards.select_side(
+            db,
+            request,
+            item,
+            role_id=role_id,
+            home_ward_id=home_ward_id,
+            side=side,
+        )
+        if (
+            db.scalar(
+                select(ApprovalWardDecision.id).where(
+                    ApprovalWardDecision.approval_request_id == request.id,
+                    ApprovalWardDecision.side == selected_side,
+                )
+            )
+            is not None
+        ):
+            raise ApprovalNotPendingError("This ward side has already decided")
     stored_reason = reason if approved or reason is None else reason.strip()
     if stored_reason is not None and len(stored_reason) > MAX_APPROVAL_REASON_LENGTH:
         raise InvalidApprovalReasonError(
@@ -262,6 +299,54 @@ def _decide(
         )
     if not approved and not stored_reason:
         raise InvalidApprovalReasonError("A rejection requires a nonblank reason")
+    if selected_side is not None:
+        assert staff_id is not None
+        role_name = db.scalar(select(Role.name).where(Role.id == role_id))
+        capacity = (
+            ApproverCapacity.SUPERVISOR
+            if role_name == SUPERVISOR_ROLE
+            else ApproverCapacity.HEAD_NURSE
+        )
+        wards = approval_wards.required_wards(db, item)
+        db.add(
+            ApprovalWardDecision(
+                approval_request_id=request.id,
+                ward_id=wards[selected_side],
+                side=selected_side,
+                approver_id=staff_id,
+                decided_as=capacity,
+                is_approved=approved,
+                reason=stored_reason,
+                decided_at=clock.now(),
+            )
+        )
+        db.flush()
+        approved_sides = set(
+            db.scalars(
+                select(ApprovalWardDecision.side).where(
+                    ApprovalWardDecision.approval_request_id == request.id,
+                    ApprovalWardDecision.is_approved.is_(True),
+                )
+            )
+        )
+        if approved and not set(wards) <= approved_sides:
+            assert actor_id is not None
+            audit_service.log(
+                db,
+                case_id=case.id,
+                actor_id=actor_id,
+                action=AuditAction.APPROVAL_WARD_APPROVED,
+                entity_type=EntityType.APPROVAL_REQUEST,
+                entity_id=request.id,
+                payload={
+                    "approval_id": request.id,
+                    "ward_id": wards[selected_side],
+                    "side": selected_side.value,
+                    "decided_as": capacity.value,
+                },
+            )
+            db.commit()
+            return request, case
     outreach = own[0]
     if batch is not None:
         request.approval_mode = ApprovalMode.AUTO
@@ -357,6 +442,7 @@ def lock_approval_attempt(
     *,
     lock_ward: bool = False,
     restart_batch: bool = False,
+    side: str | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase, CandidateItem, list[CandidateOutreach]]:
     """Acquire the full lock set before writes; restart if an offer appeared while waiting.
 
@@ -383,28 +469,58 @@ def lock_approval_attempt(
             lock_ward_row(db, ward_id)
         # No application path moves a shift to another ward, so the ward read
         # before acquiring this Shift lock remains valid for the decision
-        shift = db.scalar(
-            select(Shift)
-            .where(Shift.id == initial_case.shift_id)
-            .with_for_update(key_share=True)
-            .execution_options(populate_existing=True)
+        item_hint = db.get(CandidateItem, initial.candidate_item_id)
+        if item_hint is None:
+            raise LookupError(f"No candidate item {initial.candidate_item_id}")
+        shift_ids = {initial_case.shift_id}
+        if item_hint.source_assignment_id is not None:
+            source_shift_id = db.scalar(
+                select(RosterAssignment.shift_id).where(
+                    RosterAssignment.id == item_hint.source_assignment_id
+                )
+            )
+            if source_shift_id is None:
+                raise LookupError(f"No source assignment {item_hint.source_assignment_id}")
+            shift_ids.add(source_shift_id)
+        list(
+            db.scalars(
+                select(Shift)
+                .where(Shift.id.in_(shift_ids))
+                .order_by(Shift.id)
+                .with_for_update(key_share=True)
+                .execution_options(populate_existing=True)
+            )
         )
-        if shift is None:
-            raise LookupError(f"No shift {initial_case.shift_id}")
         request = db.scalars(
             select(ApprovalRequest)
             .where(ApprovalRequest.id == approval_id)
             .with_for_update(key_share=True)
             .execution_options(populate_existing=True)
         ).one()
-        if role_id is not None and role_id != request.required_approver_role:
-            raise ApproverRoleError("The staff member does not have the required approver role")
-        # Same rule as the manual exits of MANUAL_HANDOFF (section 6.12)
-        if role_id is not None and (
-            home_ward_id is None
-            or not manages_ward(home_ward_id=home_ward_id, ward_id=shift.ward_id)
-        ):
-            raise ApproverWardError("The staff member is not a head nurse of the shift's ward")
+        if role_id is not None:
+            role_name, allowed = approval_wards.authority(
+                db,
+                request,
+                item_hint,
+                role_id=role_id,
+                home_ward_id=home_ward_id,
+                side=side,
+            )
+            required_name = db.scalar(
+                select(Role.name).where(Role.id == request.required_approver_role)
+            )
+            if required_name != HEAD_NURSE_ROLE or role_name not in {
+                HEAD_NURSE_ROLE,
+                SUPERVISOR_ROLE,
+            }:
+                raise ApproverRoleError("Only a Head Nurse or Supervisor may decide")
+            if not allowed:
+                message = (
+                    "The staff member is not a head nurse of the shift's ward"
+                    if role_name == HEAD_NURSE_ROLE and item_hint.source_assignment_id is None
+                    else "The approver cannot decide this ward side yet"
+                )
+                raise ApproverWardError(message)
         if not request.is_pending:
             raise ApprovalNotPendingError(f"Approval request {approval_id} is not pending")
         item = db.get(CandidateItem, request.candidate_item_id)
@@ -492,7 +608,7 @@ def list_pending(db: Session) -> list[PendingApproval]:
             .where(*actionable_pending())
             .order_by(ApprovalRequest.id)
         ).mappings()
-        return [PendingApproval.model_validate(row) for row in rows]
+        return [PendingApproval.model_validate(row) for row in _enrich_wards(db, list(rows))]
 
 
 def actionable_pending() -> tuple[ColumnElement[bool], ...]:
@@ -555,4 +671,106 @@ def list_auto_approved(
         rows = db.execute(
             query.order_by(ApprovalRequest.decided_at.desc(), ApprovalRequest.id.desc()).limit(50)
         ).mappings()
-        return [AutoApprovedApproval.model_validate(row) for row in rows]
+        return [AutoApprovedApproval.model_validate(row) for row in _enrich_wards(db, list(rows))]
+
+
+def _enrich_wards(db: Session, rows: Sequence[RowMapping]) -> list[dict[str, Any]]:
+    """Enrich pending requests and approved AUTO history, never rejected history.
+
+    A general closed-request list must add REJECTED side status before reusing this helper.
+    """
+    if not rows:
+        return []
+    ids = [row["id"] for row in rows]
+    source_shift = aliased(Shift)
+    metadata = {
+        approval_id: (home, destination, source)
+        for approval_id, home, destination, source in db.execute(
+            select(ApprovalRequest.id, Staff.home_ward_id, Shift.ward_id, source_shift.ward_id)
+            .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
+            .join(Staff, Staff.id == CandidateItem.staff_id)
+            .join(Shift, Shift.id == CandidateItem.proposed_shift_id)
+            .outerjoin(RosterAssignment, RosterAssignment.id == CandidateItem.source_assignment_id)
+            .outerjoin(source_shift, source_shift.id == RosterAssignment.shift_id)
+            .where(ApprovalRequest.id.in_(ids))
+        )
+    }
+    decided = set(
+        db.execute(
+            select(
+                ApprovalWardDecision.approval_request_id,
+                ApprovalWardDecision.side,
+            ).where(
+                ApprovalWardDecision.approval_request_id.in_(ids),
+                ApprovalWardDecision.is_approved.is_(True),
+            )
+        )
+    )
+    delay = policy_service.get_approval_policy(db).supervisor_after_seconds
+    result = []
+    for row in rows:
+        home, destination, source = metadata[row["id"]]
+        wards = {ApprovalSide.DESTINATION: destination}
+        if source is not None:
+            wards[ApprovalSide.SOURCE] = source
+        result.append(
+            dict(row)
+            | {
+                "home_ward_id": home,
+                "source_ward_id": source,
+                "supervisor_from": row["requested_at"] + timedelta(seconds=delay),
+                "wards": [
+                    {
+                        "ward_id": ward_id,
+                        "side": side,
+                        "status": "APPROVED"
+                        if (row["id"], side) in decided
+                        or (not row["is_pending"] and row["approval_mode"] == ApprovalMode.AUTO)
+                        else "PENDING",
+                    }
+                    for side, ward_id in wards.items()
+                ],
+            }
+        )
+    return result
+
+
+def decision_result(
+    db: Session, *, request: ApprovalRequest, case: StaffingCase
+) -> ApprovalDecisionResult:
+    """Approval state and execution outcome are separate (workflow 9.6)."""
+    reason = None
+    failed_rules: list[str] = []
+    if request.is_pending:
+        outcome = ApprovalOutcome.WAITING_OTHER_WARD
+    elif request.is_approved is False:
+        outcome = ApprovalOutcome.REJECTED
+    elif case.status == CaseStatus.FAILED:
+        outcome = ApprovalOutcome.EXECUTION_FAILED
+    else:
+        outcome = ApprovalOutcome.ASSIGNED
+        # C2 writes this audit when execution's final transfer checks refuse a move.
+        # Read the raw reason so historical reason codes remain readable after C3.
+        failure = db.scalar(
+            select(AuditLog)
+            .where(
+                AuditLog.case_id == case.id,
+                AuditLog.action == AuditAction.TRANSFER_CHECK_FAILED,
+                AuditLog.payload["outreach_id"].as_integer() == request.outreach_id,
+            )
+            .order_by(AuditLog.id.desc())
+            .limit(1)
+        )
+        if failure is not None:
+            outcome = ApprovalOutcome.TRANSFER_CANCELLED
+            reason = failure.payload.get("reason")
+            failed_rules = failure.payload.get("failed_rules", [])
+    return ApprovalDecisionResult(
+        approval_id=request.id,
+        is_approved=request.is_approved,
+        case_id=case.id,
+        case_status=case.status,
+        outcome=outcome,
+        reason=reason,
+        failed_rules=failed_rules,
+    )

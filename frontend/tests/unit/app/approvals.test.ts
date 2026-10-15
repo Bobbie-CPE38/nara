@@ -380,3 +380,16 @@ describe("approvals page", () => {
     expect(await screen.findByText("Unknown demo user")).toBeTruthy();
   });
 });
+
+
+it("does not call a first-side approval a rejection or an assignment", async () => {
+  stubFetch([PENDING], {
+    body: { approval_id: 4, is_approved: null, case_id: 7,
+      case_status: "WAITING_APPROVAL", outcome: "WAITING_OTHER_WARD",
+      reason: null, failed_rules: [] },
+  });
+  render(createElement(Approvals));
+  fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+  expect(await screen.findByText("Approval 4: ward approved; waiting for the other ward.")).toBeTruthy();
+  expect(screen.queryByText(/Approval 4 rejected/)).toBeNull();
+});

@@ -143,6 +143,9 @@ def test_approval_fields_response_and_audit(
         "is_approved": True,
         "case_id": request_row.case_id,
         "case_status": "RESOLVED",
+        "outcome": "ASSIGNED",
+        "reason": None,
+        "failed_rules": [],
     }
     db = production_seeded
     db.expire_all()
@@ -281,18 +284,19 @@ def test_not_pending_is_409_before_answer(
 def test_role_and_approver_identity_follow_the_request_and_header(
     client: TestClient, production_seeded: Session, request_row: ApprovalRequest
 ) -> None:
-    request_row.required_approver_role = 1
-    production_seeded.commit()
-    response = client.post(
-        _url(request_row), headers={"X-Demo-User": "201"}, json={"approved": True}
-    )
+    db = production_seeded
+    _, headers = _add_other_ward_head_nurse(db)
+    staff_id = int(headers["X-Demo-User"])
+    db.get(Staff, staff_id).home_ward_id = 1
+    db.commit()
+    response = client.post(_url(request_row), headers=headers, json={"approved": True})
     assert response.status_code == 200
-    production_seeded.expire_all()
-    assert request_row.approver_id == 201
-    audit = production_seeded.scalars(
+    db.expire_all()
+    assert request_row.approver_id == staff_id
+    audit = db.scalars(
         select(AuditLog).where(AuditLog.action == AuditAction.APPROVAL_APPROVED)
     ).one()
-    assert audit.actor_id == actor_service.user_id(production_seeded, 201)
+    assert audit.actor_id == actor_service.user_id(db, staff_id)
 
 
 @pytest.mark.parametrize("reason", [None, "", "   "])
@@ -569,6 +573,9 @@ def test_roster_interval_validation_failure_returns_controlled_failed_result(
         "is_approved": True,
         "case_id": request_row.case_id,
         "case_status": "FAILED",
+        "outcome": "EXECUTION_FAILED",
+        "reason": None,
+        "failed_rules": [],
     }
     production_seeded.expire_all()
     assert request_row.is_approved is True
