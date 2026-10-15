@@ -5,14 +5,15 @@ import { type OfferApi, OfferList } from "@/components/outreach/OfferList";
 import { DEFAULT_POLL_INTERVAL_MS } from "@/hooks/usePolling";
 import { createDemoApi } from "@/lib/api";
 import {
-  DEMO_APPROVER_ID,
+  DEMO_APPROVERS,
   DEMO_SIGNED_IN_STORAGE_KEY as SIGNED_IN_STORAGE_KEY,
   DEMO_STAFF_IDS,
 } from "@/lib/demo";
 import type { Offer, OfferResponse } from "@/lib/types/outreach";
 
-// The head nurse approves; nurses are everyone else on the demo list.
-const NURSE_IDS = DEMO_STAFF_IDS.filter((id) => id !== DEMO_APPROVER_ID);
+// Head nurses and the Supervisor approve; nurses are everyone else on the demo list
+const APPROVER_IDS: readonly number[] = DEMO_APPROVERS.map((approver) => approver.id);
+const NURSE_IDS = DEMO_STAFF_IDS.filter((id) => !APPROVER_IDS.includes(id));
 
 function readSignedIn(): number | null {
   try {

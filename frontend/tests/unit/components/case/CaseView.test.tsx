@@ -83,9 +83,9 @@ describe("CaseView", () => {
       ["Skill", "ICU", "2", "2", "OK"],
     ]);
     expect(rows("Candidates")).toEqual([
-      ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005"],
-      ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "1013"],
-      ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "1020"],
+      ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU", "Whole shift", "—"],
+      ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "1013", "ICU", "Whole shift", "—"],
+      ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "1020", "ICU", "Whole shift", "—"],
     ]);
     expect(actions()).toEqual(waitingResponseAudit().map(entry => entry.action));
   });
@@ -278,7 +278,7 @@ describe("CaseView", () => {
     );
     await tick(2000);
     expect(status()).toBe("WAITING_RESPONSE");
-    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005"]]);
+    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU", "Whole shift", "—"]]);
     expect(actions()).toEqual(["EVENT_RECEIVED", "UNAVAILABILITY_CREATED", "CASE_OPENED", "CASE_STATUS_CHANGED"]);
   });
 
@@ -699,9 +699,9 @@ describe("CaseView", () => {
       expect(screen.queryByText("คำอธิบายยังไม่พร้อม")).toBeNull();
       expect(screen.queryByRole("table", { name: /^Score of staff/ })).toBeNull();
       expect(rows("Candidates")).toEqual([
-        ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—"],
-        ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "—"],
-        ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "—"],
+        ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—", "ICU", "Whole shift", "—"],
+        ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "—", "ICU", "Whole shift", "—"],
+        ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "—", "ICU", "Whole shift", "—"],
       ]);
     });
 
@@ -795,5 +795,84 @@ describe("CaseView", () => {
     await vi.advanceTimersByTimeAsync(10000);
     expect(audit).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  describe("round 4 (PR U)", () => {
+    const slice = (start: string, end: string, gap: number) => ({
+      start_at: start,
+      end_at: end,
+      headcount: { required_count: 5, current_count: 5 - gap, gap_count: gap },
+      roles: [{ id: 1, name: "RN", required_count: 5, current_count: 5 - gap, gap_count: gap }],
+      skills: [],
+    });
+
+    it("shows the gap by time slice when the shortage changes during the shift", async () => {
+      const base = caseDetail();
+      serve(
+        caseDetail({
+          gap: {
+            ...base.gap!,
+            intervals: [
+              slice("2026-10-09T23:00:00+07:00", "2026-10-10T03:00:00+07:00", 0),
+              slice("2026-10-10T03:00:00+07:00", "2026-10-10T07:00:00+07:00", 1),
+            ],
+          },
+        }),
+        waitingResponseAudit(),
+      );
+      render(<CaseView caseId="1" />);
+      await tick();
+
+      expect(rows("Gap by time")).toEqual([
+        ["2026-10-09 23:00:00", "2026-10-10 03:00:00", "5 of 5", "Covered"],
+        ["2026-10-10 03:00:00", "2026-10-10 07:00:00", "4 of 5", "Short: 1 people, 1 RN"],
+      ]);
+    });
+
+    it("shows no slice table when one slice covers the whole shift", async () => {
+      const base = caseDetail();
+      serve(
+        caseDetail({
+          gap: {
+            ...base.gap!,
+            intervals: [slice("2026-10-09T23:00:00+07:00", "2026-10-10T07:00:00+07:00", 1)],
+          },
+        }),
+        waitingResponseAudit(),
+      );
+      render(<CaseView caseId="1" />);
+      await tick();
+
+      expect(screen.queryByRole("table", { name: "Gap by time" })).toBeNull();
+    });
+
+    it("shows the home ward, the cover window and the source shift of a candidate", async () => {
+      const [first, ...others] = caseDetail().candidates;
+      serve(
+        caseDetail({
+          candidates: [
+            {
+              ...first,
+              source: "CROSS_WARD",
+              home_ward_id: 2,
+              home_ward_name: "Medicine",
+              cover_start_at: "2026-10-10T03:00:00+07:00",
+              cover_end_at: null,
+              source_assignment: { assignment_id: 40, shift_id: 21, ward_id: 2, ward_name: "Medicine" },
+            },
+            ...others,
+          ],
+        }),
+        waitingResponseAudit(),
+      );
+      render(<CaseView caseId="1" />);
+      await tick();
+
+      expect(rows("Candidates")[0].slice(6)).toEqual([
+        "Medicine",
+        "2026-10-10 03:00:00 – shift end",
+        "Medicine, shift 21",
+      ]);
+    });
   });
 });

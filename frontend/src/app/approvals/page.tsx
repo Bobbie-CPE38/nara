@@ -1,16 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
-import { DEMO_APPROVER_ID } from "@/lib/demo";
+import { DEMO_APPROVER_ID, DEMO_APPROVERS, wardName } from "@/lib/demo";
 import { formatDateTime } from "@/lib/format";
-import type { ApprovalDecisionResult, PendingApproval } from "@/lib/types/approval";
+import type {
+  ApprovalDecisionResult,
+  ApprovalSide,
+  AutoApprovedApproval,
+  PendingApproval,
+} from "@/lib/types/approval";
 import type { CaseDetail } from "@/lib/types/case";
 
-// The head nurse of the Golden Case (docs/workflow.md, section 10)
-const api = createDemoApi(DEMO_APPROVER_ID);
+type Api = ReturnType<typeof createDemoApi>;
+
+// The Supervisor decides for any ward once supervisor_from has passed (workflow.md 6.21)
+const SUPERVISOR_ID = 950;
 
 // Same limit as the API (MAX_APPROVAL_REASON_LENGTH)
 const MAX_REASON_LENGTH = 500;
@@ -19,7 +26,7 @@ const MAX_REASON_LENGTH = 500;
 type Row = PendingApproval & { shortBy: number | null };
 
 /** The list, plus one read per case for the people it still lacks. */
-async function loadRows(signal: AbortSignal): Promise<Row[]> {
+async function loadRows(api: Api, signal: AbortSignal): Promise<Row[]> {
   const pending = await api<PendingApproval[]>("/approvals?pending=true", { signal });
   const caseIds = [...new Set(pending.map((row) => row.case_id))];
   const shortBy = new Map<number, number | null>(
@@ -47,6 +54,22 @@ function requestKey(row: PendingApproval): string {
   return [row.id, row.case_id, row.candidate_item_id, row.staff_id].join(":");
 }
 
+/** The sides still waiting for a decision. */
+function pendingSides(row: PendingApproval): ApprovalSide[] {
+  return (row.wards ?? []).filter((ward) => ward.status === "PENDING").map((ward) => ward.side);
+}
+
+function wardsText(row: PendingApproval): string {
+  return (row.wards ?? [])
+    .map(
+      (ward) =>
+        `${wardName(ward.ward_id)} (${ward.side === "SOURCE" ? "source" : "destination"}): ${
+          ward.status === "APPROVED" ? "approved" : "waiting"
+        }`,
+    )
+    .join("; ");
+}
+
 function shortByText(shortBy: number | null): string {
   if (shortBy === null) return "—";
   return shortBy === 0 ? "Headcount covered" : `Short by ${shortBy}`;
@@ -57,9 +80,85 @@ type Outcome =
   // HTTP 200 with case_status FAILED: the decision was saved, the execution was not (D11)
   | { kind: "failed"; approvalId: number; caseId: number };
 
+/** What the API answered, in words. Approved is not the same as assigned (workflow.md 9.6) */
+function decisionMessage(result: ApprovalDecisionResult): string {
+  const head = `Approval ${result.approval_id}`;
+  const failed = result.failed_rules ?? [];
+  const rules = failed.length > 0 ? `: ${failed.join(", ")}` : "";
+  switch (result.outcome) {
+    case "WAITING_OTHER_WARD":
+      return `${head}: ward approved; waiting for the other ward.`;
+    case "TRANSFER_CANCELLED":
+      return `${head}: approved, but the transfer was cancelled (${
+        result.reason ?? "unknown reason"
+      }${rules}). Case ${result.case_id}: ${result.case_status}`;
+    case "REJECTED":
+    case "ASSIGNED":
+    case undefined:
+      return `${head} ${result.is_approved ? "approved" : "rejected"}. Case ${result.case_id}: ${
+        result.case_status
+      }`;
+    default:
+      // An outcome this page does not know is shown as it is
+      return `${head}: ${result.outcome}. Case ${result.case_id}: ${result.case_status}`;
+  }
+}
+
+/** Requests the system approved for the caller's wards, newest first (GET /approvals/auto). */
+function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
+  const load = useCallback(
+    (signal: AbortSignal) => api<AutoApprovedApproval[]>("/approvals/auto", { signal }),
+    [api],
+  );
+  const { data, error } = usePolling(load);
+  return (
+    <section aria-label="Approved by the system" className="mt-8">
+      <h2 className="text-xl font-semibold">Approved by the system</h2>
+      <p className="mt-1 text-sm">
+        Auto-approval runs when a ward&apos;s queue is too long. Approved does not mean assigned:
+        check the case status.
+      </p>
+      {error && <p className="mt-2 text-red-700">{error.message}</p>}
+      {data && data.length === 0 && <p className="mt-2">None for staff {actorId}.</p>}
+      {data && data.length > 0 && (
+        <table aria-label="Approved by the system" className="mt-2 w-full text-left">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Case</th>
+              <th>Staff</th>
+              <th>Ward</th>
+              <th>Decided at</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((row) => (
+              <tr key={row.id}>
+                <td>{row.id}</td>
+                <td>
+                  <Link className="underline" href={`/cases/${row.case_id}`}>
+                    {row.case_id}
+                  </Link>
+                </td>
+                <td>{row.staff_id}</td>
+                <td>{row.wards?.[0] ? wardName(row.wards[0].ward_id) : "—"}</td>
+                <td>{formatDateTime(row.decided_at)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
 export default function Approvals() {
-  const load = useCallback((signal: AbortSignal) => loadRows(signal), []);
+  const [actorId, setActorId] = useState<number>(DEMO_APPROVER_ID);
+  const api = useMemo(() => createDemoApi(actorId), [actorId]);
+  const load = useCallback((signal: AbortSignal) => loadRows(api, signal), [api]);
   const { data, error, isLoading } = usePolling(load);
+  // The side the Supervisor picked, per request key, when more than one ward waits
+  const [sides, setSides] = useState<Record<string, ApprovalSide>>({});
   const [busy, setBusy] = useState(false);
   // Hidden until a fresh list no longer holds them
   const [decidedIds, setDecidedIds] = useState<number[]>([]);
@@ -86,7 +185,12 @@ export default function Approvals() {
     );
   }, [data]);
 
-  async function decide(approvalId: number, approved: boolean, rejectionReason?: string) {
+  async function decide(
+    approvalId: number,
+    approved: boolean,
+    rejectionReason?: string,
+    side?: ApprovalSide,
+  ) {
     setBusy(true);
     setOutcome(null);
     try {
@@ -94,25 +198,20 @@ export default function Approvals() {
         `/approvals/${approvalId}/decision`,
         {
           method: "POST",
-          json: approved ? { approved } : { approved, reason: rejectionReason },
+          json: {
+            approved,
+            ...(approved ? {} : { reason: rejectionReason }),
+            ...(side ? { side } : {}),
+          },
         },
       );
-      setDecidedIds((ids) => [...ids, approvalId]);
+      // A partly approved request stays listed: the other ward still decides
+      if (result.outcome !== "WAITING_OTHER_WARD") setDecidedIds((ids) => [...ids, approvalId]);
       if (!approved) closeRejection();
       setOutcome(
-        result.case_status === "FAILED"
+        result.outcome === "EXECUTION_FAILED" || result.case_status === "FAILED"
           ? { kind: "failed", approvalId: result.approval_id, caseId: result.case_id }
-          : {
-              kind: "ok",
-              message:
-                result.outcome === "WAITING_OTHER_WARD"
-                  ? `Approval ${result.approval_id}: ward approved; waiting for the other ward.`
-                  : result.outcome === "TRANSFER_CANCELLED"
-                    ? `Approval ${result.approval_id}: transfer cancelled (${result.reason ?? "unknown reason"}).`
-                    : `Approval ${result.approval_id} ${
-                        result.is_approved ? "approved" : "rejected"
-                      }. Case ${result.case_id}: ${result.case_status}`,
-            },
+          : { kind: "ok", message: decisionMessage(result) },
       );
     } catch (cause) {
       setOutcome({
@@ -135,7 +234,22 @@ export default function Approvals() {
     event.preventDefault();
     const trimmed = reason.trim();
     if (!rejecting || !trimmed) return;
-    void decide(rejecting.id, false, trimmed);
+    void decide(rejecting.id, false, trimmed, sideFor(rejecting));
+  }
+
+  /** The side to send: only the Supervisor with more than one waiting ward picks one */
+  function sideFor(row: PendingApproval): ApprovalSide | undefined {
+    const open = pendingSides(row);
+    if (actorId !== SUPERVISOR_ID || open.length < 2) return undefined;
+    return sides[requestKey(row)] ?? open[0];
+  }
+
+  function changeActor(id: number) {
+    setActorId(id);
+    setDecidedIds([]);
+    setSides({});
+    setDraft(null);
+    setOutcome(null);
   }
 
   const pending = (data ?? []).filter((row) => !decidedIds.includes(row.id));
@@ -147,7 +261,22 @@ export default function Approvals() {
   return (
     <main className="mx-auto max-w-3xl p-8">
       <h1 className="text-2xl font-semibold">Pending approvals</h1>
-      <p className="mt-1 text-sm">Acting as staff {DEMO_APPROVER_ID}</p>
+      <label className="mt-1 block text-sm" htmlFor="acting-as">
+        Acting as{" "}
+        <select
+          id="acting-as"
+          className="rounded border px-1"
+          value={actorId}
+          disabled={busy}
+          onChange={(event) => changeActor(Number(event.target.value))}
+        >
+          {DEMO_APPROVERS.map((approver) => (
+            <option key={approver.id} value={approver.id}>
+              {approver.label}
+            </option>
+          ))}
+        </select>
+      </label>
 
       {error && <p className="mt-4 text-red-700">{error.message}</p>}
       {outcome?.kind === "ok" && <p className="mt-4 text-green-700">{outcome.message}</p>}
@@ -177,8 +306,12 @@ export default function Approvals() {
               <th>Case still needs</th>
               <th>Staff</th>
               <th>Shift</th>
+              <th>Home ward</th>
+              <th>Moved from</th>
+              <th>Wards</th>
               <th>Requested at</th>
               <th>Decide by</th>
+              <th>Supervisor from</th>
               <th>Decision</th>
             </tr>
           </thead>
@@ -194,14 +327,38 @@ export default function Approvals() {
                 <td>{shortByText(row.shortBy)}</td>
                 <td>{row.staff_id}</td>
                 <td>{row.proposed_shift_id}</td>
+                <td>{row.home_ward_id == null ? "—" : wardName(row.home_ward_id)}</td>
+                <td>{row.source_ward_id == null ? "—" : wardName(row.source_ward_id)}</td>
+                <td>{wardsText(row) || "—"}</td>
                 <td>{formatDateTime(row.requested_at)}</td>
                 <td>{formatDateTime(row.expires_at)}</td>
+                <td>{row.supervisor_from ? formatDateTime(row.supervisor_from) : "—"}</td>
                 <td className="flex gap-2">
+                  {sideFor(row) && (
+                    <select
+                      aria-label={`Side for approval ${row.id}`}
+                      className="rounded border px-1"
+                      disabled={busy}
+                      value={sideFor(row)}
+                      onChange={(event) =>
+                        setSides((current) => ({
+                          ...current,
+                          [requestKey(row)]: event.target.value as ApprovalSide,
+                        }))
+                      }
+                    >
+                      {pendingSides(row).map((side) => (
+                        <option key={side} value={side}>
+                          {side === "SOURCE" ? "Source ward" : "Destination ward"}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <button
                     type="button"
                     className={button}
                     disabled={busy}
-                    onClick={() => decide(row.id, true)}
+                    onClick={() => decide(row.id, true, undefined, sideFor(row))}
                   >
                     Approve
                   </button>
@@ -250,6 +407,7 @@ export default function Approvals() {
           </div>
         </form>
       )}
+      <AutoHistory key={actorId} api={api} actorId={actorId} />
     </main>
   );
 }

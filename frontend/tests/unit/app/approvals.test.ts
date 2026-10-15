@@ -23,21 +23,27 @@ const PENDING = {
   requested_at: "2026-10-09T21:00:00+07:00",
   // 900 seconds after the request (docs/workflow.md, section 6.13)
   expires_at: "2026-10-09T21:15:00+07:00",
+  home_ward_id: 1,
+  source_ward_id: null,
+  wards: [{ ward_id: 1, side: "DESTINATION", status: "PENDING" }],
+  supervisor_from: "2026-10-09T21:10:00+07:00",
 };
 
 /** The part of GET /cases/{id} the page reads: a gap of two with one person assigned. */
 const CASE = { id: 7, gap: { headcount_gap: 2 }, assigned_count: 1 };
 
-/** GET answers the list or the case; POST answers `decision`. */
+/** GET answers the list, the case or the auto history; POST answers `decision`. */
 function stubFetch(
   list: unknown[],
   decision: { body: unknown; status?: number } | null = null,
   caseAnswer: { body: unknown; status?: number } = { body: CASE },
+  auto: unknown[] = [],
 ) {
   const fetchMock = vi.fn().mockImplementation(async (url: string, request: RequestInit) => {
     if (request.method === "POST" && decision) {
       return new Response(JSON.stringify(decision.body), { status: decision.status ?? 200 });
     }
+    if (/\/approvals\/auto$/.test(url)) return new Response(JSON.stringify(auto));
     if (/\/cases\/\d+$/.test(url)) {
       return new Response(JSON.stringify(caseAnswer.body), { status: caseAnswer.status ?? 200 });
     }
@@ -60,7 +66,7 @@ describe("approvals page", () => {
     expect(link.getAttribute("href")).toBe("/cases/7");
     expect(screen.getByText("201")).toBeTruthy();
     expect(screen.getByText("2026-10-09 21:00:00")).toBeTruthy();
-    const [url, request] = fetchMock.mock.calls[0];
+    const [url, request] = fetchMock.mock.calls.find(([called]) => /pending=true$/.test(called))!;
     expect(url).toMatch(/\/approvals\?pending=true$/);
     expect(request.headers.get("X-Demo-User")).toBe("900");
   });
@@ -135,7 +141,12 @@ describe("approvals page", () => {
     render(createElement(Approvals));
 
     expect(await screen.findByRole("button", { name: "Approve" })).toBeTruthy();
-    expect(screen.getByText("—")).toBeTruthy();
+    const [header, row] = screen.getAllByRole("row");
+    const column = within(header)
+      .getAllByRole("columnheader")
+      .map((cell) => cell.textContent)
+      .indexOf("Case still needs");
+    expect(within(row).getAllByRole("cell")[column].textContent).toBe("—");
   });
 
   it("asks for a reason before it sends a rejection", async () => {
@@ -235,7 +246,9 @@ describe("approvals page", () => {
               ? { approval_id: 4, is_approved: true, case_id: 7, case_status: "RESOLVED" }
               : /\/cases\/\d+$/.test(url)
                 ? CASE
-                : list,
+                : /\/approvals\/auto$/.test(url)
+                  ? []
+                  : list,
           ),
         ),
       ),
@@ -269,7 +282,11 @@ describe("approvals page", () => {
       vi.useFakeTimers();
       list = [PENDING];
       const fetchMock = vi.fn().mockImplementation(async (url: string) =>
-        new Response(JSON.stringify(/\/cases\/\d+$/.test(url) ? CASE : list)),
+        new Response(
+          JSON.stringify(
+            /\/cases\/\d+$/.test(url) ? CASE : /\/approvals\/auto$/.test(url) ? [] : list,
+          ),
+        ),
       );
       vi.stubGlobal("fetch", fetchMock);
       render(createElement(Approvals));
@@ -377,7 +394,8 @@ describe("approvals page", () => {
     );
     render(createElement(Approvals));
 
-    expect(await screen.findByText("Unknown demo user")).toBeTruthy();
+    // The pending list and the auto history both report it
+    expect((await screen.findAllByText("Unknown demo user")).length).toBeGreaterThan(0);
   });
 });
 
@@ -392,4 +410,134 @@ it("does not call a first-side approval a rejection or an assignment", async () 
   fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
   expect(await screen.findByText("Approval 4: ward approved; waiting for the other ward.")).toBeTruthy();
   expect(screen.queryByText(/Approval 4 rejected/)).toBeNull();
+});
+
+describe("round 4 (PR U)", () => {
+  // A transfer from Medicine (2) to ICU (1); ICU already approved
+  const TRANSFER = {
+    ...PENDING,
+    source_ward_id: 2,
+    wards: [
+      { ward_id: 1, side: "DESTINATION", status: "APPROVED" },
+      { ward_id: 2, side: "SOURCE", status: "PENDING" },
+    ],
+  };
+  const BOTH_WAITING = {
+    ...TRANSFER,
+    wards: [
+      { ward_id: 1, side: "DESTINATION", status: "PENDING" },
+      { ward_id: 2, side: "SOURCE", status: "PENDING" },
+    ],
+  };
+
+  function cell(name: string) {
+    const [header, row] = screen.getAllByRole("table")[0].querySelectorAll("tr");
+    const column = within(header as HTMLElement)
+      .getAllByRole("columnheader")
+      .map((item) => item.textContent)
+      .indexOf(name);
+    return within(row as HTMLElement).getAllByRole("cell")[column].textContent;
+  }
+
+  it("shows the home ward, the source ward, each ward's status and the Supervisor time", async () => {
+    stubFetch([TRANSFER]);
+    render(createElement(Approvals));
+    await screen.findByRole("button", { name: "Approve" });
+
+    expect(cell("Home ward")).toBe("ICU");
+    expect(cell("Moved from")).toBe("Medicine");
+    expect(cell("Wards")).toBe("ICU (destination): approved; Medicine (source): waiting");
+    expect(cell("Supervisor from")).toBe("2026-10-09 21:10:00");
+  });
+
+  it("acts as the chosen approver and sends no side for a head nurse", async () => {
+    const fetchMock = stubFetch([BOTH_WAITING], {
+      body: { approval_id: 4, is_approved: null, case_id: 7, case_status: "WAITING_APPROVAL",
+        outcome: "WAITING_OTHER_WARD", reason: null, failed_rules: [] },
+    });
+    render(createElement(Approvals));
+    await screen.findByRole("button", { name: "Approve" });
+    fireEvent.change(screen.getByLabelText("Acting as"), { target: { value: "902" } });
+    await screen.findByRole("button", { name: "Approve" });
+
+    expect(screen.queryByLabelText("Side for approval 4")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await screen.findByText("Approval 4: ward approved; waiting for the other ward.");
+    const [[, request]] = posts(fetchMock);
+    expect(request.headers.get("X-Demo-User")).toBe("902");
+    expect(JSON.parse(request.body)).toEqual({ approved: true });
+    // Still listed: the other ward decides next
+    expect(screen.getByRole("button", { name: "Approve" })).toBeTruthy();
+  });
+
+  it("lets the Supervisor pick the side when both wards still wait", async () => {
+    const fetchMock = stubFetch([BOTH_WAITING], {
+      body: { approval_id: 4, is_approved: null, case_id: 7, case_status: "WAITING_APPROVAL",
+        outcome: "WAITING_OTHER_WARD", reason: null, failed_rules: [] },
+    });
+    render(createElement(Approvals));
+    await screen.findByRole("button", { name: "Approve" });
+    fireEvent.change(screen.getByLabelText("Acting as"), { target: { value: "950" } });
+    const side = await screen.findByLabelText<HTMLSelectElement>("Side for approval 4");
+    fireEvent.change(side, { target: { value: "SOURCE" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await screen.findByText("Approval 4: ward approved; waiting for the other ward.");
+    const [[, request]] = posts(fetchMock);
+    expect(request.headers.get("X-Demo-User")).toBe("950");
+    expect(JSON.parse(request.body)).toEqual({ approved: true, side: "SOURCE" });
+  });
+
+  it("sends no side when only one ward is left, even for the Supervisor", async () => {
+    stubFetch([TRANSFER]);
+    render(createElement(Approvals));
+    await screen.findByRole("button", { name: "Approve" });
+    fireEvent.change(screen.getByLabelText("Acting as"), { target: { value: "950" } });
+    await screen.findByRole("button", { name: "Approve" });
+
+    expect(screen.queryByLabelText("Side for approval 4")).toBeNull();
+  });
+
+  it("says an approved transfer was cancelled, with the reason and the rules", async () => {
+    stubFetch([TRANSFER], {
+      body: { approval_id: 4, is_approved: true, case_id: 7, case_status: "WAITING_RESPONSE",
+        outcome: "TRANSFER_CANCELLED", reason: "SOURCE_SHIFT_STARTED", failed_rules: ["SHIFT_CONFLICT"] },
+    });
+    render(createElement(Approvals));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    expect(
+      await screen.findByText(
+        "Approval 4: approved, but the transfer was cancelled (SOURCE_SHIFT_STARTED: SHIFT_CONFLICT). Case 7: WAITING_RESPONSE",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("reports EXECUTION_FAILED as a failed execution", async () => {
+    stubFetch([PENDING], {
+      body: { approval_id: 4, is_approved: true, case_id: 7, case_status: "FAILED",
+        outcome: "EXECUTION_FAILED", reason: null, failed_rules: [] },
+    });
+    render(createElement(Approvals));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("failed during execution");
+  });
+
+  it("lists what the system approved for the current approver", async () => {
+    const fetchMock = stubFetch([], null, undefined, [
+      { ...PENDING, id: 8, staff_id: 202, approval_mode: "AUTO", is_pending: false,
+        wards: [{ ward_id: 1, side: "DESTINATION", status: "APPROVED" }],
+        decided_at: "2026-10-09T21:05:00+07:00" },
+    ]);
+    render(createElement(Approvals));
+
+    const history = await screen.findByRole("table", { name: "Approved by the system" });
+    const [, row] = within(history).getAllByRole("row");
+    expect(within(row).getAllByRole("cell").map((item) => item.textContent)).toEqual([
+      "8", "7", "202", "ICU", "2026-10-09 21:05:00",
+    ]);
+    const [, request] = fetchMock.mock.calls.find(([url]) => /\/approvals\/auto$/.test(url))!;
+    expect(request.headers.get("X-Demo-User")).toBe("900");
+  });
 });
