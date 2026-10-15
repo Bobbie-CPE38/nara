@@ -42,9 +42,13 @@ STAFF_DATA = (
     (950, "Prasert", SUPERVISOR_ROLE_ID, MEDICINE_WARD, ()),
 )
 
-# Medicine shift ID to the ICU shift whose times it copies. High IDs leave 3 and up
-# to the scenarios and tests that add ICU shifts with explicit IDs
+# Medicine shift ID to the ICU shift whose times it copies. Only the times are
+# copied, not the patient count. High IDs leave 3 and up to the scenarios and
+# tests that add ICU shifts with explicit IDs
 MIRRORED_SHIFTS = {21: 1, 22: 2}
+# Every Medicine shift: 10 patients at 2 per nurse need the 5 people on duty
+MEDICINE_PATIENT_COUNT = 10
+MEDICINE_REQUIRED_STAFF = 5
 
 
 def seed(db: Session) -> None:
@@ -92,7 +96,7 @@ def seed(db: Session) -> None:
             Shift(
                 id=shift_id,
                 ward_id=MEDICINE_WARD,
-                patient_count=10,
+                patient_count=MEDICINE_PATIENT_COUNT,
                 start_at=icu.start_at,
                 end_at=icu.end_at,
                 shift_type=icu.shift_type,
@@ -102,10 +106,13 @@ def seed(db: Session) -> None:
         )
     db.flush()
     for shift_id in MIRRORED_SHIFTS:
-        # 10 patients at 2 per nurse: everyone on duty is needed, so no gap is hidden
         db.add(
             StaffingRequirement(
-                id=shift_id, shift_id=shift_id, required_staff=5, minimum_staff=4, created_at=now
+                id=shift_id,
+                shift_id=shift_id,
+                required_staff=MEDICINE_REQUIRED_STAFF,
+                minimum_staff=4,
+                created_at=now,
             )
         )
         db.flush()

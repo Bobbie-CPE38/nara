@@ -72,3 +72,5 @@ def test_no_one_of_another_ward_reaches_an_icu_pool(seeded: Session, shift_id: i
     planned = {item.staff_id for item in result.items} | {row.staff_id for row in result.skipped}
     icu = set(seeded.scalars(select(Staff.id).where(Staff.home_ward_id == 1)))
     assert planned <= icu
+    # Not vacuous: the ICU people are still planned or skipped with a code
+    assert {201, 202, 203} <= planned
