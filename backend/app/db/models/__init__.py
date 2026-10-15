@@ -8,6 +8,7 @@ Timestamp values must be supplied using app.core.clock.now(), not database defau
 from app.db.models.actor import Actor
 from app.db.models.approval_policy import ApprovalPolicy
 from app.db.models.approval_request import ApprovalRequest
+from app.db.models.approval_ward_decision import ApprovalWardDecision
 from app.db.models.attendance import Attendance
 from app.db.models.audit_log import AuditLog
 from app.db.models.candidate_item import CandidateItem
@@ -52,6 +53,7 @@ __all__ = [
     "Actor",
     "ApprovalPolicy",
     "ApprovalRequest",
+    "ApprovalWardDecision",
     "Attendance",
     "AuditLog",
     "CandidateItem",

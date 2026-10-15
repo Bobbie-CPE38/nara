@@ -7,7 +7,7 @@ incoming count 10. From round 4, ratio is the number of pending requests one
 active head nurse can handle, and incoming count is the hard cap on a ward's
 queue: auto-approval starts when the ward's pending requests exceed
 min(ratio x active head nurses, incoming count) (workflow 6.22, round 4 PR A).
-Approval is still MANUAL, so the approval thresholds are not used yet.
+Requests begin MANUAL; the due-work job may auto-approve an overloaded queue.
 Hard policy maximum_patients_per_nurse (2) is the ratio behind the seeded
 required_staff of each shift. The gap reads required_staff, not the ratio;
 required_staff_for() applies the ratio and has no caller in app code until the
@@ -88,6 +88,7 @@ def seed(db: Session) -> None:
                 version="demo-stub-v1",
                 created_at=now,
                 approval_timeout_seconds=900,
+                supervisor_after_seconds=600,
             ),
             OutreachPolicy(
                 id=1,

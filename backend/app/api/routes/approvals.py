@@ -13,7 +13,7 @@ from app.schemas.approval import (
     AutoApprovedApproval,
     PendingApproval,
 )
-from app.services import approval_service
+from app.services import approval_service, approval_wards
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -35,6 +35,7 @@ def decide(
             actor_id=user.actor_id,
             approved=body.approved,
             reason=body.reason,
+            side=body.side,
         )
     except approval_service.ApprovalNotFoundError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -46,14 +47,12 @@ def decide(
         approval_service.ApprovalLockRetryError,
     ) as error:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error)) from error
-    except approval_service.InvalidApprovalReasonError as error:
+    except (
+        approval_service.InvalidApprovalReasonError,
+        approval_wards.InvalidApprovalSideError,
+    ) as error:
         raise HTTPException(422, detail=str(error)) from error
-    return ApprovalDecisionResult(
-        approval_id=request.id,
-        is_approved=request.is_approved is True,
-        case_id=case.id,
-        case_status=case.status,
-    )
+    return approval_service.decision_result(db, request=request, case=case)
 
 
 def _pending_only(value: bool) -> bool:

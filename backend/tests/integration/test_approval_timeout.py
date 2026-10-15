@@ -78,6 +78,7 @@ def pending(db, *, candidates=(201, 202, 203)):
 def test_deadline_is_policy_snapshot_and_boundary_is_read_only(production_seeded):
     db = production_seeded
     policy = db.get(ApprovalPolicy, 1)
+    policy.supervisor_after_seconds = 30
     policy.approval_timeout_seconds = 60
     case, _, row, request = pending(db)
     assert request.expires_at == DEMO_NOW + timedelta(seconds=60)
@@ -416,7 +417,9 @@ def test_timeout_job_does_not_require_a_head_nurse_ward(production_seeded):
     _, _, _, request = pending(db, candidates=(201,))
     clock.advance(timedelta(seconds=900))
     with patch.object(
-        approval_service, "manages_ward", side_effect=AssertionError("job is not an approver")
+        approval_service.approval_wards,
+        "authority",
+        side_effect=AssertionError("job is not an approver"),
     ) as check:
         result = approval_timeout_service.expire_due_approvals(db)
     check.assert_not_called()

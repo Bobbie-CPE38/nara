@@ -173,6 +173,17 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "current_count": (Integer, NOT_NULL),
         "gap_count": (Integer, NOT_NULL),
     },
+    "approval_ward_decision": {
+        "id": (BigInteger, NOT_NULL),
+        "approval_request_id": (BigInteger, NOT_NULL),
+        "ward_id": (BigInteger, NOT_NULL),
+        "side": (StrEnumText, NOT_NULL),
+        "approver_id": (BigInteger, NOT_NULL),
+        "decided_as": (StrEnumText, NOT_NULL),
+        "is_approved": (Boolean, NOT_NULL),
+        "reason": (Text, NULL),
+        "decided_at": (DateTime, NOT_NULL),
+    },
 }
 
 EXPECTED_PRIMARY_KEYS: dict[str, set[str]] = {
@@ -219,6 +230,11 @@ EXPECTED_FOREIGN_KEYS: dict[str, dict[str, str]] = {
     "staffing_gap_interval": {"gap_id": "staffing_gap.id"},
     "staffing_gap_role_interval": {"gap_id": "staffing_gap.id", "role_id": "role.id"},
     "staffing_gap_skill_interval": {"gap_id": "staffing_gap.id", "skill_id": "skill.id"},
+    "approval_ward_decision": {
+        "approval_request_id": "approval_request.id",
+        "ward_id": "ward.id",
+        "approver_id": "staff.id",
+    },
 }
 
 
