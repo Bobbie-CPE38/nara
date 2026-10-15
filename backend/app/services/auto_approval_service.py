@@ -17,7 +17,6 @@ from sqlalchemy.engine import Row
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import Select
 
-from app.core import clock
 from app.core.constants import HEAD_NURSE_ROLE
 from app.db.models import (
     ApprovalRequest,
@@ -28,12 +27,10 @@ from app.db.models import (
     Shift,
     Staff,
     StaffingCase,
-    Ward,
 )
-from app.domain.enums import AUTOMATION_STOPPED_STATUSES, CandidateSource, StaffStatus
+from app.domain.enums import CandidateSource, StaffStatus
 from app.services import (
     approval_service,
-    case_facts_service,
     hard_rule_service,
     line_delivery_service,
     outreach_service,
@@ -75,12 +72,7 @@ def _pending() -> Select[*_PendingValues]:
         .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
         .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
         .join(Shift, Shift.id == StaffingCase.shift_id)
-        .where(
-            ApprovalRequest.is_pending.is_(True),
-            ApprovalRequest.expires_at > clock.now(),
-            StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
-            case_facts_service.accepted_offer_for_request(),
-        )
+        .where(*approval_service.actionable_pending())
     )
 
 
@@ -149,8 +141,7 @@ def _ward(db: Session, ward_id: int) -> list[int]:
         autoflush=False,
         expire_on_commit=False,
     ) as batch:
-        # key_share=True (without read=True) is PostgreSQL FOR NO KEY UPDATE.
-        batch.scalars(select(Ward).where(Ward.id == ward_id).with_for_update(key_share=True)).one()
+        approval_service.lock_ward_row(batch, ward_id)
         pending = list(
             batch.execute(
                 _pending()
@@ -179,6 +170,9 @@ def _ward(db: Session, ward_id: int) -> list[int]:
             batch.rollback()
             db.rollback()
             return []
+        # Team decision R4-Q33 and R4-Q36 (workflow.md 6.22): once the queue is over
+        # the cap, approve every eligible request of the snapshot, oldest first, not
+        # just enough to get back under the cap. No state is kept between ticks.
         eligible = [
             row
             for row in pending

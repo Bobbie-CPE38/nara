@@ -184,6 +184,20 @@ class CandidateContext:
             self.recorded_duties or ()
         ):
             raise ValueError("The existing proposed duty must be a recorded duty")
+        # One person may hold several committed parts of one shift (round 4 T2),
+        # but never two that overlap: the overlap would count twice in the hours
+        # and consecutive-shift rules. Identical rows still count once.
+        committed: dict[int, set[ShiftSlot]] = {}
+        for entry in self.roster:
+            if entry.status in COMMITTED_ROSTER_STATUSES:
+                committed.setdefault(entry.shift.shift_id, set()).add(entry.shift)
+        for shift_id, parts in committed.items():
+            ordered = sorted(parts, key=lambda part: (part.start_at, part.end_at))
+            if any(
+                later.start_at < earlier.end_at
+                for earlier, later in zip(ordered, ordered[1:], strict=False)
+            ):
+                raise ValueError(f"Conflicting times for shift_id={shift_id}")
         linked = self.linked_duty
         if linked is not None:
             if linked.shift_id == self.proposed_shift.shift_id:
@@ -300,19 +314,14 @@ def other_duties(context: CandidateContext) -> tuple[ShiftSlot, ...]:
     must not see it as a separate shift. Recorded transfer groups, when supplied,
     also count as single duties even without a new proposed transfer.
     """
-    linked = context.linked_duty
-    if linked is None:
-        return committed_duties(context)
-    return tuple(shift for shift in committed_duties(context) if shift != linked)
-
-
-def committed_duties(context: CandidateContext) -> tuple[ShiftSlot, ...]:
-    """Committed duty intervals, excluding the proposed shift itself."""
     if context.recorded_duties is None:
-        return other_committed_shifts(context)
-    return tuple(
-        shift for shift in context.recorded_duties if shift != context.existing_proposed_duty
-    )
+        duties = other_committed_shifts(context)
+    else:
+        duties = tuple(
+            shift for shift in context.recorded_duties if shift != context.existing_proposed_duty
+        )
+    linked = context.linked_duty
+    return duties if linked is None else tuple(shift for shift in duties if shift != linked)
 
 
 def daily_hours(context: CandidateContext) -> Fraction:

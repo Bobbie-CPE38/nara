@@ -283,6 +283,10 @@ def _apply_cover(
     Physical rows preserve identity for ALREADY_ON_SHIFT/UNAVAILABLE/SHIFT_CONFLICT.
     Only the fatigue readers use grouped duties. An additional move links the
     entire retained chain, so a completed prefix is neither lost nor counted twice.
+
+    A move is permanent (workflow.md 6.19): the source row ends at the move and
+    the person does not return, even when the source shift runs past the end of
+    the proposed shift. So everything of the source after the cut is dropped.
     """
     # Existing rows keep their own effective intervals, including cancelled
     # history and partial rows on the proposed shift. Only the selected source
@@ -332,20 +336,17 @@ def _apply_cover(
         # A whole-segment move can remove a destination that already had a
         # completed prefix. Follow its recorded parent to retain that prefix.
         candidates = {row.assignment_id: row for row in rows}
+        # Each assignment belongs to one duty: look it up instead of scanning per step
+        duty_of = {
+            assignment_id: duty.shift for duty in duties for assignment_id in duty.assignment_ids
+        }
         ancestor: _Row | None = source
         seen: set[int] = set()
         while ancestor is not None and ancestor.assignment_id not in seen:
             seen.add(ancestor.assignment_id)
-            linked = next(
-                (
-                    duty.shift
-                    for duty in duties
-                    if ancestor.assignment_id in duty.assignment_ids
-                    and duty.shift.end_at == proposed.start_at
-                ),
-                None,
-            )
-            if linked is not None:
+            found = duty_of.get(ancestor.assignment_id)
+            if found is not None and found.end_at == proposed.start_at:
+                linked = found
                 break
             parent = ancestor.transferred_from_assignment_id
             ancestor = candidates.get(parent) if parent is not None else None

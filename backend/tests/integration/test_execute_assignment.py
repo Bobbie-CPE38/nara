@@ -83,6 +83,22 @@ def test_reference_mismatch_cannot_create_assignment(
     assert replacements(db) == []
 
 
+def test_a_move_out_of_another_shift_is_refused_until_the_transfer_writer_exists(
+    production_seeded: Session,
+) -> None:
+    """Without C2 the source row would stay on duty and the move would have no link."""
+    db = production_seeded
+    case, items = short_case(db)
+    source = db.scalars(
+        select(RosterAssignment).where(RosterAssignment.staff_id == 202).limit(1)
+    ).one()
+    items[201].source_assignment_id = source.id
+    request = approval(db, case, items[201], approved=True)
+    with pytest.raises(NotImplementedError, match="C2"):
+        roster_service.create_replacement(db, case, approval=request)
+    assert replacements(db) == []
+
+
 def test_execution_does_not_recheck_safety(production_seeded: Session) -> None:
     db = production_seeded
     case, items = short_case(db)
