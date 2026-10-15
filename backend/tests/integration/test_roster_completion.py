@@ -55,12 +55,10 @@ def test_only_assigned_rows_of_ended_shifts_become_completed(production_seeded: 
     }
     assert night[105] is RosterStatus.CANCELLED
     assert set(statuses(db, DAY_SHIFT).values()) == {RosterStatus.ASSIGNED}
+    # Every ended shift: the Medicine night of the seed ends with the ICU night
     assert completed == sorted(
         db.scalars(
-            select(RosterAssignment.id).where(
-                RosterAssignment.shift_id == NIGHT_SHIFT,
-                RosterAssignment.status == RosterStatus.COMPLETED,
-            )
+            select(RosterAssignment.id).where(RosterAssignment.status == RosterStatus.COMPLETED)
         )
     )
     # Nothing left to do on the next tick
@@ -81,7 +79,8 @@ def test_the_job_tick_completes_ended_shifts(production_seeded: Session) -> None
 
     work = job_service.run_due_work(db)
 
-    assert len(work.completed_assignment_ids) == 5
+    # Five on the ICU night and five on the Medicine night of the seed
+    assert len(work.completed_assignment_ids) == 10
     assert set(statuses(db, NIGHT_SHIFT).values()) == {RosterStatus.COMPLETED}
 
 
@@ -161,5 +160,6 @@ def test_a_row_held_by_another_transaction_is_left_for_the_next_tick(
         holder.rollback()
         second = roster_completion_service.complete_ended_shifts(job)
 
-    assert held_id not in first and len(first) == 4
+    # Four ICU and five Medicine rows
+    assert held_id not in first and len(first) == 9
     assert second == [held_id]

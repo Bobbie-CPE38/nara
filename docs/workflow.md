@@ -200,7 +200,7 @@ Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์น�
 | C2 | คน 2 | ย้ายทั้งเวร | 6.19 | C1, S | ไม่มี | |
 | C3 | คน 2 | ย้ายกลางเวร | 6.19, 6.20 | C2, T2, T3, T4 | ไม่มี | |
 | A | คน 3 | Auto-Approval | 6.22, 9.6 | 0, T1 | ไม่มี | [#80](https://github.com/Bobbie-CPE38/nara/pull/80) |
-| W4 | คน 1 | ข้อมูล Demo หลายหอ, หอ Float Pool, Role `SUPERVISOR` | 6.19, 6.21 | C1 | ไม่มี | |
+| W4 | คน 1 | ข้อมูล Demo หลายหอ, หอ Float Pool, Role `SUPERVISOR` | 6.19, 6.21 | C1 | ไม่มี | (รอเปิด) |
 | U | คน 1 | หน้าเว็บของรอบ 4 | 9.6 | A, S | ไม่มี | |
 
 ลำดับ merge: 0 ก่อนทุกตัว, T3 หลัง T2, T4 หลัง T1 และ T3, C1 หลัง T1, S หลัง C1, C2 หลัง S (ห้ามมีการย้ายคนก่อนที่การอนุมัติสองหอจะมี), C3 หลัง C2 T2 T3 T4, A หลัง T1, U หลัง A และ S Migration ต่อจาก `e1a4c7f2b9d6` เป็นเส้นเดียวตามลำดับที่ merge จริง ลำดับจริงจนถึงตอนนี้คือ T1 → T2 → C1 → T3 (head ปัจจุบัน `c6e2b9f4a1d7`) ดังนั้น S ต้อง Rebase ให้ต่อจาก `c6e2b9f4a1d7` ตัวที่ merge ทีหลังต้อง Rebase แก้ `down_revision` ให้ต่อจาก head ของ `staging` และรัน `alembic heads` ให้ได้ head เดียว รอบ 4 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R4-Q2)
@@ -2077,8 +2077,8 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 
 | ตาราง | ข้อมูล |
 |---|---|
-| WARD | 1 = ICU |
-| ROLE | 1 = RN, 2 = HEAD_NURSE |
+| WARD | 1 = ICU, 2 = Medicine, 3 = Float Pool (`is_float_pool = true`, ไม่มีเวรของตัวเอง) (2 และ 3 จากรอบ 4 PR W4) |
+| ROLE | 1 = RN, 2 = HEAD_NURSE, 3 = SUPERVISOR (รอบ 4 PR W4) |
 | SKILL | 1 = ICU, 2 = BLS |
 
 **STAFF** (ทั้งหมด `ACTIVE`, `home_ward_id = 1`)
@@ -2097,14 +2097,28 @@ Seed ใช้ชื่อภาษาอังกฤษตามตาราง
 | 203 | Chonthicha | RN | ICU | ผู้สมัครอันดับ 3, อยู่เวร 2 |
 | 900 | Malai | HEAD_NURSE | — | ผู้อนุมัติ |
 
+**STAFF ของหออื่น** (รอบ 4 PR W4, ทั้งหมด `ACTIVE`, ไฟล์ `seed/scenarios/multi_ward.py`)
+
+| id | ชื่อ | role | หอบ้าน | skill |
+|---|---|---|---|---|
+| 301 | Niran | RN | Medicine | ICU, BLS |
+| 302 | Kanya | RN | Medicine | BLS |
+| 401 | Somchai | RN | Float Pool | ICU, BLS |
+| 902 | Ratana | HEAD_NURSE | Medicine | — |
+| 950 | Prasert | SUPERVISOR | Medicine | — |
+
+ทั้งห้าคนอยู่เวร 21 และ 22 ของ Medicine ซึ่งเวลาตรงกับเวร 1 และ 2 จึงไม่เข้า Pool ของเวร ICU ตั้งแต่ PR C1 (ข้อ 6.19) และผลของ Golden Case เท่าเดิม รวมรายการ `skipped` สถานการณ์ย้ายคนมากับ C2 และ C3
+
 **SHIFT**
 * 1 = ICU, `NIGHT`, `D 23:00` – `D+1 07:00`, `patient_count = 10`
 * 2 = ICU, `DAY`, `D+2 07:00` – `D+2 15:00`, `patient_count = 2` (ใช้กับ Test ข้อ 10.4 เท่านั้น)
-* ทั้งสองเวรตั้ง `merge_window_seconds = 0` Event จึงถูกตัดสินใน Request ที่แจ้ง (ข้อ 3.2) เวรที่มี Window อยู่ใน Scenario ของ Test เท่านั้น (ข้อ 3.10)
+* 21 = Medicine, `NIGHT` และ 22 = Medicine, `DAY` เวลาเดียวกับเวร 1 และ 2, `patient_count = 10` (รอบ 4 PR W4, ID สูงเพื่อไม่ชนกับเวรที่ Scenario และ Test สร้าง)
+* ทุกเวรตั้ง `merge_window_seconds = 0` Event จึงถูกตัดสินใน Request ที่แจ้ง (ข้อ 3.2) เวรที่มี Window อยู่ใน Scenario ของ Test เท่านั้น (ข้อ 3.10)
 
 **STAFFING_REQUIREMENTS**
 * 1 = shift 1, `required_staff = 5`, `minimum_staff = 4`, ROLE: RN = 5, SKILL: ICU = 2
 * 2 = shift 2, `required_staff = 1`, `minimum_staff = 1`, ROLE: RN = 1, ไม่มี SKILL
+* 21, 22 = shift 21, 22, `required_staff = 5`, `minimum_staff = 4`, ROLE: RN = 3, ไม่มี SKILL (ไม่มี Gap)
 
 Golden Case ใช้ `HARD_CONSTRAINT_POLICY(id=1).maximum_patients_per_nurse = 2` จาก Seed
 เพื่อให้ผู้ป่วย 10 คนต้องการพยาบาล 5 คน และผู้ป่วย 2 คนต้องการ 1 คน
@@ -2117,6 +2131,7 @@ Golden Case ใช้ `HARD_CONSTRAINT_POLICY(id=1).maximum_patients_per_nurse =
 **ROSTER_ASSIGNMENT**
 * 101–105 ในเวร 1: `ASSIGNED`, `REGULAR`
 * 202, 203 ในเวร 2: `ASSIGNED`, `REGULAR` (เกิน Requirement 1 คน)
+* 301, 302, 401, 902, 950 ในเวร 21 และ 22: `ASSIGNED`, `REGULAR`
 
 **ACTORS** 6 ตัวตาม `ActorName` + 1 ตัวต่อพนักงานแต่ละคน
 
@@ -2306,3 +2321,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-15 | รอบ 4 PR C1: `WARD.is_float_pool` (boolean, NOT NULL, default false, revision `c4e8a2f6d1b3` ต่อจาก `b8d4f1a6c2e9`); `create_plan()` ดึง Pool ผ่าน `_pool()`: คนหอเดียวกับเวรเสมอ บวกคนของหออื่นที่ `is_active` และไม่มีเวรที่ทับ `[start_at, end_at)` แบบครึ่งเปิดตามเวลาจริงของ Roster (เป็นการกรองก่อนล็อก ส่วน Hard Rules หลังล็อกเป็นตัวกันสุดท้าย); `source` = `SAME_WARD` / `FLOAT_POOL` / `CROSS_WARD` ตามหอบ้าน; `GET /cases/{id}` เพิ่ม `candidates[].home_ward_id`, `home_ward_name` (ข้อ 6.19, 9.3, 9.6); Test ของข้อกำหนดที่พังเงียบได้ของ C1: `test_cross_ward_pool.py` (`source` ไม่ใช่ `SAME_WARD` และคะแนนแหล่งที่มาไม่เป็น 0, คนที่อยู่เวรของหออื่นไม่เข้า Pool), `test_cross_ward_approval_race.py` (สองเคสต่างหอ สอง Connection), `test_ward_float_pool_migration.py`; ไม่ย้ายคนที่อยู่เวร (C2) | คน 2 |
 | 2026-10-15 | รอบ 4 PR T3: Gap รายช่วง Migration `c6e2b9f4a1d7` ต่อจาก C1 (`c4e8a2f6d1b3`) (`STAFFING_GAP.evaluated_from` และ `STAFFING_GAP_INTERVAL`, `STAFFING_GAP_ROLE_INTERVAL`, `STAFFING_GAP_SKILL_INTERVAL` ไม่ Backfill); `calculate_gap(window=...)` วัดตั้งแต่ `max(Backend Clock, เวลาเริ่มเวร)` นับแต่ละคนตามช่วงจริงของ Roster เวรที่จบแล้ววัดทั้งเวร; ค่าสรุปคือช่วงที่ขาดมากที่สุด; `get_case_gap().intervals` และ `case_status.intervals_closed()` ตัดสินปิด Gap รายช่วง (`GapFiller` มีช่วงเวลา); `GET /cases/{id}` เพิ่ม `gap.evaluated_from` และ `gap.intervals` (ข้อ 6.20, 9.3, 9.6) Solver และ Wave ยังใช้ค่าสรุปจนกว่า T4 | คน 1 |
 | 2026-10-15 | ตามรีวิว PR T3 (#82) แก้งานเก่าของ T1, T2 และ A ที่ merge แล้ว: `CandidateContext` ปฏิเสธแถว `COMMITTED` ของเวรเดียวกันที่ทับกัน; `create_replacement()` ปฏิเสธรายชื่อที่มี `source_assignment_id` จนกว่า C2 จะเขียนการย้าย; `_apply_cover()` บอกว่าการตัดแถวต้นทางเป็นการย้ายถาวรตามข้อ 6.19 และหาช่วงทำงานด้วย dict; Auto-Approval อ้างมติ R4-Q33 R4-Q36 ตรงที่อนุมัติทั้งหมด; `approval_service.actionable_pending()` และ `lock_ward_row()` ใช้ร่วมกับ Auto-Approval; `other_duties()` รวม `committed_duties()` เข้าด้วยกัน | คน 1 |
+| 2026-10-16 | รอบ 4 PR W4: Seed หอ Medicine (2), หอ Float Pool (3, `is_float_pool`), Role `SUPERVISOR` (3), RN 301, 302, 401, Head Nurse 902, Supervisor 950 และเวร 21, 22 ของ Medicine ที่เวลาตรงกับเวร ICU ทุกคนของหออื่นอยู่เวรเหล่านี้ Golden Case จึงวางแผนเท่าเดิม (ข้อ 10.2); Test ที่สมมติว่ามีหอเดียวนับเฉพาะเวร ICU; ไม่มี Migration | คน 1 |

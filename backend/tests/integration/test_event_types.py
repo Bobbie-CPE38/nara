@@ -172,7 +172,14 @@ def test_patient_surge_updates_the_shift_and_the_workload_target(
     # ceil(12 / 2), updated in the row the shift already had
     requirement = _requirement(seeded)
     assert (requirement.id, requirement.required_staff, requirement.minimum_staff) == (1, 6, 4)
-    assert seeded.scalar(select(func.count()).select_from(StaffingRequirement)) == 2
+    assert (
+        seeded.scalar(
+            select(func.count())
+            .select_from(StaffingRequirement)
+            .where(StaffingRequirement.shift_id == requirement.shift_id)
+        )
+        == 1
+    )
     event = seeded.get(StaffingEvent, body["event_id"])
     assert event is not None
     assert (event.staff_id, event.payload) == (None, {"patient_count": 12, "reported_by": 900})
