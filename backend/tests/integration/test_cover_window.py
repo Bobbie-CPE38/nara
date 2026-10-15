@@ -217,6 +217,25 @@ def test_a_source_that_only_touches_the_cover_is_not_a_move(seeded: Session) -> 
     ]
 
 
+def test_a_source_after_the_cover_is_not_a_move(seeded: Session) -> None:
+    night = _night(seeded)
+    # Starts two hours after the cover ends: the two do not overlap, so no move
+    source = _shift(seeded, night.end_at + timedelta(hours=2), night.end_at + timedelta(hours=10))
+    row = _assign(seeded, source)
+
+    plain = hard_rule_service.check_staff(seeded, shift=night, staff_ids=[STAFF])[STAFF]
+    check = hard_rule_service.check_staff(
+        seeded, shift=night, staff_ids=[STAFF], covers={STAFF: Cover(None, None, row.id)}
+    )[STAFF]
+
+    assert HardRuleCode.INSUFFICIENT_REST in _failed(check)
+    assert _failed(check) == _failed(plain)
+    assert check.context.linked_duty is None
+    assert [e.shift for e in check.context.roster if e.shift.shift_id == source.id] == [
+        ShiftSlot(source.id, source.start_at, source.end_at)
+    ]
+
+
 def test_a_move_across_sunday_midnight_is_one_duty_of_the_day_it_starts(
     seeded: Session,
 ) -> None:

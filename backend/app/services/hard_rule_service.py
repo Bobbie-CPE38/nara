@@ -281,9 +281,10 @@ def _apply_cover(
 
     With a source assignment the candidate leaves that row at the start of the
     cover (the cut). A move needs the cut before the source shift ends:
-      * source ends at or before the cover start: nothing is given up, so this is
-        no move. The row stays whole and links nothing; a gap or a touching pair
-        is judged by the rest rule as usual.
+      * source ends at or before the cover start, or starts at or after the cover
+        end: the two do not overlap, so nothing is given up and this is no move.
+        The row stays whole and links nothing; a gap or a touching pair is judged
+        by the rest rule as usual.
       * cut at or before the source start: the whole source shift is given up, so
         its entries are dropped.
       * otherwise the source shift is cut to [source start, cut) and is the
@@ -309,9 +310,10 @@ def _apply_cover(
     if source.entry.status not in COMMITTED_ROSTER_STATUSES:
         return tuple(entries), None
 
-    if source_slot.end_at <= proposed.start_at:
-        # The source ends before or exactly when the cover starts, so nothing of it is
-        # given up. This is no move: back-to-back shifts are judged by the rest rule.
+    if source_slot.end_at <= proposed.start_at or source_slot.start_at >= proposed.end_at:
+        # The source does not overlap the cover (it ends by the cover start or starts
+        # after the cover ends), so nothing of it is given up. This is no move:
+        # back-to-back or later shifts are judged by the rest rule.
         return tuple(entries), None
     cut = proposed.start_at
     if cut <= source_slot.start_at:
