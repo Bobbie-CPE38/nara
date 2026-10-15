@@ -9,6 +9,9 @@ Rules:
     `skipped` list in audit payloads). Change one only together with the contract.
   * OFFER_LIMIT_REACHED is not a Hard Rule. It needs CANDIDATE_OUTREACH, so it
     lives in the service layer and Safety never checks it.
+  * SOURCE_SHIFT_TAKEN (round 4 PR C2) is not a Hard Rule either. It is a wave
+    skip reason for the one-person-per-source-shift limit, and Safety never
+    checks it.
 """
 
 from enum import StrEnum

@@ -256,6 +256,9 @@ class TransferFailureReason(StrEnum):
     SOURCE_COVERAGE_LOST = "SOURCE_COVERAGE_LOST"
     DESTINATION_WINDOW_PASSED = "DESTINATION_WINDOW_PASSED"
     HARD_RULE_FAILED = "HARD_RULE_FAILED"
+    # C2 only: approval completed after the source shift started, which is a
+    # mid-shift move. PR C3 does those moves and removes this value (R4-Q43)
+    SOURCE_SHIFT_STARTED = "SOURCE_SHIFT_STARTED"
 
 
 # --------------------------------------------------------------------------- #
