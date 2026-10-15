@@ -31,6 +31,7 @@ from app.schemas.roster import (
     StaffRoster,
     StaffRosterRow,
 )
+from app.services import roster_time_service
 from app.services.unavailability_service import leave_overlaps_shift_sql
 
 
@@ -92,10 +93,15 @@ def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
             RosterAssignment.status,
             RosterAssignment.assignment_type,
             RosterAssignment.candidate_source,
+            RosterAssignment.actual_start_at,
+            RosterAssignment.actual_end_at,
+            RosterAssignment.transferred_from_assignment_id,
             RosterAssignment.staff_id,
             RosterAssignment.created_at,
             RosterAssignment.updated_at,
-            _is_unavailable(shift.start_at, shift.end_at).label("is_unavailable"),
+            _is_unavailable(roster_time_service.start_at(), roster_time_service.end_at()).label(
+                "is_unavailable"
+            ),
             Staff.first_name,
             Staff.last_name,
             Staff.status.label("staff_status"),
@@ -107,6 +113,7 @@ def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
         .join(Staff, Staff.id == RosterAssignment.staff_id)
         .join(Role, Role.id == Staff.role_id)
         .join(home_ward, home_ward.id == Staff.home_ward_id)
+        .join(Shift, Shift.id == RosterAssignment.shift_id)
         .where(RosterAssignment.shift_id == shift.id)
         # By id, never a time column: the demo clock is frozen (section 6.4)
         .order_by(RosterAssignment.id)
@@ -160,9 +167,14 @@ def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
             RosterAssignment.status,
             RosterAssignment.assignment_type,
             RosterAssignment.candidate_source,
+            RosterAssignment.actual_start_at,
+            RosterAssignment.actual_end_at,
+            RosterAssignment.transferred_from_assignment_id,
             RosterAssignment.created_at,
             RosterAssignment.updated_at,
-            _is_unavailable(Shift.start_at, Shift.end_at).label("is_unavailable"),
+            _is_unavailable(roster_time_service.start_at(), roster_time_service.end_at()).label(
+                "is_unavailable"
+            ),
             Shift.id.label("shift_id"),
             Shift.ward_id,
             Ward.name.label("ward_name"),
@@ -174,7 +186,7 @@ def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
         .join(Shift, Shift.id == RosterAssignment.shift_id)
         .join(Ward, Ward.id == Shift.ward_id)
         .where(RosterAssignment.staff_id == staff_id)
-        .order_by(Shift.start_at, RosterAssignment.id)
+        .order_by(roster_time_service.start_at(), RosterAssignment.id)
     ).mappings()
     return StaffRoster(
         staff=RosterStaff.model_validate(found),
@@ -184,6 +196,9 @@ def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
                 status=row["status"],
                 assignment_type=row["assignment_type"],
                 candidate_source=row["candidate_source"],
+                actual_start_at=row["actual_start_at"],
+                actual_end_at=row["actual_end_at"],
+                transferred_from_assignment_id=row["transferred_from_assignment_id"],
                 shift=RosterShift(
                     id=row["shift_id"],
                     ward_id=row["ward_id"],
@@ -203,8 +218,8 @@ def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
 
 
 def _is_unavailable(
-    shift_start: datetime | InstrumentedAttribute[datetime],
-    shift_end: datetime | InstrumentedAttribute[datetime],
+    shift_start: datetime | InstrumentedAttribute[datetime] | ColumnElement[datetime],
+    shift_end: datetime | InstrumentedAttribute[datetime] | ColumnElement[datetime],
 ) -> ColumnElement[bool]:
     """ASSIGNED, and a leave period of the row's person overlaps the shift.
 

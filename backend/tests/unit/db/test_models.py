@@ -114,6 +114,9 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "status": (StrEnumText, NOT_NULL),
         "assignment_type": (StrEnumText, NOT_NULL),
         "candidate_source": (StrEnumText, NULL),
+        "actual_start_at": (DateTime, NULL),
+        "actual_end_at": (DateTime, NULL),
+        "transferred_from_assignment_id": (BigInteger, NULL),
         "created_at": (DateTime, NOT_NULL),
         "updated_at": (DateTime, NOT_NULL),
     },
@@ -171,7 +174,11 @@ EXPECTED_FOREIGN_KEYS: dict[str, dict[str, str]] = {
     },
     "staffing_cases": {"shift_id": "shift.id"},
     "staff_unavailability": {"staff_id": "staff.id"},
-    "roster_assignment": {"staff_id": "staff.id", "shift_id": "shift.id"},
+    "roster_assignment": {
+        "staff_id": "staff.id",
+        "shift_id": "shift.id",
+        "transferred_from_assignment_id": "roster_assignment.id",
+    },
     "staffing_gap": {
         "case_id": "staffing_cases.id",
         "staffing_requirement_id": "staffing_requirements.id",

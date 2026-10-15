@@ -35,6 +35,9 @@ class RosterRow(BaseModel):
     assignment_type: AssignmentType
     # null for REGULAR rows
     candidate_source: CandidateSource | None
+    actual_start_at: AppDatetime | None
+    actual_end_at: AppDatetime | None
+    transferred_from_assignment_id: int | None
     staff_id: int
     first_name: str
     last_name: str
@@ -78,6 +81,9 @@ class StaffRosterRow(BaseModel):
     assignment_type: AssignmentType
     # null for REGULAR rows
     candidate_source: CandidateSource | None
+    actual_start_at: AppDatetime | None
+    actual_end_at: AppDatetime | None
+    transferred_from_assignment_id: int | None
     shift: RosterShift
     # Same meaning as RosterRow.is_unavailable
     is_unavailable: bool

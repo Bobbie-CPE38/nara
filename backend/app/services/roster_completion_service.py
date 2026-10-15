@@ -1,4 +1,4 @@
-"""Roster rows of ended shifts become COMPLETED (round 3 PR R, workflow.md section 3.8).
+"""Ended roster intervals become COMPLETED (workflow.md sections 3.8 and 6.20).
 
 Called by job_service.run_due_work() every tick. COMPLETED counts like ASSIGNED
 everywhere (COMMITTED_ROSTER_STATUSES, COVERING_ROSTER_STATUSES), so the change
@@ -19,10 +19,11 @@ from sqlalchemy.orm import Session
 from app.core import clock
 from app.db.models import RosterAssignment, Shift, StaffingEvent
 from app.domain.enums import STAFF_EVENT_TYPES, EventStatus, RosterStatus
+from app.services import roster_time_service
 
 
 def complete_ended_shifts(db: Session) -> list[int]:
-    """Set ASSIGNED rows whose shift ended (end_at <= backend clock) to COMPLETED; commit.
+    """Complete ASSIGNED rows at their effective end (actual end, else shift end); commit.
 
     Rows of a person with a queued staff event on the shift are left as they are.
 
@@ -38,7 +39,7 @@ def complete_ended_shifts(db: Session) -> list[int]:
             .join(Shift, Shift.id == RosterAssignment.shift_id)
             .where(
                 RosterAssignment.status == RosterStatus.ASSIGNED,
-                Shift.end_at <= now,
+                roster_time_service.end_at() <= now,
                 ~exists().where(
                     StaffingEvent.shift_id == RosterAssignment.shift_id,
                     StaffingEvent.staff_id == RosterAssignment.staff_id,
