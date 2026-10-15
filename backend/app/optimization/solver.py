@@ -42,10 +42,11 @@ round 2 baseline must pass unchanged).
 Candidates that share a source_shift_id are exclusive: sum(x) <= 1 (R4-Q25). With
 that constraint "cover every target" can be impossible, so a stage 1 INFEASIBLE is
 no longer a model bug there: the partial plan of R4-Q37/R4-Q39 runs instead, with
-`partial` set on the result. A fresh model gets a shortage variable per need, and
-the rounds fix in turn the headcount, then role, then skill shortage in
-person-seconds; the penalty, count and staff ID stages follow with the shortages
-fixed. A group that covers nothing gives INFEASIBLE (no plan). Without any
+`partial` set on the result. A fresh model gets a shortage variable per need of the
+actual gap (the 10% reserve of the wave target is not counted: a missing reserve place
+must not outweigh a real shortage), and the rounds fix in turn the headcount, then
+role, then skill shortage in person-seconds; the penalty, count and staff ID stages
+follow with the shortages fixed. A group that covers nothing gives INFEASIBLE (no plan). Without any
 exclusive constraint selecting everyone satisfies the model, so INFEASIBLE from
 CP-SAT is still MODEL_INVALID.
 
@@ -252,11 +253,14 @@ def _needs(
     role_gaps: Mapping[int, int],
     skill_gaps: Mapping[int, int],
     intervals: Sequence[IntervalGap] | None,
+    reserve: bool = True,
 ) -> list[_Need]:
     """The needs, merged: one per (kind, key, holders, target), seconds summed.
 
     Order: per piece, headcount, then roles, then skills, in the order of the gap
     dicts. A target nobody can reach is lowered to the number of holders.
+    reserve=True asks for the wave target (the gap plus the 10% reserve); False asks
+    for the actual gap only, which is what the partial plan measures (R4-Q39).
     """
     pieces: list[tuple[int, Mapping[int, int], Mapping[int, int], tuple[int, ...], int]]
     if intervals is None:
@@ -281,7 +285,7 @@ def _needs(
     def add(
         kind: TargetType, key: int | None, holders: tuple[int, ...], gap: int, seconds: int
     ) -> None:
-        target = min(wave_target(gap), len(holders))
+        target = min(wave_target(gap) if reserve else gap, len(holders))
         if target > 0:
             slot = (kind, key, holders, target)
             merged[slot] = merged.get(slot, 0) + seconds
@@ -313,13 +317,20 @@ def _cheapest_covering_group(
     deadline = _monotonic() + time_limit_seconds
     people = sorted(candidates, key=lambda candidate: candidate.filler.staff_id)
 
-    needs = _needs(
-        people,
-        headcount_gap=headcount_gap,
-        role_gaps=role_gaps,
-        skill_gaps=skill_gaps,
-        intervals=intervals,
-    )
+    def needs_of(*, reserve: bool) -> list[_Need]:
+        return _needs(
+            people,
+            headcount_gap=headcount_gap,
+            role_gaps=role_gaps,
+            skill_gaps=skill_gaps,
+            intervals=intervals,
+            reserve=reserve,
+        )
+
+    needs = needs_of(reserve=True)
+    # The partial plan counts what is actually missing: an unfilled reserve place must
+    # not outweigh a real shortage (R4-Q39)
+    gap_needs = needs_of(reserve=False)
     # Candidates on the same source shift: at most one of them
     by_shift: dict[int, list[int]] = {}
     for index, candidate in enumerate(people):
@@ -329,13 +340,13 @@ def _cheapest_covering_group(
     costs = _scaled_costs([candidate_penalty(candidate.metrics, weights) for candidate in people])
 
     def new_model(
-        *, with_shortages: bool
+        wanted: Sequence[_Need], *, with_shortages: bool
     ) -> tuple[cp_model.CpModel, list[cp_model.IntVar], list[cp_model.IntVar]]:
         """The model, its x, and a shortage variable per need when asked."""
         built = cp_model.CpModel()
         xs = [built.new_bool_var(f"x{candidate.filler.staff_id}") for candidate in people]
         shortages: list[cp_model.IntVar] = []
-        for need in needs:
+        for need in wanted:
             reached = sum(xs[index] for index in need.holders)
             if with_shortages:
                 shortage = built.new_int_var(0, need.target, f"s{len(shortages)}")
@@ -347,7 +358,7 @@ def _cheapest_covering_group(
             built.add(sum(xs[index] for index in group) <= 1)
         return built, xs, shortages
 
-    model, variables, _ = new_model(with_shortages=False)
+    model, variables, _ = new_model(needs, with_shortages=False)
     cost_sum = cp_model.LinearExpr.weighted_sum(variables, costs)
     count_sum = cp_model.LinearExpr.sum(variables)
     # Checked with the stage 1 objective set: the scaled costs are the large numbers
@@ -430,34 +441,37 @@ def _cheapest_covering_group(
     def partial_plan() -> _Selection:
         """No group covers every target: cover as much as possible (R4-Q37/R4-Q39).
 
-        A fresh model where a need may fall short by a variable. Headcount, then
-        role, then skill shortage in person-seconds, each fixed before the next;
-        the ordinary stages then choose among the groups that are equally covered.
+        A fresh model where a need of the actual gap (no reserve) may fall short by a
+        variable. Headcount, then role, then skill shortage in person-seconds, each fixed
+        before the next; the ordinary stages then choose among the groups that are equally covered.
         """
         nonlocal model, variables, kept
         kept = ()
-        model, variables, shortages = new_model(with_shortages=True)
+        model, variables, shortages = new_model(gap_needs, with_shortages=True)
         cost_expr = cp_model.LinearExpr.weighted_sum(variables, costs)
         count_expr = cp_model.LinearExpr.sum(variables)
         model.minimize(cost_expr)
         if model.validate():
             return _Selection(None, SolverStatus.MODEL_INVALID, partial=True)
-        shortage_of_need = dict(zip(range(len(needs)), shortages, strict=True))
+        shortage_of_need = dict(zip(range(len(gap_needs)), shortages, strict=True))
         for kind in (TargetType.HEADCOUNT, TargetType.ROLE, TargetType.SKILL):
-            of_kind = [index for index, need in enumerate(needs) if need.kind is kind]
+            of_kind = [index for index, need in enumerate(gap_needs) if need.kind is kind]
             if not of_kind:
                 continue
             total = cp_model.LinearExpr.weighted_sum(
                 [shortage_of_need[index] for index in of_kind],
-                [needs[index].seconds for index in of_kind],
+                [gap_needs[index].seconds for index in of_kind],
             )
             stop = run(total)
             if stop is not None:
                 return replace(stop, partial=True)
             model.add(
-                total == sum(needs[index].seconds * shortage_of(needs[index]) for index in of_kind)
+                total
+                == sum(
+                    gap_needs[index].seconds * shortage_of(gap_needs[index]) for index in of_kind
+                )
             )
-        if all(shortage_of(need) == need.target for need in needs):
+        if all(shortage_of(need) == need.target for need in gap_needs):
             # The best group covers nothing: there is no plan to offer
             return _Selection(None, SolverStatus.INFEASIBLE, partial=True)
         return replace(stages(cost_expr, count_expr), partial=True)

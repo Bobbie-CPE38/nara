@@ -9,7 +9,7 @@ import pytest
 from app.domain.constraints.soft_metrics import SoftMetrics
 from app.domain.enums import CandidateSource, SolverStatus
 from app.domain.staffing.wave_targets import TargetCredit
-from app.domain.workflow.case_status import GapFiller, IntervalGap
+from app.domain.workflow.case_status import GapFiller, IntervalGap, intervals_closed
 from app.optimization.solver import SolverCandidate, SolverResult, _Round, solve
 from tests.unit.optimization.solver_baseline import load_cases
 from tests.unit.optimization.test_solver import ICU, LIMIT, RN, SAME, WEIGHTS
@@ -230,6 +230,50 @@ def test_role_shortage_outranks_skill_shortage() -> None:
     assert result.status is SolverStatus.OPTIMAL
     assert result.partial is True
     assert set(result.first_wave) == {1}
+
+
+def closes_the_gap(
+    result: SolverResult, candidates: Sequence[SolverCandidate], intervals: Sequence[IntervalGap]
+) -> bool:
+    """The first wave closes every slice of the actual gap (the reserve is not asked)."""
+    chosen = [c.filler for c in candidates if c.filler.staff_id in result.first_wave]
+    return intervals_closed(intervals, chosen)
+
+
+def test_the_partial_plan_does_not_put_a_reserve_place_before_a_real_shortage() -> None:
+    # Gap: 1 person, 1 RN, 1 ICU. The wave target asks for 2 RN, but only the gap is
+    # missing. A and B share a source shift; A + C leaves ICU uncovered, B + C closes it
+    candidates = [
+        cand(1, shift=7),
+        cand(2, ICU, role=OTHER, shift=7, worse=True),
+        cand(3),
+    ]
+    intervals = [piece(0, 8, roles={RN: 1}, skills={ICU: 1})]
+
+    result = go(candidates, intervals)
+
+    assert result.status is SolverStatus.OPTIMAL
+    assert result.partial is True
+    assert set(result.first_wave) == {2, 3}
+    assert closes_the_gap(result, candidates, intervals)
+
+
+def test_the_partial_plan_does_not_put_reserve_headcount_before_an_uncovered_slice() -> None:
+    # Slice 0-4 needs an RN, slice 4-8 needs ICU. A (RN, whole shift) and B (ICU, 4-8)
+    # share a source shift. A + C has more people in slice 4-8 (the reserve) but no ICU
+    candidates = [
+        cand(1, shift=7),
+        cand(2, ICU, role=OTHER, start=4, end=8, shift=7, worse=True),
+        cand(3, start=0, end=4),
+    ]
+    intervals = [piece(0, 4, roles={RN: 1}), piece(4, 8, skills={ICU: 1})]
+
+    result = go(candidates, intervals)
+
+    assert result.status is SolverStatus.OPTIMAL
+    assert result.partial is True
+    assert set(result.first_wave) == {2, 3}
+    assert closes_the_gap(result, candidates, intervals)
 
 
 @pytest.mark.parametrize("bad", [_Round(SolverStatus.INFEASIBLE, None)])
