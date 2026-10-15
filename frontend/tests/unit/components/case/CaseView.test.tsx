@@ -507,6 +507,21 @@ describe("CaseView", () => {
     const termNames = (table: string) => within(screen.getByRole("table", { name: table })).getAllByRole("row")
       .slice(1).map(row => row.querySelector("td")?.firstChild?.textContent);
 
+    it("says points decide the first wave on a normal plan", async () => {
+      render(<CaseView caseId="1" />);
+      await tick();
+      expect(screen.getByText(/^Points decide which group becomes the first wave/)).toBeTruthy();
+      expect(screen.queryByText(/Coverage decides first/)).toBeNull();
+    });
+
+    it("says coverage decides first on a partial plan", async () => {
+      serve(caseDetail({ partial_plan: true }), []);
+      render(<CaseView caseId="1" />);
+      await tick();
+      expect(screen.getByText(/^Coverage decides first: no group could cover every target/)).toBeTruthy();
+      expect(screen.queryByText(/Points decide which group/)).toBeNull();
+    });
+
     it("shows each score table with terms sorted by points and the fixed reasons", async () => {
       render(<CaseView caseId="1" />);
       await tick();
