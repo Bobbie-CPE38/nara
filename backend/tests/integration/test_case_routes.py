@@ -17,12 +17,14 @@ from app.db.models import (
     CandidateOutreach,
     CandidatePlan,
     RosterAssignment,
+    Shift,
     StaffingCase,
     StaffingEvent,
     StaffingGap,
     StaffingGapRole,
     StaffingGapSkill,
     StaffingRequirement,
+    Ward,
 )
 from app.domain.enums import (
     GOLDEN_PATH_AUDIT_ACTIONS,
@@ -295,10 +297,47 @@ def test_candidates_come_from_the_latest_plan_in_rank_order(
         "outreach_status",
         "stage",
         "score",
+        "cover_start_at",
+        "cover_end_at",
+        "source_assignment",
     }
+    # A plan without a cover: the whole shift, nobody moved
+    assert [
+        (c["cover_start_at"], c["cover_end_at"], c["source_assignment"]) for c in body["candidates"]
+    ] == [(None, None, None)] * 3
     # The helper plans store an empty snapshot: no exact values, so no score
     assert [c["score"] for c in body["candidates"]] == [None, None, None]
     assert (first["first_name"], first["source"]) == ("Arunee", "SAME_WARD")
+
+
+def test_candidate_with_cover_and_source_shows_the_times_and_the_ward_name(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, _, _ = _add_plan(seeded, case, [201, 202, 203])
+    source = seeded.scalars(
+        select(RosterAssignment).where(RosterAssignment.staff_id == 202).limit(1)
+    ).one()
+    shift = seeded.get(Shift, source.shift_id)
+    assert shift is not None
+    ward = seeded.get(Ward, shift.ward_id)
+    assert ward is not None
+    shift_start = seeded.get(Shift, NIGHT_SHIFT)
+    assert shift_start is not None
+    first.cover_start_at = shift_start.start_at + timedelta(hours=2)
+    first.cover_end_at = shift_start.end_at
+    first.source_assignment_id = source.id
+    seeded.flush()
+
+    candidate = client.get(f"/cases/{case.id}").json()["candidates"][0]
+
+    assert candidate["cover_start_at"] is not None
+    assert candidate["cover_end_at"] is not None
+    assert candidate["source_assignment"] == {
+        "assignment_id": source.id,
+        "shift_id": source.shift_id,
+        "ward_id": ward.id,
+        "ward_name": ward.name,
+    }
 
 
 def test_assigned_count_is_the_approved_candidates_on_the_roster(
