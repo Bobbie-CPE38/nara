@@ -371,6 +371,25 @@ describe("demo control live case status", () => {
     expect(fetchMock).toHaveBeenCalledTimes(count);
   });
 
+  it("never refreshes a missing case even when a new case reuses its ID", async () => {
+    const { fetchMock, setReply } = serve();
+    await tick();
+    setReply(() => Promise.resolve(json({ detail: "Not found" }, 404)));
+    await tick(2000);
+    expect(screen.queryByRole("button", { name: "Refresh case 7" })).toBeNull();
+
+    // Reset reuses IDs. A later 200 belongs to a different case and must not
+    // replace the missing-case notice under the original event result.
+    setReply(() => Promise.resolve(json({ id: 7, status: "WAITING_APPROVAL" })));
+    const count = fetchMock.mock.calls.length;
+    await tick(10000);
+    expect(fetchMock).toHaveBeenCalledTimes(count);
+    expect(screen.getByText(/Case no longer exists/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "7" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "7 (WAITING_APPROVAL)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refresh case 7" })).toBeNull();
+  });
+
   it("ignores a response still in flight when the demo is reset", async () => {
     const { fetchMock, setReply } = serve();
     await tick();

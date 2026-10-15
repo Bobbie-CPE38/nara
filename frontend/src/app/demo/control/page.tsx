@@ -102,9 +102,11 @@ function CaseLink({ id, status }: { id: number; status: string | null }) {
               : " — Updating every 2 seconds."}
         </span>
       )}
-      <button type="button" className="ml-2 underline" onClick={() => void refresh()}>
-        Refresh case {id}
-      </button>
+      {!missing && (
+        <button type="button" className="ml-2 underline" onClick={() => void refresh()}>
+          Refresh case {id}
+        </button>
+      )}
     </span>
   );
 }
