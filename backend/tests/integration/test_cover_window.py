@@ -5,7 +5,7 @@ The "Y example": staff 201 works another shift 23:00-07:00, then is moved out of
 are one eight-hour duty, so the rest rule must not reject them.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import CandidateItem, RosterAssignment, Shift
 from app.domain.constraints.codes import HardRuleCode
+from app.domain.constraints.context import ShiftSlot
 from app.domain.enums import (
     AssignmentType,
     OutreachStatus,
@@ -194,6 +195,49 @@ def test_a_gap_before_the_cover_gives_a_cut_without_a_link(seeded: Session) -> N
     assert [(e.shift.start_at, e.shift.end_at) for e in kept] == [
         (night.start_at, night.start_at + timedelta(hours=4))
     ]
+
+
+def test_a_source_that_only_touches_the_cover_is_not_a_move(seeded: Session) -> None:
+    night = _night(seeded)
+    # Ends exactly when the cover starts: nothing is given up, so no linked duty
+    source = _shift(seeded, night.start_at - timedelta(hours=8), night.start_at)
+    row = _assign(seeded, source)
+    touching = Cover(None, None, row.id)
+
+    plain = hard_rule_service.check_staff(seeded, shift=night, staff_ids=[STAFF])[STAFF]
+    check = hard_rule_service.check_staff(
+        seeded, shift=night, staff_ids=[STAFF], covers={STAFF: touching}
+    )[STAFF]
+
+    assert HardRuleCode.INSUFFICIENT_REST in _failed(check)
+    assert check.context.linked_duty is None
+    assert _failed(check) == _failed(plain)
+    assert [e.shift for e in check.context.roster if e.shift.shift_id == source.id] == [
+        ShiftSlot(source.id, source.start_at, source.end_at)
+    ]
+
+
+def test_a_move_across_sunday_midnight_is_one_duty_of_the_day_it_starts(
+    seeded: Session,
+) -> None:
+    night = _night(seeded)
+    # Sunday 20:00 to Monday 04:00 in Asia/Bangkok; the cover starts at Monday 00:00
+    night.start_at = datetime(2026, 10, 11, 13, 0, tzinfo=UTC)
+    night.end_at = datetime(2026, 10, 11, 21, 0, tzinfo=UTC)
+    source = _shift(seeded, night.start_at, night.end_at)
+    row = _assign(seeded, source)
+    cover = Cover(datetime(2026, 10, 11, 17, 0, tzinfo=UTC), night.end_at, row.id)
+
+    check = hard_rule_service.check_staff(
+        seeded, shift=night, staff_ids=[STAFF], covers={STAFF: cover}
+    )[STAFF]
+
+    assert check.result.failed_rules == ()
+    assert check.result.details["daily_hours"] == 8
+    assert check.result.details["projected_consecutive_shifts"] == 1
+    linked = check.context.linked_duty
+    assert linked is not None
+    assert (linked.start_at, linked.end_at) == (night.start_at, cover.start_at)
 
 
 # --------------------------------------------------------------------------- #

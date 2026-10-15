@@ -280,12 +280,14 @@ def _apply_cover(
     them only by shift_id, and CandidateContext allows one set of times per shift.
 
     With a source assignment the candidate leaves that row at the start of the
-    cover. cut = the earlier of the source's end and the cover start:
+    cover (the cut). A move needs the cut before the source shift ends:
+      * source ends at or before the cover start: nothing is given up, so this is
+        no move. The row stays whole and links nothing; a gap or a touching pair
+        is judged by the rest rule as usual.
       * cut at or before the source start: the whole source shift is given up, so
         its entries are dropped.
-      * otherwise the source shift is cut to [source start, cut). It is the
-        linked duty only when the cut meets the cover exactly; a gap leaves two
-        separate duties that the rest rule judges as usual.
+      * otherwise the source shift is cut to [source start, cut) and is the
+        linked duty, which meets the cover exactly.
     A source row that is no longer committed (cancelled since planning) changes
     nothing and links nothing: raising would fail the whole case.
     """
@@ -307,7 +309,11 @@ def _apply_cover(
     if source.entry.status not in COMMITTED_ROSTER_STATUSES:
         return tuple(entries), None
 
-    cut = min(source_slot.end_at, proposed.start_at)
+    if source_slot.end_at <= proposed.start_at:
+        # The source ends before or exactly when the cover starts, so nothing of it is
+        # given up. This is no move: back-to-back shifts are judged by the rest rule.
+        return tuple(entries), None
+    cut = proposed.start_at
     if cut <= source_slot.start_at:
         return tuple(e for e in entries if e.shift.shift_id != source_slot.shift_id), None
     kept = ShiftSlot(source_slot.shift_id, source_slot.start_at, cut)
@@ -315,7 +321,7 @@ def _apply_cover(
         RosterEntry(kept, e.status) if e.shift.shift_id == source_slot.shift_id else e
         for e in entries
     ]
-    return tuple(entries), (kept if cut == proposed.start_at else None)
+    return tuple(entries), kept
 
 
 def _refuse_source(db: Session, assignment_id: int, staff_id: int) -> NoReturn:
