@@ -530,7 +530,6 @@ def _require_manager_role(db: Session, role_id: int) -> str:
     role = db.scalar(select(Role.name).where(Role.id == role_id))
     if role not in {HEAD_NURSE_ROLE, SUPERVISOR_ROLE}:
         raise HandoffForbiddenError("Only a Head Nurse or Supervisor may manage handed-off cases")
-
     return role
 
 

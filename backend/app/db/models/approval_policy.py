@@ -25,5 +25,4 @@ class ApprovalPolicy(Base):
     version: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=clock.now)
     approval_timeout_seconds: Mapped[int] = mapped_column(Integer)
-
-    supervisor_after_seconds: Mapped[int] = mapped_column(Integer, default=600)
+    supervisor_after_seconds: Mapped[int] = mapped_column(Integer)

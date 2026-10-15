@@ -514,14 +514,13 @@ def lock_approval_attempt(
                 SUPERVISOR_ROLE,
             }:
                 raise ApproverRoleError("Only a Head Nurse or Supervisor may decide")
-            if (
-                not allowed
-                and role_name == HEAD_NURSE_ROLE
-                and item_hint.source_assignment_id is None
-            ):
-                raise ApproverWardError("The staff member is not a head nurse of the shift's ward")
             if not allowed:
-                raise ApproverWardError("The approver cannot decide this ward side yet")
+                message = (
+                    "The staff member is not a head nurse of the shift's ward"
+                    if role_name == HEAD_NURSE_ROLE and item_hint.source_assignment_id is None
+                    else "The approver cannot decide this ward side yet"
+                )
+                raise ApproverWardError(message)
         if not request.is_pending:
             raise ApprovalNotPendingError(f"Approval request {approval_id} is not pending")
         item = db.get(CandidateItem, request.candidate_item_id)
@@ -676,7 +675,10 @@ def list_auto_approved(
 
 
 def _enrich_wards(db: Session, rows: Sequence[RowMapping]) -> list[dict[str, Any]]:
-    """Batched identity/decision reads; no per-request queries on the polling endpoints."""
+    """Enrich pending requests and approved AUTO history, never rejected history.
+
+    A general closed-request list must add REJECTED side status before reusing this helper.
+    """
     if not rows:
         return []
     ids = [row["id"] for row in rows]

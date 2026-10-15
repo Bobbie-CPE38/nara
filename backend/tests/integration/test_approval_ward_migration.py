@@ -64,3 +64,32 @@ def test_single_head_and_parent():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
     assert len(script.get_heads()) == 1
     assert script.get_revision(REVISION).down_revision == "c6e2b9f4a1d7"
+
+
+@pytest.mark.parametrize("timeout, delay", [(60, 30), (600, 599)])
+def test_new_policy_accepts_explicit_delay_below_short_timeout(seeded, timeout, delay):
+    policy = ApprovalPolicy(
+        id=2,
+        ratio=2,
+        incoming_count=10,
+        version="short-timeout",
+        approval_timeout_seconds=timeout,
+        supervisor_after_seconds=delay,
+    )
+    seeded.add(policy)
+    seeded.flush()
+    assert seeded.get(ApprovalPolicy, 2).supervisor_after_seconds == delay
+
+
+def test_new_policy_requires_explicit_supervisor_delay(seeded):
+    with pytest.raises(IntegrityError, match="supervisor_after_seconds"), seeded.begin_nested():
+        seeded.add(
+            ApprovalPolicy(
+                id=2,
+                ratio=2,
+                incoming_count=10,
+                version="missing-delay",
+                approval_timeout_seconds=60,
+            )
+        )
+        seeded.flush()

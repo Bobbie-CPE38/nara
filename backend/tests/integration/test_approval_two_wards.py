@@ -273,6 +273,12 @@ def test_supervisor_can_manage_foreign_handoff_immediately(scene):
         actor_id=next(db.scalars(select(Actor.id).where(Actor.staff_id == supervisor_staff.id))),
         reason="No safe replacement",
     )
+    audit = db.scalar(
+        select(AuditLog).where(
+            AuditLog.case_id == case.id, AuditLog.action == AuditAction.CASE_CLOSED_UNRESOLVED
+        )
+    )
+    assert audit.payload["closed_by"] == "SUPERVISOR"
 
 
 @pytest.fixture

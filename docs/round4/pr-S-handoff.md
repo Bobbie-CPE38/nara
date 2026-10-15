@@ -61,6 +61,9 @@ Pending requests add `home_ward_id`, `source_ward_id`, `wards` (side, ward, PEND
 and `supervisor_from`. Reads enrich the list in batches, without per-request queries.
 Supervisor time uses the current approval policy; request expiry remains its snapshot.
 Auto-history reads have the same extra fields and show the approved destination side.
+These lists expose pending requests and approved AUTO history only. Rejected manual requests
+are not returned. Before reusing this enrichment for closed manual history, PR U must add
+REJECTED to the per-side statuses so a rejection cannot appear as PENDING.
 
 Decision responses add `outcome`, raw nullable `reason`, and `failed_rules`.
 `is_approved` is nullable and always equals the aggregate request value:
@@ -79,13 +82,17 @@ retired. D11 gives EXECUTION_FAILED while preserving the final approval.
 
 The existing approvals page only receives compatible types and truthful messages for
 WAITING_OTHER_WARD/TRANSFER_CANCELLED. Full ward-side controls, Supervisor UI, per-ward
-history and richer outcome displays remain PR U. S adds no LINE result messages.
+history and richer outcome displays remain PR U. The current page does not send `side`:
+a Supervisor cannot decide a two-ward request while both sides are pending from this UI
+(422); use the API with an explicit side until PR U adds the picker.
+S adds no LINE result messages.
 
 ## Migration and C2 seam
 
 `f2a7c9d4e6b8` follows T3 `c6e2b9f4a1d7`. It adds the decision table and the policy delay,
 with `0 < supervisor_after_seconds < approval_timeout_seconds`. Seed delay is 600.
-Existing policies receive `min(600, timeout - 1)`. Policies with timeout <= 1 abort
+New policies must explicitly supply a valid delay; neither the ORM nor the database
+provides a fixed default. Existing policies receive `min(600, timeout - 1)`. Policies with timeout <= 1 abort
 before DDL and need correction before upgrade. Existing requests and deadlines stay;
 no historical human decisions are invented. Downgrade drops the new decision history.
 
@@ -107,7 +114,7 @@ policies, delay constraints, round trip and one migration head. The original
 manages_ward tests remain; the legacy arbitrary-RN-role approval test now uses another
 valid Head Nurse, with a separate test rejecting RN role-policy tampering.
 
-Validation: backend **2,493 passed, 14 skipped** (opt-in solver timing harness);
+Validation: backend **2,496 passed, 14 skipped** (opt-in solver timing harness);
 frontend **316 passed**; TypeScript typecheck, isolated production build, Ruff,
 Ruff format check, mypy and `git diff --check` passed. The single Alembic head is
 `f2a7c9d4e6b8`. Tests used `LINE_MODE=simulation` and a dedicated test database.

@@ -20,7 +20,9 @@ type Row = PendingApproval & { shortBy: number | null };
 
 /** The list, plus one read per case for the people it still lacks. */
 async function loadRows(signal: AbortSignal): Promise<Row[]> {
-  const pending = await api<PendingApproval[]>("/approvals?pending=true", { signal });
+  const pending = await api<PendingApproval[]>("/approvals?pending=true", {
+    signal,
+  });
   const caseIds = [...new Set(pending.map((row) => row.case_id))];
   const shortBy = new Map<number, number | null>(
     await Promise.all(
@@ -39,7 +41,10 @@ async function loadRows(signal: AbortSignal): Promise<Row[]> {
       }),
     ),
   );
-  return pending.map((row) => ({ ...row, shortBy: shortBy.get(row.case_id) ?? null }));
+  return pending.map((row) => ({
+    ...row,
+    shortBy: shortBy.get(row.case_id) ?? null,
+  }));
 }
 
 /** What makes a request the same one. An ID alone is reused after a demo reset */
@@ -90,27 +95,29 @@ export default function Approvals() {
     setBusy(true);
     setOutcome(null);
     try {
-      const result = await api<ApprovalDecisionResult>(
-        `/approvals/${approvalId}/decision`,
-        {
-          method: "POST",
-          json: approved ? { approved } : { approved, reason: rejectionReason },
-        },
-      );
+      const result = await api<ApprovalDecisionResult>(`/approvals/${approvalId}/decision`, {
+        method: "POST",
+        json: approved ? { approved } : { approved, reason: rejectionReason },
+      });
       setDecidedIds((ids) => [...ids, approvalId]);
       if (!approved) closeRejection();
       setOutcome(
         result.case_status === "FAILED"
-          ? { kind: "failed", approvalId: result.approval_id, caseId: result.case_id }
+          ? {
+              kind: "failed",
+              approvalId: result.approval_id,
+              caseId: result.case_id,
+            }
           : {
               kind: "ok",
-              message: result.outcome === "WAITING_OTHER_WARD"
-                ? `Approval ${result.approval_id}: ward approved; waiting for the other ward.`
-                : result.outcome === "TRANSFER_CANCELLED"
-                  ? `Approval ${result.approval_id}: transfer cancelled (${result.reason ?? "unknown reason"}).`
-                  : `Approval ${result.approval_id} ${
-                result.is_approved ? "approved" : "rejected"
-              }. Case ${result.case_id}: ${result.case_status}`,
+              message:
+                result.outcome === "WAITING_OTHER_WARD"
+                  ? `Approval ${result.approval_id}: ward approved; waiting for the other ward.`
+                  : result.outcome === "TRANSFER_CANCELLED"
+                    ? `Approval ${result.approval_id}: transfer cancelled (${result.reason ?? "unknown reason"}).`
+                    : `Approval ${result.approval_id} ${
+                        result.is_approved ? "approved" : "rejected"
+                      }. Case ${result.case_id}: ${result.case_status}`,
             },
       );
     } catch (cause) {
