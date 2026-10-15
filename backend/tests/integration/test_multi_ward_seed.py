@@ -1,7 +1,9 @@
 """The multi-ward demo data (round 4 PR W4, docs/workflow.md 6.19, 6.21).
 
 The Golden Case must plan as it did with one ward (R4-Q38), so nobody of another
-ward may reach the pool of an ICU shift, not even to be skipped.
+ward may be offered an ICU shift. Since PR C2 the Medicine people are movable (equal
+times, shifts not started), so they reach the pool, but Medicine has no surplus and
+they are skipped with SOURCE_WARD_MINIMUM_VIOLATION (or ROLE_MISMATCH).
 """
 
 import pytest
@@ -62,15 +64,19 @@ def test_the_float_pool_has_no_shifts_and_medicine_mirrors_icu(seeded: Session) 
 
 
 @pytest.mark.parametrize("shift_id", [1, 2])
-def test_no_one_of_another_ward_reaches_an_icu_pool(seeded: Session, shift_id: int) -> None:
+def test_no_one_of_another_ward_is_offered_an_icu_shift(seeded: Session, shift_id: int) -> None:
     leave(seeded, 105 if shift_id == 1 else 203, shift_id)
     case = make_case(seeded, CaseStatus.OPTIMIZING, shift_id=shift_id)
     record_gap(seeded, case)
 
     result = optimization_service.create_plan(seeded, case)
 
-    planned = {item.staff_id for item in result.items} | {row.staff_id for row in result.skipped}
     icu = set(seeded.scalars(select(Staff.id).where(Staff.home_ward_id == 1)))
-    assert planned <= icu
+    assert {item.staff_id for item in result.items} <= icu
     # Not vacuous: the ICU people are still planned or skipped with a code
+    planned = {item.staff_id for item in result.items} | {row.staff_id for row in result.skipped}
     assert {201, 202, 203} <= planned
+    # Medicine is at its target, so its people are skipped and none is a candidate
+    reasons = {row.staff_id: row.reason for row in result.skipped}
+    for staff_id in (301, 302, 401):
+        assert reasons[staff_id] == "SOURCE_WARD_MINIMUM_VIOLATION"

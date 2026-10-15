@@ -13,7 +13,7 @@ shift end, per time slice, with each roster row counted only inside its actual
 interval (workflow.md 6.20). `get_case_gap()` returns those slices for deciding.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 from sqlalchemy import select
@@ -34,7 +34,7 @@ from app.db.models import (
     StaffSkill,
 )
 from app.domain.staffing.coverage import RosterMember
-from app.domain.staffing.gap_calculator import GapResult, calculate_gap
+from app.domain.staffing.gap_calculator import GapResult, calculate_gap, effective_minimum_for
 from app.domain.workflow.case_status import IntervalGap
 from app.services import policy_service, requirement_service, roster_time_service
 from app.services.requirement_service import ShiftRequirement
@@ -103,6 +103,53 @@ def assess_shift(db: Session, shift: Shift) -> ShiftAssessment:
         window=window,
     )
     return ShiftAssessment(shift_requirement=shift_requirement, result=result)
+
+
+def gap_without(db: Session, *, shift: Shift, staff_id: int, from_at: datetime) -> GapResult:
+    """The gap of `shift` if `staff_id` leaves it at `from_at`. Read-only.
+
+    Same calculator and requirement as assess_shift, so the source shift of a move
+    is judged exactly like a case (workflow.md 6.19). The person's rows end at
+    `from_at` (rows starting at or after it are dropped). The window runs from
+    max(from_at, Backend Clock) to the shift end; with no time left in it there is
+    nothing to miss, so the result has no gap.
+    """
+    shift_requirement = requirement_service.get_current_requirement(db, shift.id)
+    requirement = shift_requirement.requirement
+    preserve_minimum_staffing = policy_service.get_hard_constraint_policy(
+        db
+    ).preserve_minimum_staffing
+    evaluated_from = max(from_at, clock.now())
+    if evaluated_from >= shift.end_at:
+        return GapResult(
+            effective_minimum=effective_minimum_for(
+                required_staff=requirement.required_staff,
+                minimum_staff=requirement.minimum_staff,
+                preserve_minimum_staffing=preserve_minimum_staffing,
+            ),
+            headcount_gap=0,
+            role_gaps={},
+            skill_gaps={},
+            evaluated_from=evaluated_from,
+        )
+    roster: list[RosterMember] = []
+    for member in load_roster(db, shift.id):
+        if member.staff_id == staff_id:
+            if member.start_at is not None and from_at <= member.start_at:
+                continue
+            if member.end_at is None or member.end_at > from_at:
+                member = replace(member, end_at=from_at)
+        roster.append(member)
+    return calculate_gap(
+        shift_id=shift.id,
+        required_staff=requirement.required_staff,
+        minimum_staff=requirement.minimum_staff,
+        preserve_minimum_staffing=preserve_minimum_staffing,
+        required_roles=shift_requirement.required_roles,
+        required_skills=shift_requirement.required_skills,
+        roster=roster,
+        window=(evaluated_from, shift.end_at),
+    )
 
 
 def record_gap(db: Session, case: StaffingCase, assessment: ShiftAssessment) -> StaffingGap:

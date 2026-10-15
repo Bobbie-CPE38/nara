@@ -220,7 +220,12 @@ def test_writes_one_optimal_plan(seeded: Session) -> None:
         {"staff_id": 103, "reason": "ALREADY_ON_SHIFT"},
         {"staff_id": 104, "reason": "ALREADY_ON_SHIFT"},
         {"staff_id": 105, "reason": "UNAVAILABLE"},
+        {"staff_id": 301, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+        {"staff_id": 302, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+        {"staff_id": 401, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
         {"staff_id": 900, "reason": "ROLE_MISMATCH"},
+        {"staff_id": 902, "reason": "ROLE_MISMATCH"},
+        {"staff_id": 950, "reason": "ROLE_MISMATCH"},
     ]
 
 
@@ -672,7 +677,12 @@ def test_nobody_left_stops_the_case_at_manual_handoff(seeded: Session) -> None:
             {"staff_id": 201, "reason": "STAFF_NOT_ACTIVE"},
             {"staff_id": 202, "reason": "STAFF_NOT_ACTIVE"},
             {"staff_id": 203, "reason": "STAFF_NOT_ACTIVE"},
+            {"staff_id": 301, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+            {"staff_id": 302, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+            {"staff_id": 401, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
             {"staff_id": 900, "reason": "ROLE_MISMATCH"},
+            {"staff_id": 902, "reason": "ROLE_MISMATCH"},
+            {"staff_id": 950, "reason": "ROLE_MISMATCH"},
         ],
     }
     assert seeded.scalar(select(CandidateOutreach.id)) is None

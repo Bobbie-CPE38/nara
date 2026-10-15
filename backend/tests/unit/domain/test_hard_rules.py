@@ -109,7 +109,7 @@ BREAKS: dict[HardRuleCode, dict[str, Any]] = {
         "roster": day_shifts(range(-7, 0)),
     },
     HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION: {
-        "source_shift": SourceShift(assigned_count=5, required_staff=5, minimum_staff=4)
+        "source_shift": SourceShift(shift_id=9, leaves_gap=True)
     },
 }
 
@@ -557,25 +557,21 @@ def test_any_role_passes_only_when_the_requirement_lists_no_role() -> None:
 # --------------------------------------------------------------------------- #
 # SOURCE_WARD_MINIMUM_VIOLATION (Q15, Q51)
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize(
-    ("assigned", "required", "minimum", "preserve_minimum_staffing", "violates"),
-    [
-        (5, 5, 4, True, True),  # the example of Q15: 5 staff, target 5
-        (6, 5, 4, True, False),
-        (5, 3, 5, True, True),  # minimum_staff is the floor of the target
-        (5, 3, 5, False, False),  # flag off: required_staff alone
-        (4, 4, 2, False, True),
-    ],
-)
-def test_source_shift_keeps_the_target_of_the_gap_calculation(
-    assigned: int, required: int, minimum: int, preserve_minimum_staffing: bool, violates: bool
-) -> None:
-    policy = replace(POLICY, preserve_minimum_staffing=preserve_minimum_staffing)
-    source = SourceShift(assigned_count=assigned, required_staff=required, minimum_staff=minimum)
+@pytest.mark.parametrize("leaves_gap", [True, False])
+def test_source_shift_violates_only_when_it_is_left_short(leaves_gap: bool) -> None:
+    source = SourceShift(shift_id=9, leaves_gap=leaves_gap)
 
-    result = evaluate(candidate(source_shift=source), policy)
+    result = evaluate(candidate(source_shift=source), POLICY)
 
-    assert (HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION in result.failed_rules) is violates
+    assert (HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION in result.failed_rules) is leaves_gap
+
+
+def test_source_shift_rule_is_skipped_when_the_flag_is_off() -> None:
+    policy = replace(POLICY, preserve_source_ward_minimum=False)
+
+    result = evaluate(candidate(source_shift=SourceShift(shift_id=9, leaves_gap=True)), policy)
+
+    assert HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION not in result.failed_rules
 
 
 def test_candidate_without_a_source_shift_passes_but_the_rule_is_checked() -> None:
@@ -733,8 +729,3 @@ def test_policy_rejects_limits_it_cannot_compare(
 ) -> None:
     with pytest.raises(error):
         replace(POLICY, **change)
-
-
-def test_source_shift_counts_cannot_be_negative() -> None:
-    with pytest.raises(ValueError, match="non-negative"):
-        SourceShift(assigned_count=-1, required_staff=1, minimum_staff=1)

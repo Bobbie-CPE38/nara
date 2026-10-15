@@ -21,6 +21,8 @@ from app.db.models import (
     Shift,
     Staff,
     StaffingCase,
+    StaffingRequirement,
+    StaffingRequirementRole,
     Ward,
 )
 from app.db.session import SessionLocal, engine
@@ -35,10 +37,16 @@ from app.domain.enums import (
 )
 from app.main import app
 from app.seed import load
-from app.services import approval_service, approval_timeout_service, handoff_service, roster_service
-from tests.integration.case_rows import approval, short_case
+from app.services import (
+    approval_service,
+    approval_timeout_service,
+    handoff_service,
+    transfer_service,
+)
+from tests.integration.case_rows import RN, approval, short_case
 from tests.integration.conftest import DEMO_NOW
 from tests.integration.test_approval_decision import _add_other_ward_head_nurse
+from tests.integration.test_cross_ward_pool import _rn
 
 DEST = {"X-Demo-User": "900"}
 
@@ -72,6 +80,25 @@ def build(db, *, transfer=True):
     )
     db.add(source)
     db.flush()
+    # One RN is enough for the source shift and a second one stays: moving 201 leaves it covered
+    requirement = StaffingRequirement(
+        shift_id=source.id, required_staff=1, minimum_staff=1, created_at=DEMO_NOW
+    )
+    db.add(requirement)
+    db.flush()
+    db.add(
+        StaffingRequirementRole(
+            staffing_requirement_id=requirement.id, role_id=RN, required_count=1
+        )
+    )
+    db.add(
+        RosterAssignment(
+            staff_id=_rn(db, ward_id),
+            shift_id=source.id,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REGULAR,
+        )
+    )
     row = RosterAssignment(
         staff_id=201,
         shift_id=source.id,
@@ -109,45 +136,49 @@ def decide(client, request_id, headers=DEST, *, approved=True, side=None, reason
     return client.post(f"/approvals/{request_id}/decision", headers=headers, json=body)
 
 
-def transfer_stub(db, case, *, approval):
-    """Test stand-in for the future C2 writer; PR S itself never implements a move."""
-    from app.db.models import CandidateItem
-
-    item = db.get(CandidateItem, approval.candidate_item_id)
-    source_id = item.source_assignment_id
-    db.get(RosterAssignment, source_id).status = RosterStatus.CANCELLED
-    item.source_assignment_id = None
-    assignment = _create_replacement(db, case, approval=approval)
-    item.source_assignment_id = source_id
-    assignment.transferred_from_assignment_id = source_id
-    db.flush()
-    return assignment
+def moved_rows(db):
+    """Destination rows that were moved off another row."""
+    return list(
+        db.scalars(
+            select(RosterAssignment).where(
+                RosterAssignment.transferred_from_assignment_id.isnot(None)
+            )
+        )
+    )
 
 
-_create_replacement = roster_service.create_replacement
+def assert_moved(db):
+    """The source row is CANCELLED and the destination row links to it with no actual times."""
+    (moved,) = moved_rows(db)
+    source = db.get(RosterAssignment, moved.transferred_from_assignment_id)
+    assert source.status == RosterStatus.CANCELLED and source.staff_id == moved.staff_id == 201
+    assert moved.status == RosterStatus.ASSIGNED
+    assert moved.assignment_type == AssignmentType.REPLACEMENT
+    assert moved.actual_start_at is None and moved.actual_end_at is None
 
 
 @pytest.mark.parametrize("source_first", [False, True])
 def test_both_wards_are_required_and_only_last_approval_executes(scene, source_first):
     db, client, (request_id, source, _) = scene
     first_headers, last_headers = (source, DEST) if source_first else (DEST, source)
-    with patch.object(roster_service, "create_replacement", side_effect=transfer_stub) as writer:
-        first = decide(client, request_id, first_headers)
-        assert first.status_code == 200
-        assert first.json()["is_approved"] is None
-        assert first.json()["outcome"] == "WAITING_OTHER_WARD"
-        assert writer.call_count == 0
-        request = db.get(ApprovalRequest, request_id)
-        assert request.is_pending and request.approver_id is None and request.decided_at is None
-        last = decide(client, request_id, last_headers)
-        assert last.status_code == 200
-        assert last.json()["outcome"] == "ASSIGNED"
-        assert last.json()["is_approved"] is True
-        assert writer.call_count == 1
+    first = decide(client, request_id, first_headers)
+    assert first.status_code == 200
+    assert first.json()["is_approved"] is None
+    assert first.json()["outcome"] == "WAITING_OTHER_WARD"
+    request = db.get(ApprovalRequest, request_id)
+    assert request.is_pending and request.approver_id is None and request.decided_at is None
+    assert moved_rows(db) == []
+    last = decide(client, request_id, last_headers)
+    assert last.status_code == 200
+    assert last.json()["outcome"] == "ASSIGNED"
+    assert last.json()["is_approved"] is True
+    assert_moved(db)
     assert db.scalar(select(func.count()).select_from(ApprovalWardDecision)) == 2
     actions = list(db.scalars(select(AuditLog.action)))
     assert actions.count(AuditAction.APPROVAL_WARD_APPROVED) == 1
     assert actions.count(AuditAction.APPROVAL_APPROVED) == 1
+    assert actions.count(AuditAction.ASSIGNMENT_TRANSFERRED) == 1
+    assert AuditAction.ASSIGNMENT_CREATED not in actions
 
 
 @pytest.mark.parametrize("first_approved", [False, True])
@@ -155,12 +186,13 @@ def test_either_ward_rejection_finishes_request_without_execution(scene, first_a
     db, client, (request_id, source, _) = scene
     if first_approved:
         assert decide(client, request_id).json()["outcome"] == "WAITING_OTHER_WARD"
-    with patch.object(roster_service, "create_replacement") as writer:
+    with patch.object(transfer_service, "execute") as writer:
         response = decide(client, request_id, source, approved=False, reason="  cannot release  ")
         assert response.status_code == 200
         assert response.json()["outcome"] == "REJECTED"
         assert response.json()["is_approved"] is False
         writer.assert_not_called()
+    assert moved_rows(db) == []
     request = db.get(ApprovalRequest, request_id)
     assert not request.is_pending and request.reason == "cannot release"
     assert decide(client, request_id).status_code == 409
@@ -184,9 +216,9 @@ def test_supervisor_wait_boundary_and_one_decision_per_click(scene):
         decide(client, request_id, supervisor, side="SOURCE").json()["outcome"]
         == "WAITING_OTHER_WARD"
     )
-    with patch.object(roster_service, "create_replacement", side_effect=transfer_stub):
-        result = decide(client, request_id, supervisor)
+    result = decide(client, request_id, supervisor)
     assert result.json()["outcome"] == "ASSIGNED"
+    assert_moved(db)
     rows = list(db.scalars(select(ApprovalWardDecision)))
     assert len(rows) == 2
     assert all(row.approver_id == int(supervisor["X-Demo-User"]) for row in rows)
@@ -227,13 +259,13 @@ def test_partial_approval_keeps_original_timeout_and_history(scene):
     assert approval_timeout_service.expire_due_approvals(db).approval_ids == []
 
 
-def test_transfer_writer_guard_preserves_both_approvals_and_reports_execution_failed(scene):
+def test_both_approvals_end_in_a_real_transfer(scene):
     db, client, (request_id, source, _) = scene
     decide(client, request_id)
     response = decide(client, request_id, source)
-    assert response.json()["outcome"] == "EXECUTION_FAILED"
+    assert response.json()["outcome"] == "ASSIGNED"
     assert response.json()["is_approved"] is True
-    assert response.json()["case_status"] == "FAILED"
+    assert response.json()["case_status"] == "RESOLVED"
     assert db.scalar(select(func.count()).select_from(ApprovalWardDecision)) == 2
 
 
@@ -309,13 +341,12 @@ def test_two_connections_never_execute_before_both_sides_or_twice(committed_scen
             response = decide(client, request_id, headers)
             return response.status_code, response.json()
 
-    with patch.object(roster_service, "create_replacement", side_effect=transfer_stub) as writer:
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            jobs = [pool.submit(run, DEST), pool.submit(run, DEST if same_side else source)]
-            results = [job.result(timeout=20) for job in jobs]
-        assert sorted(code for code, _ in results) == ([200, 409] if same_side else [200, 200])
-        assert writer.call_count == (0 if same_side else 1)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        jobs = [pool.submit(run, DEST), pool.submit(run, DEST if same_side else source)]
+        results = [job.result(timeout=20) for job in jobs]
+    assert sorted(code for code, _ in results) == ([200, 409] if same_side else [200, 200])
     with SessionLocal() as db:
+        assert len(moved_rows(db)) == (0 if same_side else 1)
         request = db.get(ApprovalRequest, request_id)
         assert request.is_pending is same_side
         assert db.scalar(select(func.count()).select_from(ApprovalWardDecision)) == (

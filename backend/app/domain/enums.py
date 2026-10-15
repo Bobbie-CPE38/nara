@@ -251,7 +251,7 @@ class ApproverCapacity(StrEnum):
     SUPERVISOR = "SUPERVISOR"
 
 
-# Round 4 PR C2: `reason` of TRANSFER_CHECK_FAILED (docs/workflow.md 6.19). Not written yet
+# Round 4 PR C2: `reason` of TRANSFER_CHECK_FAILED (docs/workflow.md 6.19).
 class TransferFailureReason(StrEnum):
     SOURCE_COVERAGE_LOST = "SOURCE_COVERAGE_LOST"
     DESTINATION_WINDOW_PASSED = "DESTINATION_WINDOW_PASSED"
@@ -336,9 +336,9 @@ class AuditAction(StrEnum):
     ASSIGNMENT_CREATED = "ASSIGNMENT_CREATED"
     # Round 2: a head nurse staffed a MANUAL_HANDOFF case directly. Not written yet
     MANUAL_ASSIGNMENT_CREATED = "MANUAL_ASSIGNMENT_CREATED"
-    # Round 4 PR C2: a person moved off another ward's shift. Not written yet
+    # Round 4 PR C2: a person moved off another ward's shift.
     ASSIGNMENT_TRANSFERRED = "ASSIGNMENT_TRANSFERRED"
-    # Round 4 PR C2: the check at the real move failed; the request ends. Not written yet
+    # Round 4 PR C2: the check at the real move failed; the request ends.
     TRANSFER_CHECK_FAILED = "TRANSFER_CHECK_FAILED"
     HANDOVER_GENERATED = "HANDOVER_GENERATED"
     # Unavailability

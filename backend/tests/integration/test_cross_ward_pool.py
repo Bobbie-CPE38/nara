@@ -10,7 +10,15 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import CandidatePlan, RosterAssignment, Shift, Staff, StaffSkill, Ward
+from app.db.models import (
+    CandidatePlan,
+    RosterAssignment,
+    Shift,
+    Staff,
+    StaffingRequirement,
+    StaffSkill,
+    Ward,
+)
 from app.domain.constraints.codes import HardRuleCode
 from app.domain.constraints.score_breakdown import score_from_snapshot, weights_from_snapshot
 from app.domain.enums import (
@@ -162,7 +170,9 @@ def test_a_free_nurse_of_the_float_pool_is_a_float_pool_candidate(seeded: Sessio
     assert _source_points(result.plan, lent) == 200
 
 
-def test_someone_on_another_wards_overlapping_shift_is_not_in_the_pool(seeded: Session) -> None:
+def test_someone_on_another_wards_offset_overlapping_shift_is_not_in_the_pool(
+    seeded: Session,
+) -> None:
     night = _night(seeded)
     busy = _rn(seeded, _ward(seeded))
     shift_id = _shift(
@@ -180,6 +190,30 @@ def test_someone_on_another_wards_overlapping_shift_is_not_in_the_pool(seeded: S
     assert all(item.source_assignment_id is None for item in result.items)
     candidates = result.plan.input_snapshot["candidates"]
     assert all(row["source_assignment_id"] is None for row in candidates)
+
+
+def test_someone_on_another_wards_equal_time_future_shift_is_in_the_pool_with_a_source(
+    seeded: Session,
+) -> None:
+    """A whole-shift transfer (round 4 PR C2, tests/integration/test_transfer_planning.py)."""
+    night = _night(seeded)
+    ward_id = _ward(seeded)
+    busy = _rn(seeded, ward_id)
+    shift_id = _shift(seeded, ward_id, night.start_at, night.end_at)
+    seeded.add(StaffingRequirement(shift_id=shift_id, required_staff=0, minimum_staff=0))
+    seeded.flush()
+    _duty(seeded, busy, shift_id)
+
+    result = _plan(seeded)
+
+    item = next(item for item in result.items if item.staff_id == busy)
+    source = seeded.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id == busy, RosterAssignment.shift_id == shift_id
+        )
+    ).one()
+    assert item.source_assignment_id == source.id
+    assert item.source is CandidateSource.CROSS_WARD
 
 
 def test_a_duty_that_only_touches_the_shift_keeps_the_person_in_the_pool(seeded: Session) -> None:

@@ -6,7 +6,7 @@ The handler owns OFFER_SENT and MANUAL_HANDOFF. No commit or case-status write.
 from dataclasses import dataclass
 
 from sqlalchemy import delete, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
     AuditLog,
@@ -14,9 +14,12 @@ from app.db.models import (
     CandidateItemTarget,
     CandidateOutreach,
     CandidatePlan,
+    RosterAssignment,
     Shift,
+    StaffingCase,
 )
-from app.domain.enums import AuditAction
+from app.domain.constraints.codes import OFFER_LIMIT_REACHED, SOURCE_SHIFT_TAKEN
+from app.domain.enums import COVERING_ROSTER_STATUSES, AuditAction, OutreachStatus
 from app.domain.staffing.wave_targets import elementary_slices, fill_targets_by_slice, is_short
 from app.domain.workflow.case_status import GapFiller
 from app.services import availability_service, case_facts_service, gap_service, hard_rule_service
@@ -50,6 +53,52 @@ def plan_items(db: Session, case_id: int) -> list[CandidateItem]:
     )
 
 
+def _source_shift_ids(db: Session, item_ids: list[int]) -> dict[int, int]:
+    """Item ID to the shift its source assignment sits on, for items that move someone."""
+    if not item_ids:
+        return {}
+    return {
+        item_id: shift_id
+        for item_id, shift_id in db.execute(
+            select(CandidateItem.id, RosterAssignment.shift_id)
+            .join(RosterAssignment, RosterAssignment.id == CandidateItem.source_assignment_id)
+            .where(CandidateItem.id.in_(item_ids))
+        )
+    }
+
+
+def _taken_source_shifts(db: Session, case_id: int) -> dict[int, set[int]]:
+    """Source shift ID to the staff holding it for this case (workflow.md 6.19).
+
+    A staff member holds a source shift while their move has a live offer (SENT),
+    a pending approval request (ACCEPTED) or is done (a destination row linked to
+    the source row). Only one person may be moved out of a source shift per case.
+    """
+    taken: dict[int, set[int]] = {}
+    for shift_id, staff_id in db.execute(
+        select(RosterAssignment.shift_id, CandidateItem.staff_id)
+        .join(CandidateItem, CandidateItem.source_assignment_id == RosterAssignment.id)
+        .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+        .where(
+            CandidateOutreach.case_id == case_id,
+            CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
+        )
+    ):
+        taken.setdefault(shift_id, set()).add(staff_id)
+    source = aliased(RosterAssignment)
+    for shift_id, staff_id in db.execute(
+        select(source.shift_id, RosterAssignment.staff_id)
+        .join(source, source.id == RosterAssignment.transferred_from_assignment_id)
+        .join(StaffingCase, StaffingCase.shift_id == RosterAssignment.shift_id)
+        .where(
+            StaffingCase.id == case_id,
+            RosterAssignment.status.in_(list(COVERING_ROSTER_STATUSES)),
+        )
+    ):
+        taken.setdefault(shift_id, set()).add(staff_id)
+    return taken
+
+
 def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
     items = plan_items(db, case_id)
     hard_rule_service.lock_staff(db, [item.staff_id for item in items])
@@ -74,15 +123,22 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
     remaining = [item for item in items if item.id in contactable]
     checks = hard_rule_service.check_items(db, shift=shift, items=remaining)
     limited = availability_service.staff_at_offer_limit(db, [item.staff_id for item in remaining])
+    source_shift_of = _source_shift_ids(db, [item.id for item in remaining])
+    taken = _taken_source_shifts(db, case_id)
     skipped: list[dict[str, int | str]] = []
     eligible: list[CandidateItem] = []
     for item in remaining:
         failures = checks[item.id].result.failed_rules
-        reason = (
-            failures[0].value
-            if failures
-            else ("OFFER_LIMIT_REACHED" if item.staff_id in limited else None)
-        )
+        source_shift_id = source_shift_of.get(item.id)
+        reason: str | None
+        if failures:
+            reason = failures[0].value
+        elif source_shift_id is not None and taken.get(source_shift_id, set()) - {item.staff_id}:
+            reason = SOURCE_SHIFT_TAKEN
+        elif item.staff_id in limited:
+            reason = OFFER_LIMIT_REACHED
+        else:
+            reason = None
         if reason is None:
             eligible.append(item)
         else:
@@ -93,6 +149,18 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
     first_contacts = [item for item in eligible if item.staff_id not in contacted_staff_ids]
     if first_contacts:
         eligible = first_contacts
+    # One person per source shift in a wave: the first in rank order keeps it
+    claimed: set[int] = set()
+    distinct: list[CandidateItem] = []
+    for item in eligible:
+        source_shift_id = source_shift_of.get(item.id)
+        if source_shift_id is None or source_shift_id not in claimed:
+            if source_shift_id is not None:
+                claimed.add(source_shift_id)
+            distinct.append(item)
+        else:
+            skipped.append({"staff_id": item.staff_id, "reason": SOURCE_SHIFT_TAKEN})
+    eligible = distinct
 
     gap = gap_service.get_case_gap(db, case_id)
     fillers = case_facts_service.get_case_fillers(db, case_id, include_reserves=True)

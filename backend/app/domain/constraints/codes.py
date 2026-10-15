@@ -40,7 +40,7 @@ OFFER_LIMIT_REACHED = "OFFER_LIMIT_REACHED"
 
 # Round 4 PR C2, not a Hard Rule: wave selection skips a candidate whose source
 # shift already gives this case a live offer, a pending request or a move
-# (docs/workflow.md 6.19). Not written yet
+# (docs/workflow.md 6.19).
 SOURCE_SHIFT_TAKEN = "SOURCE_SHIFT_TAKEN"
 
 # Round 4 PR T4, not a Hard Rule: the candidate's cover window (the time they can
