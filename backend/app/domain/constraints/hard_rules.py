@@ -18,10 +18,12 @@ from app.domain.constraints.context import (
     HardRulePolicy,
     ShiftSlot,
     daily_hours,
+    duty_slot,
     hours,
     is_on_proposed_shift,
     leave_overlaps_shift,
     other_committed_shifts,
+    other_duties,
     projected_consecutive_shifts,
     was_removed_from_proposed_shift,
     weekly_hours,
@@ -74,10 +76,13 @@ def insufficient_rest(context: CandidateContext, policy: HardRulePolicy) -> bool
 
     A shift that overlaps the proposed one is left to SHIFT_CONFLICT, so one clash
     is not reported under two codes.
+
+    With a linked_duty, rest is measured from the whole duty and the linked part
+    is not a separate shift: the move is not a break between two shifts.
     """
-    proposed = context.proposed_shift
+    proposed = duty_slot(context)
     minimum = Fraction(policy.minimum_rest_hours)
-    for other in other_committed_shifts(context):
+    for other in other_duties(context):
         if _overlaps(other, proposed):
             continue
         rest = (

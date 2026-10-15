@@ -24,7 +24,9 @@
 >
 > * `e1a4c7f2b9d6` (รอบ 3 PR X) ตาราง `RANK_EXPLANATION` และ `LLM_CALL_LOG`
 >
-> **Migration head ปัจจุบัน: `e1a4c7f2b9d6`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `a9c3e7f1b5d2` (รอบ 4 PR T1) `CANDIDATE_ITEMS.cover_start_at`, `cover_end_at`, `source_assignment_id` พร้อม CHECK สองข้อ
+>
+> **Migration head ปัจจุบัน: `a9c3e7f1b5d2`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -282,7 +284,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `solver_version` | text | NOT NULL |  | รอบ 2 PR B = `"cp-sat-v1"` (รอบ 1 = `"weighted-v1"`, Skeleton = `"stub"`) |
 | `hard_constraint_policy_id` | bigint | NOT NULL | FK HARD_CONSTRAINT_POLICY.id |  |
 | `soft_constraint_policy_id` | bigint | NOT NULL | FK SOFT_CONSTRAINT_POLICY.id |  |
-| `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `weights` (ค่าน้ำหนักของ `SoftWeights` เป็นข้อความ `"เศษ/ส่วน"` พร้อม `source_order`), `candidates` (ค่าของแต่ละคนเรียงตาม `rank` มี `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` คู่กับช่อง `float` เดิมที่ใช้แสดงผลอย่างเดียว; Plan ก่อน PR E ไม่มี `weights` และช่อง `_exact`), `skipped` |
+| `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `weights` (ค่าน้ำหนักของ `SoftWeights` เป็นข้อความ `"เศษ/ส่วน"` พร้อม `source_order`), `candidates` (ค่าของแต่ละคนเรียงตาม `rank` มี `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` คู่กับช่อง `float` เดิมที่ใช้แสดงผลอย่างเดียว; Plan ก่อน PR E ไม่มี `weights` และช่อง `_exact`), `skipped` (ช่วงที่แต่ละ `candidates[]` มีเพิ่มในรอบ 4 PR T1 คือ `cover_start_at`, `cover_end_at`, `source_assignment_id` เป็น `null` จนกว่า C2 จะสร้างผู้สมัครจากการย้าย) |
 
 
 ### 16. CANDIDATE_ITEMS
@@ -297,6 +299,11 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `source` | text | NOT NULL |  | `CandidateSource` |
 | `proposed_shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
 | `working_time_snapshot_id` | bigint | NULL | FK STAFF_WORKING_TIME_SNAPSHOT.id | Snapshot ที่ Solver ใช้ตอนจัดอันดับผู้สมัครคนนี้ เพิ่มใน PR 2a NULL เฉพาะแถวที่เขียนก่อน PR 2a |
+| `cover_start_at` | timestamptz | NULL |  | เริ่มช่วงที่ผู้สมัครมาทำ ว่างทั้ง `cover_start_at` และ `cover_end_at` = ทั้งเวร (รอบ 4 PR T1) |
+| `cover_end_at` | timestamptz | NULL |  | สิ้นสุดช่วงที่ผู้สมัครมาทำ |
+| `source_assignment_id` | bigint | NULL | FK ROSTER_ASSIGNMENT.id | แถว Roster ของเวรต้นทางที่ผู้สมัครถูกย้ายออกมา ว่าง = ไม่ใช่การย้าย (รอบ 4 PR T1) |
+
+CHECK `ck_candidate_items_cover_both_or_neither`: `(cover_start_at IS NULL) = (cover_end_at IS NULL)` และ `ck_candidate_items_cover_in_order`: `cover_start_at < cover_end_at` ประกาศใน `__table_args__` ของ Model แถวเดิมทุกแถวได้ NULL ทั้งสามคอลัมน์ (ทั้งเวร ไม่ใช่การย้าย)
 
 
 ### 16.1 CANDIDATE_ITEM_TARGET
@@ -727,12 +734,10 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ## Schema ที่รอบ 4 จะเพิ่ม (ยังไม่มี Migration)
 
-ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `e1a4c7f2b9d6`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge คาดว่า T1 → T2 → T3 → C1 → S
+ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `a9c3e7f1b5d2`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge คาดว่า T1 → T2 → T3 → C1 → S
 
 | ตาราง | คอลัมน์ | Type | Null | หมายเหตุ | PR |
 | :-- | :-- | :-- | :-- | :-- | :-- |
-| `CANDIDATE_ITEMS` | `cover_start_at`, `cover_end_at` | timestamptz | NULL | ช่วงที่มาทำได้ ว่างทั้งคู่ = ทั้งเวร CHECK ว่างทั้งคู่หรือมีทั้งคู่ และ start < end | T1 |
-| `CANDIDATE_ITEMS` | `source_assignment_id` | bigint | NULL | FK ROSTER_ASSIGNMENT.id แถว Roster ของเวรต้นทางเมื่อเป็นการย้าย | T1 |
 | `ROSTER_ASSIGNMENT` | `actual_start_at`, `actual_end_at` | timestamptz | NULL | ว่าง = ตามเวลาของเวร CHECK start < end เมื่อมีทั้งคู่ | T2 |
 | `ROSTER_ASSIGNMENT` | `transferred_from_assignment_id` | bigint | NULL | FK ROSTER_ASSIGNMENT.id UNIQUE แถวต้นทางของการย้าย | T2 |
 | `STAFFING_GAP` | `evaluated_from` | timestamptz | NULL | `max(Backend Clock ตอนประเมิน, เวลาเริ่มเวร)` ว่างสำหรับแถวก่อนรอบ 4 | T3 |

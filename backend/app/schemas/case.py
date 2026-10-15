@@ -76,6 +76,15 @@ class CandidateScore(BaseModel):
     first_wave: bool
 
 
+class SourceAssignmentView(BaseModel):
+    """The roster row a candidate is moved out of when they take this shift."""
+
+    assignment_id: int
+    shift_id: int
+    ward_id: int
+    ward_name: str
+
+
 class CandidateView(BaseModel):
     candidate_item_id: int
     rank: int
@@ -88,6 +97,11 @@ class CandidateView(BaseModel):
     stage: CandidateStage
     # null for a plan created before PR E: its snapshot has no exact values
     score: CandidateScore | None
+    # Both null = the candidate covers the whole shift (docs/workflow.md, section 6.20)
+    cover_start_at: AppDatetime | None
+    cover_end_at: AppDatetime | None
+    # null = the candidate is not moved out of another shift
+    source_assignment: SourceAssignmentView | None
 
 
 class RankExplanationView(BaseModel):

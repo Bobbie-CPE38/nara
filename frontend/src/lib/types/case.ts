@@ -40,6 +40,14 @@ export type RankExplanation = {
   model_id: string | null;
 };
 
+/** The roster row a candidate is moved out of when they take this shift */
+export type SourceAssignmentView = {
+  assignment_id: number;
+  shift_id: number;
+  ward_id: number;
+  ward_name: string;
+};
+
 export type CandidateView = {
   candidate_item_id: number;
   rank: number;
@@ -53,6 +61,11 @@ export type CandidateView = {
   stage: string;
   /** Numbers come from the plan's snapshot (docs/workflow.md, section 6.15). null means no score, for a reason the API does not give */
   score: CandidateScore | null;
+  /** Both null means the whole shift (docs/workflow.md, section 6.20) */
+  cover_start_at: string | null;
+  cover_end_at: string | null;
+  /** null means the candidate is not moved out of another shift */
+  source_assignment: SourceAssignmentView | null;
 };
 
 /** GET /cases/{id} */

@@ -200,6 +200,10 @@ def create_plan(db: Session, case: StaffingCase) -> PlanResult:
             source=candidate.metrics.source,
             proposed_shift_id=case.shift_id,
             working_time_snapshot_id=captured[candidate.metrics.staff_id].snapshot.id,
+            # The pool has no transfers yet: every candidate covers the whole shift
+            cover_start_at=None,
+            cover_end_at=None,
+            source_assignment_id=None,
         )
         for rank, candidate in enumerate(ranked, start=1)
     ]
@@ -294,5 +298,9 @@ def _candidate_snapshot(
         "overtime_hours": display_number(metrics.overtime_hours),
         "penalty": display_number(Fraction(exact["penalty_exact"])),
         "first_wave": first_wave,
+        # Datetimes as isoformat() like captured_at; all null until a transfer sets them
+        "cover_start_at": None,
+        "cover_end_at": None,
+        "source_assignment_id": None,
         **exact,
     }

@@ -139,6 +139,13 @@ class CandidateContext:
     source_shift is None when taking the proposed shift removes no existing
     assignment, which is every case in round 1.
 
+    linked_duty is the kept part of the source shift that runs straight into
+    proposed_shift when the candidate is moved. It is set only from a recorded
+    source assignment, never from two rows that merely touch: a plain
+    back-to-back pair stays two duties and the rest rule still rejects it. With
+    it, linked_duty and proposed_shift are one duty for the rest, daily, weekly and
+    consecutive-shift rules (see duty_slot). None changes nothing.
+
     PENDING_APPROVAL counts as committed. Nothing writes it in round 1; a later
     step that writes it for the accepted candidate before Safety must leave that
     row out, or ALREADY_ON_SHIFT blocks the candidate on their own assignment.
@@ -154,6 +161,7 @@ class CandidateContext:
     target_role_ids: frozenset[int]
     target_skill_ids: frozenset[int]
     source_shift: SourceShift | None = None
+    linked_duty: ShiftSlot | None = None
 
     def __post_init__(self) -> None:
         # Copy first: a caller-owned list or set could still change afterwards
@@ -168,6 +176,18 @@ class CandidateContext:
             known = slots.setdefault(entry.shift.shift_id, entry.shift)
             if known != entry.shift:
                 raise ValueError(f"Conflicting times for shift_id={entry.shift.shift_id}")
+
+        linked = self.linked_duty
+        if linked is not None:
+            if linked.shift_id == self.proposed_shift.shift_id:
+                raise ValueError("linked_duty must be a different shift from the proposed shift")
+            if linked.end_at != self.proposed_shift.start_at:
+                raise ValueError("linked_duty must end exactly when the proposed shift starts")
+            if not any(
+                entry.status in COMMITTED_ROSTER_STATUSES and entry.shift == linked
+                for entry in self.roster
+            ):
+                raise ValueError("linked_duty must match a committed roster entry")
 
 
 # --------------------------------------------------------------------------- #
@@ -249,9 +269,43 @@ def other_committed_shifts(context: CandidateContext) -> tuple[ShiftSlot, ...]:
     return tuple(sorted(shifts.values(), key=_by_start))
 
 
+def duty_slot(context: CandidateContext) -> ShiftSlot:
+    """The continuous duty that holds the proposed shift.
+
+    With a linked_duty it runs from the start of the kept source part to the end of
+    the proposed shift and carries the proposed shift_id. Without one it is the
+    proposed shift itself.
+    """
+    linked = context.linked_duty
+    proposed = context.proposed_shift
+    if linked is None:
+        return proposed
+    return ShiftSlot(proposed.shift_id, linked.start_at, proposed.end_at)
+
+
+def other_duties(context: CandidateContext) -> tuple[ShiftSlot, ...]:
+    """The committed shifts other than the proposed one and the linked part.
+
+    The linked part is inside duty_slot, so the rest and consecutive-shift rules
+    must not see it as a separate shift. Same as other_committed_shifts when there
+    is no linked_duty.
+    """
+    linked = context.linked_duty
+    if linked is None:
+        return other_committed_shifts(context)
+    return tuple(
+        shift for shift in other_committed_shifts(context) if shift.shift_id != linked.shift_id
+    )
+
+
 def daily_hours(context: CandidateContext) -> Fraction:
-    """Hours on the day of the proposed shift, the proposed shift included."""
-    day = local_day(context.proposed_shift.start_at)
+    """Hours on the day of the proposed shift, the proposed shift included.
+
+    A duty belongs to the day it starts on, so with a linked_duty the day is the
+    one the kept source part starts on. The linked part is truncated and does not
+    overlap the proposed shift, so it is summed once with the other shifts.
+    """
+    day = local_day(duty_slot(context).start_at)
     return shift_hours(context.proposed_shift) + sum(
         (
             shift_hours(shift)
@@ -263,8 +317,11 @@ def daily_hours(context: CandidateContext) -> Fraction:
 
 
 def weekly_hours(context: CandidateContext) -> Fraction:
-    """Hours in the week of the proposed shift, the proposed shift included."""
-    week = week_start(context.proposed_shift.start_at)
+    """Hours in the week of the proposed shift, the proposed shift included.
+
+    As in daily_hours, a duty belongs to the week it starts in.
+    """
+    week = week_start(duty_slot(context).start_at)
     return shift_hours(context.proposed_shift) + sum(
         (
             shift_hours(shift)
@@ -280,13 +337,14 @@ def projected_consecutive_shifts(context: CandidateContext) -> int:
 
     Shifts are in one run while the rest between them is at most 24 hours. Real
     time is used: a run does not reset at a day or week boundary. The proposed
-    shift can join the run before it to the run after it.
+    shift can join the run before it to the run after it. A moved candidate's
+    duty (see duty_slot) counts once, not once per ward.
     """
-    proposed = context.proposed_shift
+    proposed = duty_slot(context)
     count = 0
     run_end: datetime | None = None
     holds_proposed = False
-    for shift in sorted((*other_committed_shifts(context), proposed), key=_by_start):
+    for shift in sorted((*other_duties(context), proposed), key=_by_start):
         if run_end is not None and shift.start_at - run_end > MAX_REST_WITHIN_RUN:
             if holds_proposed:
                 break

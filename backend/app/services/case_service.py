@@ -22,7 +22,9 @@ from app.db.models import (
     CandidatePlan,
     RankExplanation,
     Role,
+    RosterAssignment,
     SafetyValidation,
+    Shift,
     Skill,
     Staff,
     StaffingCase,
@@ -30,6 +32,7 @@ from app.db.models import (
     StaffingGap,
     StaffingGapRole,
     StaffingGapSkill,
+    Ward,
 )
 from app.domain.constraints.score_breakdown import (
     CandidateScore as ScoreBreakdown,
@@ -52,6 +55,7 @@ from app.schemas.case import (
     GapView,
     RankExplanationView,
     ScoreTerm,
+    SourceAssignmentView,
 )
 from app.services import case_facts_service
 
@@ -271,6 +275,7 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
     }
     assigned = case_facts_service.assigned_staff_ids(db, case_id)
     pending = case_facts_service.pending_staff_ids(db, case_id)
+    sources = _source_assignments(db, [item.source_assignment_id for item, _, _ in items])
     return [
         CandidateView(
             candidate_item_id=item.id,
@@ -291,9 +296,36 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
                 is_pending=item.staff_id in pending,
             ),
             score=scores[item.staff_id],
+            cover_start_at=item.cover_start_at,
+            cover_end_at=item.cover_end_at,
+            source_assignment=(
+                sources[item.source_assignment_id]
+                if item.source_assignment_id is not None
+                else None
+            ),
         )
         for item, first_name, last_name in items
     ]
+
+
+def _source_assignments(
+    db: Session, assignment_ids: list[int | None]
+) -> dict[int, SourceAssignmentView]:
+    """The source roster rows of a plan's items, by assignment ID, in one query."""
+    ids = {assignment_id for assignment_id in assignment_ids if assignment_id is not None}
+    if not ids:
+        return {}
+    return {
+        assignment_id: SourceAssignmentView(
+            assignment_id=assignment_id, shift_id=shift_id, ward_id=ward_id, ward_name=ward_name
+        )
+        for assignment_id, shift_id, ward_id, ward_name in db.execute(
+            select(RosterAssignment.id, Shift.id, Ward.id, Ward.name)
+            .join(Shift, Shift.id == RosterAssignment.shift_id)
+            .join(Ward, Ward.id == Shift.ward_id)
+            .where(RosterAssignment.id.in_(ids))
+        )
+    }
 
 
 def _scores(plan: CandidatePlan, staff_ids: list[int]) -> dict[int, CandidateScore | None]:
