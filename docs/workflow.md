@@ -1401,7 +1401,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * **ตรวจไม่ผ่านตอนย้ายจริง (R4-Q35):** Commit การจบคำขอ (`is_pending = false` และ `is_approved = true` เพราะคนอนุมัติแล้ว ไม่ใช่การปฏิเสธ, R4-Q42 ดังนั้น `is_approved = true` ไม่ได้แปลว่าคนถูกย้ายแล้ว ดูข้อ 9.6) และยกเลิก Offer พร้อม Audit `TRANSFER_CHECK_FAILED` ที่มีเหตุผลหนึ่งใน `TransferFailureReason`: `SOURCE_COVERAGE_LOST`, `DESTINATION_WINDOW_PASSED`, `HARD_RULE_FAILED` (พร้อมรหัสกฎใน `failed_rules`) และ `SOURCE_SHIFT_STARTED` ที่ใช้เฉพาะช่วงก่อน C3 (ข้อย่อย "C2 เจอการย้ายกลางเวร") ห้ามใช้เหตุผลเวรต้นทางไม่พอกับทุกกรณี API ของคนกดตอบ `200` พร้อมผล (ข้อ 9.6) แล้วคำนวณเคสใหม่เพื่อเลื่อนตัวสำรองหรือส่ง Wave ถัดไป ไม่ทำให้เคสเป็น `FAILED` คำขอสองหอ: การตรวจทำตอนการอนุมัติที่ทำให้ครบสองหอ การอนุมัติของหอแรกเก็บไว้เป็นประวัติ `cancellation_reason` ของ Offer ที่ยกเลิกแบบนี้คือ `TRANSFER_CHECK_FAILED` (`outreach_service._cancellation_reasons()` ต้องรู้จัก Action นี้)
 * คนหนึ่งคนมี Offer ค้างหลายเคสได้ตามกติกาเดิม (ข้อ 6.8) สิ่งที่ห้ามคือเวรที่จัดแล้วทับกัน หรือการตอบรับที่ขัดกับกติกาเดิม
 
-### 6.20 เวลาจริงของ Roster, Gap รายช่วง, Solver และ Safety [รอบ 4 · PR T3, T4]
+### 6.20 เวลาจริงของ Roster, Gap รายช่วง, Solver และ Safety [รอบ 4 · PR T4]
 
 ตัวอย่างที่ใช้ทั้งข้อ: ตอนนี้ 02:00 เวรดึกจบ 08:00 หอ B มี 5 คน ต้องเหลือ 4 คนและ Role Skill ยังครบ หอ A ขาด 1 คน Y ทำที่หอ B มาแล้ว 00:00 ถึง 02:00 แล้วย้ายไปหอ A 02:00 ถึง 08:00
 
@@ -1432,6 +1432,14 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * `headcount_gap` และตัวเลขสรุปของ Role Skill คงไว้เป็นค่าที่ขาดมากที่สุดของแต่ละด้านจากทุกช่วง ห้ามบวกข้ามช่วง แถวเก่าที่ไม่มีแถวรายช่วงถือว่าขาดทั้งเวรตามตัวเลขเดิม ไม่ย้อนเติม
 * **ตัวอ่านที่ต้องเปลี่ยนไปใช้ข้อมูลรายช่วง (ตัดสินผล):** `domain/workflow/case_status.py` (ปิดเคส `RESOLVED`), `case_facts_service`, `domain/staffing/wave_targets.py`, `wave_service`, `optimization_service`, `optimization/solver.py` และ `merge_window_service` (ตัดสินเปิดเคส) ผู้สร้างคือ `gap_calculator`, `gap_service` และ `assess_staffing` **ตัวอ่านที่ใช้ค่าสรุปต่อได้ (แสดงผล):** `schemas/case.py`, `schemas/handoff.py`, `case_service`, `handoff_service` และหน้าเว็บ **[ตรวจแล้ว]** มี 47 จุดใน 20 ไฟล์ (`git grep` บน `staging` ใน `backend/app` และ `frontend/src`)
 * การเติมคนได้เพียงบางช่วงยังปิดเคสเป็น `RESOLVED` ไม่ได้ ถ้าช่วงอื่นยังขาด
+* **T3 ทำแล้ว:**
+  * `gap_service.assess_shift()` วัดตั้งแต่ `max(Backend Clock, เวลาเริ่มเวร)` ถึงเวลาจบเวร เวรที่จบไปแล้วตอนประเมินไม่มีเวลาเหลือ จึงวัดทั้งเวรเหมือนก่อนรอบ 4 (Merge Window ปิดหลังเวรจบได้ ตาม Test ของรอบ 3 PR R) `evaluated_from` จึงเป็นเวลาเริ่มเวร
+  * `gap_calculator.calculate_gap(window=...)` แต่ละคนนับเฉพาะช่วงจริงของแถว Roster ของตัวเอง (`load_roster()` อ่านเวลาจาก `roster_time_service`) ตัดช่วงที่ทุกเวลาเข้าออกในหน้าต่าง แล้วรวมช่วงติดกันที่ตัวเลขทั้งสามด้านเท่ากัน เวรที่ไม่มีการย้ายจึงมีช่วงเดียวและตัวเลขเท่าเดิม ค่าสรุปคือช่วงที่มีคนน้อยที่สุดของแต่ละด้าน `has_gap` ดูจากช่วง
+  * `record_gap()` เขียน `evaluated_from` และแถวรายช่วงทั้งสามตาราง `get_case_gap()` คืน `intervals` (`IntervalGap` ใน `domain/workflow/case_status.py` เฉพาะ Role Skill ที่ขาด) แถวเก่าที่ไม่มีแถวรายช่วงคืนช่วงเดียวทั้งเวรตามตัวเลขสรุป
+  * การตัดสินปิด Gap ใช้ `case_status.intervals_closed()` ตัดแต่ละช่วงซ้ำที่เวลาเข้าออกของคนที่นับ ทุกชิ้นต้องผ่าน `gap_closed()` ด้วยคนที่อยู่ตลอดชิ้นนั้น `GapFiller` เพิ่ม `start_at` / `end_at` (ว่าง = ทั้งเวร) `case_facts_service` ให้คนที่ได้เวรแล้วใช้ช่วงจริงของแถว Roster `REPLACEMENT` ของเวรเคส และคนที่รออนุมัติใช้ `cover_start_at` / `cover_end_at` ของรายชื่อ
+  * เคสใช้ช่วงที่บันทึกตอนเปิดเคสตามเดิม (Q19) ไม่ตัดช่วงที่ผ่านไปแล้วตอนคำนวณเคสใหม่
+  * การเปิดเคสตอนปิด Merge Window และ `ASSESSING` ใช้ `has_gap` ของผลรายช่วง
+  * **ยังใช้ค่าสรุปจนกว่า T4 จะเปลี่ยน:** `wave_targets.py`, `wave_service`, `optimization_service` และ `optimization/solver.py` ข้อมูลแบบเดิมได้ค่าสรุปเท่ากับช่วงเดียว ผลจึงไม่เปลี่ยน `get_case_fillers()` ที่ Wave ใช้ยังสร้าง `GapFiller` แบบทั้งเวร
 
 **Solver และ Wave (T4)**
 * เงื่อนไข "ผลรวมคนที่เลือก ≥ เป้าหมาย" ของจำนวนคน Role และ Skill (`_cheapest_covering_group()`) เปลี่ยนเป็นเงื่อนไขละช่วงย่อย ช่วงย่อยตัดที่ทุกขอบของช่วงที่ขาดและทุกเวลาเริ่มจบของผู้สมัคร ผู้สมัครครอบช่วงย่อยที่อยู่ในช่วงที่มาทำได้ของตัวเอง การลดเป้าหมายที่เติมไม่ได้ทำรายช่วง ตัดผู้สมัครที่ไม่ครอบช่วงที่ขาดเลยออกก่อน
@@ -1846,7 +1854,14 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
     "headcount_gap": 1,
     "computed_at": "2026-10-09T21:00:00+07:00",
     "roles": [{"id": 1, "name": "RN", "required_count": 5, "current_count": 4, "gap_count": 1}],
-    "skills": [{"id": 1, "name": "ICU", "required_count": 2, "current_count": 2, "gap_count": 0}]
+    "skills": [{"id": 1, "name": "ICU", "required_count": 2, "current_count": 2, "gap_count": 0}],
+    "evaluated_from": "2026-10-09T23:00:00+07:00",
+    "intervals": [
+      {"start_at": "2026-10-09T23:00:00+07:00", "end_at": "2026-10-10T07:00:00+07:00",
+       "headcount": {"required_count": 5, "current_count": 4, "gap_count": 1},
+       "roles": [{"id": 1, "name": "RN", "required_count": 5, "current_count": 4, "gap_count": 1}],
+       "skills": [{"id": 1, "name": "ICU", "required_count": 2, "current_count": 2, "gap_count": 0}]}
+    ]
   },
   "assigned_count": 0,
   "candidates": [
@@ -1869,6 +1884,7 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
   เพราะ Requirement ถูก UPDATE ในแถวเดิม ค่าที่อ่านได้อาจไม่ใช่ค่าตอนคิด (Q20)
 * `gap` เป็น `null` จนกว่าขั้น `ASSESSING` จะบันทึก `STAFFING_GAP` ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
   ใน `roles` / `skills` ฟิลด์ `id` คือ Role ID / Skill ID
+* `gap.intervals` (รอบ 4 PR T3) คือทุกช่วงของ Gap เรียงตามเวลา รวมช่วงที่ไม่ขาด แต่ละช่วงเป็น `[start_at, end_at)` มี `headcount` และ `roles` / `skills` ของช่วงนั้น `gap.evaluated_from` คือจุดเริ่มของช่วงที่วัด ตัวอย่าง: Gap ข้างบนวัดตอน 21:00 ก่อนเวรเริ่ม จึงเริ่มที่ 23:00 และทุกคนทำทั้งเวรจึงมีช่วงเดียว ถ้า 104 ถูกย้ายออกตอน 03:00 จะมีสองช่วง คือ 23:00 ถึง 03:00 ขาด 1 คน และ 03:00 ถึง 07:00 ขาด 2 คน ส่วน `headcount_gap` เป็น 2 Gap ที่บันทึกก่อนรอบ 4 มี `evaluated_from` เป็น `null` และ `intervals` เป็น `[]` ซึ่งหมายถึงขาดทั้งเวรตามตัวเลขสรุป
 * `assigned_count` คือจำนวนคนที่เคสนี้จัดเข้าเวรแล้ว นับแบบเดียวกับ "ได้เข้าเวรแล้ว" ของข้อ 5.3 (`case_facts_service.assigned_staff_ids()`) เคสยังขาดคนอีก `max(gap.headcount_gap - assigned_count, 0)` หน้า `approvals` ใช้ค่านี้บอกว่าเคสของแต่ละคำขอยังขาดกี่คน (PR 5) ค่านี้นับเฉพาะจำนวนคน เคสที่ได้ 0 ยังรออนุมัติอยู่ได้เมื่อยังขาด Role หรือ Skill
 * `candidates` เป็น `[]` จนกว่า Solver จะบันทึก Plan ใช้ Plan ที่ `id` มากสุดของเคส (Seam 1) เรียงตาม `rank`
 * `outreach_status` เป็น `null` จนกว่าจะมี Outreach ของผู้สมัครคนนั้น ถ้ามีหลายแถวใช้แถวที่ `id` มากสุด
@@ -2030,7 +2046,7 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 
 | Route หรือหน้า | สิ่งที่เปลี่ยน | PR |
 |---|---|---|
-| `GET /cases/{id}` | `gap` เพิ่ม `evaluated_from` (ว่างได้) และ `intervals` = List ของ `{start_at, end_at, headcount: {required_count, current_count, gap_count}, roles: [GapCount], skills: [GapCount]}` เรียงตามเวลา (List ว่างสำหรับ Gap ก่อนรอบ 4) ตัวเลขสรุปเดิมเป็นค่าที่ขาดมากที่สุด | T3 |
+| `GET /cases/{id}` | `gap` เพิ่ม `evaluated_from` (ว่างได้) และ `intervals` = List ของ `{start_at, end_at, headcount: {required_count, current_count, gap_count}, roles: [GapCount], skills: [GapCount]}` เรียงตามเวลา (List ว่างสำหรับ Gap ก่อนรอบ 4) ตัวเลขสรุปเดิมเป็นค่าที่ขาดมากที่สุด รูปคำตอบอยู่ข้อ 9.3 | T3 (ทำแล้ว) |
 | `GET /cases/{id}` | แต่ละ `candidates[]` เพิ่ม `home_ward_id`, `home_ward_name`, `cover_start_at`, `cover_end_at` (ว่าง = ทั้งเวร) และ `source_assignment` = `{assignment_id, shift_id, ward_id, ward_name}` หรือ `null` (T1 ส่ง `cover_start_at`, `cover_end_at` และ `source_assignment` ซึ่งเป็น `null` จนกว่า C2 จะสร้างผู้สมัครจากการย้าย ส่วน C1 ส่ง `home_ward_id`, `home_ward_name`) | T1, C1, C2 |
 | `GET /approvals?pending=true` | แต่ละรายการเพิ่ม `home_ward_id`, `source_ward_id` (ว่างเมื่อไม่ใช่การย้าย), `wards` = List ของ `{ward_id, side, status}` (`status` = `PENDING` หรือ `APPROVED`) และ `supervisor_from` (เวลาที่ Supervisor เริ่มกดได้) | S |
 | `GET /approvals/auto` (ใหม่, ต้องมี `X-Demo-User` ของ Head Nurse หรือ Supervisor) | คำขอที่ระบบอนุมัติเอง (`approval_mode = AUTO`) ของหอที่ผู้เรียกดูแล ใหม่สุดก่อน ไม่เกิน 50 รายการ รูปเดียวกับรายการของ `GET /approvals` บวก `decided_at` Head Nurse เห็นหอตัวเอง Supervisor เห็นทุกหอ ประวัติเป็นผลอนุมัติ รวมกรณี Execute ล้มเหลวตาม D11 จึงต้องดูสถานะเคสประกอบ | A (ทำแล้ว) |
@@ -2283,3 +2299,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-15 | รอบ 4 PR T2: เวลาจริงและ UNIQUE self-FK ของ Roster (migration `b8d4f1a6c2e9` ต่อจาก T1); ตัวอ่านเวลาร่วม, duty จากลิงก์การย้าย, Hard Rules ใช้แถวจริงควบคู่ duty และ Cover ของ T1, Snapshot/Job ปิดเวร/API/หน้า Roster ใช้เวลาจริง พร้อม tests ของส่วนที่ทำแล้ว การย้ายต่อ ข้ามสัปดาห์ และ migration round trip; ยังไม่เปิดการย้ายจริง (C2/C3) | คน 3 |
 | 2026-10-15 | รอบ 4 PR A: Job อนุมัติอัตโนมัติเมื่อคิวเกิน `min(ratio × active Head Nurses, incoming_count)` ล็อก Ward และชุดรวมของคำขอก่อนตัดสินผ่าน `decide()` ใน Transaction เดียวของหอ; Cross-Ward, Float Pool และคนมีเวรต้นทางนับคิวแต่ไม่อนุมัติเอง; Audit Actor `system`, `approval_mode = AUTO`, `approver_id = NULL` พร้อมจำนวนคิว/ผู้อนุมัติ/เพดาน; `GET /approvals/auto` ประวัติ 50 รายการล่าสุดตามสิทธิ์หอ; ไม่มี Migration; Handoff `docs/round4/pr-A-handoff.md` | คน 3 |
 | 2026-10-15 | ตามรีวิว PR A (#80): แยก `decide_automatic()` และส่ง Batch Context/รายการงานหลัง Commit โดยตรง ใช้ตัวตัดสินร่วมกับคนกด; ยืนยัน PostgreSQL `FOR NO KEY UPDATE`; ผล Job/Clock เพิ่มรายการ AUTO และหอที่ล้มเหลว; Test อนุมัติ AUTO แล้วไม่ถูก Timeout; ระบุ foreign-case recompute เป็น best-effort ไม่มีคิว retry โดยเฉพาะ และป้องกันการนับ failure ข้าม Thread | คน 3 |
+| 2026-10-15 | รอบ 4 PR T3: Gap รายช่วง Migration `c6e2b9f4a1d7` ต่อจาก T2 (`STAFFING_GAP.evaluated_from` และ `STAFFING_GAP_INTERVAL`, `STAFFING_GAP_ROLE_INTERVAL`, `STAFFING_GAP_SKILL_INTERVAL` ไม่ Backfill); `calculate_gap(window=...)` วัดตั้งแต่ `max(Backend Clock, เวลาเริ่มเวร)` นับแต่ละคนตามช่วงจริงของ Roster เวรที่จบแล้ววัดทั้งเวร; ค่าสรุปคือช่วงที่ขาดมากที่สุด; `get_case_gap().intervals` และ `case_status.intervals_closed()` ตัดสินปิด Gap รายช่วง (`GapFiller` มีช่วงเวลา); `GET /cases/{id}` เพิ่ม `gap.evaluated_from` และ `gap.intervals` (ข้อ 6.20, 9.3, 9.6) Solver และ Wave ยังใช้ค่าสรุปจนกว่า T4 | คน 1 |

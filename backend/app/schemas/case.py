@@ -25,14 +25,38 @@ class GapCount(BaseModel):
     gap_count: int
 
 
+class HeadcountCount(BaseModel):
+    """Headcount of one time slice of a gap."""
+
+    required_count: int
+    current_count: int
+    gap_count: int
+
+
+class GapIntervalView(BaseModel):
+    """One time slice [start_at, end_at) of a gap (round 4 PR T3, workflow.md 6.20)."""
+
+    start_at: AppDatetime
+    end_at: AppDatetime
+    headcount: HeadcountCount
+    roles: list[GapCount]
+    skills: list[GapCount]
+
+
 class GapView(BaseModel):
     id: int
     # The headcount target the gap was measured against, stored with the gap row
     effective_minimum: int
+    # The worst slice of each dimension; display only, never for deciding
     headcount_gap: int
     computed_at: AppDatetime
     roles: list[GapCount]
     skills: list[GapCount]
+    # Where the measured window starts; null for a gap written before round 4
+    evaluated_from: AppDatetime | None
+    # Every slice in time order, also those without a shortage. Empty for a gap
+    # written before round 4, which is short for the whole shift
+    intervals: list[GapIntervalView]
 
 
 # Where a candidate is in the case (docs/workflow.md, section 4.1). Computed

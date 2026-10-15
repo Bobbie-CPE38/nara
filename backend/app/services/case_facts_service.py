@@ -31,6 +31,8 @@ Known limits:
 """
 
 from collections.abc import Collection
+from dataclasses import replace
+from datetime import datetime
 
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
@@ -45,6 +47,7 @@ from app.db.models import (
     ManualAssignment,
     RosterAssignment,
     SafetyValidation,
+    Shift,
     Staff,
     StaffingCase,
 )
@@ -54,8 +57,8 @@ from app.domain.enums import (
     OutreachStatus,
     RosterStatus,
 )
-from app.domain.workflow.case_status import CaseFacts, GapFiller, gap_closed
-from app.services import gap_service
+from app.domain.workflow.case_status import CaseFacts, GapFiller, intervals_closed
+from app.services import gap_service, roster_time_service
 from app.services.outreach_attempt_service import contactable_item
 
 # A replacement keeps counting after its shift ended and the row was closed
@@ -99,19 +102,17 @@ def load_case_facts(db: Session, case: StaffingCase) -> CaseFacts:
         assigned_ids = _assigned_staff_ids(db, case.id)
         pending_ids = _pending_staff_ids(db, case.id)
         fillers = _fillers(db, assigned_ids | pending_ids)
+        # Each person counts only for the time they cover (round 4 PR T3)
+        assigned = _timed(fillers, assigned_ids, _assigned_spans(db, case, assigned_ids))
+        pending = _timed(fillers, pending_ids, _pending_spans(db, case.id))
 
-        def closed_by(staff_ids: set[int]) -> bool:
-            return gap_closed(
-                headcount_gap=case_gap.headcount_gap,
-                role_gaps=case_gap.role_gaps,
-                skill_gaps=case_gap.skill_gaps,
-                fillers=(fillers[staff_id] for staff_id in staff_ids),
-            )
+        def closed_by(group: list[GapFiller]) -> bool:
+            return intervals_closed(case_gap.intervals, group)
 
-        closed_with_pending = closed_by(assigned_ids | pending_ids)
+        closed_with_pending = closed_by(assigned + pending)
         if closed_with_pending:
             return CaseFacts(
-                gap_closed_by_assigned=closed_by(assigned_ids),
+                gap_closed_by_assigned=closed_by(assigned),
                 gap_closed_with_pending=True,
                 has_open_offer=False,
                 has_uncontacted_candidate=False,
@@ -328,6 +329,62 @@ def _pending_staff_ids(db: Session, case_id: int) -> set[int]:
             )
         )
     )
+
+
+_Span = tuple[int, datetime | None, datetime | None]
+
+
+def _assigned_spans(db: Session, case: StaffingCase, staff_ids: set[int]) -> list[_Span]:
+    """Effective interval of each replacement row on the case's shift (actual times, T2)."""
+    if not staff_ids:
+        return []
+    return [
+        (staff_id, start_at, end_at)
+        for staff_id, start_at, end_at in db.execute(
+            select(
+                RosterAssignment.staff_id,
+                roster_time_service.start_at(),
+                roster_time_service.end_at(),
+            )
+            .join(Shift, Shift.id == RosterAssignment.shift_id)
+            .where(
+                RosterAssignment.shift_id == case.shift_id,
+                RosterAssignment.staff_id.in_(staff_ids),
+                RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
+                RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
+            )
+        )
+    ]
+
+
+def _pending_spans(db: Session, case_id: int) -> list[_Span]:
+    """Cover window of each pending candidate item; NULL means the whole shift (T1)."""
+    return [
+        (staff_id, start_at, end_at)
+        for staff_id, start_at, end_at in db.execute(
+            select(CandidateItem.staff_id, CandidateItem.cover_start_at, CandidateItem.cover_end_at)
+            .join(ApprovalRequest, ApprovalRequest.candidate_item_id == CandidateItem.id)
+            .where(
+                ApprovalRequest.case_id == case_id,
+                ApprovalRequest.is_pending.is_(True),
+                accepted_offer_for_request(),
+            )
+        )
+    ]
+
+
+def _timed(
+    fillers: dict[int, GapFiller], staff_ids: set[int], spans: list[_Span]
+) -> list[GapFiller]:
+    """One filler per span; someone in the group without a span covers the whole shift."""
+    timed = [
+        replace(fillers[staff_id], start_at=start_at, end_at=end_at)
+        for staff_id, start_at, end_at in spans
+        if staff_id in staff_ids
+    ]
+    spanned = {filler.staff_id for filler in timed}
+    timed.extend(fillers[staff_id] for staff_id in staff_ids - spanned)
+    return timed
 
 
 def _fillers(db: Session, staff_ids: set[int]) -> dict[int, GapFiller]:

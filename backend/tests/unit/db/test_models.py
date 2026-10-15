@@ -127,6 +127,7 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "headcount_gap": (Integer, NOT_NULL),
         "effective_minimum": (Integer, NOT_NULL),
         "computed_at": (DateTime, NOT_NULL),
+        "evaluated_from": (DateTime, NULL),
     },
     "staffing_gap_role": {
         "gap_id": (BigInteger, NOT_NULL),
@@ -138,6 +139,35 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
     "staffing_gap_skill": {
         "gap_id": (BigInteger, NOT_NULL),
         "skill_id": (BigInteger, NOT_NULL),
+        "required_count": (Integer, NOT_NULL),
+        "current_count": (Integer, NOT_NULL),
+        "gap_count": (Integer, NOT_NULL),
+    },
+    "staffing_gap_interval": {
+        "id": (BigInteger, NOT_NULL),
+        "gap_id": (BigInteger, NOT_NULL),
+        "start_at": (DateTime, NOT_NULL),
+        "end_at": (DateTime, NOT_NULL),
+        "required_count": (Integer, NOT_NULL),
+        "current_count": (Integer, NOT_NULL),
+        "gap_count": (Integer, NOT_NULL),
+    },
+    "staffing_gap_role_interval": {
+        "id": (BigInteger, NOT_NULL),
+        "gap_id": (BigInteger, NOT_NULL),
+        "role_id": (BigInteger, NOT_NULL),
+        "start_at": (DateTime, NOT_NULL),
+        "end_at": (DateTime, NOT_NULL),
+        "required_count": (Integer, NOT_NULL),
+        "current_count": (Integer, NOT_NULL),
+        "gap_count": (Integer, NOT_NULL),
+    },
+    "staffing_gap_skill_interval": {
+        "id": (BigInteger, NOT_NULL),
+        "gap_id": (BigInteger, NOT_NULL),
+        "skill_id": (BigInteger, NOT_NULL),
+        "start_at": (DateTime, NOT_NULL),
+        "end_at": (DateTime, NOT_NULL),
         "required_count": (Integer, NOT_NULL),
         "current_count": (Integer, NOT_NULL),
         "gap_count": (Integer, NOT_NULL),
@@ -185,6 +215,9 @@ EXPECTED_FOREIGN_KEYS: dict[str, dict[str, str]] = {
     },
     "staffing_gap_role": {"gap_id": "staffing_gap.id", "role_id": "role.id"},
     "staffing_gap_skill": {"gap_id": "staffing_gap.id", "skill_id": "skill.id"},
+    "staffing_gap_interval": {"gap_id": "staffing_gap.id"},
+    "staffing_gap_role_interval": {"gap_id": "staffing_gap.id", "role_id": "role.id"},
+    "staffing_gap_skill_interval": {"gap_id": "staffing_gap.id", "skill_id": "skill.id"},
 }
 
 

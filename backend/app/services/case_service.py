@@ -8,6 +8,7 @@ frozen after a reset, so rows of one case can share the same time
 """
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -30,8 +31,11 @@ from app.db.models import (
     StaffingCase,
     StaffingEvent,
     StaffingGap,
+    StaffingGapInterval,
     StaffingGapRole,
+    StaffingGapRoleInterval,
     StaffingGapSkill,
+    StaffingGapSkillInterval,
     Ward,
 )
 from app.domain.constraints.score_breakdown import (
@@ -52,7 +56,9 @@ from app.schemas.case import (
     CandidateView,
     CaseDetail,
     GapCount,
+    GapIntervalView,
     GapView,
+    HeadcountCount,
     RankExplanationView,
     ScoreTerm,
     SourceAssignmentView,
@@ -188,7 +194,63 @@ def _latest_gap(db: Session, case_id: int) -> GapView | None:
             )
             for row, name in skills
         ],
+        evaluated_from=gap.evaluated_from,
+        intervals=_gap_intervals(db, gap.id),
     )
+
+
+def _gap_intervals(db: Session, gap_id: int) -> list[GapIntervalView]:
+    """Every time slice of a gap in time order, with role and skill counts by ID."""
+    roles: dict[datetime, list[GapCount]] = {}
+    for role_row, name in db.execute(
+        select(StaffingGapRoleInterval, Role.name)
+        .join(Role, Role.id == StaffingGapRoleInterval.role_id)
+        .where(StaffingGapRoleInterval.gap_id == gap_id)
+        .order_by(StaffingGapRoleInterval.role_id)
+    ):
+        roles.setdefault(role_row.start_at, []).append(
+            GapCount(
+                id=role_row.role_id,
+                name=name,
+                required_count=role_row.required_count,
+                current_count=role_row.current_count,
+                gap_count=role_row.gap_count,
+            )
+        )
+    skills: dict[datetime, list[GapCount]] = {}
+    for skill_row, name in db.execute(
+        select(StaffingGapSkillInterval, Skill.name)
+        .join(Skill, Skill.id == StaffingGapSkillInterval.skill_id)
+        .where(StaffingGapSkillInterval.gap_id == gap_id)
+        .order_by(StaffingGapSkillInterval.skill_id)
+    ):
+        skills.setdefault(skill_row.start_at, []).append(
+            GapCount(
+                id=skill_row.skill_id,
+                name=name,
+                required_count=skill_row.required_count,
+                current_count=skill_row.current_count,
+                gap_count=skill_row.gap_count,
+            )
+        )
+    return [
+        GapIntervalView(
+            start_at=row.start_at,
+            end_at=row.end_at,
+            headcount=HeadcountCount(
+                required_count=row.required_count,
+                current_count=row.current_count,
+                gap_count=row.gap_count,
+            ),
+            roles=roles.get(row.start_at, []),
+            skills=skills.get(row.start_at, []),
+        )
+        for row in db.scalars(
+            select(StaffingGapInterval)
+            .where(StaffingGapInterval.gap_id == gap_id)
+            .order_by(StaffingGapInterval.start_at)
+        )
+    ]
 
 
 def _latest_plan(db: Session, case_id: int) -> CandidatePlan | None:
