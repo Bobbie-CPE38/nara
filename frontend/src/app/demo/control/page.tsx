@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { usePolling } from "@/hooks/usePolling";
 import { ApiError, apiRequest, createDemoApi } from "@/lib/api";
+import { TERMINAL_CASE_STATUSES } from "@/lib/constants";
 import type { ClockAdvanceResult, EventResult } from "@/lib/types/event";
 
 // Golden Case IDs (docs/workflow.md, section 10). 900 is the head nurse, the
@@ -62,10 +64,48 @@ function errorMessage(cause: unknown) {
 }
 
 function CaseLink({ id, status }: { id: number; status: string | null }) {
+  const load = useCallback(
+    async (signal: AbortSignal) => {
+      const result = await apiRequest<{ id: number; status: string }>(
+        `/cases/${id}`,
+        { signal },
+      );
+      if (!result || result.id !== id || typeof result.status !== "string") {
+        throw new Error("Invalid case status response");
+      }
+      return result;
+    },
+    [id],
+  );
+  const { data, error, isLoading, refresh } = usePolling(load, {
+    stopOnData: (result) => TERMINAL_CASE_STATUSES.has(result.status),
+    stopOnError: (cause) => cause instanceof ApiError && cause.status === 404,
+  });
+  const missing = error instanceof ApiError && error.status === 404;
+  const latest = data?.status ?? status;
   return (
-    <Link className="underline" href={`/cases/${id}`}>
-      {id} ({status})
-    </Link>
+    <span>
+      <Link className="underline" href={`/cases/${id}`}>
+        {id}
+        {!missing && latest !== null ? ` (${latest})` : ""}
+      </Link>
+      {missing ? (
+        <span role="status"> — Case no longer exists. It may have been reset.</span>
+      ) : error ? (
+        <span role="status"> — Status may be outdated: {errorMessage(error)}</span>
+      ) : (
+        <span className="text-sm text-gray-500">
+          {isLoading
+            ? " — Checking current status…"
+            : latest !== null && TERMINAL_CASE_STATUSES.has(latest)
+              ? " — Final status. Updates stopped."
+              : " — Updating every 2 seconds."}
+        </span>
+      )}
+      <button type="button" className="ml-2 underline" onClick={() => void refresh()}>
+        Refresh case {id}
+      </button>
+    </span>
   );
 }
 
@@ -159,7 +199,11 @@ export default function DemoControl() {
                   {window.case_id === null ? (
                     "no case opened"
                   ) : (
-                    <CaseLink id={window.case_id} status={window.case_status} />
+                    <CaseLink
+                      key={window.case_id}
+                      id={window.case_id}
+                      status={window.case_status}
+                    />
                   )}
                 </li>
               ))}
@@ -177,9 +221,7 @@ export default function DemoControl() {
               {outcome.result.recovered_case_ids.map((id, index) => (
                 <span key={id}>
                   {index > 0 && ", "}
-                  <Link className="underline" href={`/cases/${id}`}>
-                    {id}
-                  </Link>
+                  <CaseLink id={id} status={null} />
                 </span>
               ))}
             </p>
@@ -194,10 +236,16 @@ export default function DemoControl() {
           <dd>
             {outcome.result.event_id} ({outcome.result.event_status})
           </dd>
-          <dt>Case</dt>
+          <dt>Case status at event response</dt>
+          <dd>{outcome.result.case_status ?? "No case yet"}</dd>
+          <dt>Case (current status)</dt>
           <dd>
             {outcome.result.case_id !== null ? (
-              <CaseLink id={outcome.result.case_id} status={outcome.result.case_status} />
+              <CaseLink
+                key={outcome.result.case_id}
+                id={outcome.result.case_id}
+                status={outcome.result.case_status}
+              />
             ) : outcome.result.event_status === "RECEIVED" ? (
               // Its shift has an open merge window, or a case that is still running
               "Not decided yet. The event is waiting."
