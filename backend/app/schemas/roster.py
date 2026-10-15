@@ -48,7 +48,7 @@ class RosterRow(BaseModel):
     # Differs from the shift's ward for staff who come from another ward
     home_ward_id: int
     home_ward_name: str
-    # ASSIGNED, and a STAFF_UNAVAILABILITY period of the person overlaps the shift
+    # ASSIGNED, and a STAFF_UNAVAILABILITY period overlaps the effective interval
     # (an open end_at counts). Same overlap as the UNAVAILABLE hard rule
     is_unavailable: bool
     created_at: AppDatetime

@@ -1,9 +1,8 @@
 """Roster actual times and explicit transfer links (round 4 PR T2).
 
 Revision ID: b8d4f1a6c2e9
-Revises: e1a4c7f2b9d6
+Revises: a9c3e7f1b5d2
 
-Draft parent: rebase onto the staging head after T1 merges before submitting T2.
 No backfill: NULL endpoints preserve the existing shift-time fallback.
 """
 
@@ -11,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "b8d4f1a6c2e9"
-down_revision = "e1a4c7f2b9d6"
+down_revision = "a9c3e7f1b5d2"
 branch_labels = None
 depends_on = None
 

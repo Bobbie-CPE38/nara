@@ -53,6 +53,8 @@ function Roster({ shiftId }: { shiftId: number }) {
                       "Roster status",
                       "Assignment type",
                       "Source",
+                      "Working interval (Bangkok)",
+                      "Transferred from assignment",
                     ].map((label) => (
                       <th key={label} scope="col" className="p-3">
                         {label}
@@ -84,6 +86,11 @@ function Roster({ shiftId }: { shiftId: number }) {
                       </td>
                       <td className="p-3">{row.assignment_type}</td>
                       <td className="p-3">{row.candidate_source ?? "—"}</td>
+                      <td className="p-3">
+                        {formatDemoTime(row.actual_start_at ?? data.shift.start_at)} –{" "}
+                        {formatDemoTime(row.actual_end_at ?? data.shift.end_at)}
+                      </td>
+                      <td className="p-3">{row.transferred_from_assignment_id ?? "—"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -93,7 +100,7 @@ function Roster({ shiftId }: { shiftId: number }) {
           <p className="text-sm text-slate-600">
             Shows every assignment, including cancelled rows. Multiple rows may
             belong to the same staff member. &ldquo;On leave&rdquo; marks an
-            assigned person whose leave overlaps the shift: report the leave to
+            assigned person whose leave overlaps their working interval: report the leave to
             open a case for it.
           </p>
         </>

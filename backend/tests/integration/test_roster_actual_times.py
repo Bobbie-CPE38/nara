@@ -205,3 +205,126 @@ def test_linked_duty_crossing_sunday_stays_in_its_originating_week(seeded: Sessi
     assert monday.hours_this_week == 0
     assert monday.hours_today == 0
     assert monday.consecutive_shifts == 1
+
+
+@pytest.mark.parametrize("cover_offset", [2, 4])
+def test_t1_move_extends_an_existing_recorded_duty_without_double_counting(seeded, cover_offset):
+    from app.services import hard_rule_service
+    from app.services.hard_rule_service import Cover
+
+    source, destination, shifts = pair(seeded)
+    proposed = seeded.get(Shift, 1)
+    cover = Cover(
+        shifts[0].start_at + timedelta(hours=cover_offset), shifts[0].end_at, destination.id
+    )
+    result = hard_rule_service.check_staff(
+        seeded, shift=proposed, staff_ids=[201], covers={201: cover}
+    )[201]
+    assert result.result.failed_rules == ()
+    assert result.result.details["daily_hours"] == 8
+    assert result.result.details["weekly_hours"] == 8
+    assert result.result.details["projected_consecutive_shifts"] == 1
+    assert result.context.linked_duty.start_at == shifts[0].start_at
+    assert result.context.linked_duty.end_at == cover.start_at
+
+
+def test_persisted_transfer_has_one_duty_for_future_hard_rules(seeded):
+    from app.db.models import StaffingRequirement
+    from app.services import hard_rule_service
+
+    source, destination, shifts = pair(seeded)
+    future = Shift(
+        ward_id=1,
+        patient_count=2,
+        start_at=shifts[0].end_at + timedelta(hours=11),
+        end_at=shifts[0].end_at + timedelta(hours=19),
+        shift_type=ShiftType.EVENING,
+        is_active=True,
+    )
+    seeded.add(future)
+    seeded.flush()
+    seeded.add(StaffingRequirement(shift_id=future.id, required_staff=1, minimum_staff=1))
+    seeded.flush()
+    check = hard_rule_service.check_staff(seeded, shift=future, staff_ids=[201])[201]
+    assert check.result.failed_rules == ()
+    assert check.result.details["weekly_hours"] == 16
+    assert check.result.details["projected_consecutive_shifts"] == 2
+
+
+def test_unlinked_rows_still_fail_rest_at_zero_hours(seeded):
+    from app.domain.constraints.codes import HardRuleCode
+    from app.services import hard_rule_service
+    from app.services.hard_rule_service import Cover
+
+    source, destination, shifts = pair(seeded)
+    destination.transferred_from_assignment_id = None
+    seeded.flush()
+    cover = Cover(destination.actual_start_at, shifts[0].end_at, destination.id)
+    proposed = seeded.get(Shift, 1)
+    check = hard_rule_service.check_staff(
+        seeded, shift=proposed, staff_ids=[201], covers={201: cover}
+    )[201]
+    assert HardRuleCode.INSUFFICIENT_REST in check.result.failed_rules
+
+
+def test_safety_and_planning_share_the_actual_recorded_prefix(seeded):
+    from app.domain.enums import OutreachStatus
+    from app.services import hard_rule_service, safety_service
+    from app.services.hard_rule_service import Cover
+    from tests.integration.case_rows import make_case, make_plan, offer
+
+    source, destination, shifts = pair(seeded)
+    proposed = seeded.get(Shift, 1)
+    cover = Cover(shifts[0].start_at + timedelta(hours=4), shifts[0].end_at, destination.id)
+    planned = hard_rule_service.check_staff(
+        seeded, shift=proposed, staff_ids=[201], covers={201: cover}
+    )[201]
+    case = make_case(seeded)
+    item = make_plan(seeded, case, (201,))[201]
+    item.cover_start_at = cover.start_at
+    item.cover_end_at = cover.end_at
+    item.source_assignment_id = destination.id
+    seeded.flush()
+    outreach = offer(seeded, case, item, OutreachStatus.ACCEPTED)
+    safety = safety_service.validate_accepted_candidate(seeded, case, outreach_id=outreach.id)
+    assert safety.validation.is_passed is True
+    assert safety.validation.validation_snapshot["details"] == planned.result.details
+
+
+def test_leave_overlap_report_uses_actual_roster_interval(seeded):
+    from app.services import unavailability_service
+
+    source, destination, shifts = pair(seeded)
+    # A leave covering only the source part must not report the destination.
+    ids = unavailability_service._overlapping_assignments(
+        seeded, shifts[0].start_at, destination.actual_start_at, 201
+    )
+    assert destination.id not in ids
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_replacement_keeps_the_cover_that_safety_checked(seeded, partial):
+    from tests.integration.case_rows import approval, short_case
+
+    case, items = short_case(seeded)
+    item = items[201]
+    shift = seeded.get(Shift, case.shift_id)
+    if partial:
+        item.cover_start_at = shift.start_at + timedelta(hours=2)
+        item.cover_end_at = shift.end_at - timedelta(hours=1)
+    request = approval(seeded, case, item, approved=True)
+    assignment = roster_service.create_replacement(seeded, case, approval=request)
+    assert assignment.actual_start_at == item.cover_start_at
+    assert assignment.actual_end_at == item.cover_end_at
+    assert assignment.transferred_from_assignment_id is None
+
+
+def test_t2_has_one_migration_head_after_t1():
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    from app.seed.reset import ALEMBIC_INI
+
+    script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
+    assert len(script.get_heads()) == 1
+    assert script.get_revision("b8d4f1a6c2e9").down_revision == "a9c3e7f1b5d2"

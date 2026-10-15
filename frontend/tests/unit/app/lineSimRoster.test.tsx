@@ -69,6 +69,9 @@ const roster: ShiftRoster = {
       status: "CANCELLED",
       assignment_type: "REGULAR",
       candidate_source: null,
+      actual_start_at: null,
+      actual_end_at: null,
+      transferred_from_assignment_id: null,
       staff_id: 105,
       first_name: "Sudarat",
       last_name: "Demo",
@@ -86,6 +89,9 @@ const roster: ShiftRoster = {
       status: "ASSIGNED",
       assignment_type: "REPLACEMENT",
       candidate_source: "SAME_WARD",
+      actual_start_at: null,
+      actual_end_at: null,
+      transferred_from_assignment_id: null,
       staff_id: 201,
       first_name: "Arunee",
       last_name: "Demo",
@@ -823,6 +829,50 @@ describe("Roster", () => {
       expect.objectContaining({ demoUser: 900 }),
     );
   });
+  it("shows actual intervals and transfer links while preserving scheduled shift times", async () => {
+    replies(() => ({
+      ...roster,
+      assignments: [
+        {
+          ...roster.assignments[1],
+          actual_start_at: "2026-10-10T01:00:00+07:00",
+          actual_end_at: "2026-10-10T05:00:00+07:00",
+          transferred_from_assignment_id: 42,
+        },
+      ],
+    }));
+    render(<RosterPage />);
+    const table = await screen.findByRole("table");
+    const cells = within(within(table).getAllByRole("row")[1]).getAllByRole(
+      "cell",
+    );
+    expect(cells[8].textContent).toBe(
+      "2026-10-10 01:00:00 – 2026-10-10 05:00:00",
+    );
+    expect(cells[9].textContent).toBe("42");
+    expect(
+      screen.getByText("2026-10-09 23:00:00 – 2026-10-10 07:00:00 (Bangkok)"),
+    ).toBeTruthy();
+  });
+
+  it("falls back independently when an actual endpoint is null", async () => {
+    replies(() => ({
+      ...roster,
+      assignments: [
+        { ...roster.assignments[1], actual_end_at: "2026-10-10T01:00:00+07:00" },
+      ],
+    }));
+    render(<RosterPage />);
+    const table = await screen.findByRole("table");
+    const cells = within(within(table).getAllByRole("row")[1]).getAllByRole(
+      "cell",
+    );
+    expect(cells[8].textContent).toBe(
+      "2026-10-09 23:00:00 – 2026-10-10 01:00:00",
+    );
+    expect(cells[9].textContent).toBe("—");
+  });
+
   it("preserves duplicate staff and cross-ward inactive entries", async () => {
     replies(() => ({
       ...roster,

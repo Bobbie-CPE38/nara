@@ -18,7 +18,13 @@ class DutySegment:
     transferred_from_assignment_id: int | None = None
 
 
-def joined_duties(segments: Sequence[DutySegment]) -> tuple[ShiftSlot, ...]:
+@dataclass(frozen=True)
+class RecordedDuty:
+    shift: ShiftSlot
+    assignment_ids: frozenset[int]
+
+
+def recorded_duties(segments: Sequence[DutySegment]) -> tuple[RecordedDuty, ...]:
     rows = {segment.assignment_id: segment for segment in segments}
     successors: dict[int, DutySegment] = {}
     for row in segments:
@@ -38,13 +44,24 @@ def joined_duties(segments: Sequence[DutySegment]) -> tuple[ShiftSlot, ...]:
         if root.assignment_id in destinations:
             continue
         last = root
+        members = {root.assignment_id}
         visited.add(root.assignment_id)
         while last.assignment_id in successors:
             last = successors[last.assignment_id]
             if last.assignment_id in visited:
                 raise ValueError("Cyclic transfer links")
             visited.add(last.assignment_id)
-        duties.append(ShiftSlot(root.shift.shift_id, root.shift.start_at, last.shift.end_at))
+            members.add(last.assignment_id)
+        duties.append(
+            RecordedDuty(
+                ShiftSlot(root.shift.shift_id, root.shift.start_at, last.shift.end_at),
+                frozenset(members),
+            )
+        )
     if visited != set(rows):
         raise ValueError("Cyclic transfer links")
     return tuple(duties)
+
+
+def joined_duties(segments: Sequence[DutySegment]) -> tuple[ShiftSlot, ...]:
+    return tuple(duty.shift for duty in recorded_duties(segments))

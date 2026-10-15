@@ -65,6 +65,8 @@ def create_replacement(
         status=RosterStatus.ASSIGNED,
         assignment_type=AssignmentType.REPLACEMENT,
         candidate_source=item.source,
+        actual_start_at=item.cover_start_at,
+        actual_end_at=item.cover_end_at,
     )
     db.add(assignment)
     db.flush()
@@ -135,7 +137,7 @@ def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
 def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
     """Read the staff member and every roster row they hold, without flushes, commits or locks.
 
-    Rows come back in every status, ordered by shift start, then row ID: a
+    Rows come back in every status, ordered by effective start, then row ID: a
     person's shifts read as a timeline. Two statements whatever the number of
     rows. Only the staff columns the answer needs are loaded.
     """

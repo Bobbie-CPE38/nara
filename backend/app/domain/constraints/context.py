@@ -162,6 +162,9 @@ class CandidateContext:
     target_skill_ids: frozenset[int]
     source_shift: SourceShift | None = None
     linked_duty: ShiftSlot | None = None
+    # Aggregated only from explicit persisted transfer links. Physical rows stay
+    # in roster for shift identity, cancellation and overlap checks.
+    recorded_duties: tuple[ShiftSlot, ...] | None = None
 
     def __post_init__(self) -> None:
         # Copy first: a caller-owned list or set could still change afterwards
@@ -170,6 +173,8 @@ class CandidateContext:
         object.__setattr__(self, "unavailability", tuple(self.unavailability))
         object.__setattr__(self, "target_role_ids", frozenset(self.target_role_ids))
         object.__setattr__(self, "target_skill_ids", frozenset(self.target_skill_ids))
+        if self.recorded_duties is not None:
+            object.__setattr__(self, "recorded_duties", tuple(self.recorded_duties))
 
         slots = {self.proposed_shift.shift_id: self.proposed_shift}
         for entry in self.roster:
@@ -186,7 +191,7 @@ class CandidateContext:
             if not any(
                 entry.status in COMMITTED_ROSTER_STATUSES and entry.shift == linked
                 for entry in self.roster
-            ):
+            ) and linked not in (self.recorded_duties or ()):
                 raise ValueError("linked_duty must match a committed roster entry")
 
 
@@ -287,14 +292,23 @@ def other_duties(context: CandidateContext) -> tuple[ShiftSlot, ...]:
     """The committed shifts other than the proposed one and the linked part.
 
     The linked part is inside duty_slot, so the rest and consecutive-shift rules
-    must not see it as a separate shift. Same as other_committed_shifts when there
-    is no linked_duty.
+    must not see it as a separate shift. Recorded transfer groups, when supplied,
+    also count as single duties even without a new proposed transfer.
     """
     linked = context.linked_duty
     if linked is None:
+        return committed_duties(context)
+    return tuple(shift for shift in committed_duties(context) if shift.shift_id != linked.shift_id)
+
+
+def committed_duties(context: CandidateContext) -> tuple[ShiftSlot, ...]:
+    """Committed duty intervals, excluding the proposed shift itself."""
+    if context.recorded_duties is None:
         return other_committed_shifts(context)
     return tuple(
-        shift for shift in other_committed_shifts(context) if shift.shift_id != linked.shift_id
+        shift
+        for shift in context.recorded_duties
+        if shift.shift_id != context.proposed_shift.shift_id
     )
 
 
@@ -309,7 +323,7 @@ def daily_hours(context: CandidateContext) -> Fraction:
     return shift_hours(context.proposed_shift) + sum(
         (
             shift_hours(shift)
-            for shift in other_committed_shifts(context)
+            for shift in committed_duties(context)
             if local_day(shift.start_at) == day
         ),
         Fraction(0),
@@ -325,7 +339,7 @@ def weekly_hours(context: CandidateContext) -> Fraction:
     return shift_hours(context.proposed_shift) + sum(
         (
             shift_hours(shift)
-            for shift in other_committed_shifts(context)
+            for shift in committed_duties(context)
             if week_start(shift.start_at) == week
         ),
         Fraction(0),
