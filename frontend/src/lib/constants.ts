@@ -84,4 +84,5 @@ export const SKIP_REASON_INFO: ReadonlyMap<string, string> = new Map([
   ["CONSECUTIVE_SHIFTS_EXCEEDED", "Would exceed the consecutive shifts limit"],
   ["SOURCE_WARD_MINIMUM_VIOLATION", "Their own ward would fall below its minimum"],
   ["OFFER_LIMIT_REACHED", "Already holds the maximum number of open offers"],
+  ["SOURCE_SHIFT_TAKEN", "Someone from the same source shift is already offered or moved for this case"],
 ]);
