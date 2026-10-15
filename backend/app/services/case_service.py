@@ -91,6 +91,7 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
         assigned_count=len(case_facts_service.assigned_staff_ids(db, case.id)),
         candidates=_latest_candidates(db, case.id),
         explanation=_latest_explanation(db, case.id),
+        partial_plan=_partial_plan(db, case.id),
     )
 
 
@@ -263,6 +264,12 @@ def _latest_plan(db: Session, case_id: int) -> CandidatePlan | None:
         .order_by(CandidatePlan.id.desc())
         .limit(1)
     )
+
+
+def _partial_plan(db: Session, case_id: int) -> bool:
+    """True when the latest plan was a partial plan; False without a plan."""
+    plan = _latest_plan(db, case_id)
+    return plan is not None and bool(plan.input_snapshot.get("partial_plan", False))
 
 
 def _latest_explanation(db: Session, case_id: int) -> RankExplanationView | None:

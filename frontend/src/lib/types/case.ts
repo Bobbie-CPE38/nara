@@ -106,6 +106,8 @@ export type CaseDetail = {
   candidates: CandidateView[];
   /** null when the latest plan has no explanation row (LLM off, an old plan, no plan) */
   explanation: RankExplanation | null;
+  /** true when no group could cover every target, so the solver used the partial plan */
+  partial_plan: boolean;
 };
 
 /** One item of GET /cases/{id}/audit */

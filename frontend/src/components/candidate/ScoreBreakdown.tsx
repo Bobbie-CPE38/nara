@@ -55,9 +55,11 @@ function Explanation({ explanation }: { explanation: RankExplanation | null }) {
 }
 
 /** Score of each candidate that has one, as the API sent it. Candidates without a score are left out. */
-export function ScoreBreakdown({ candidates, explanation }: {
+export function ScoreBreakdown({ candidates, explanation, partialPlan }: {
   candidates: CandidateView[];
   explanation: RankExplanation | null;
+  /** true when no group could cover every target, so coverage chose the first wave */
+  partialPlan: boolean;
 }) {
   const scored = candidates.flatMap(candidate => (candidate.score ? [{ candidate, score: candidate.score }] : []));
   if (scored.length === 0) return null;
@@ -65,7 +67,10 @@ export function ScoreBreakdown({ candidates, explanation }: {
     <>
       <h3 className="mt-4 font-semibold">Score breakdown</h3>
       <p className="mt-2 text-sm text-gray-500">
-        Points decide which group becomes the first wave: the group that covers the gap with the fewest points in total. Inside the first wave and inside the reserve, people are ordered by source, then hours this week, consecutive shifts, overtime and staff ID, so points may not follow rank.
+        {partialPlan
+          ? "Coverage decides first: no group could cover every target, so the first wave is the group that leaves the least time uncovered (headcount, then role, then skill). Points only decide between groups that cover the same."
+          : "Points decide which group becomes the first wave: the group that covers the gap with the fewest points in total."}
+        {" "}Inside the first wave and inside the reserve, people are ordered by source, then hours this week, consecutive shifts, overtime and staff ID, so points may not follow rank.
       </p>
       <section aria-label="Ranking explanation" className="mt-2">
         <Explanation explanation={explanation} />

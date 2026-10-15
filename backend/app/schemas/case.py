@@ -161,6 +161,9 @@ class CaseDetail(BaseModel):
     candidates: list[CandidateView]
     # null when the latest plan has no explanation row
     explanation: RankExplanationView | None
+    # True when the latest plan's first wave comes from the max-coverage stages: no
+    # group could cover every target (round 4 PR T4). False without a plan
+    partial_plan: bool
 
 
 class AuditEntry(BaseModel):

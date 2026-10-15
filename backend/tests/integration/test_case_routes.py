@@ -221,6 +221,7 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
         "assigned_count",
         "candidates",
         "explanation",
+        "partial_plan",
     }
     assert (body["id"], body["event_ids"], body["shift_id"]) == (
         case.id,
@@ -236,6 +237,24 @@ def test_case_before_assessment_has_no_gap_and_no_candidates(
 
     assert body["gap"] is None
     assert body["candidates"] == []
+
+
+def test_partial_plan_follows_the_latest_plan(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    assert client.get(f"/cases/{case.id}").json()["partial_plan"] is False
+
+    case_rows.make_plan(seeded, case)
+    assert client.get(f"/cases/{case.id}").json()["partial_plan"] is False
+
+    plan = seeded.scalars(select(CandidatePlan).where(CandidatePlan.case_id == case.id)).one()
+    plan.input_snapshot = {"partial_plan": True}
+    seeded.flush()
+    assert client.get(f"/cases/{case.id}").json()["partial_plan"] is True
+
+    # A newer plan decides, not the older one
+    case_rows.make_plan(seeded, case)
+    assert client.get(f"/cases/{case.id}").json()["partial_plan"] is False
 
 
 def test_case_detail_needs_no_demo_user_header(client: TestClient, case: StaffingCase) -> None:

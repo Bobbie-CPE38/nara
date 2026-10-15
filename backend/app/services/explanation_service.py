@@ -38,7 +38,7 @@ from app.services.llm_service import LlmAttempt, LlmRequest
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "rank-explanation-v1"
+PROMPT_VERSION = "rank-explanation-v2"
 MAX_EXPLAINED_CANDIDATES = 10
 MAX_PER_SWEEP = 3
 _MIN_LEASE_SECONDS = 60
@@ -57,9 +57,18 @@ SYSTEM_PROMPT = (
     "was produced by a scheduling program. Answer in Thai, in 2 to 4 sentences, as plain text "
     "with no markdown and no recommendations. Use only numbers that appear in the data. "
     'Refer to people only as "อันดับ N" using the rank field. '
-    "plan_penalty selects which group of candidates becomes the first wave. "
+    "plan_penalty.meaning says what chose the first wave. "
     "ranking_key orders the candidates inside the plan (first wave first, then reserves). "
     "Never claim that a rank comes from the total points."
+)
+
+
+_PLAN_PENALTY_MEANING = "selects which group becomes the first wave"
+# Round 4 PR T4: no group could cover every target (workflow.md 6.15, 6.20)
+_PLAN_PENALTY_MEANING_PARTIAL = (
+    "breaks ties only: no group could cover every target, so the first wave is the group "
+    "that leaves the fewest uncovered person-minutes (headcount first, then role, then "
+    "skill); points choose only among groups that cover the same"
 )
 
 
@@ -173,7 +182,9 @@ def build_payload(plan: CandidatePlan) -> dict[str, Any]:
         "targets": snapshot.get("targets"),
         "plan_penalty": {
             "value": penalty,
-            "meaning": "selects which group becomes the first wave",
+            "meaning": _PLAN_PENALTY_MEANING_PARTIAL
+            if snapshot.get("partial_plan")
+            else _PLAN_PENALTY_MEANING,
         },
         "ranking_key": {
             "order": RANKING_KEY_ORDER,

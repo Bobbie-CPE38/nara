@@ -93,7 +93,7 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
           candidates={detail.candidates}
           stopped={isFinal({ detail, audit }) || detail.status === "MANUAL_HANDOFF"}
         />
-        <ScoreBreakdown candidates={detail.candidates} explanation={detail.explanation} />
+        <ScoreBreakdown candidates={detail.candidates} explanation={detail.explanation} partialPlan={detail.partial_plan} />
         {skips.length > 0 && (
           <>
             <h3 className="mt-4 font-semibold">Skipped</h3>

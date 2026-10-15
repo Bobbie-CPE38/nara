@@ -3,7 +3,6 @@
 The handler owns OFFER_SENT and MANUAL_HANDOFF. No commit or case-status write.
 """
 
-from collections import Counter
 from dataclasses import dataclass
 
 from sqlalchemy import delete, select
@@ -18,7 +17,7 @@ from app.db.models import (
     Shift,
 )
 from app.domain.enums import AuditAction
-from app.domain.staffing.wave_targets import fill_targets
+from app.domain.staffing.wave_targets import elementary_slices, fill_targets_by_slice, is_short
 from app.domain.workflow.case_status import GapFiller
 from app.services import availability_service, case_facts_service, gap_service, hard_rule_service
 from app.services.optimization_service import record_item_targets
@@ -97,15 +96,16 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
 
     gap = gap_service.get_case_gap(db, case_id)
     fillers = case_facts_service.get_case_fillers(db, case_id, include_reserves=True)
-    roles = Counter(person.role_id for person in fillers)
-    skills = Counter(skill for person in fillers for skill in person.skill_ids)
-    head = max(gap.headcount_gap - len(fillers), 0)
-    role_gaps = {key: max(value - roles[key], 0) for key, value in gap.role_gaps.items()}
-    skill_gaps = {key: max(value - skills[key], 0) for key, value in gap.skill_gaps.items()}
 
     def person(item: CandidateItem) -> GapFiller:
         context = checks[item.id].context
-        return GapFiller(item.staff_id, context.role_id, context.skill_ids)
+        return GapFiller(
+            item.staff_id,
+            context.role_id,
+            context.skill_ids,
+            start_at=item.cover_start_at,
+            end_at=item.cover_end_at,
+        )
 
     target_item_ids = set(
         db.scalars(
@@ -117,12 +117,16 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
     # Existing target rows identify the Solver's group only before the first send.
     kept = [item for item in eligible if item.id in target_item_ids] if not history else []
     candidates = [item for item in eligible if item not in kept]
-    credits = fill_targets(
-        headcount_gap=head,
-        role_gaps=role_gaps,
-        skill_gaps=skill_gaps,
+    # Per time slice: the people who cover the whole of a slice count there (round 4 PR T4)
+    slices = elementary_slices(
+        [interval for interval in gap.intervals if is_short(interval)],
+        [*fillers, *(person(item) for item in eligible), *(person(item) for item in kept)],
+    )
+    credits = fill_targets_by_slice(
+        slices=slices,
         candidates=[person(item) for item in candidates],
         already_selected=[person(item) for item in kept],
+        counted=fillers,
     )
     for item in candidates:
         if item.staff_id in credits:
