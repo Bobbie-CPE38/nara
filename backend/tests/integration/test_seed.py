@@ -25,7 +25,7 @@ from app.db.models import (
 from app.domain.enums import ActorName, ActorType, RosterStatus, StaffStatus
 from app.domain.staffing.gap_calculator import required_staff_for
 from app.seed import base_data, load
-from app.seed.scenarios import golden_case
+from app.seed.scenarios import golden_case, multi_ward
 from tests.integration.conftest import DEMO_NOW
 
 pytestmark = pytest.mark.usefixtures("frozen_clock")
@@ -40,7 +40,7 @@ def seeded(seeded: Session) -> Session:
 
 def test_seed_has_all_actor_identities_and_policies(seeded: Session) -> None:
     actors = seeded.scalars(select(Actor)).all()
-    assert len(actors) == 15
+    assert len(actors) == 20
     components = {actor.name for actor in actors if actor.staff_id is None}
     assert components == {name.value for name in ActorName}
     assert next(actor for actor in actors if actor.name == "system").actor_type is ActorType.SYSTEM
@@ -144,6 +144,7 @@ def test_seed_loaders_leave_transaction_control_to_caller(db: Session) -> None:
     transaction = db.begin_nested()
     base_data.seed(db)
     golden_case.seed(db)
+    multi_ward.seed(db)
     transaction.rollback()
     assert db.scalar(select(func.count()).select_from(Staff)) == 0
     assert db.scalar(select(func.count()).select_from(Actor)) == 0
@@ -160,8 +161,8 @@ def test_golden_case_requires_demo_clock(db: Session) -> None:
 def test_seed_command_refuses_existing_data_without_modifying_it(seeded: Session) -> None:
     with pytest.raises(ValueError, match="already contains data"):
         load(seeded)
-    assert seeded.scalar(select(func.count()).select_from(Staff)) == 9
-    assert seeded.scalar(select(func.count()).select_from(Actor)) == 15
+    assert seeded.scalar(select(func.count()).select_from(Staff)) == 14
+    assert seeded.scalar(select(func.count()).select_from(Actor)) == 20
 
 
 def test_required_staff_of_every_seeded_shift_matches_the_workload_formula(
@@ -171,7 +172,7 @@ def test_required_staff_of_every_seeded_shift_matches_the_workload_formula(
     hard = seeded.get(HardConstraintPolicy, 1)
     assert hard is not None
     requirements = seeded.scalars(select(StaffingRequirement)).all()
-    assert len(requirements) == 2
+    assert len(requirements) == 4
     for requirement in requirements:
         shift = seeded.get(Shift, requirement.shift_id)
         assert shift is not None

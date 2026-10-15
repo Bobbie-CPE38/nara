@@ -21,6 +21,7 @@ from app.db.models import (
     Shift,
     Staff,
     StaffingCase,
+    Ward,
 )
 from app.db.session import SessionLocal, engine
 from app.domain.enums import (
@@ -201,14 +202,16 @@ def test_supervisor_before_wait_gets_403_even_on_already_decided_side(scene):
 
 
 def test_pending_list_reports_home_source_sides_and_supervisor_time(scene):
-    _, client, (request_id, _, _) = scene
+    db, client, (request_id, _, _) = scene
+    # The fixture adds the source ward after every seeded ward (round 4 PR W4 seeds 2 and 3)
+    source_ward = db.scalar(select(func.max(Ward.id)))
     assert decide(client, request_id).status_code == 200
     row = client.get("/approvals", headers=DEST).json()[0]
     assert row["home_ward_id"] == 1
-    assert row["source_ward_id"] == 2
+    assert row["source_ward_id"] == source_ward
     assert row["wards"] == [
         {"ward_id": 1, "side": "DESTINATION", "status": "APPROVED"},
-        {"ward_id": 2, "side": "SOURCE", "status": "PENDING"},
+        {"ward_id": source_ward, "side": "SOURCE", "status": "PENDING"},
     ]
     assert row["supervisor_from"] == (DEMO_NOW + timedelta(seconds=600)).isoformat()
 
