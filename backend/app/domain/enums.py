@@ -239,6 +239,25 @@ class ApprovalMode(StrEnum):
     AUTO = "AUTO"
 
 
+# Round 4 PR S: APPROVAL_WARD_DECISION.side. Not written yet
+class ApprovalSide(StrEnum):
+    DESTINATION = "DESTINATION"  # the ward of the shift that is short
+    SOURCE = "SOURCE"  # the ward of the shift the person is moved off
+
+
+# Round 4 PR S: APPROVAL_WARD_DECISION.decided_as. Not written yet
+class ApproverCapacity(StrEnum):
+    HEAD_NURSE = "HEAD_NURSE"
+    SUPERVISOR = "SUPERVISOR"
+
+
+# Round 4 PR C2: `reason` of TRANSFER_CHECK_FAILED (docs/workflow.md 6.19). Not written yet
+class TransferFailureReason(StrEnum):
+    SOURCE_COVERAGE_LOST = "SOURCE_COVERAGE_LOST"
+    DESTINATION_WINDOW_PASSED = "DESTINATION_WINDOW_PASSED"
+    HARD_RULE_FAILED = "HARD_RULE_FAILED"
+
+
 # --------------------------------------------------------------------------- #
 # Actors & audit
 # --------------------------------------------------------------------------- #
@@ -309,9 +328,15 @@ class AuditAction(StrEnum):
     APPROVAL_APPROVED = "APPROVAL_APPROVED"
     APPROVAL_REJECTED = "APPROVAL_REJECTED"
     APPROVAL_TIMEOUT = "APPROVAL_TIMEOUT"  # round 2 PR T, written by the job
+    # Round 4 PR S: one ward of a two-ward request approved. Not written yet
+    APPROVAL_WARD_APPROVED = "APPROVAL_WARD_APPROVED"
     ASSIGNMENT_CREATED = "ASSIGNMENT_CREATED"
     # Round 2: a head nurse staffed a MANUAL_HANDOFF case directly. Not written yet
     MANUAL_ASSIGNMENT_CREATED = "MANUAL_ASSIGNMENT_CREATED"
+    # Round 4 PR C2: a person moved off another ward's shift. Not written yet
+    ASSIGNMENT_TRANSFERRED = "ASSIGNMENT_TRANSFERRED"
+    # Round 4 PR C2: the check at the real move failed; the request ends. Not written yet
+    TRANSFER_CHECK_FAILED = "TRANSFER_CHECK_FAILED"
     HANDOVER_GENERATED = "HANDOVER_GENERATED"
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"

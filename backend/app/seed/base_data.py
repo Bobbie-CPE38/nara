@@ -3,9 +3,10 @@
 Soft weights are the round 1 seed values (round 1 contract, section 8.3): one more
 candidate costs 1000, far more than any workload term, so the smallest group wins.
 The team's approval thresholds are ratio 2 and
-incoming count 10. Auto-approval activates above twice the ward's required
-nurse-to-patient ratio; incoming count refers to staff awaiting head nurse or
-nurse supervisor approval. The count's comparison rule is still deferred.
+incoming count 10. From round 4, ratio is the number of pending requests one
+active head nurse can handle, and incoming count is the hard cap on a ward's
+queue: auto-approval starts when the ward's pending requests exceed
+min(ratio x active head nurses, incoming count) (workflow 6.22, round 4 PR A).
 Approval is still MANUAL, so the approval thresholds are not used yet.
 Hard policy maximum_patients_per_nurse (2) is the ratio behind the seeded
 required_staff of each shift. The gap reads required_staff, not the ratio;

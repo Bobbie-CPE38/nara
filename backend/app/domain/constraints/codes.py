@@ -31,3 +31,8 @@ class HardRuleCode(StrEnum):
 # Not a Hard Rule (see the module docstring): the Solver and wave selection write
 # this code when a candidate already holds the maximum number of open offers
 OFFER_LIMIT_REACHED = "OFFER_LIMIT_REACHED"
+
+# Round 4 PR C2, not a Hard Rule: wave selection skips a candidate whose source
+# shift already gives this case a live offer, a pending request or a move
+# (docs/workflow.md 6.19). Not written yet
+SOURCE_SHIFT_TAKEN = "SOURCE_SHIFT_TAKEN"

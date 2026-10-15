@@ -402,9 +402,9 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | Field | Type | Null | Key | Enum / หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
-| `ratio` | numeric | NOT NULL |  | Auto-approval threshold multiplier: activate when the nurse-to-patient ratio exceeds this value times the ward's required ratio. Team value = 2. |
+| `ratio` | numeric | NOT NULL |  | จำนวนคำขอรออนุมัติที่ Head Nurse หนึ่งคนรับไหว ใช้คำนวณเพดานของ Auto-Approval (`docs/workflow.md` ข้อ 6.22, รอบ 4 PR A) Seed = 2 ความหมายเดิม (ตัวคูณ Ratio ผู้ป่วยต่อพยาบาล) ยกเลิกในรอบ 4 |
 | `approval_timeout_seconds` | integer | NOT NULL | CHECK > 0 | Seed = 900; ใช้ตั้งเส้นตายตอนสร้างคำขอ PR T |
-| `incoming_count` | integer | NOT NULL |  | Policy value for the number of staff awaiting approval by the head nurse or nurse supervisor. Team value = 10; its comparison rule remains to be defined. |
+| `incoming_count` | integer | NOT NULL |  | เพดานสูงสุดของคิวคำขอรออนุมัติต่อหอ เพดานของ Auto-Approval คือค่าที่ต่ำกว่าระหว่าง `ratio` × จำนวน Head Nurse ที่ Active ของหอ กับค่านี้ (`docs/workflow.md` ข้อ 6.22) Seed = 10 |
 | `version` | text | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |
 
@@ -696,12 +696,15 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `Channel` | CANDIDATE_OUTREACH.channel | `LINE` |
 | `ValidationResult` | ผลตรวจรายข้อใน validation_snapshot | `PASS`, `FAIL` |
 | `ApprovalMode` | APPROVAL_REQUEST.approval_mode | `MANUAL`, `AUTO` |
+| `ApprovalSide` | APPROVAL_WARD_DECISION.side (รอบ 4 PR S) | `DESTINATION`, `SOURCE` |
+| `ApproverCapacity` | APPROVAL_WARD_DECISION.decided_as (รอบ 4 PR S) | `HEAD_NURSE`, `SUPERVISOR` |
+| `TransferFailureReason` | payload `reason` ของ `TRANSFER_CHECK_FAILED` (รอบ 4 PR C2) | `SOURCE_COVERAGE_LOST`, `DESTINATION_WINDOW_PASSED`, `HARD_RULE_FAILED` |
 | `ActorType` | ACTORS.actor_type | `user`, `system`, `component` |
 | `ActorName` | ACTORS.name (ที่ไม่ใช่ user) | `system`, `workflow_orchestrator`, `staffing_gap_assessment_agent`, `constraint_fair_scheduling_agent`, `outreach_agent`, `safety_rule_engine` |
 | `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS` |
 | `ExplanationStatus` | RANK_EXPLANATION.status (รอบ 3 PR X) | `PENDING`, `READY`, `FAILED`, `SKIPPED` |
 | `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
-| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` |
+| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
 
 
 **กลุ่มของ EventType**
@@ -721,6 +724,26 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ---
 
+
+## Schema ที่รอบ 4 จะเพิ่ม (ยังไม่มี Migration)
+
+ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `e1a4c7f2b9d6`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge คาดว่า T1 → T2 → T3 → C1 → S
+
+| ตาราง | คอลัมน์ | Type | Null | หมายเหตุ | PR |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| `CANDIDATE_ITEMS` | `cover_start_at`, `cover_end_at` | timestamptz | NULL | ช่วงที่มาทำได้ ว่างทั้งคู่ = ทั้งเวร CHECK ว่างทั้งคู่หรือมีทั้งคู่ และ start < end | T1 |
+| `CANDIDATE_ITEMS` | `source_assignment_id` | bigint | NULL | FK ROSTER_ASSIGNMENT.id แถว Roster ของเวรต้นทางเมื่อเป็นการย้าย | T1 |
+| `ROSTER_ASSIGNMENT` | `actual_start_at`, `actual_end_at` | timestamptz | NULL | ว่าง = ตามเวลาของเวร CHECK start < end เมื่อมีทั้งคู่ | T2 |
+| `ROSTER_ASSIGNMENT` | `transferred_from_assignment_id` | bigint | NULL | FK ROSTER_ASSIGNMENT.id UNIQUE แถวต้นทางของการย้าย | T2 |
+| `STAFFING_GAP` | `evaluated_from` | timestamptz | NULL | `max(Backend Clock ตอนประเมิน, เวลาเริ่มเวร)` ว่างสำหรับแถวก่อนรอบ 4 | T3 |
+| `STAFFING_GAP_INTERVAL` (ใหม่) | `id`, `gap_id`, `start_at`, `end_at`, `required_count`, `current_count`, `gap_count` | | NOT NULL | หนึ่งแถวต่อช่วงที่แบ่งตามเวลาที่มีคนเข้าหรือออกจริง ช่วง `[start_at, end_at)` | T3 |
+| `STAFFING_GAP_ROLE_INTERVAL` (ใหม่) | เหมือนข้างบน และ `role_id` | | NOT NULL | | T3 |
+| `STAFFING_GAP_SKILL_INTERVAL` (ใหม่) | เหมือนข้างบน และ `skill_id` | | NOT NULL | | T3 |
+| `WARD` | `is_float_pool` | boolean | NOT NULL | Default false หอ Float Pool ไม่มีเวรของตัวเอง | C1 |
+| `APPROVAL_WARD_DECISION` (ใหม่) | `id`, `approval_request_id`, `ward_id`, `side` (`ApprovalSide`), `approver_id`, `decided_as` (`ApproverCapacity`), `is_approved`, `reason` (NULL), `decided_at` | | NOT NULL ยกเว้น `reason` | UNIQUE `(approval_request_id, side)` | S |
+| `APPROVAL_POLICY` | `supervisor_after_seconds` | integer | NOT NULL | Seed = 600 CHECK > 0 และ < `approval_timeout_seconds` | S |
+
+Role `SUPERVISOR` เป็นแถวข้อมูลใน `ROLE` ไม่มี Migration Seed เพิ่มใน PR W4
 
 ## Constraint ที่ควรใส่ใน Migration แรก
 
@@ -785,8 +808,9 @@ Only candidates examined and skipped in steps 3 and 4 belong in `skipped`. A can
 | `DAILY_HOURS_EXCEEDED` | Total hours of the day, including the proposed shift, would exceed the limit. | `maximum_daily_hours` |
 | `WEEKLY_HOURS_EXCEEDED` | Total hours of the week, including the proposed shift, would exceed the limit. | `maximum_weekly_hours` |
 | `CONSECUTIVE_SHIFTS_EXCEEDED` | Consecutive shifts, counted after inserting the proposed shift, would exceed the limit. A rest of 24 hours or less keeps two shifts in the same run. | `maximum_consecutive_shifts` |
-| `SOURCE_WARD_MINIMUM_VIOLATION` | Moving the candidate out of an existing assignment would leave the source shift below its target headcount. | `preserve_source_ward_minimum` |
+| `SOURCE_WARD_MINIMUM_VIOLATION` | Moving the candidate out of an existing assignment would leave the source shift below its target. Until round 4 this counts headcount only and nothing sets the source shift. Round 4 PR C2 extends it to headcount, role and skill over the remaining time (`docs/workflow.md` 6.19). | `preserve_source_ward_minimum` |
 | `OFFER_LIMIT_REACHED` | Candidate already holds the maximum number of open offers: `SENT`, or `ACCEPTED` on a case that is still running. | `OUTREACH_POLICY.maximum_concurrent_offers_per_staff` |
+| `SOURCE_SHIFT_TAKEN` | Round 4 PR C2, not written yet: another candidate from the same source shift already gives this case a live offer, a pending request or a move (`docs/workflow.md` 6.19). | Wave selection only |
 
 The first eleven codes are Hard Rules. The Solver, wave selection and Safety must return the same result from the same data. `OFFER_LIMIT_REACHED` is not a Hard Rule: it is checked by the Solver and by wave selection, never by Safety, because the candidate being validated always holds the accepted offer of their own case.
 
