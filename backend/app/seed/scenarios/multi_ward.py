@@ -14,10 +14,8 @@ Medicine's shifts.
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.constants import SUPERVISOR_ROLE
 from app.db.models import (
     Actor,
-    Role,
     RosterAssignment,
     Shift,
     Staff,
@@ -31,6 +29,7 @@ from app.seed import sync_sequences
 
 MEDICINE_WARD = 2
 FLOAT_POOL_WARD = 3
+# SUPERVISOR is role 3, seeded by golden_case since round 4 PR S
 SUPERVISOR_ROLE_ID = 3
 
 # (staff ID, first name, role ID, home ward ID, skill IDs). RN = 1, HEAD_NURSE = 2
@@ -65,7 +64,6 @@ def seed(db: Session) -> None:
                 created_at=now,
                 updated_at=now,
             ),
-            Role(id=SUPERVISOR_ROLE_ID, name=SUPERVISOR_ROLE),
         ]
     )
     db.flush()
@@ -135,7 +133,6 @@ def seed(db: Session) -> None:
         db,
         [
             Ward.__tablename__,
-            Role.__tablename__,
             Staff.__tablename__,
             Shift.__tablename__,
             StaffingRequirement.__tablename__,

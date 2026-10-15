@@ -55,6 +55,7 @@ def seed(db: Session) -> None:
             Ward(id=1, name="ICU", is_active=True, created_at=now, updated_at=now),
             Role(id=1, name="RN"),
             Role(id=2, name="HEAD_NURSE"),
+            Role(id=3, name="SUPERVISOR"),
             Skill(id=1, name="ICU"),
             Skill(id=2, name="BLS"),
         ]

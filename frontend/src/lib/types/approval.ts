@@ -1,3 +1,11 @@
+export type ApprovalSide = "DESTINATION" | "SOURCE";
+export type ApprovalOutcome =
+  | "WAITING_OTHER_WARD"
+  | "ASSIGNED"
+  | "REJECTED"
+  | "TRANSFER_CANCELLED"
+  | "EXECUTION_FAILED";
+
 /** One item of GET /approvals?pending=true (docs/workflow.md, section 9.3, seam 6). */
 export type PendingApproval = {
   id: number;
@@ -11,12 +19,19 @@ export type PendingApproval = {
   requested_at: string;
   /** When the request times out: deciding at or after it answers 409 (workflow.md 6.13) */
   expires_at: string;
+  home_ward_id: number;
+  source_ward_id: number | null;
+  wards: { ward_id: number; side: ApprovalSide; status: "PENDING" | "APPROVED" }[];
+  supervisor_from: string;
 };
 
 /** Answer of POST /approvals/{id}/decision. */
 export type ApprovalDecisionResult = {
   approval_id: number;
-  is_approved: boolean;
+  is_approved: boolean | null;
   case_id: number;
   case_status: string;
+  outcome: ApprovalOutcome;
+  reason: string | null;
+  failed_rules: string[];
 };
