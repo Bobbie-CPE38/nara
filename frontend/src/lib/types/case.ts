@@ -55,6 +55,9 @@ export type CandidateView = {
   first_name: string;
   last_name: string;
   source: string;
+  /** The candidate's home ward (docs/workflow.md, section 9.6) */
+  home_ward_id: number;
+  home_ward_name: string;
   /** null until an offer was created for this candidate */
   outreach_status: string | null;
   /** Where the candidate is in the case (docs/workflow.md, section 4.1) */

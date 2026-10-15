@@ -28,7 +28,9 @@
 >
 > * `b8d4f1a6c2e9` (รอบ 4 PR T2) เวลาจริงและลิงก์การย้ายใน `ROSTER_ASSIGNMENT`
 >
-> **Migration head ปัจจุบัน: `b8d4f1a6c2e9`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `c4e8a2f6d1b3` (รอบ 4 PR C1) `WARD.is_float_pool`
+>
+> **Migration head ปัจจุบัน: `c4e8a2f6d1b3`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -114,6 +116,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `updated_at` | timestamptz | NOT NULL |  |  |
 | `deactivated_at` | timestamptz | NULL |  |  |
 | `is_active` | boolean | NOT NULL |  |  |
+| `is_float_pool` | boolean | NOT NULL |  | Default false (รอบ 4 PR C1) หอ Float Pool ไม่มีเวรของตัวเอง คนที่หอบ้านเป็นหอนี้ได้ `source = FLOAT_POOL` ข้อ 6.19 ของ `workflow.md` |
 
 
 ### 4. SKILL
@@ -741,7 +744,7 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ## Schema ที่รอบ 4 จะเพิ่ม (ยังไม่มี Migration)
 
-ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `b8d4f1a6c2e9`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge คาดว่า T1 → T2 → T3 → C1 → S
+ตารางในไฟล์นี้ตรงกับ Migration ที่มีอยู่ (head `c4e8a2f6d1b3`) ข้อนี้คือของที่ Contract รอบ 4 ตกลงแล้วแต่ยังไม่มี Migration PR ที่ทำ Migration ต้องย้ายแถวของตัวเองขึ้นไปใส่ตารางจริงข้างบน และเพิ่ม revision ในรายการบนสุดของไฟล์ใน PR เดียวกัน กติกาอยู่ `docs/workflow.md` ข้อ 6.19 ถึง 6.22 Migration ต่อกันเป็นเส้นเดียวตามลำดับที่ merge ลำดับจริงจนถึงตอนนี้คือ T1 → T2 → C1 ดังนั้น T3 และ S ต้อง Rebase ให้ต่อจาก `c4e8a2f6d1b3`
 
 | ตาราง | คอลัมน์ | Type | Null | หมายเหตุ | PR |
 | :-- | :-- | :-- | :-- | :-- | :-- |
@@ -749,7 +752,6 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `STAFFING_GAP_INTERVAL` (ใหม่) | `id`, `gap_id`, `start_at`, `end_at`, `required_count`, `current_count`, `gap_count` | | NOT NULL | หนึ่งแถวต่อช่วงที่แบ่งตามเวลาที่มีคนเข้าหรือออกจริง ช่วง `[start_at, end_at)` | T3 |
 | `STAFFING_GAP_ROLE_INTERVAL` (ใหม่) | เหมือนข้างบน และ `role_id` | | NOT NULL | | T3 |
 | `STAFFING_GAP_SKILL_INTERVAL` (ใหม่) | เหมือนข้างบน และ `skill_id` | | NOT NULL | | T3 |
-| `WARD` | `is_float_pool` | boolean | NOT NULL | Default false หอ Float Pool ไม่มีเวรของตัวเอง | C1 |
 | `APPROVAL_WARD_DECISION` (ใหม่) | `id`, `approval_request_id`, `ward_id`, `side` (`ApprovalSide`), `approver_id`, `decided_as` (`ApproverCapacity`), `is_approved`, `reason` (NULL), `decided_at` | | NOT NULL ยกเว้น `reason` | UNIQUE `(approval_request_id, side)` | S |
 | `APPROVAL_POLICY` | `supervisor_after_seconds` | integer | NOT NULL | Seed = 600 CHECK > 0 และ < `approval_timeout_seconds` | S |
 
