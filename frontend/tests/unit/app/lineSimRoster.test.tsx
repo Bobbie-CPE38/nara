@@ -69,6 +69,9 @@ const roster: ShiftRoster = {
       status: "CANCELLED",
       assignment_type: "REGULAR",
       candidate_source: null,
+      actual_start_at: null,
+      actual_end_at: null,
+      transferred_from_assignment_id: null,
       staff_id: 105,
       first_name: "Sudarat",
       last_name: "Demo",
@@ -86,6 +89,9 @@ const roster: ShiftRoster = {
       status: "ASSIGNED",
       assignment_type: "REPLACEMENT",
       candidate_source: "SAME_WARD",
+      actual_start_at: null,
+      actual_end_at: null,
+      transferred_from_assignment_id: null,
       staff_id: 201,
       first_name: "Arunee",
       last_name: "Demo",
@@ -812,6 +818,12 @@ describe("LINE simulator", () => {
 });
 
 describe("Roster", () => {
+  function cellUnder(table: HTMLElement, row: HTMLElement, heading: string) {
+    const headers = within(table).getAllByRole("columnheader");
+    const header = within(table).getByRole("columnheader", { name: heading });
+    return within(row).getAllByRole("cell")[headers.indexOf(header)];
+  }
+
   it("shows cancellations, replacements and their source", async () => {
     replies(() => roster);
     render(<RosterPage />);
@@ -823,6 +835,46 @@ describe("Roster", () => {
       expect.objectContaining({ demoUser: 900 }),
     );
   });
+  it("shows actual intervals and transfer links while preserving scheduled shift times", async () => {
+    replies(() => ({
+      ...roster,
+      assignments: [
+        {
+          ...roster.assignments[1],
+          actual_start_at: "2026-10-10T01:00:00+07:00",
+          actual_end_at: "2026-10-10T05:00:00+07:00",
+          transferred_from_assignment_id: 42,
+        },
+      ],
+    }));
+    render(<RosterPage />);
+    const table = await screen.findByRole("table");
+    const row = within(table).getByText("201 — Arunee Demo").closest("tr")!;
+    expect(cellUnder(table, row, "Working interval (Bangkok)").textContent).toBe(
+      "2026-10-10 01:00:00 – 2026-10-10 05:00:00",
+    );
+    expect(cellUnder(table, row, "Transferred from assignment").textContent).toBe("42");
+    expect(
+      screen.getByText("2026-10-09 23:00:00 – 2026-10-10 07:00:00 (Bangkok)"),
+    ).toBeTruthy();
+  });
+
+  it("falls back independently when an actual endpoint is null", async () => {
+    replies(() => ({
+      ...roster,
+      assignments: [
+        { ...roster.assignments[1], actual_end_at: "2026-10-10T01:00:00+07:00" },
+      ],
+    }));
+    render(<RosterPage />);
+    const table = await screen.findByRole("table");
+    const row = within(table).getByText("201 — Arunee Demo").closest("tr")!;
+    expect(cellUnder(table, row, "Working interval (Bangkok)").textContent).toBe(
+      "2026-10-09 23:00:00 – 2026-10-10 01:00:00",
+    );
+    expect(cellUnder(table, row, "Transferred from assignment").textContent).toBe("—");
+  });
+
   it("preserves duplicate staff and cross-ward inactive entries", async () => {
     replies(() => ({
       ...roster,

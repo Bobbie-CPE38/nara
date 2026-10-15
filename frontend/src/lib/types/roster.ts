@@ -24,6 +24,10 @@ export type ShiftRoster = {
     status: RosterStatus;
     assignment_type: AssignmentType;
     candidate_source: CandidateSource | null;
+    /** NULL endpoints independently fall back to the scheduled shift times. */
+    actual_start_at: string | null;
+    actual_end_at: string | null;
+    transferred_from_assignment_id: number | null;
     staff_id: number;
     first_name: string;
     last_name: string;

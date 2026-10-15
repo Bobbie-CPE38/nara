@@ -54,8 +54,9 @@ from app.domain.constraints.context import (
     week_start,
 )
 from app.domain.constraints.evaluator import HardRuleResult, evaluate
+from app.domain.constraints.roster_duties import DutySegment, recorded_duties
 from app.domain.enums import COMMITTED_ROSTER_STATUSES, TargetType
-from app.services import gap_service, policy_service, requirement_service
+from app.services import gap_service, policy_service, requirement_service, roster_time_service
 
 _LONGEST_SHIFT = timedelta(hours=24)
 
@@ -119,6 +120,7 @@ class _Row:
 
     assignment_id: int
     entry: RosterEntry
+    transferred_from_assignment_id: int | None = None
 
 
 def to_policy(policy: HardConstraintPolicy) -> HardRulePolicy:
@@ -233,7 +235,7 @@ def _check(
             status, role_id = staff[staff_id]
             subject = subjects[staff_id]
             proposed = _proposed_slot(shift, subject.cover)
-            entries, linked_duty = _apply_cover(
+            entries, linked_duty, duties, existing_duty = _apply_cover(
                 db, shift, proposed, subject.cover, staff_id, roster.get(staff_id, ())
             )
             contexts[staff_id] = CandidateContext(
@@ -247,6 +249,8 @@ def _check(
                 target_role_ids=subject.targets.role_ids or requirement_roles,
                 target_skill_ids=subject.targets.skill_ids,
                 linked_duty=linked_duty,
+                recorded_duties=duties,
+                existing_proposed_duty=existing_duty,
             )
 
     return {
@@ -273,57 +277,97 @@ def _apply_cover(
     cover: Cover,
     staff_id: int,
     rows: Sequence[_Row],
-) -> tuple[tuple[RosterEntry, ...], ShiftSlot | None]:
-    """The roster as it will be once the candidate takes the cover, and the linked duty.
+) -> tuple[tuple[RosterEntry, ...], ShiftSlot | None, tuple[ShiftSlot, ...], ShiftSlot | None]:
+    """Apply T1's hypothetical source cut before grouping persisted transfer duties.
 
-    Entries of the proposed shift are rewritten to the covered window. Rules read
-    them only by shift_id, and CandidateContext allows one set of times per shift.
-
-    With a source assignment the candidate leaves that row at the start of the
-    cover (the cut). A move needs the cut before the source shift ends:
-      * source ends at or before the cover start, or starts at or after the cover
-        end: the two do not overlap, so nothing is given up and this is no move.
-        The row stays whole and links nothing; a gap or a touching pair is judged
-        by the rest rule as usual.
-      * cut at or before the source start: the whole source shift is given up, so
-        its entries are dropped.
-      * otherwise the source shift is cut to [source start, cut) and is the
-        linked duty, which meets the cover exactly.
-    A source row that is no longer committed (cancelled since planning) changes
-    nothing and links nothing: raising would fail the whole case.
+    Physical rows preserve identity for ALREADY_ON_SHIFT/UNAVAILABLE/SHIFT_CONFLICT.
+    Only the fatigue readers use grouped duties. An additional move links the
+    entire retained chain, so a completed prefix is neither lost nor counted twice.
     """
-    entries = [
-        RosterEntry(proposed, row.entry.status)
-        if row.entry.shift.shift_id == shift.id
-        else row.entry
-        for row in rows
-    ]
-    if cover.source_assignment_id is None:
-        return tuple(entries), None
-
-    source = next((row for row in rows if row.assignment_id == cover.source_assignment_id), None)
-    if source is None:
-        _refuse_source(db, cover.source_assignment_id, staff_id)
-    source_slot = source.entry.shift
-    if source_slot.shift_id == shift.id:
-        raise ValueError(f"Source assignment {source.assignment_id} is on the proposed shift")
-    if source.entry.status not in COMMITTED_ROSTER_STATUSES:
-        return tuple(entries), None
-
-    if source_slot.end_at <= proposed.start_at or source_slot.start_at >= proposed.end_at:
-        # The source does not overlap the cover (it ends by the cover start or starts
-        # after the cover ends), so nothing of it is given up. This is no move:
-        # back-to-back or later shifts are judged by the rest rule.
-        return tuple(entries), None
-    cut = proposed.start_at
-    if cut <= source_slot.start_at:
-        return tuple(e for e in entries if e.shift.shift_id != source_slot.shift_id), None
-    kept = ShiftSlot(source_slot.shift_id, source_slot.start_at, cut)
-    entries = [
-        RosterEntry(kept, e.status) if e.shift.shift_id == source_slot.shift_id else e
-        for e in entries
-    ]
-    return tuple(entries), kept
+    # Existing rows keep their own effective intervals, including cancelled
+    # history and partial rows on the proposed shift. Only the selected source
+    # assignment is changed by a hypothetical transfer.
+    projected = list(rows)
+    source: _Row | None = None
+    moved = False
+    if cover.source_assignment_id is not None:
+        source = next(
+            (row for row in rows if row.assignment_id == cover.source_assignment_id), None
+        )
+        if source is None:
+            _refuse_source(db, cover.source_assignment_id, staff_id)
+        slot = source.entry.shift
+        if slot.shift_id == shift.id:
+            raise ValueError(f"Source assignment {source.assignment_id} is on the proposed shift")
+        moved = (
+            source.entry.status in COMMITTED_ROSTER_STATUSES
+            and slot.start_at < proposed.end_at
+            and slot.end_at > proposed.start_at
+        )
+        if moved:
+            cut = proposed.start_at
+            if cut <= slot.start_at:
+                projected = [row for row in projected if row.assignment_id != source.assignment_id]
+            else:
+                kept = ShiftSlot(slot.shift_id, slot.start_at, cut)
+                projected = [
+                    _Row(
+                        row.assignment_id,
+                        RosterEntry(kept, row.entry.status),
+                        row.transferred_from_assignment_id,
+                    )
+                    if row.assignment_id == source.assignment_id
+                    else row
+                    for row in projected
+                ]
+    duties = recorded_duties(
+        [
+            DutySegment(row.assignment_id, row.entry.shift, row.transferred_from_assignment_id)
+            for row in projected
+            if row.entry.status in COMMITTED_ROSTER_STATUSES
+        ]
+    )
+    linked = None
+    if moved and source is not None:
+        # A whole-segment move can remove a destination that already had a
+        # completed prefix. Follow its recorded parent to retain that prefix.
+        candidates = {row.assignment_id: row for row in rows}
+        ancestor: _Row | None = source
+        seen: set[int] = set()
+        while ancestor is not None and ancestor.assignment_id not in seen:
+            seen.add(ancestor.assignment_id)
+            linked = next(
+                (
+                    duty.shift
+                    for duty in duties
+                    if ancestor.assignment_id in duty.assignment_ids
+                    and duty.shift.end_at == proposed.start_at
+                ),
+                None,
+            )
+            if linked is not None:
+                break
+            parent = ancestor.transferred_from_assignment_id
+            ancestor = candidates.get(parent) if parent is not None else None
+    proposed_assignments = {
+        row.assignment_id
+        for row in projected
+        if row.entry.shift.shift_id == proposed.shift_id
+        and row.entry.status in COMMITTED_ROSTER_STATUSES
+    }
+    # A shift can have several duties. Choose the earliest interval explicitly,
+    # so day/week diagnostics never depend on database or input row order.
+    existing = min(
+        (duty.shift for duty in duties if duty.assignment_ids & proposed_assignments),
+        key=lambda slot: (slot.start_at, slot.end_at, slot.shift_id),
+        default=None,
+    )
+    return (
+        tuple(row.entry for row in projected),
+        linked,
+        tuple(duty.shift for duty in duties),
+        existing,
+    )
 
 
 def _refuse_source(db: Session, assignment_id: int, staff_id: int) -> NoReturn:
@@ -356,21 +400,24 @@ def _roster(
             RosterAssignment.staff_id,
             RosterAssignment.status,
             Shift.id,
-            Shift.start_at,
-            Shift.end_at,
+            roster_time_service.start_at(),
+            roster_time_service.end_at(),
+            RosterAssignment.transferred_from_assignment_id,
         )
         .join(Shift, Shift.id == RosterAssignment.shift_id)
         .where(
             RosterAssignment.staff_id.in_(staff_ids),
-            Shift.end_at > week - margin,
-            Shift.start_at < week + timedelta(days=7) + margin,
+            roster_time_service.end_at() > week - margin,
+            roster_time_service.start_at() < week + timedelta(days=7) + margin,
         )
         .order_by(RosterAssignment.id)
     )
     roster: dict[int, list[_Row]] = {}
-    for assignment_id, staff_id, status, shift_id, start_at, end_at in rows:
+    for assignment_id, staff_id, status, shift_id, start_at, end_at, source_id in rows:
         roster.setdefault(staff_id, []).append(
-            _Row(assignment_id, RosterEntry(ShiftSlot(shift_id, start_at, end_at), status))
+            _Row(
+                assignment_id, RosterEntry(ShiftSlot(shift_id, start_at, end_at), status), source_id
+            )
         )
     return roster
 

@@ -35,6 +35,9 @@ class RosterRow(BaseModel):
     assignment_type: AssignmentType
     # null for REGULAR rows
     candidate_source: CandidateSource | None
+    actual_start_at: AppDatetime | None
+    actual_end_at: AppDatetime | None
+    transferred_from_assignment_id: int | None
     staff_id: int
     first_name: str
     last_name: str
@@ -45,7 +48,7 @@ class RosterRow(BaseModel):
     # Differs from the shift's ward for staff who come from another ward
     home_ward_id: int
     home_ward_name: str
-    # ASSIGNED, and a STAFF_UNAVAILABILITY period of the person overlaps the shift
+    # ASSIGNED, and a STAFF_UNAVAILABILITY period overlaps the effective interval
     # (an open end_at counts). Same overlap as the UNAVAILABLE hard rule
     is_unavailable: bool
     created_at: AppDatetime
@@ -78,6 +81,9 @@ class StaffRosterRow(BaseModel):
     assignment_type: AssignmentType
     # null for REGULAR rows
     candidate_source: CandidateSource | None
+    actual_start_at: AppDatetime | None
+    actual_end_at: AppDatetime | None
+    transferred_from_assignment_id: int | None
     shift: RosterShift
     # Same meaning as RosterRow.is_unavailable
     is_unavailable: bool

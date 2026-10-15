@@ -192,7 +192,7 @@ Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์น�
 | เอกสาร | คน 1 | ร่างรอบ 4 และไฟล์คำถาม | | | ไม่มี | #73 |
 | 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, ค่าใหม่ใน Enum | ทุกข้อของรอบ 4 | เอกสาร | ไม่มี | #74 |
 | T1 | คน 2 | ช่วงที่มาทำได้และเวรต้นทางในรายชื่อผู้สมัคร, Safety และ Hard Rules ใช้ช่วงนี้, ช่วงทำงานต่อเนื่องตอนวางแผน | 6.20 | 0 | มี (`CANDIDATE_ITEMS`) | #78 |
-| T2 | คน 3 | เวลาจริงและลิงก์การย้ายใน Roster, ตัวอ่านเวลาของ Roster | 6.20 | 0 | มี (`ROSTER_ASSIGNMENT`) | |
+| T2 | คน 3 | เวลาจริงและลิงก์การย้ายใน Roster, ตัวอ่านเวลาของ Roster | 6.20 | 0 | มี (`ROSTER_ASSIGNMENT`) | #79 |
 | T3 | คน 1 | Gap รายช่วง | 6.20, 9.6 | 0, T2 | มี (`STAFFING_GAP` และตารางรายช่วง) | |
 | T4 | คน 2 | Solver และการเลือก Wave ตามช่วง, แผนบางส่วน, ข้อความอธิบายอันดับ | 6.20 | T1, T3 | ไม่มี | |
 | C1 | คน 2 | ดึงคนว่างข้ามหอ, Float Pool | 6.19 | T1 | มี (`WARD.is_float_pool`) | |
@@ -1400,7 +1400,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * **ตรวจไม่ผ่านตอนย้ายจริง (R4-Q35):** Commit การจบคำขอ (`is_pending = false` และ `is_approved = true` เพราะคนอนุมัติแล้ว ไม่ใช่การปฏิเสธ, R4-Q42 ดังนั้น `is_approved = true` ไม่ได้แปลว่าคนถูกย้ายแล้ว ดูข้อ 9.6) และยกเลิก Offer พร้อม Audit `TRANSFER_CHECK_FAILED` ที่มีเหตุผลหนึ่งใน `TransferFailureReason`: `SOURCE_COVERAGE_LOST`, `DESTINATION_WINDOW_PASSED`, `HARD_RULE_FAILED` (พร้อมรหัสกฎใน `failed_rules`) และ `SOURCE_SHIFT_STARTED` ที่ใช้เฉพาะช่วงก่อน C3 (ข้อย่อย "C2 เจอการย้ายกลางเวร") ห้ามใช้เหตุผลเวรต้นทางไม่พอกับทุกกรณี API ของคนกดตอบ `200` พร้อมผล (ข้อ 9.6) แล้วคำนวณเคสใหม่เพื่อเลื่อนตัวสำรองหรือส่ง Wave ถัดไป ไม่ทำให้เคสเป็น `FAILED` คำขอสองหอ: การตรวจทำตอนการอนุมัติที่ทำให้ครบสองหอ การอนุมัติของหอแรกเก็บไว้เป็นประวัติ `cancellation_reason` ของ Offer ที่ยกเลิกแบบนี้คือ `TRANSFER_CHECK_FAILED` (`outreach_service._cancellation_reasons()` ต้องรู้จัก Action นี้)
 * คนหนึ่งคนมี Offer ค้างหลายเคสได้ตามกติกาเดิม (ข้อ 6.8) สิ่งที่ห้ามคือเวรที่จัดแล้วทับกัน หรือการตอบรับที่ขัดกับกติกาเดิม
 
-### 6.20 เวลาจริงของ Roster, Gap รายช่วง, Solver และ Safety [รอบ 4 · PR T2, T3, T4]
+### 6.20 เวลาจริงของ Roster, Gap รายช่วง, Solver และ Safety [รอบ 4 · PR T3, T4]
 
 ตัวอย่างที่ใช้ทั้งข้อ: ตอนนี้ 02:00 เวรดึกจบ 08:00 หอ B มี 5 คน ต้องเหลือ 4 คนและ Role Skill ยังครบ หอ A ขาด 1 คน Y ทำที่หอ B มาแล้ว 00:00 ถึง 02:00 แล้วย้ายไปหอ A 02:00 ถึง 08:00
 
@@ -1418,6 +1418,11 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * `actual_start_at`, `actual_end_at` (timestamptz NULL): ว่าง = ตามเวลาของเวร CHECK `actual_start_at < actual_end_at` เมื่อมีทั้งคู่
 * `transferred_from_assignment_id` (bigint NULL, FK `ROSTER_ASSIGNMENT.id`, UNIQUE): แถวต้นทางของการย้าย ระบบรวมสองแถวเป็นการปฏิบัติงานครั้งเดียว**เฉพาะคู่ที่บันทึกไว้** ไม่รวมแถวที่ต่อกันพอดีเอง เพราะกฎเวลาพักต้องยังปฏิเสธเวรที่ต่อกันพอดีโดยไม่ได้ย้าย (เช่น 16:00 ถึง 00:00 แล้ว 00:00 ถึง 08:00)
 * ตัวอ่านที่เปลี่ยนไปใช้เวลาจริง: `working_time_service`, `CandidateContext` ของ Hard Rules, การนับคนของ Gap (T3), Job ตั้ง `COMPLETED`, `GET /roster`
+* **T2 ทำแล้ว:** `roster_time_service` ใช้ `coalesce(actual_start_at, SHIFT.start_at)` และปลายช่วงแบบเดียวกัน; `roster_duties` รวมเฉพาะช่วงที่ต่อกันและมีลิงก์การย้ายจริง รวมส่วนต้นทางที่ `COMPLETED` แล้ว กฎความล้าใช้ช่วงรวม แต่กฎเวรซ้อน/อยู่เวรแล้ว/เคยถูกถอดใช้แถวจริงตามเดิม การย้ายเพิ่มตาม Cover ของ T1 ตัดแถวก่อนรวม duty จึงไม่ทิ้งหรือบวกส่วนที่ทำแล้วซ้ำ วัน/สัปดาห์และประเภทเวรดึกของ duty ใช้เวรเริ่มต้น รายงานชั่วโมงโหลดส่วนที่ต่อข้ามอาทิตย์ถึงจันทร์ด้วย
+* `GET /roster` ทั้งสองแบบเพิ่ม `actual_start_at`, `actual_end_at`, `transferred_from_assignment_id` ในแต่ละแถว ช่องเวลาใน `shift` ยังเป็นเวลาแผน `create_replacement()` ตรวจลำดับปลายช่วงหลัง fallback ด้วย `roster_time_service.effective_interval()` แล้วคัดลอก partial Cover ลงเวลา actual; ถ้า Cover ตรงกับทั้งเวรเก็บ NULL ทั้งคู่เพื่อใช้ fallback ต่อเมื่อเวลาเวรเปลี่ยน หน้า Roster แสดงช่วงทำงานของแต่ละแถวโดย fallback แต่ละปลายแยกกัน และแสดงเลขแถวต้นทางของการย้าย Job เปลี่ยนเป็น `COMPLETED` ที่ปลายช่วงจริง โดยยังข้ามแถวที่มี Event พนักงานค้าง การแสดง On leave และรายการเวรที่ชนกับการแก้วันลาก็ใช้ช่วงจริงด้วย
+
+* CHECK ของ actual endpoints ตรวจเมื่อมีทั้งคู่เท่านั้น จึงไม่กันช่วงกลับด้านจากการกำหนดปลายเดียวด้วย SQL โดยตรง Writer ของ C2/C3 ต้องเรียก `effective_interval()` หลังล็อก Shift ก่อนเขียน และ writer ที่แก้เวลา Shift ต้องตรวจ overrides ที่เกี่ยวข้องด้วย
+* ถ้าเวรที่เสนอเป็นสมาชิกที่ไม่ใช่ต้นทางของ duty เดิม ตัวตรวจชั่วโมงนับ duty เดิมครั้งเดียว โดย ALREADY_ON_SHIFT ยังตรวจจากแถวจริงและปฏิเสธตามเดิม; ถ้าต้นทางหายจากช่วงข้อมูลที่โหลด ปลายทางที่เหลือใช้วัน/สัปดาห์ของเวลาเริ่มตัวเอง (ข้อจำกัดของ bounded read ไม่เดาต้นทางที่ไม่ถูกโหลด)
 
 **Gap รายช่วง (T3)**
 * **นิยาม (ตกลงแล้ว):** เวรไม่ขาดคนเมื่อทุกช่วงเวลาที่ยังเหลือ ตั้งแต่ `max(Backend Clock ตอนประเมิน, เวลาเริ่มเวร)` จนถึงเวลาจบ มีคนครบทั้งจำนวนคน Role และ Skill แต่ละคนนับเฉพาะช่วงปฏิบัติงานของแถว Roster ของตัวเอง ช่วงเป็นแบบ `[start, end)` ช่วงที่ผ่านไปแล้วไม่ต้องหาคนแทนย้อนหลัง แต่ชั่วโมงที่ทำแล้วยังนับในกฎความล้า ใช้นิยามเดียวกันทั้งหอต้นทางและหอปลายทาง เวรที่ไม่มีการย้ายได้ผลเหมือนเดิม
@@ -1939,6 +1944,9 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
       "status": "CANCELLED",
       "assignment_type": "REGULAR",
       "candidate_source": null,
+      "actual_start_at": null,
+      "actual_end_at": null,
+      "transferred_from_assignment_id": null,
       "staff_id": 105,
       "first_name": "Sudarat",
       "last_name": "Demo",
@@ -2006,7 +2014,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 | `POST /me/offers/{outreach_id}/response` (ใหม่, ต้องมี `X-Demo-User`) | Body `{response}` (`ACCEPT` หรือ `REJECT`) Body ห้ามมีช่องอื่น คืน `{outreach_id, outreach_status, case_id, case_status}` แบบเดียวกับ `POST /demo/line-sim/respond` Error: `401` Header, `409` เมื่อ `record_response()` ปฏิเสธ (`OpenOfferConflictError`), `503` พร้อม `Retry-After: 1` เมื่อล็อกไม่นิ่ง (`OutreachLockRetryError`), `422` เมื่อ Body มีช่องอื่นหรือ `outreach_id` ไม่ใช่ bigint บวก | N (ทำแล้ว) |
 | หน้า `/me/offers` "ข้อเสนอเข้าเวรของฉัน" (ใหม่) | ตามข้อ 6.17 | N (ทำแล้ว) |
 | `GET /roster` | ต้องส่ง `shift_id` หรือ `staff_id` อย่างใดอย่างหนึ่งพอดี ไม่ส่งหรือส่งทั้งคู่ได้ `422` (`detail` เป็นข้อความ) ทุกแถวมี `is_unavailable` (ข้อ 6.18) | R (ทำแล้ว) |
-| `GET /roster?staff_id=` (ใหม่) | คืน `{staff: {id, first_name, last_name, staff_status, role_id, role_name, home_ward_id, home_ward_name}, assignments: [{id, status, assignment_type, candidate_source, shift: {id, ward_id, ward_name, shift_type, start_at, end_at, is_active}, is_unavailable, created_at, updated_at}]}` เรียงตามเวลาเริ่มเวรแล้ว `id` ไม่มีพนักงาน ID นั้น `404` ไม่มีแถว `200` พร้อม List ว่าง | R (ทำแล้ว) |
+| `GET /roster?staff_id=` (ใหม่) | คืน `{staff: {id, first_name, last_name, staff_status, role_id, role_name, home_ward_id, home_ward_name}, assignments: [{id, status, assignment_type, candidate_source, actual_start_at, actual_end_at, transferred_from_assignment_id, shift: {id, ward_id, ward_name, shift_type, start_at, end_at, is_active}, is_unavailable, created_at, updated_at}]}` เรียงตามเวลาเริ่มจริง (ว่างใช้เวลาเริ่มเวร) แล้ว `id` ไม่มีพนักงาน ID นั้น `404` ไม่มีแถว `200` พร้อม List ว่าง | R (ทำแล้ว) |
 | หน้า `roster` | แถวที่ `is_unavailable` เป็นจริงมีป้าย "On leave" ต่อท้ายสถานะ | R (ทำแล้ว) |
 | `PATCH /unavailability/{id}` (ใหม่, ต้องมี `X-Demo-User`) | Body `{end_at}` คืน `{unavailability_id, staff_id, start_at, end_at, previous_end_at, overlapping_assignment_ids, overlapping_offers: [{outreach_id, case_id, status}]}` ลำดับ Error ตามข้อ 6.18 | R (ทำแล้ว) |
 
@@ -2268,3 +2276,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-15 | ปิดรอบ 3: PR ทุกตัวยกเว้น D เข้า `staging` ครบ (#60 ถึง #64 และ #67 ถึง #70 รวม #65, #66 ของมติเรื่อง D และ Tunnel); ส่วน "สถานะของรอบ 3" บอกว่าเสร็จแล้ว ใส่ #64 ในแถว R และเพิ่มตารางว่าอะไรทดสอบด้วย fake และอะไรผ่านบริการจริง (LINE จริงและ Bedrock จริงยังไม่ได้ลอง); ตาราง Test ของข้อกำหนดที่พังเงียบได้ชี้ไฟล์และชื่อ Test ที่ตรวจแล้วว่ามีจริง; ป้ายที่เหลือเป็น **[รอบ 6 · PR D]** ที่ข้อย่อยด่านของเครื่อง AWS ในข้อ 6.17 (ส่วนหน้าเว็บพยาบาลของข้อนั้นทำแล้วใน PR N); ข้อ 9.5 บอกว่าทุกแถวทำแล้ว ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-15 | รอบ 4 PR 0: ส่วน "สถานะของรอบ 4" พร้อมตาราง PR, ลำดับ merge และ Test ของข้อกำหนดที่พังเงียบได้; ข้อ 6.11 ลำดับ Lock ที่เพิ่ม (`WARD` ก่อน, สอง `SHIFT` ของการย้าย); ข้อ 6.19 Cross-Ward และการย้ายคน, 6.20 เวลาจริงของ Roster Gap รายช่วง Solver และ Safety พร้อมชื่อคอลัมน์, 6.21 ผู้อนุมัติสองหอและ Supervisor, 6.22 Auto-Approval; ข้อ 6.19 กติกาของ C2 เมื่ออนุมัติครบหลังเวรต้นทางเริ่ม (`SOURCE_SHIFT_STARTED` ที่ C3 ลบ); ข้อ 7.1 เพิ่ม `ASSIGNMENT_TRANSFERRED` (`from_status` เป็น `RosterStatus`), `TRANSFER_CHECK_FAILED`, `APPROVAL_WARD_APPROVED`; ข้อ 9.6 รวม `side` ใน Body ของการตัดสิน, `outcome` = `EXECUTION_FAILED` และความหมายของ `is_approved` ในคำตอบ; A รอ T1; ข้อ 12 Auto-Approval ย้ายมารอบ 4; `enums.py` เพิ่มสาม Action, `TransferFailureReason`, `ApprovalSide`, `ApproverCapacity`, `codes.py` เพิ่ม `SOURCE_SHIFT_TAKEN`, `constants.py` เพิ่ม `SUPERVISOR_ROLE` ยังไม่มีผู้เขียน ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-15 | รอบ 4 PR T1: `CANDIDATE_ITEMS` เพิ่ม `cover_start_at`, `cover_end_at`, `source_assignment_id` (CHECK ว่างทั้งคู่หรือมีทั้งคู่ และ start < end, revision `a9c3e7f1b5d2`); `CandidateContext.linked_duty` และ `hard_rule_service` (`Cover`, `check_staff(covers=...)`, `check_items()` ใช้ `_check()` เดียวกัน, ตัดแถวต้นทางที่ `cover_start_at`); `create_plan()` เขียนค่าว่างและเก็บใน Snapshot; `GET /cases/{id}` เพิ่ม `cover_start_at`, `cover_end_at`, `source_assignment` (ข้อ 6.20, 9.3, 9.6) | คน 2 |
+| 2026-10-15 | รอบ 4 PR T2: เวลาจริงและ UNIQUE self-FK ของ Roster (migration `b8d4f1a6c2e9` ต่อจาก T1); ตัวอ่านเวลาร่วม, duty จากลิงก์การย้าย, Hard Rules ใช้แถวจริงควบคู่ duty และ Cover ของ T1, Snapshot/Job ปิดเวร/API/หน้า Roster ใช้เวลาจริง พร้อม tests ของส่วนที่ทำแล้ว การย้ายต่อ ข้ามสัปดาห์ และ migration round trip; ยังไม่เปิดการย้ายจริง (C2/C3) | คน 3 |
