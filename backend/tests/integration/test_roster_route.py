@@ -11,7 +11,7 @@ from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.db.models import AuditLog, RosterAssignment, Shift, Staff, StaffUnavailability, Ward
+from app.db.models import AuditLog, RosterAssignment, Shift, Staff, StaffUnavailability
 from app.domain.enums import (
     AssignmentType,
     AvailabilityReason,
@@ -352,30 +352,14 @@ def test_cross_ward_staff_show_their_home_ward(
     client: TestClient, production_seeded: Session
 ) -> None:
     db = production_seeded
-    db.add(Ward(id=2, name="ER", is_active=True, created_at=DEMO_NOW, updated_at=DEMO_NOW))
-    db.flush()
-    db.add(
-        Staff(
-            id=301,
-            first_name="Niran",
-            last_name="Demo",
-            email="301@demo.local",
-            password_hash="!",
-            role_id=1,
-            home_ward_id=2,
-            status=StaffStatus.ACTIVE,
-            created_at=DEMO_NOW,
-            updated_at=DEMO_NOW,
-        )
-    )
-    db.flush()
-    _assign(db, 301, source=CandidateSource.CROSS_WARD)
+    # 302 of Medicine (ward 2) comes from the seed (round 4 PR W4)
+    _assign(db, 302, source=CandidateSource.CROSS_WARD)
 
     body = client.get(URL, headers=HEADERS).json()
 
     assert (body["shift"]["ward_id"], body["shift"]["ward_name"]) == (1, "ICU")
     row = body["assignments"][-1]
-    assert (row["staff_id"], row["home_ward_id"], row["home_ward_name"]) == (301, 2, "ER")
+    assert (row["staff_id"], row["home_ward_id"], row["home_ward_name"]) == (302, 2, "Medicine")
     assert row["candidate_source"] == "CROSS_WARD"
 
 

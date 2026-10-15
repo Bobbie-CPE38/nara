@@ -322,16 +322,13 @@ def test_cancelled_offer_and_stopped_case_do_not_inflate_queue(production_seeded
 
 
 def test_history_is_ward_scoped_and_supervisor_can_read_all_wards(production_seeded):
-    from app.db.models import Role, Ward
+    from app.db.models import Role
 
     db = production_seeded
     rows = queue(db)
     auto_approval_service.approve_due_requests(db)
-    db.add(Ward(id=2, name="Other ward", is_active=True))
-    supervisor = Role(id=99, name="SUPERVISOR")
-    db.add(supervisor)
-    db.flush()
     case = db.get(StaffingCase, rows[-1].case_id)
+    # Medicine (ward 2) and the SUPERVISOR role come from the seed (round 4 PR W4)
     db.get(Shift, case.shift_id).ward_id = 2
     db.commit()
     head_role = db.get(Staff, 900).role_id
