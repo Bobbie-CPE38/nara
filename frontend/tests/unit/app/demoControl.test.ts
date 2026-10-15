@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DemoControl from "../../../src/app/demo/control/page";
@@ -24,6 +24,14 @@ function stubFetch(body: unknown, status = 200) {
 
 function click(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
+}
+
+// Read the action's own text separately from nested live-status controls.
+function directText(element: Element) {
+  return Array.from(element.childNodes)
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent)
+    .join("");
 }
 
 describe("demo control page", () => {
@@ -128,10 +136,14 @@ describe("demo control page", () => {
     click("Advance clock 10 minutes");
 
     expect(await screen.findByText("Clock: 2026-10-09T21:10:00+07:00")).toBeTruthy();
-    const items = screen.getAllByRole("listitem").map((item) => item.textContent);
-    expect(items[0]).toContain("Shift 1, events 3, 4: 7 (WAITING_RESPONSE)");
-    expect(items[1]).toBe("Shift 3, events 5: no case opened");
-    const link = screen.getByRole("link", { name: "7 (WAITING_RESPONSE)" });
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(directText(items[0])).toBe("Shift 1, events 3, 4: ");
+    expect(items[1].textContent).toBe("Shift 3, events 5: no case opened");
+    expect(within(items[1]).queryByRole("link")).toBeNull();
+    const links = within(items[0]).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual(["7 (WAITING_RESPONSE)"]);
+    const link = links[0];
     expect(link.getAttribute("href")).toBe("/cases/7");
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/demo\/clock\/advance$/);
@@ -169,11 +181,16 @@ describe("demo control page", () => {
     click("Advance clock 10 minutes");
 
     expect(await screen.findByText("Offers timed out: 1, 2")).toBeTruthy();
-    expect(screen.getByText(/Waiting cases rechecked/).textContent).toContain(
-      "Waiting cases rechecked: 7",
-    );
-    const link = await screen.findByRole("link", { name: "9 (WAITING_RESPONSE)" });
-    expect(link.getAttribute("href")).toBe("/cases/9");
+    await screen.findByRole("link", { name: "9 (WAITING_RESPONSE)" });
+    const recovered = screen.getByText(/Waiting cases rechecked/);
+    expect(directText(recovered)).toBe("Waiting cases rechecked: ");
+    expect(Array.from(recovered.children).map(directText)).toEqual(["", ", "]);
+    const links = within(recovered).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual([
+      "7 (WAITING_RESPONSE)",
+      "9 (WAITING_RESPONSE)",
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/cases/7", "/cases/9"]);
   });
 
   it("shows why the clock cannot be advanced before a reset", async () => {
