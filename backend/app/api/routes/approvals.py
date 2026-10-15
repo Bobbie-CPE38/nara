@@ -7,7 +7,12 @@ from pydantic import AfterValidator
 
 from app.api.dependencies import DbSession, DemoUser
 from app.core.constants import MAX_BIGINT
-from app.schemas.approval import ApprovalDecision, ApprovalDecisionResult, PendingApproval
+from app.schemas.approval import (
+    ApprovalDecision,
+    ApprovalDecisionResult,
+    AutoApprovedApproval,
+    PendingApproval,
+)
 from app.services import approval_service
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -66,3 +71,15 @@ def pending_approvals(
 ) -> list[PendingApproval]:
     """Return the pending list to an authenticated demo user, without writing."""
     return approval_service.list_pending(db)
+
+
+@router.get("/auto")
+def auto_approvals(db: DbSession, user: DemoUser) -> list[AutoApprovedApproval]:
+    try:
+        return approval_service.list_auto_approved(
+            db,
+            role_id=user.staff.role_id,
+            home_ward_id=user.staff.home_ward_id,
+        )
+    except approval_service.ApproverRoleError as error:
+        raise HTTPException(403, detail=str(error)) from error

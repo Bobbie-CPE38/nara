@@ -19,6 +19,12 @@ class PendingApproval(BaseModel):
     expires_at: AppDatetime
 
 
+class AutoApprovedApproval(PendingApproval):
+    """History is a decision result; approval alone does not guarantee assignment."""
+
+    decided_at: AppDatetime
+
+
 class ApprovalDecision(BaseModel):
     """The approver comes from X-Demo-User, never from the body."""
 
