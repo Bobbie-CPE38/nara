@@ -22,7 +22,9 @@ Branch: `feat/roster-duty-intervals`. Integrates T1 (#78) from staging.
   while separate committed parts survive both fatigue and snapshot accounting.
   Fatigue rules use recorded duty groups. If the proposed shift is already a
   non-root member, its entire existing duty is counted once; ALREADY_ON_SHIFT still
-  rejects it through the physical roster rows. T1's proposed Cover/source cut is applied
+  rejects it through the physical roster rows. When multiple duties include the
+  proposed shift, the earliest start (then end and shift ID) determines the diagnostic
+  day/week, independently of row order. T1's proposed Cover/source cut is applied
   before grouping, and the retained source ancestry joins the proposed duty once.
 - Completion uses actual end with the queued staff-event safeguard unchanged.
 - Replacement creation validates effective endpoints and copies a partial Cover. A Cover
@@ -50,7 +52,7 @@ T3's work; actual transfer execution remains C2/C3. These are not implemented he
 
 ## Verified
 
-- Backend: 2,355 passed, 14 timing tests skipped in the main run.
+- Backend: 2,358 passed, 14 timing tests skipped in the main run.
 - Solver timing: the 14 skipped tests passed separately.
 - Ruff check, Ruff format check, mypy and `git diff --check`: passed.
 - One Alembic head, correct T1 parent; schema/model check reports no new operations.
@@ -65,7 +67,15 @@ T3's work; actual transfer execution remains C2/C3. These are not implemented he
   endpoints. `roster_time_service.effective_interval()` checks the resolved endpoints;
   replacement creation calls it while holding the Shift lock. C2/C3 must also call
   it before writing/cutting roster intervals, and future schedule-edit writers must
-  revalidate affected overrides. Direct SQL bypasses this application validation.
+  revalidate affected overrides. C2/C3 review checklist: validate each resulting
+  source and destination interval after cutting/linking; a schedule edit must validate
+  all affected effective intervals against the new endpoints before committing.
+  Direct SQL bypasses this application validation.
+- Candidate Cover endpoints are constrained to both-or-neither and ordered in the
+  database. If effective-interval validation nevertheless fails during approval,
+  D11 rolls back roster execution, preserves the approval, and returns HTTP 200 with
+  `case_status=FAILED` plus a `WORKFLOW_FAILED` audit row. This is a system failure,
+  not a user-input 422; the HTTP regression explicitly covers the validator's ValueError.
 - Lookahead loads next-week segments to complete Sunday duties; `working_time_at()`
   excludes their own next-week hours and future-start run entries. A regression test
   proves those rows are loaded without changing the current snapshot.

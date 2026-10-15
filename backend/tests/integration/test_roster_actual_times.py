@@ -485,3 +485,33 @@ def test_separate_committed_parts_of_one_shift_are_not_dropped(seeded):
     )
     assert check.result.details["weekly_hours"] == snapshot.hours_this_week == 6
     assert check.result.details["projected_consecutive_shifts"] == 2
+
+
+@pytest.mark.parametrize("reverse_intervals", [False, True])
+def test_existing_duty_attribution_uses_earliest_start_not_row_order(seeded, reverse_intervals):
+    from app.db.models import StaffingRequirement
+    from app.domain.constraints.context import week_start
+    from app.services import hard_rule_service
+
+    source, destination, shifts = pair(seeded)
+    start = week_start(DEMO_NOW) + timedelta(days=6, hours=23)
+    shifts[0].start_at, shifts[0].end_at = start, start + timedelta(hours=8)
+    destination.shift_id = source.shift_id
+    destination.transferred_from_assignment_id = None
+    intervals = [
+        (start, start + timedelta(hours=2)),
+        (start + timedelta(hours=4), start + timedelta(hours=8)),
+    ]
+    if reverse_intervals:
+        intervals.reverse()
+    for row, (begin, end) in zip((source, destination), intervals, strict=True):
+        row.actual_start_at, row.actual_end_at = begin, end
+    seeded.add(StaffingRequirement(shift_id=shifts[0].id, required_staff=1, minimum_staff=1))
+    seeded.flush()
+
+    check = hard_rule_service.check_staff(seeded, shift=shifts[0], staff_ids=[201])[201]
+
+    assert check.context.existing_proposed_duty.start_at == start
+    assert check.result.details["daily_hours"] == 2
+    assert check.result.details["weekly_hours"] == 2
+    assert check.result.details["projected_consecutive_shifts"] == 2

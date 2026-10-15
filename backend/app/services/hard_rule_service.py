@@ -355,8 +355,12 @@ def _apply_cover(
         if row.entry.shift.shift_id == proposed.shift_id
         and row.entry.status in COMMITTED_ROSTER_STATUSES
     }
-    existing = next(
-        (duty.shift for duty in duties if duty.assignment_ids & proposed_assignments), None
+    # A shift can have several duties. Choose the earliest interval explicitly,
+    # so day/week diagnostics never depend on database or input row order.
+    existing = min(
+        (duty.shift for duty in duties if duty.assignment_ids & proposed_assignments),
+        key=lambda slot: (slot.start_at, slot.end_at, slot.shift_id),
+        default=None,
     )
     return (
         tuple(row.entry for row in projected),
