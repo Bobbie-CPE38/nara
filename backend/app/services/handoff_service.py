@@ -14,11 +14,11 @@ import logging
 from collections.abc import Collection
 from typing import NamedTuple
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.constants import HEAD_NURSE_ROLE, MAX_APPROVAL_REASON_LENGTH
+from app.core.constants import HEAD_NURSE_ROLE, MAX_APPROVAL_REASON_LENGTH, SUPERVISOR_ROLE
 from app.db.models import (
     CandidateItem,
     CandidateOutreach,
@@ -43,7 +43,7 @@ from app.domain.enums import (
     StaffStatus,
 )
 from app.domain.errors import CaseNotFoundError
-from app.domain.staffing.ward_authority import manages_ward
+from app.domain.staffing.ward_authority import can_decide, manages_ward
 from app.schemas.handoff import HandoffCandidate, HandoffCase
 from app.services import (
     actor_service,
@@ -124,14 +124,17 @@ def list_cases(
 ) -> list[HandoffCase]:
     """Cases of the caller's ward in the given statuses, oldest first. Read-only.
 
-    The caller must be a head nurse; they see the cases of their own ward only.
+    Head Nurses see their own ward; Supervisors see all wards immediately.
     """
-    _require_head_nurse(db, role_id)
+    supervisor = _require_manager_role(db, role_id) == SUPERVISOR_ROLE
     with db.no_autoflush:
         rows = db.execute(
             select(StaffingCase, Shift.ward_id)
             .join(Shift, Shift.id == StaffingCase.shift_id)
-            .where(StaffingCase.status.in_(list(statuses)), Shift.ward_id == home_ward_id)
+            .where(
+                StaffingCase.status.in_(list(statuses)),
+                true() if supervisor else Shift.ward_id == home_ward_id,
+            )
             .order_by(StaffingCase.id)
         ).all()
         case_ids = [case.id for case, _ in rows]
@@ -402,7 +405,10 @@ def close(
         action=AuditAction.CASE_CLOSED_UNRESOLVED,
         entity_type=EntityType.STAFFING_CASES,
         entity_id=case.id,
-        payload={"reason": stored_reason, "closed_by": "HEAD_NURSE"},
+        payload={
+            "reason": stored_reason,
+            "closed_by": db.scalar(select(Role.name).where(Role.id == role_id)),
+        },
     )
     case = orchestrator.leave_handoff(db, case.id, CaseStatus.UNRESOLVED)
     db.commit()
@@ -520,17 +526,19 @@ def _shift(db: Session, shift_id: int) -> Shift:
     return shift
 
 
-def _require_head_nurse(db: Session, role_id: int) -> None:
-    head_nurse = db.scalar(select(Role.id).where(Role.name == HEAD_NURSE_ROLE))
-    if head_nurse is None or role_id != head_nurse:
-        raise HandoffForbiddenError("Only a head nurse can manage a handed-off case")
+def _require_manager_role(db: Session, role_id: int) -> str:
+    role = db.scalar(select(Role.name).where(Role.id == role_id))
+    if role not in {HEAD_NURSE_ROLE, SUPERVISOR_ROLE}:
+        raise HandoffForbiddenError("Only a Head Nurse or Supervisor may manage handed-off cases")
+
+    return role
 
 
 def _require_authority(db: Session, *, role_id: int, home_ward_id: int, shift: Shift) -> None:
-    """Role first, then ward: the same ward rule as an approval decision (R2-Q21)."""
-    _require_head_nurse(db, role_id)
-    if not manages_ward(home_ward_id=home_ward_id, ward_id=shift.ward_id):
-        raise HandoffForbiddenError("The staff member is not a head nurse of the shift's ward")
+    """The shared approver rule; Supervisor can act on handoff immediately."""
+    role = db.scalar(select(Role.name).where(Role.id == role_id))
+    if not can_decide(role=role, home_ward_id=home_ward_id, ward_id=shift.ward_id, waited=True):
+        raise HandoffForbiddenError("The staff member cannot manage this ward")
 
 
 def _note(reason: str | None) -> str | None:

@@ -104,7 +104,11 @@ export default function Approvals() {
           ? { kind: "failed", approvalId: result.approval_id, caseId: result.case_id }
           : {
               kind: "ok",
-              message: `Approval ${result.approval_id} ${
+              message: result.outcome === "WAITING_OTHER_WARD"
+                ? `Approval ${result.approval_id}: ward approved; waiting for the other ward.`
+                : result.outcome === "TRANSFER_CANCELLED"
+                  ? `Approval ${result.approval_id}: transfer cancelled (${result.reason ?? "unknown reason"}).`
+                  : `Approval ${result.approval_id} ${
                 result.is_approved ? "approved" : "rejected"
               }. Case ${result.case_id}: ${result.case_status}`,
             },

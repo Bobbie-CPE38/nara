@@ -13,6 +13,10 @@ class ApprovalPolicy(Base):
 
     __table_args__ = (
         CheckConstraint("approval_timeout_seconds > 0", name="approval_timeout_positive"),
+        CheckConstraint(
+            "supervisor_after_seconds > 0 AND supervisor_after_seconds < approval_timeout_seconds",
+            name="supervisor_delay_valid",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -21,3 +25,5 @@ class ApprovalPolicy(Base):
     version: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=clock.now)
     approval_timeout_seconds: Mapped[int] = mapped_column(Integer)
+
+    supervisor_after_seconds: Mapped[int] = mapped_column(Integer, default=600)

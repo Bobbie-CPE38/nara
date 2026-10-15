@@ -239,13 +239,13 @@ class ApprovalMode(StrEnum):
     AUTO = "AUTO"
 
 
-# Round 4 PR S: APPROVAL_WARD_DECISION.side. Not written yet
+# Round 4 PR S: APPROVAL_WARD_DECISION.side.
 class ApprovalSide(StrEnum):
     DESTINATION = "DESTINATION"  # the ward of the shift that is short
     SOURCE = "SOURCE"  # the ward of the shift the person is moved off
 
 
-# Round 4 PR S: APPROVAL_WARD_DECISION.decided_as. Not written yet
+# Round 4 PR S: APPROVAL_WARD_DECISION.decided_as.
 class ApproverCapacity(StrEnum):
     HEAD_NURSE = "HEAD_NURSE"
     SUPERVISOR = "SUPERVISOR"
@@ -394,3 +394,11 @@ GOLDEN_PATH_AUDIT_ACTIONS: tuple[AuditAction, ...] = (
     AuditAction.ASSIGNMENT_CREATED,
     AuditAction.CASE_RESOLVED,
 )
+
+
+class ApprovalOutcome(StrEnum):
+    WAITING_OTHER_WARD = "WAITING_OTHER_WARD"
+    ASSIGNED = "ASSIGNED"
+    REJECTED = "REJECTED"
+    TRANSFER_CANCELLED = "TRANSFER_CANCELLED"
+    EXECUTION_FAILED = "EXECUTION_FAILED"
