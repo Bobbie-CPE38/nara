@@ -196,6 +196,15 @@ def test_writes_one_optimal_plan(seeded: Session) -> None:
         "1018/1",
         "1018/1",
     ]
+    # Round 4 T1: the pool has no transfers, so every candidate covers the whole shift
+    for row in snapshot["candidates"]:
+        assert row["cover_start_at"] is None
+        assert row["cover_end_at"] is None
+        assert row["source_assignment_id"] is None
+    for item in _items(seeded, plan):
+        assert item.cover_start_at is None
+        assert item.cover_end_at is None
+        assert item.source_assignment_id is None
     assert snapshot["weights"] == {
         "candidate_count": "1000/1",
         "consecutive_shift": "5/1",
