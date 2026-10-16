@@ -246,7 +246,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 |---|---|---|---|
 | `PLANNED_LEAVE` | แจ้งลา และช่วงที่ลาไม่ชนเวรที่มี `ROSTER_ASSIGNMENT` สถานะ `ASSIGNED` หรือ `PENDING_APPROVAL` | วันสิ้นสุดการลาที่อนุมัติ | ไม่สร้าง |
 | `UNPLANNED_LEAVE` | แจ้งลาก่อนระบบบันทึก `NO_SHOW` และช่วงที่ลาชนเวรที่มี `ROSTER_ASSIGNMENT` สถานะ `ASSIGNED` หรือ `PENDING_APPROVAL` | เวลากลับที่บุคลากรแจ้ง ถ้าแจ้งแค่ว่ามาเวรนี้ไม่ได้ ใช้ `SHIFT.end_at` | `STAFF_UNAVAILABLE` |
-| `NO_SHOW` | มีเวร ไม่แจ้งลา และไม่มี check-in ใน `ATTENDANCE` ภายในเวลาผ่อนผันหลัง `SHIFT.start_at` (สมมติ 15 นาที) ระบบสร้างแถวเอง | `SHIFT.end_at` ของเวรที่ขาด | `STAFF_UNAVAILABLE` |
+| `NO_SHOW` | มีเวร ไม่แจ้งลา และไม่มี check-in ที่ทันใน `ATTENDANCE` ภายในเวลาผ่อนผันหลังเวลาที่ต้องมาถึงของแถว Roster (`NO_SHOW_GRACE_SECONDS` = 900 วินาที) ระบบสร้างแถวเองตอนปิด Window ของ Event `STAFF_UNAVAILABLE` ที่ `payload.reason` = `NO_SHOW` | `start_at` = เวลาที่ต้องมาถึงของแถว Roster (ไม่ใช่ `SHIFT.start_at` เสมอไป: แถวของคนแทนนับจาก `max(เวลาเริ่มที่มีผล, created_at)`) `end_at` = `check_in_at` ถ้ามี check-in ก่อนเวลาจบที่มีผลของแถวตอนปิด Window ไม่งั้นเวลาจบที่มีผลของแถว (`actual_end_at` ถ้ามี ไม่งั้น `SHIFT.end_at`) | `STAFF_UNAVAILABLE` |
 
 
 **`reason` ไม่เปลี่ยนหลังสร้างแถว**
@@ -258,7 +258,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 **การเปลี่ยน `end_at`**
 
 
-* กลับมาเร็วกว่าที่บันทึก: ลด `end_at` เป็นเวลาที่กลับจริง รวมถึง `NO_SHOW` แล้วมาสาย ให้ใช้เวลา check-in
+* กลับมาเร็วกว่าที่บันทึก: ลด `end_at` เป็นเวลาที่กลับจริง รวมถึง `NO_SHOW` แล้วมาสาย ให้ใช้เวลา check-in ถ้า check-in สายหลังตอนปิด Window ไปแล้ว (หลังขั้นที่ 2) `late_arrival_service.arrive_after_no_show()` ย้าย `end_at` ของแถว `NO_SHOW` มาเป็น `check_in_at` ใน Transaction เดียวกับที่สร้างแถว Roster ใหม่ และเขียน Audit `UNAVAILABILITY_UPDATED` (`workflow.md` ข้อ 6.24, 7.1)
 * หยุดนานกว่าที่บันทึก: ขยาย `end_at` หรือเพิ่มแถวใหม่
 * ไม่รู้วันกลับ: `end_at` เป็น NULL ถือว่าไม่พร้อมตั้งแต่ `start_at` จนกว่าจะใส่ค่า เมื่อรู้วันกลับให้ใส่ `end_at`
 * `NO_SHOW` หลายเวรติดกัน: ระบบตรวจทีละเวรและสร้างแถวใหม่ทุกเวร ไม่เดาล่วงหน้า

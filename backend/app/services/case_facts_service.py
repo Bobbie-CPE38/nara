@@ -21,6 +21,10 @@ Who counts, per candidate (workflow.md section 4.1):
   * open offer: unexpired SENT; the candidate is not waiting on another case.
   * paused offer: unexpired SENT; the candidate is waiting on another case.
 
+  * returned: a person who arrived late after a NO_SHOW. The audit row
+    UNAVAILABILITY_UPDATED of the case names the new roster row, which is
+    ASSIGNED or COMPLETED (workflow.md 6.24). No approval is involved.
+
 Known limits:
   * ROSTER_ASSIGNMENT has no link to a case. A replacement row for the same
     person and shift that another flow created is credited to this case too, as
@@ -41,6 +45,7 @@ from sqlalchemy.sql.selectable import Exists
 from app.core import clock
 from app.db.models import (
     ApprovalRequest,
+    AuditLog,
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
@@ -54,6 +59,7 @@ from app.db.models import (
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     AssignmentType,
+    AuditAction,
     OutreachStatus,
     RosterStatus,
 )
@@ -81,12 +87,18 @@ def get_case_fillers(
         if case is None:
             return []
         assigned_ids = _assigned_staff_ids(db, case_id)
+        returned = _returned_spans(db, case_id)
+        returned_ids = {staff_id for staff_id, _, _ in returned}
         pending_ids = _pending_staff_ids(db, case_id)
         reserve_spans = _reserve_spans(db, case_id) if include_reserves else []
         reserve_ids = {staff_id for staff_id, _, _ in reserve_spans}
-        fillers = _fillers(db, assigned_ids | pending_ids | reserve_ids)
+        fillers = _fillers(db, assigned_ids | returned_ids | pending_ids | reserve_ids)
         timed = [
-            *_timed(fillers, assigned_ids, _assigned_spans(db, case, assigned_ids)),
+            *_timed(
+                fillers,
+                assigned_ids | returned_ids,
+                [*_assigned_spans(db, case, assigned_ids), *returned],
+            ),
             *_timed(fillers, pending_ids, _pending_spans(db, case_id)),
             *_timed(fillers, reserve_ids, reserve_spans),
         ]
@@ -94,6 +106,30 @@ def get_case_fillers(
         for filler in timed:
             unique.setdefault((filler.staff_id, filler.start_at, filler.end_at), filler)
         return list(unique.values())
+
+
+def get_assigned_fillers(db: Session, case: StaffingCase) -> list[GapFiller]:
+    """The timed people who already staff the case: assigned plus late arrivals.
+
+    The same group load_case_facts() counts as assigned, without the pending
+    candidates and the reserves. The trim after a late arrival starts from it.
+    """
+    with db.no_autoflush:
+        assigned_ids = _assigned_staff_ids(db, case.id)
+        returned = _returned_spans(db, case.id)
+        returned_ids = {staff_id for staff_id, _, _ in returned}
+        fillers = _fillers(db, assigned_ids | returned_ids)
+        return _timed(
+            fillers,
+            assigned_ids | returned_ids,
+            [*_assigned_spans(db, case, assigned_ids), *returned],
+        )
+
+
+def load_fillers(db: Session, staff_ids: set[int]) -> dict[int, GapFiller]:
+    """Each person with their role and full skill set, untimed. Reads only."""
+    with db.no_autoflush:
+        return _fillers(db, staff_ids)
 
 
 def load_case_facts(db: Session, case: StaffingCase) -> CaseFacts:
@@ -109,10 +145,16 @@ def load_case_facts(db: Session, case: StaffingCase) -> CaseFacts:
     with db.no_autoflush:
         case_gap = gap_service.get_case_gap(db, case.id)
         assigned_ids = _assigned_staff_ids(db, case.id)
+        returned = _returned_spans(db, case.id)
+        returned_ids = {staff_id for staff_id, _, _ in returned}
         pending_ids = _pending_staff_ids(db, case.id)
-        fillers = _fillers(db, assigned_ids | pending_ids)
+        fillers = _fillers(db, assigned_ids | returned_ids | pending_ids)
         # Each person counts only for the time they cover (round 4 PR T3)
-        assigned = _timed(fillers, assigned_ids, _assigned_spans(db, case, assigned_ids))
+        assigned = _timed(
+            fillers,
+            assigned_ids | returned_ids,
+            [*_assigned_spans(db, case, assigned_ids), *returned],
+        )
         pending = _timed(fillers, pending_ids, _pending_spans(db, case.id))
 
         def closed_by(group: list[GapFiller]) -> bool:
@@ -361,6 +403,36 @@ def _assigned_spans(db: Session, case: StaffingCase, staff_ids: set[int]) -> lis
                 RosterAssignment.staff_id.in_(staff_ids),
                 RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
                 RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
+            )
+        )
+    ]
+
+
+def _returned_spans(db: Session, case_id: int) -> list[_Span]:
+    """Late arrivals the case gets credit for (workflow.md 6.24).
+
+    A late check-in after a NO_SHOW writes UNAVAILABILITY_UPDATED with the new
+    roster row in `roster_assignment_id` and the credited case in `case_id`. The
+    row came back on the roster without an approval of this case, so the person
+    counts here, for the effective interval of the row, while it is ASSIGNED or
+    COMPLETED. Only the case-facts readers use this: assigned_staff_ids() does not.
+    """
+    returned_rows = select(AuditLog.payload["roster_assignment_id"].as_integer()).where(
+        AuditLog.case_id == case_id,
+        AuditLog.action == AuditAction.UNAVAILABILITY_UPDATED,
+    )
+    return [
+        (staff_id, start_at, end_at)
+        for staff_id, start_at, end_at in db.execute(
+            select(
+                RosterAssignment.staff_id,
+                roster_time_service.start_at(),
+                roster_time_service.end_at(),
+            )
+            .join(Shift, Shift.id == RosterAssignment.shift_id)
+            .where(
+                RosterAssignment.id.in_(returned_rows),
+                RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
             )
         )
     ]

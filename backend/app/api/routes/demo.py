@@ -70,4 +70,7 @@ def simulate_check_in(body: SimulatedCheckIn, db: DbSession) -> CheckInResponse:
     except attendance_service.CheckInOutsideWindowError as error:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+    except attendance_service.CheckInLockRetryError as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
     return CheckInResponse(**vars(result))

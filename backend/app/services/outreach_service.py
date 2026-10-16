@@ -8,7 +8,7 @@ import logging
 from collections.abc import Callable, Collection, Sequence
 from datetime import timedelta
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -184,6 +184,11 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
         for predicate in (
             AuditLog.payload.contains({"cancelled_outreach_ids": [outreach_id]}),
             AuditLog.payload.contains({"outreach_id": outreach_id}),
+            # A late arrival made the offer surplus (workflow.md 6.24)
+            and_(
+                AuditLog.action == AuditAction.OFFER_CANCELLED_NOT_NEEDED,
+                AuditLog.payload.contains({"cancelled_outreach_id": outreach_id}),
+            ),
         )
     ]
     rows = db.scalars(select(AuditLog).where(or_(*references)).order_by(AuditLog.id.desc()))
@@ -201,6 +206,11 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
                     # A head nurse assigned the person by hand (section 6.12)
                     AuditAction.MANUAL_ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
                 }.get(row.action, "CANCELLED")
+            elif (
+                row.action == AuditAction.OFFER_CANCELLED_NOT_NEEDED
+                and payload.get("cancelled_outreach_id") == outreach_id
+            ):
+                reasons[outreach_id] = "NO_LONGER_NEEDED"
             elif payload.get("outreach_id") == outreach_id:
                 if row.action == AuditAction.APPROVAL_TIMEOUT:
                     reasons[outreach_id] = "APPROVAL_TIMEOUT"

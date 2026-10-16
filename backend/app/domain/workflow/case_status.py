@@ -14,12 +14,15 @@ handler stops it (T5).
 """
 
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from types import MappingProxyType
+from typing import TypeVar
 
 from app.domain.enums import CaseStatus
+
+K = TypeVar("K")
 
 
 @dataclass(frozen=True)
@@ -76,6 +79,30 @@ def remaining_intervals(
     )
 
 
+def _pieces(
+    interval: IntervalGap, fillers: Iterable[GapFiller]
+) -> Iterator[tuple[datetime, datetime, list[GapFiller]]]:
+    """Cut a slice wherever a filler starts or ends inside it.
+
+    Yields each piece with the fillers present for the whole of that piece.
+    """
+    people = list(fillers)
+    cuts = {interval.start_at, interval.end_at}
+    for filler in people:
+        for point in (filler.start_at, filler.end_at):
+            if point is not None and interval.start_at < point < interval.end_at:
+                cuts.add(point)
+    points = sorted(cuts)
+    for start, end in zip(points, points[1:], strict=False):
+        present = [
+            filler
+            for filler in people
+            if (filler.start_at is None or filler.start_at <= start)
+            and (filler.end_at is None or filler.end_at >= end)
+        ]
+        yield start, end, present
+
+
 def intervals_closed(intervals: Iterable[IntervalGap], fillers: Iterable[GapFiller]) -> bool:
     """True when the fillers close every slice for the whole of that slice.
 
@@ -85,28 +112,81 @@ def intervals_closed(intervals: Iterable[IntervalGap], fillers: Iterable[GapFill
     (workflow.md 6.20): the summary counts never decide this.
     """
     people = list(fillers)
+    return all(
+        gap_closed(
+            headcount_gap=interval.headcount_gap,
+            role_gaps=interval.role_gaps,
+            skill_gaps=interval.skill_gaps,
+            fillers=present,
+        )
+        for interval in intervals
+        for _, _, present in _pieces(interval, people)
+    )
+
+
+def interval_shortage(intervals: Iterable[IntervalGap], fillers: Iterable[GapFiller]) -> int:
+    """How much of the gap the fillers leave open, in person-seconds (workflow.md 6.24).
+
+    Cut like intervals_closed(). For each piece the missing headcount, the missing
+    people per role and the missing people per skill are added together and
+    multiplied by the length of the piece in seconds. A person who covers only
+    part of a slice counts only in the pieces they cover fully. 0 means closed.
+    """
+    people = list(fillers)
+    total = 0
     for interval in intervals:
-        cuts = {interval.start_at, interval.end_at}
-        for filler in people:
-            for point in (filler.start_at, filler.end_at):
-                if point is not None and interval.start_at < point < interval.end_at:
-                    cuts.add(point)
-        points = sorted(cuts)
-        for start, end in zip(points, points[1:], strict=False):
-            present = [
-                filler
-                for filler in people
-                if (filler.start_at is None or filler.start_at <= start)
-                and (filler.end_at is None or filler.end_at >= end)
-            ]
-            if not gap_closed(
-                headcount_gap=interval.headcount_gap,
-                role_gaps=interval.role_gaps,
-                skill_gaps=interval.skill_gaps,
-                fillers=present,
-            ):
-                return False
-    return True
+        for start, end, present in _pieces(interval, people):
+            unique = {filler.staff_id: filler for filler in present}
+            roles = Counter(person.role_id for person in unique.values())
+            skills = Counter(
+                skill_id for person in unique.values() for skill_id in person.skill_ids
+            )
+            missing = (
+                max(0, interval.headcount_gap - len(unique))
+                + sum(
+                    max(0, count - roles[role_id]) for role_id, count in interval.role_gaps.items()
+                )
+                + sum(
+                    max(0, count - skills[skill_id])
+                    for skill_id, count in interval.skill_gaps.items()
+                )
+            )
+            total += missing * int((end - start).total_seconds())
+    return total
+
+
+def choose_kept(
+    intervals: Iterable[IntervalGap],
+    base: Iterable[GapFiller],
+    candidates: Sequence[tuple[K, GapFiller]],
+) -> set[K]:
+    """Which candidates to keep when the case may now have more people than it needs.
+
+    Greedy: each step keeps the candidate that lowers interval_shortage() the
+    most, on top of `base` and what was kept so far. `candidates` come in
+    preference order (a pending approval before an unanswered offer, then the
+    better rank, then the lower ID), and a tie goes to the earlier one. It stops
+    when the best candidate lowers nothing, so coverage is chosen before order.
+    """
+    slices = list(intervals)
+    chosen = list(base)
+    remaining = list(candidates)
+    kept: set[K] = set()
+    current = interval_shortage(slices, chosen)
+    while remaining and current > 0:
+        best_index = -1
+        best_shortage = current
+        for index, (_, filler) in enumerate(remaining):
+            shortage = interval_shortage(slices, [*chosen, filler])
+            if shortage < best_shortage:
+                best_index, best_shortage = index, shortage
+        if best_index < 0:
+            break
+        key, filler = remaining.pop(best_index)
+        kept.add(key)
+        chosen.append(filler)
+        current = best_shortage
+    return kept
 
 
 def gap_closed(

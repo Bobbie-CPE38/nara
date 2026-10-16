@@ -12,7 +12,7 @@ transaction, so the answer already carries the case. That does not happen while
 another case of the shift is still running: the event then waits as RECEIVED.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -22,9 +22,10 @@ from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.core.constants import HEAD_NURSE_ROLE, MAX_EVENT_REASON_LENGTH
-from app.db.models import Role, Shift, StaffingCase, StaffingEvent
+from app.db.models import Role, RosterAssignment, Shift, StaffingCase, StaffingEvent
 from app.domain.enums import (
     STAFF_EVENT_TYPES,
+    ActorName,
     AuditAction,
     CaseStatus,
     EntityType,
@@ -35,12 +36,13 @@ from app.domain.enums import (
 # Re-exported: routes and tests still reach it as event_service.ShiftNotFoundError
 from app.domain.errors import ShiftNotFoundError as ShiftNotFoundError
 from app.services import (
+    actor_service,
     audit_service,
     merge_window_service,
     requirement_service,
     unavailability_service,
 )
-from app.services.merge_window_service import REPORTED_BY
+from app.services.merge_window_service import NO_SHOW_REASON, REPORTED_BY
 
 
 class EventNotFoundError(LookupError):
@@ -123,11 +125,63 @@ def receive_event(
             db, staff_id=subject_staff_id, shift_id=shift.id
         )
 
+    event = _write_event(
+        db,
+        shift,
+        event_type=event_type,
+        staff_id=subject_staff_id,
+        payload=payload,
+        actor_id=actor_id,
+    )
+    _close_or_commit(db, shift)
+    return _outcome(db, event)
+
+
+def record_no_shows(db: Session, *, shift: Shift, rosters: Sequence[RosterAssignment]) -> list[int]:
+    """Stage 1 of NO_SHOW (docs/workflow.md 6.24): one STAFF_UNAVAILABLE event per row. Commits.
+
+    Returns the new event IDs.
+
+    The caller holds the shift lock and the locks of `rosters`, and has checked
+    that each person is a NO_SHOW. The events are written by the same code as
+    receive_event(), by Actor SYSTEM and with no role check. Every event of the
+    shift goes in one transaction and the window is closed once, so two no-shows
+    of one shift join the same window.
+    """
+    requirement_service.get_current_requirement(db, shift.id)
+    system_id = actor_service.component_id(db, ActorName.SYSTEM)
+    event_ids = [
+        _write_event(
+            db,
+            shift,
+            event_type=EventType.STAFF_UNAVAILABLE,
+            staff_id=roster.staff_id,
+            # roster_assignment_id names the exact row: stage 2 and the check-in
+            # path find it here, because a person can hold several rows
+            payload={"reason": NO_SHOW_REASON, "roster_assignment_id": roster.id},
+            actor_id=system_id,
+        ).id
+        for roster in rosters
+    ]
+    _close_or_commit(db, shift)
+    return event_ids
+
+
+def _write_event(
+    db: Session,
+    shift: Shift,
+    *,
+    event_type: EventType,
+    staff_id: int | None,
+    payload: dict[str, Any],
+    actor_id: int,
+) -> StaffingEvent:
+    """Store the event as RECEIVED and write its EVENT_RECEIVED row. Flush, never commit."""
     event = StaffingEvent(
         event_type=event_type,
         shift_id=shift.id,
         occurred_at=clock.now(),
-        staff_id=subject_staff_id,
+        staff_id=staff_id,
         payload=payload,
         status=EventStatus.RECEIVED,
     )
@@ -144,18 +198,23 @@ def receive_event(
         payload={
             "event_type": event_type.value,
             "shift_id": shift.id,
-            "staff_id": subject_staff_id,
+            "staff_id": staff_id,
         },
     )
+    return event
 
-    # A window of 0 seconds is due at once, unless a case of the shift is still
-    # running. close_locked_window() commits when it closes the window
+
+def _close_or_commit(db: Session, shift: Shift) -> None:
+    """End the intake transaction, closing the window first when it is due at once.
+
+    A window of 0 seconds is due at once, unless a case of the shift is still
+    running. close_locked_window() commits when it closes the window.
+    """
     if (
         shift.merge_window_seconds > 0
         or merge_window_service.close_locked_window(db, shift) is None
     ):
         db.commit()
-    return _outcome(db, event)
 
 
 def get_event(db: Session, event_id: int) -> EventOutcome:
