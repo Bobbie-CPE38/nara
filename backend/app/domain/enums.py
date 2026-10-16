@@ -267,7 +267,7 @@ class CheckInSource(StrEnum):
 
 
 # Round 5 PR H1: `reason` in STRUCTURED_HANDOVER.content (docs/workflow.md 6.25), taken from
-# the case's first event. PLANNED_LEAVE never opens a case, so it is not here
+# the event that opened the case. PLANNED_LEAVE never opens a case, so it is not here
 class HandoverReason(StrEnum):
     UNPLANNED_LEAVE = "UNPLANNED_LEAVE"
     NO_SHOW = "NO_SHOW"
