@@ -5,8 +5,8 @@
 >
 > ขอบเขต: Walking Skeleton, รอบ 1 (Merge Gap, เคสรับหลายคน, Wave) และรอบ 2 (เส้นออกจาก `MANUAL_HANDOFF`, Timeout ของการอนุมัติ, OR-Tools) ทั้งสามช่วงเสร็จแล้ว
 > รอบ 3 (คำอธิบายอันดับ, LINE จริง, หน้าเว็บพยาบาล, งานค้างของ Roster) เสร็จแล้วทางโค้ด LINE และ LLM ทดสอบกับตัวแทน (fake) ยังไม่ได้ลองกับบริการจริง ดู "สถานะของรอบ 3" กติกาที่มีป้าย **[รอบ 6 · PR D]** เป็นของที่เลื่อนไปรอบ 6
-> รอบ 4 (Cross-Ward, การย้ายคนข้ามหอ, เวลาจริงของ Roster และ Gap รายช่วง, ผู้อนุมัติสองหอและ Supervisor, Auto-Approval) กำลังทำ กติกาที่มีป้าย **[รอบ 4 · PR X]** คือข้อตกลงที่ PR นั้นยังไม่ได้ทำ ดู "สถานะของรอบ 4"
-> อัปเดตล่าสุด: 2026-10-15
+> รอบ 4 (Cross-Ward, การย้ายคนข้ามหอ, เวลาจริงของ Roster และ Gap รายช่วง, ผู้อนุมัติสองหอและ Supervisor, Auto-Approval) เสร็จแล้ว ดู "สถานะของรอบ 4"
+> อัปเดตล่าสุด: 2026-10-16
 
 ## สถานะของรอบ 1
 
@@ -185,29 +185,29 @@ Contract ของรอบ 3 ตกลงแล้ว (PR #60) ไฟล์น�
 
 Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์นี้รับเฉพาะกติกาที่ข้ามคน ส่วน Spec เต็มของรอบอยู่ที่ `docs/round4/round4-contract-draft.md` (ในไฟล์นี้เรียกว่า "ร่างรอบ 4") เลข R4-Q ที่อ้างในไฟล์นี้คือคำถามใน `docs/round4/round4-questions.md` คำตอบเป็นการตัดสินใจร่วมกันของทั้งสามคน
 
-**รอบ 4 กำลังทำ** กติกาของรอบ 4 ในไฟล์นี้อยู่ที่ส่วนนี้, ข้อ 6.11 (ลำดับ Lock ที่เพิ่ม), 6.19 ถึง 6.22, 7.1 และ 9.6 กติกาที่ยังไม่มีโค้ดมีป้าย **[รอบ 4 · PR X]** บอกว่า PR ไหนต้องทำ PR นั้นลบป้ายออกเมื่อทำแล้ว PR 0 เพิ่มแค่กติกาในไฟล์นี้และค่าใหม่ใน `enums.py`, `domain/constraints/codes.py`, `core/constants.py` ไม่เปลี่ยนพฤติกรรมของระบบ
+**รอบ 4 เสร็จแล้ว** PR ทุกตัวในตารางข้างล่างเข้า `staging` ครบ (#73, #74 และ #78 ถึง #88) โค้ดตรงกับกติกาของรอบ 4 ในไฟล์นี้ (ส่วนนี้, ข้อ 6.11 ลำดับ Lock ที่เพิ่ม, 6.19 ถึง 6.22, 7.1 และ 9.6) ไม่เหลือป้าย **[รอบ 4 · PR X]** กติกาข้อไหนมาจาก PR ไหนดูได้จากคอลัมน์ "ข้อของไฟล์นี้" ของตารางข้างล่าง
 
 | PR ของรอบ 4 | ใคร | เรื่อง | ข้อของไฟล์นี้ | ต้องรอ | Migration | PR บน GitHub |
 |---|---|---|---|---|---|---|
-| เอกสาร | คน 1 | ร่างรอบ 4 และไฟล์คำถาม | | | ไม่มี | #73 |
-| 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, ค่าใหม่ใน Enum | ทุกข้อของรอบ 4 | เอกสาร | ไม่มี | #74 |
-| T1 | คน 2 | ช่วงที่มาทำได้และเวรต้นทางในรายชื่อผู้สมัคร, Safety และ Hard Rules ใช้ช่วงนี้, ช่วงทำงานต่อเนื่องตอนวางแผน | 6.20 | 0 | มี (`CANDIDATE_ITEMS`) | #78 |
-| T2 | คน 3 | เวลาจริงและลิงก์การย้ายใน Roster, ตัวอ่านเวลาของ Roster | 6.20 | 0 | มี (`ROSTER_ASSIGNMENT`) | #79 |
-| T3 | คน 1 | Gap รายช่วง | 6.20, 9.6 | 0, T2 | มี (`STAFFING_GAP` และตารางรายช่วง) | #82 |
-| T4 | คน 2 | Solver และการเลือก Wave ตามช่วง, แผนบางส่วน, ข้อความอธิบายอันดับ | 6.20 | T1, T3 | ไม่มี | |
+| เอกสาร | คน 1 | ร่างรอบ 4 และไฟล์คำถาม | | | ไม่มี | [#73](https://github.com/Bobbie-CPE38/nara/pull/73) |
+| 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, ค่าใหม่ใน Enum | ทุกข้อของรอบ 4 | เอกสาร | ไม่มี | [#74](https://github.com/Bobbie-CPE38/nara/pull/74) |
+| T1 | คน 2 | ช่วงที่มาทำได้และเวรต้นทางในรายชื่อผู้สมัคร, Safety และ Hard Rules ใช้ช่วงนี้, ช่วงทำงานต่อเนื่องตอนวางแผน | 6.20 | 0 | มี (`CANDIDATE_ITEMS`) | [#78](https://github.com/Bobbie-CPE38/nara/pull/78) |
+| T2 | คน 3 | เวลาจริงและลิงก์การย้ายใน Roster, ตัวอ่านเวลาของ Roster | 6.20 | 0 | มี (`ROSTER_ASSIGNMENT`) | [#79](https://github.com/Bobbie-CPE38/nara/pull/79) |
+| T3 | คน 1 | Gap รายช่วง | 6.20, 9.6 | 0, T2 | มี (`STAFFING_GAP` และตารางรายช่วง) | [#82](https://github.com/Bobbie-CPE38/nara/pull/82) |
+| T4 | คน 2 | Solver และการเลือก Wave ตามช่วง, แผนบางส่วน, ข้อความอธิบายอันดับ | 6.20 | T1, T3 | ไม่มี | [#84](https://github.com/Bobbie-CPE38/nara/pull/84) |
 | C1 | คน 2 | ดึงคนว่างข้ามหอ, Float Pool | 6.19 | T1 | มี (`WARD.is_float_pool`) | [#81](https://github.com/Bobbie-CPE38/nara/pull/81) |
-| S | คน 3 | อนุมัติสองหอ, Supervisor, ตัวตรวจสิทธิ์ของคนกด (ทำแล้ว) | 6.21, 9.6 | C1 | มี (`APPROVAL_WARD_DECISION`, `APPROVAL_POLICY.supervisor_after_seconds`) | |
-| C2 | คน 2 | ย้ายทั้งเวร (ทำแล้ว) | 6.19, 9.6 | C1, S | ไม่มี | [#87](https://github.com/Bobbie-CPE38/nara/pull/87) |
-| C3 | คน 2 | ย้ายกลางเวร (ทำแล้ว) | 6.19, 6.20 | C2, T2, T3, T4 | ไม่มี | |
+| S | คน 3 | อนุมัติสองหอ, Supervisor, ตัวตรวจสิทธิ์ของคนกด | 6.21, 9.6 | C1 | มี (`APPROVAL_WARD_DECISION`, `APPROVAL_POLICY.supervisor_after_seconds`) | [#83](https://github.com/Bobbie-CPE38/nara/pull/83) |
+| C2 | คน 2 | ย้ายทั้งเวร | 6.19, 9.6 | C1, S | ไม่มี | [#87](https://github.com/Bobbie-CPE38/nara/pull/87) |
+| C3 | คน 2 | ย้ายกลางเวร | 6.19, 6.20 | C2, T2, T3, T4 | ไม่มี | [#88](https://github.com/Bobbie-CPE38/nara/pull/88) |
 | A | คน 3 | Auto-Approval | 6.22, 9.6 | 0, T1 | ไม่มี | [#80](https://github.com/Bobbie-CPE38/nara/pull/80) |
 | W4 | คน 1 | ข้อมูล Demo หลายหอ, หอ Float Pool, Role `SUPERVISOR` | 6.19, 6.21 | C1 | ไม่มี | [#85](https://github.com/Bobbie-CPE38/nara/pull/85) |
 | U | คน 1 | หน้าเว็บของรอบ 4 | 9.6 | A, S | ไม่มี | [#86](https://github.com/Bobbie-CPE38/nara/pull/86) |
 
-ลำดับ merge: 0 ก่อนทุกตัว, T3 หลัง T2, T4 หลัง T1 และ T3, C1 หลัง T1, S หลัง C1, C2 หลัง S (ห้ามมีการย้ายคนก่อนที่การอนุมัติสองหอจะมี), C3 หลัง C2 T2 T3 T4, A หลัง T1, U หลัง A และ S Migration ต่อจาก `e1a4c7f2b9d6` เป็นเส้นเดียวตามลำดับที่ merge จริง ลำดับจริงจนถึงตอนนี้คือ T1 → T2 → C1 → T3 → S (head ของ S `f2a7c9d4e6b8` ต่อจาก `c6e2b9f4a1d7`) ตัวที่ merge ทีหลังต้อง Rebase แก้ `down_revision` ให้ต่อจาก head ของ `staging` และรัน `alembic heads` ให้ได้ head เดียว รอบ 4 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R4-Q2)
+ลำดับ merge: 0 ก่อนทุกตัว, T3 หลัง T2, T4 หลัง T1 และ T3, C1 หลัง T1, S หลัง C1, C2 หลัง S (ห้ามมีการย้ายคนก่อนที่การอนุมัติสองหอจะมี), C3 หลัง C2 T2 T3 T4, A หลัง T1, U หลัง A และ S Migration ต่อจาก `e1a4c7f2b9d6` เป็นเส้นเดียวตามลำดับที่ merge จริง ลำดับจริงคือ T1 → T2 → C1 → T3 → S (head ของ S `f2a7c9d4e6b8` ต่อจาก `c6e2b9f4a1d7`) PR ที่เข้าหลัง S ไม่มี Migration head ตอนปิดรอบ 4 จึงเป็น `f2a7c9d4e6b8` ตัวที่ merge ทีหลังต้อง Rebase แก้ `down_revision` ให้ต่อจาก head ของ `staging` และรัน `alembic heads` ให้ได้ head เดียว รอบ 4 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R4-Q2)
 
 * **ทำไม A รอ T1:** Test ของ A สร้างข้อมูลเอง คนข้ามหอและคน Float Pool สร้างได้ด้วยค่า `source` = `CROSS_WARD` หรือ `FLOAT_POOL` ที่มีอยู่แล้ว จึงไม่ต้องรอ C1 แต่คำขอที่มีเวรต้นทางต้องใช้คอลัมน์ `CANDIDATE_ITEMS.source_assignment_id` ที่ T1 เพิ่ม ทั้งตอนกรองและตอนสร้างข้อมูลใน Test จึงต้องรอ T1 ไม่ต้องรอ C2
-* **ถ้า C3 ไม่ทันในรอบนี้ (R4-Q38):** T2, T3 และ T4 ไปถึง `main` ตอนปิดรอบตามปกติเมื่อผ่านด่านครบ (Golden Case และ Seed Scenario เดิมได้ Gap เท่าเดิม และผลกับเวลาของ Solver กับข้อมูลแบบเดิมไม่เปลี่ยน) ไม่มีตัวเปิดปิด C2 ส่งได้เมื่อ S เข้าแล้ว
-* **งานค้างจากรอบ 3 (R4-Q3):** ลอง LINE จริงผ่าน Tunnel (คน 3), ตรวจเครดิตและสิทธิ์โมเดลของ Bedrock (คน 2), ให้ Test บังคับ `LINE_MODE=simulation` เองไม่ขึ้นกับ `.env` บันทึกผลในตาราง "อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง" ของส่วน "สถานะของรอบ 3"
+* **ถ้า C3 ไม่ทันในรอบนี้ (R4-Q38):** T2, T3 และ T4 ไปถึง `main` ตอนปิดรอบตามปกติเมื่อผ่านด่านครบ (Golden Case และ Seed Scenario เดิมได้ Gap เท่าเดิม และผลกับเวลาของ Solver กับข้อมูลแบบเดิมไม่เปลี่ยน) ไม่มีตัวเปิดปิด C2 ส่งได้เมื่อ S เข้าแล้ว ตอนปิดรอบ C3 เข้าแล้ว (#88) ทางนี้จึงไม่ได้ใช้
+* **งานค้างจากรอบ 3 (R4-Q3):** ลอง LINE จริงผ่าน Tunnel (คน 3), ตรวจเครดิตและสิทธิ์โมเดลของ Bedrock (คน 2), ให้ Test บังคับ `LINE_MODE=simulation` เองไม่ขึ้นกับ `.env` บันทึกผลในตาราง "อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง" ของส่วน "สถานะของรอบ 3" **ตอนปิดรอบ 4 ทั้งสามเรื่องยังไม่มีบันทึกใน repo** ตารางของรอบ 3 ยังเขียนว่ายังไม่ได้ลอง และ Test ยังไม่ตั้ง `LINE_MODE` เอง ทีมต้องตัดสินว่าจะทำในรอบไหน
 
 เรื่องที่ยังอยู่ในร่างรอบ 4 ไม่ได้ย้ายเข้าไฟล์นี้
 
@@ -221,32 +221,32 @@ Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์น�
 
 ถ้ากติกาที่ย้ายเข้าไฟล์นี้แล้วไม่ตรงกับร่างรอบ 4 ให้ยึดไฟล์นี้
 
-**Test ของข้อกำหนดที่พังเงียบได้** ข้อกำหนดข้างล่างผิดแล้วไม่มี Error PR ที่ทำต้องมี Test ของแต่ละข้อ ตอนปิดรอบจะตรวจและใส่ชื่อไฟล์ Test
+**Test ของข้อกำหนดที่พังเงียบได้** PR 0 เคยระบุว่าข้อกำหนดข้างล่างผิดแล้วไม่มี Error และ PR ที่ทำต้องมี Test ตอนปิดรอบตรวจแล้วว่ามีครบ ไฟล์อยู่ใต้ `backend/tests/integration/` ยกเว้นที่ระบุ
 
-| ข้อกำหนด | PR |
-|---|---|
-| Pool ขยายแล้ว `source` ของคนข้ามหอไม่ใช่ `SAME_WARD` และคะแนนแหล่งที่มาไม่เป็น 0 | C1 |
-| คนที่อยู่เวรของหออื่นเข้า Pool ได้ก็ต่อเมื่อเวรต้นทางมีเวลาตรงกับเวรปลายทางและยังไม่เริ่ม มิฉะนั้นไม่เข้า (C3 แทนที่ด้วยกติกาของ C3: เข้า Pool เมื่อย้ายได้ คือ `max(เริ่มเวรปลายทาง, เริ่มเวรต้นทาง, Backend Clock) < min(จบเวรต้นทาง, จบเวรปลายทาง)` เวรที่เริ่มแล้วและเวรที่ทับบางส่วนเข้าได้ เวรที่จบแล้วไม่เข้า) | C1, C2, C3 (`test_cross_ward_pool.py`, `test_transfer_planning.py`) |
-| สองเคสต่างหอใช้ผู้สมัครคนเดียวกันพร้อมกัน ไม่ได้เวรที่จัดแล้วทับกัน (สอง Connection) | C1 |
-| ตรวจคนที่ถูกย้ายด้วย Roster หลังย้าย ไม่ใช่แค่ข้าม `SHIFT_CONFLICT` | T1, C2 (`test_transfer_planning.py`, `test_transfer_execution.py`) |
-| ช่วงทำงานต่อเนื่องของการย้ายไม่ถูกกฎเวลาพักปฏิเสธ และเวรที่ต่อกันพอดีโดยไม่ได้ย้ายยังถูกปฏิเสธ | T1, C3 (`test_transfer_planning.py`: เวรต้นทางที่ทับบางส่วนผ่านกฎเวลาพักเพราะเป็น duty เดียวกัน ส่วนคนว่างที่เวรจบพอดีตอนเวรปลายทางเริ่มและไม่มีลิงก์ยัง `INSUFFICIENT_REST`) |
-| ตรวจเวรต้นทางซ้ำหลังล็อกตอนย้ายจริง สองการอนุมัติพร้อมกันบนเวรต้นทางที่เกินแค่ 1 คน เหลือผู้ผ่านคนเดียว (สอง Connection) | C2 (`test_transfer_execution.py`) |
-| ตรวจไม่ผ่านตอนย้ายจริงไม่ทำให้เคส `FAILED` และตัวสำรองถูกเลื่อนขึ้นมา | C2 (`test_transfer_execution.py`) |
-| (C3 แทนที่แล้ว) อนุมัติครบหลังเวรต้นทางเริ่ม ก่อน C3 เข้าได้ `SOURCE_SHIFT_STARTED` ไม่ย้ายทั้งเวรแทน | C2, แทนที่โดย C3 (`test_transfer_execution.py`) |
-| C3 ลบ `SOURCE_SHIFT_STARTED` และเอาเงื่อนไขของ C2 ที่ไม่ให้คนที่เวรต้นทางเริ่มแล้วเข้า Pool ออก (คนแบบนี้เข้า Pool ได้อีกครั้ง) เปลี่ยน Test ของ C2 ในกรณีนี้เป็นการย้ายกลางเวรที่สำเร็จ ตัวอ่าน `reason` ยังรับแถว Audit เก่าที่มีค่านี้ได้ | C3 (`test_transfer_planning.py`: คนที่เวรต้นทางเริ่มแล้วอยู่ใน Pool, Cover บางส่วนทั้งสองทิศ, แถวที่มี `actual_end_at` ของตัวเอง, `GAP_TIME_MISMATCH`; `test_transfer_execution.py`: อนุมัติครบหลังเวรต้นทางเริ่มแล้วย้ายกลางเวรสำเร็จ, ตรวจซ้ำที่เวลาย้ายจริง, แถว Audit เก่าที่มี `SOURCE_SHIFT_STARTED` ยังอ่านได้) |
-| การย้ายต้องได้อนุมัติครบสองหอ หอหนึ่งปฏิเสธคือปฏิเสธทั้งคำขอ | S, C2 (`test_approval_two_wards.py` ใช้ตัวเขียนจริง) |
-| ตัดสินว่าต้องอนุมัติสองหอจากเวรต้นทาง ไม่ใช่จาก `source` | S, C2 (`test_approval_two_wards.py`, `test_transfer_planning.py`) |
-| `manages_ward()` ไม่เปลี่ยน การตรวจคนที่ถูกจัดเวรใน `MANUAL_HANDOFF` และสิทธิ์แก้การลาเหมือนเดิม | S |
-| Supervisor กดได้ก่อนเวลาที่กำหนดไม่ได้ รวมกรณีกดฝั่งที่ตัดสินแล้วก่อน `supervisor_from` ซึ่งต้องได้ `403` ไม่ใช่ `409` | S |
-| แถว Roster ของเวรต้นทางที่ตัดหรือยกเลิกแล้วไม่ถูกนับว่าอยู่เวรหลังเวลาย้าย | T2, T3 |
-| ตัวอ่านเวลาของ Roster ทุกตัวใช้เวลาจริง (แถวที่จบก่อนเวลาและเริ่มหลังเวลา) | T2 |
-| Gap รายช่วงของเวรที่ไม่มีการย้ายเท่ากับ Gap เดิม (Golden Case และ Seed Scenario เดิม) | T3 |
-| การตัดสิน `RESOLVED` และ Solver ใช้ข้อมูลรายช่วง ไม่ใช่ตัวเลขสรุป | T3, T4 |
-| Solver กับข้อมูลแบบเดิมให้ผลและเวลาเท่าเดิม (`solver_baseline.jsonl`, `SOLVER_TIMING=1`) | T4 |
-| เงื่อนไขใหม่ที่เลือกครบไม่ได้ได้แผนบางส่วน ไม่ใช่ `MODEL_INVALID` หรือ `FAILED` รวมผู้สมัครที่เลือกพร้อมกันไม่ได้และครอบคนละ Skill | T4, C2 (`test_transfer_planning.py`) |
-| Auto-Approval ตรวจเงื่อนไขซ้ำหลังล็อก `WARD` Job กับ Job และ Job กับคนกดไม่อนุมัติเกินกติกา (สอง Connection) | A |
-| Auto-Approval ไม่อนุมัติคนข้ามหอ, Float Pool และคำขอที่มีเวรต้นทาง | A |
-| Job ไม่ตัดสินคำขอซ้ำ และ Job Timeout ไม่ตั้งคำขอที่ตัดสินแล้วเป็นหมดเวลา | A |
+| ข้อกำหนด | PR | Test อยู่ที่ |
+|---|---|---|
+| Pool ขยายแล้ว `source` ของคนข้ามหอไม่ใช่ `SAME_WARD` และคะแนนแหล่งที่มาไม่เป็น 0 | C1 | `test_cross_ward_pool.py` (`test_a_free_nurse_of_another_ward_is_a_cross_ward_candidate`, `test_a_free_nurse_of_the_float_pool_is_a_float_pool_candidate` ตรวจทั้ง `source` และคะแนน `candidate_source`) |
+| คนที่อยู่เวรของหออื่นเข้า Pool ได้ก็ต่อเมื่อเวรต้นทางมีเวลาตรงกับเวรปลายทางและยังไม่เริ่ม มิฉะนั้นไม่เข้า (C3 แทนที่ด้วยกติกาของ C3: เข้า Pool เมื่อย้ายได้ คือ `max(เริ่มเวรปลายทาง, เริ่มเวรต้นทาง, Backend Clock) < min(จบเวรต้นทาง, จบเวรปลายทาง)` เวรที่เริ่มแล้วและเวรที่ทับบางส่วนเข้าได้ เวรที่จบแล้วไม่เข้า) | C1, C2, C3 | `test_cross_ward_pool.py` (`test_someone_on_another_wards_offset_overlapping_shift_is_in_the_pool_with_a_source`, `test_actual_times_decide_the_overlap`), `test_transfer_planning.py` (`test_a_person_whose_source_shift_has_started_enters_the_pool`, `test_a_source_row_that_is_over_by_now_keeps_the_person_out`) |
+| สองเคสต่างหอใช้ผู้สมัครคนเดียวกันพร้อมกัน ไม่ได้เวรที่จัดแล้วทับกัน (สอง Connection) | C1 | `test_cross_ward_approval_race.py` (`test_concurrent_decisions_never_assign_overlapping_shifts`) |
+| ตรวจคนที่ถูกย้ายด้วย Roster หลังย้าย ไม่ใช่แค่ข้าม `SHIFT_CONFLICT` | T1, C2 | `test_transfer_planning.py` (`test_planning_and_safety_give_the_same_answer`, `test_losing_the_only_holder_of_a_skill_fails_the_rule_with_headcount_fine`), `test_transfer_execution.py` (`test_a_conflicting_duty_added_after_safety_fails_the_hard_rule`) |
+| ช่วงทำงานต่อเนื่องของการย้ายไม่ถูกกฎเวลาพักปฏิเสธ และเวรที่ต่อกันพอดีโดยไม่ได้ย้ายยังถูกปฏิเสธ | T1, C3 | `test_transfer_planning.py` (`test_the_linked_source_part_lets_a_mover_pass_the_rest_rule`), `test_roster_actual_times.py` (`test_unlinked_rows_still_fail_rest_at_zero_hours`) |
+| ตรวจเวรต้นทางซ้ำหลังล็อกตอนย้ายจริง สองการอนุมัติพร้อมกันบนเวรต้นทางที่เกินแค่ 1 คน เหลือผู้ผ่านคนเดียว (สอง Connection) | C2 | `test_transfer_execution.py` (`test_two_final_approvals_race_for_the_last_surplus_of_one_source_shift`, `test_source_row_cancelled_after_the_request`, `test_source_gap_after_the_request`) |
+| ตรวจไม่ผ่านตอนย้ายจริงไม่ทำให้เคส `FAILED` และตัวสำรองถูกเลื่อนขึ้นมา | C2 | `test_transfer_execution.py` (`test_a_reserve_is_promoted_after_a_refused_move`, `test_the_next_wave_is_sent_when_there_is_no_reserve`) |
+| (C3 แทนที่แล้ว) อนุมัติครบหลังเวรต้นทางเริ่ม ก่อน C3 เข้าได้ `SOURCE_SHIFT_STARTED` ไม่ย้ายทั้งเวรแทน | C2, แทนที่โดย C3 | `test_transfer_execution.py` (`test_final_approval_after_the_source_shift_started_moves_mid_shift` แทน Test เดิมของ C2) |
+| C3 ลบ `SOURCE_SHIFT_STARTED` และเอาเงื่อนไขของ C2 ที่ไม่ให้คนที่เวรต้นทางเริ่มแล้วเข้า Pool ออก (คนแบบนี้เข้า Pool ได้อีกครั้ง) เปลี่ยน Test ของ C2 ในกรณีนี้เป็นการย้ายกลางเวรที่สำเร็จ ตัวอ่าน `reason` ยังรับแถว Audit เก่าที่มีค่านี้ได้ | C3 | `test_transfer_planning.py` (`test_a_person_whose_source_shift_has_started_enters_the_pool`, `test_a_source_shift_that_starts_earlier_keeps_its_first_part_as_a_linked_duty`, `test_a_source_shift_that_starts_later_gives_a_cover_from_its_start`, `test_a_source_row_with_actual_times_is_covered_from_its_effective_times`, `test_a_mover_whose_cover_misses_every_short_slice_is_skipped`), `test_transfer_execution.py` (`test_final_approval_after_the_source_shift_started_moves_mid_shift`, `test_a_mid_shift_recheck_uses_the_real_move_time`, `test_an_old_source_shift_started_audit_stays_readable`) |
+| การย้ายต้องได้อนุมัติครบสองหอ หอหนึ่งปฏิเสธคือปฏิเสธทั้งคำขอ | S, C2 | `test_approval_two_wards.py` (`test_both_wards_are_required_and_only_last_approval_executes`, `test_either_ward_rejection_finishes_request_without_execution`, `test_both_approvals_end_in_a_real_transfer`) |
+| ตัดสินว่าต้องอนุมัติสองหอจากเวรต้นทาง ไม่ใช่จาก `source` | S, C2 | `test_approval_two_wards.py` (`test_single_ward_source_is_422_and_supervisor_can_decide_destination`), `test_transfer_planning.py` (`test_a_same_ward_nurse_on_another_wards_equal_time_shift_is_moved`, `test_a_float_pool_nurse_on_an_equal_time_shift_keeps_her_float_pool_source`) |
+| `manages_ward()` ไม่เปลี่ยน การตรวจคนที่ถูกจัดเวรใน `MANUAL_HANDOFF` และสิทธิ์แก้การลาเหมือนเดิม | S | `tests/unit/domain/test_ward_authority.py` (`test_a_head_nurse_manages_their_own_ward`, `test_a_head_nurse_does_not_manage_another_ward`, `test_supervisor_authority_does_not_change_staff_membership`), `test_approval_two_wards.py` (`test_supervisor_does_not_gain_head_nurse_event_or_leave_permissions`) |
+| Supervisor กดได้ก่อนเวลาที่กำหนดไม่ได้ รวมกรณีกดฝั่งที่ตัดสินแล้วก่อน `supervisor_from` ซึ่งต้องได้ `403` ไม่ใช่ `409` | S | `test_approval_two_wards.py` (`test_supervisor_wait_boundary_and_one_decision_per_click`, `test_supervisor_before_wait_gets_403_even_on_already_decided_side`) |
+| แถว Roster ของเวรต้นทางที่ตัดหรือยกเลิกแล้วไม่ถูกนับว่าอยู่เวรหลังเวลาย้าย | T2, T3 | `test_gap_intervals.py` (`test_a_cut_source_row_stops_counting_at_its_actual_end`), `test_cross_ward_pool.py` (`test_a_cancelled_duty_keeps_the_person_in_the_pool`) |
+| ตัวอ่านเวลาของ Roster ทุกตัวใช้เวลาจริง (แถวที่จบก่อนเวลาและเริ่มหลังเวลา) | T2 | `test_roster_actual_times.py` (`test_snapshot_uses_actual_segments_and_counts_a_linked_duty_once`, `test_completion_uses_actual_end_with_null_shift_fallback`, `test_roster_reads_expose_raw_endpoints_and_transfer_link`, `test_leave_flag_uses_the_actual_interval_not_the_whole_shift`, `test_leave_overlap_report_uses_actual_roster_interval`) |
+| Gap รายช่วงของเวรที่ไม่มีการย้ายเท่ากับ Gap เดิม (Golden Case และ Seed Scenario เดิม) | T3 | `test_gap_intervals.py` (`test_shifts_without_moves_keep_the_old_gap`, `test_an_ended_shift_is_measured_whole_as_before_round_4`) |
+| การตัดสิน `RESOLVED` และ Solver ใช้ข้อมูลรายช่วง ไม่ใช่ตัวเลขสรุป | T3, T4 | `test_gap_intervals.py` (`test_a_replacement_for_part_of_the_shift_does_not_resolve_the_case`, `test_a_pending_candidate_covers_only_their_cover_window`), `test_solver_intervals.py` (`test_the_solver_gets_the_short_slices_and_the_snapshot_keeps_them`), `tests/unit/optimization/test_solver_slices.py` (`test_a_part_timer_never_counts_for_a_slice_it_does_not_cover_whole`) |
+| Solver กับข้อมูลแบบเดิมให้ผลและเวลาเท่าเดิม (`solver_baseline.jsonl`, `SOLVER_TIMING=1`) | T4 | `tests/unit/optimization/test_solver_slices.py` (`test_one_whole_shift_slice_equals_the_legacy_call_on_every_baseline_case`), `tests/unit/optimization/test_solver_baseline.py`, เวลา: `tests/perf/test_solver_timing.py` (ข้ามในชุดปกติ รันเมื่อตั้ง `SOLVER_TIMING=1`) |
+| เงื่อนไขใหม่ที่เลือกครบไม่ได้ได้แผนบางส่วน ไม่ใช่ `MODEL_INVALID` หรือ `FAILED` รวมผู้สมัครที่เลือกพร้อมกันไม่ได้และครอบคนละ Skill | T4, C2 | `tests/unit/optimization/test_solver_slices.py` (`test_two_exclusive_candidates_for_two_skills_give_a_partial_plan_by_points`, `test_exclusive_candidates_in_different_slices_give_a_partial_plan`), `test_solver_intervals.py` (`test_candidates_of_one_source_shift_give_a_partial_plan`, `test_the_orchestrator_goes_on_with_a_partial_plan`), `test_transfer_planning.py` (`test_two_candidates_of_one_source_shift_give_a_partial_plan`) |
+| Auto-Approval ตรวจเงื่อนไขซ้ำหลังล็อก `WARD` Job กับ Job และ Job กับคนกดไม่อนุมัติเกินกติกา (สอง Connection) | A | `test_auto_approval.py` (`test_competing_connections_serialize_the_ward_snapshot` ทั้งกรณี Job กับ Job และ Job กับคนกด) |
+| Auto-Approval ไม่อนุมัติคนข้ามหอ, Float Pool และคำขอที่มีเวรต้นทาง | A | `test_auto_approval.py` (`test_manual_only_requests_count_toward_threshold_but_are_never_approved`, `test_recorded_source_prevents_auto_even_with_same_ward_source`) |
+| Job ไม่ตัดสินคำขอซ้ำ และ Job Timeout ไม่ตั้งคำขอที่ตัดสินแล้วเป็นหมดเวลา | A | `test_auto_approval.py` (`test_competing_connections_serialize_the_ward_snapshot`, `test_timeout_job_never_times_out_an_automatically_decided_request`) |
 
 ---
 
@@ -2366,3 +2366,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-16 | รอบ 4 PR C2: ย้ายทั้งเวร ไม่มี Migration; `optimization_service._movable_rows()` ให้คนที่อยู่เวรของหออื่นที่เวรต้นทางมีเวลาตรงกับเวรปลายทางและยังไม่เริ่มเข้า Pool, `_covers()` คืน `Cover(None, None, source_assignment_id)`; `SourceShift(shift_id, leaves_gap)` กับ `gap_service.gap_without()` ทำให้ `SOURCE_WARD_MINIMUM_VIOLATION` ตรวจจำนวนคน Role และ Skill ด้วยตัวคำนวณ Gap ตัวเดียวกับเคส; `wave_service` ข้ามด้วย `SOURCE_SHIFT_TAKEN` (ลำดับ Hard Rule, `SOURCE_SHIFT_TAKEN`, `OFFER_LIMIT_REACHED`); `transfer_service.execute()` และ `roster_service.create_transfer()` ตรวจซ้ำตอนย้ายจริงตามลำดับ `DESTINATION_WINDOW_PASSED`, `SOURCE_SHIFT_STARTED`, `SOURCE_COVERAGE_LOST` (แถวต้นทางไม่ใช่ `ASSIGNED` และ Gap), `HARD_RULE_FAILED` ไม่ผ่านได้ Audit `TRANSFER_CHECK_FAILED` ยกเลิก Offer ตอบ `TRANSFER_CANCELLED` และเคสไม่ `FAILED` ผ่านแล้วเขียน `ASSIGNMENT_TRANSFERRED` แทน `ASSIGNMENT_CREATED` (เพิ่ม `cancelled_outreach_ids`, `_cancellation_reasons()` แปลงเป็น `CONFLICTING_ASSIGNMENT`); `create_replacement()` ปฏิเสธรายการที่มีเวรต้นทางด้วย `ValueError`; ใน Seed คน Medicine ของ W4 เข้า Pool ของ ICU แล้วถูกข้าม (`SOURCE_WARD_MINIMUM_VIOLATION`, `ROLE_MISMATCH`) ผลของ Golden Case เท่าเดิม (ข้อ 6.11, 6.19, 7.1, 9.6); Test: `test_transfer_planning.py`, `test_transfer_execution.py`, `test_approval_two_wards.py` (ตัวเขียนจริง) | คน 2 |
 | 2026-10-16 | รอบ 4 PR C3: ย้ายกลางเวร ไม่มี Migration; `optimization_service._movable_rows()` เปลี่ยนเป็น `_movable()` คืน staff ID → `Cover` คนที่เวรต้นทางเริ่มแล้วหรือทับบางส่วนเข้า Pool เมื่อ `max(เริ่มเวรปลายทาง, เริ่มเวรต้นทาง, Backend Clock) < min(จบเวรต้นทาง, จบเวรปลายทาง)`; Cover เริ่มที่ `max(เริ่มเวรปลายทาง, เริ่มเวรต้นทาง)` ไม่ใช้ Backend Clock (กันช่วงเล็กที่ไม่มีใครครอบทำให้แผนเป็นบางส่วน ชั่วโมงรวมและกฎเวลาพักไม่เปลี่ยนตามตำแหน่งที่ตัด เพราะเป็น duty เดียวกันตามลิงก์) และจบที่เวลาจบเวรปลายทาง; `GAP_TIME_MISMATCH` เกิดได้จริง; `hard_rule_service.check_items(move_at=...)` ตรวจซ้ำโดยให้ Cover เริ่มที่เวลาย้ายจริง; `transfer_service.execute()` ใช้ `transfer_at = max(เริ่มเวรปลายทาง, เริ่มเวรต้นทาง, เวลาอนุมัติครบ)` ตรวจ `DESTINATION_WINDOW_PASSED`, `SOURCE_COVERAGE_LOST`, `HARD_RULE_FAILED`; ลบ `SOURCE_SHIFT_STARTED` ออกจาก `TransferFailureReason` (แถว Audit เก่าอ่านเป็นข้อความดิบ); แถวต้นทางยังเป็น `ASSIGNED` พร้อม `actual_end_at` (หรือ `CANCELLED` เมื่อเวลาย้ายไม่เกินเวลาเริ่ม) แถวปลายทางตั้ง `actual_start_at`; แถวที่จบก่อนช่วงที่ย้ายได้เป็นประวัติ (ย้ายต่อจากสายการย้ายเดิมได้); `get_case_gap()` ตัดช่วงที่ผ่านไปแล้วออกด้วย `remaining_intervals()` เคสที่ย้ายกลางเวรจึงปิดเป็น `RESOLVED`; ผลกับ Seed และ Golden Case เท่าเดิม (ข้อ 6.11, 6.19, 6.20); Test: `test_transfer_planning.py`, `test_transfer_execution.py`, `test_gap_intervals.py` | คน 2 |
 | 2026-10-16 | รอบ 4 PR U: หน้า `cases/[id]` แสดง Gap รายช่วงเมื่อมีมากกว่าหนึ่งช่วง (ตาราง "Gap by time") และผู้สมัครมีคอลัมน์หอบ้าน ช่วงที่มาทำได้ (ว่าง = ทั้งเวร) และเวรต้นทาง; หน้า `approvals` เลือกผู้กดได้ (900, 902, 950 ตาม Seed ของ W4) แสดงหอบ้าน หอต้นทาง สถานะของแต่ละหอ และ `supervisor_from` Supervisor เลือก `side` เมื่อรอมากกว่าหนึ่งหอ ส่วน Head Nurse ไม่ส่ง `side`; ข้อความผลอ่าน `outcome` (`WAITING_OTHER_WARD` คงแถวไว้, `TRANSFER_CANCELLED` พร้อม `reason` และ `failed_rules`, `EXECUTION_FAILED` เป็นข้อความล้มเหลว); รายการ "Approved by the system" จาก `GET /approvals/auto` ตามผู้กด; หน้า `demo/control` แจ้งลาโดยเลือกหอ เวร และคนได้; `/roster` เลือกเวร 21, 22 ได้ และหน้า `me/offers` ไม่นับผู้อนุมัติเป็นพยาบาล; ไม่มี Migration | คน 1 |
+| 2026-10-16 | ปิดรอบ 4: PR ทุกตัวของรอบ 4 เข้า `staging` ครบ; ส่วน "สถานะของรอบ 4" บอกว่าเสร็จแล้ว ใส่ #83, #84 และ #88 ในแถว S, T4 และ C3 และบอกว่า head ของ Migration ตอนปิดรอบคือ `f2a7c9d4e6b8`; งานค้างจากรอบ 3 (R4-Q3) ยังไม่มีบันทึกใน repo; ตาราง Test ของข้อกำหนดที่พังเงียบได้ชี้ไฟล์และชื่อ Test ที่ตรวจแล้วว่ามีจริง; ไม่เหลือป้าย **[รอบ 4 · PR X]**; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
