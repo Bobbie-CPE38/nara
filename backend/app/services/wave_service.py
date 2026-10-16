@@ -3,12 +3,14 @@
 The handler owns OFFER_SENT and MANUAL_HANDOFF. No commit or case-status write.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
+    ApprovalRequest,
     AuditLog,
     CandidateItem,
     CandidateItemTarget,
@@ -16,11 +18,17 @@ from app.db.models import (
     CandidatePlan,
     RosterAssignment,
     Shift,
-    StaffingCase,
 )
 from app.domain.constraints.codes import OFFER_LIMIT_REACHED, SOURCE_SHIFT_TAKEN
 from app.domain.enums import COVERING_ROSTER_STATUSES, AuditAction, OutreachStatus
-from app.domain.staffing.wave_targets import elementary_slices, fill_targets_by_slice, is_short
+from app.domain.staffing.wave_targets import (
+    Slice,
+    TargetCredit,
+    covers,
+    elementary_slices,
+    fill_targets_by_slice,
+    is_short,
+)
 from app.domain.workflow.case_status import GapFiller
 from app.services import availability_service, case_facts_service, gap_service, hard_rule_service
 from app.services.optimization_service import record_item_targets
@@ -85,18 +93,49 @@ def _taken_source_shifts(db: Session, case_id: int) -> dict[int, set[int]]:
         )
     ):
         taken.setdefault(shift_id, set()).add(staff_id)
+    # A move done for this case: its approved request's item names the source row,
+    # and the destination row links to that row. The destination shift alone would
+    # also match the moves of an earlier case on the same shift.
     source = aliased(RosterAssignment)
     for shift_id, staff_id in db.execute(
         select(source.shift_id, RosterAssignment.staff_id)
         .join(source, source.id == RosterAssignment.transferred_from_assignment_id)
-        .join(StaffingCase, StaffingCase.shift_id == RosterAssignment.shift_id)
+        .join(CandidateItem, CandidateItem.source_assignment_id == source.id)
+        .join(ApprovalRequest, ApprovalRequest.candidate_item_id == CandidateItem.id)
         .where(
-            StaffingCase.id == case_id,
+            ApprovalRequest.case_id == case_id,
+            ApprovalRequest.is_approved.is_(True),
+            CandidateItem.staff_id == RosterAssignment.staff_id,
             RosterAssignment.status.in_(list(COVERING_ROSTER_STATUSES)),
         )
     ):
         taken.setdefault(shift_id, set()).add(staff_id)
     return taken
+
+
+def _open_gap(
+    slices: list[Slice] | None,
+    counted: list[GapFiller],
+    kept: list[CandidateItem],
+    candidates: list[CandidateItem],
+    credits: dict[int, tuple[TargetCredit, ...]],
+    person: Callable[[CandidateItem], GapFiller],
+) -> int:
+    """People still missing (headcount, roles, skills over all slices) after a selection."""
+    chosen = [
+        *counted,
+        *(person(item) for item in kept),
+        *(person(item) for item in candidates if item.staff_id in credits),
+    ]
+    missing = 0
+    for piece in slices or []:
+        present = [p for p in chosen if covers(p, piece.start_at, piece.end_at)]
+        missing += max(0, piece.headcount_gap - len(present))
+        for role_id, gap in piece.role_gaps.items():
+            missing += max(0, gap - sum(1 for p in present if p.role_id == role_id))
+        for skill_id, gap in piece.skill_gaps.items():
+            missing += max(0, gap - sum(1 for p in present if skill_id in p.skill_ids))
+    return missing
 
 
 def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
@@ -149,19 +188,6 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
     first_contacts = [item for item in eligible if item.staff_id not in contacted_staff_ids]
     if first_contacts:
         eligible = first_contacts
-    # One person per source shift in a wave: the first in rank order keeps it
-    claimed: set[int] = set()
-    distinct: list[CandidateItem] = []
-    for item in eligible:
-        source_shift_id = source_shift_of.get(item.id)
-        if source_shift_id is None or source_shift_id not in claimed:
-            if source_shift_id is not None:
-                claimed.add(source_shift_id)
-            distinct.append(item)
-        else:
-            skipped.append({"staff_id": item.staff_id, "reason": SOURCE_SHIFT_TAKEN})
-    eligible = distinct
-
     gap = gap_service.get_case_gap(db, case_id)
     fillers = case_facts_service.get_case_fillers(db, case_id, include_reserves=True)
 
@@ -190,12 +216,51 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
         [interval for interval in gap.intervals if is_short(interval)],
         [*fillers, *(person(item) for item in eligible), *(person(item) for item in kept)],
     )
-    credits = fill_targets_by_slice(
-        slices=slices,
-        candidates=[person(item) for item in candidates],
-        already_selected=[person(item) for item in kept],
-        counted=fillers,
-    )
+    # One person per source shift in a wave. The Solver's group already obeys it, so
+    # its source shifts are closed to the others. Among the rest, exclusivity is
+    # settled with the targets: when two chosen people share a source shift, keep
+    # the one whose choice leaves the least of the gap open (rank order breaks ties).
+    closed = {source_shift_of[item.id] for item in kept if item.id in source_shift_of}
+    for item in candidates:
+        if source_shift_of.get(item.id) in closed:
+            skipped.append({"staff_id": item.staff_id, "reason": SOURCE_SHIFT_TAKEN})
+    candidates = [item for item in candidates if source_shift_of.get(item.id) not in closed]
+    dropped: set[int] = set()
+
+    def fill(excluded: set[int]) -> dict[int, tuple[TargetCredit, ...]]:
+        return fill_targets_by_slice(
+            slices=slices,
+            candidates=[person(item) for item in candidates if item.id not in excluded],
+            already_selected=[person(item) for item in kept],
+            counted=fillers,
+        )
+
+    def chosen_by_source(credit_map: dict[int, tuple[TargetCredit, ...]]) -> dict[int, list[int]]:
+        groups: dict[int, list[int]] = {}
+        for item in candidates:
+            source_shift_id = source_shift_of.get(item.id)
+            if item.staff_id in credit_map and source_shift_id is not None:
+                groups.setdefault(source_shift_id, []).append(item.id)
+        return groups
+
+    credits = fill(dropped)
+    while True:
+        conflict = next((ids for ids in chosen_by_source(credits).values() if len(ids) > 1), None)
+        if conflict is None:
+            break
+        best: tuple[int, set[int], dict[int, tuple[TargetCredit, ...]]] | None = None
+        for keeper in conflict:
+            trial_dropped = dropped | (set(conflict) - {keeper})
+            trial = fill(trial_dropped)
+            open_gap = _open_gap(slices, fillers, kept, candidates, trial, person)
+            if best is None or open_gap < best[0]:
+                best = (open_gap, trial_dropped, trial)
+        assert best is not None
+        _, dropped, credits = best
+    for item in candidates:
+        if item.id in dropped:
+            skipped.append({"staff_id": item.staff_id, "reason": SOURCE_SHIFT_TAKEN})
+    candidates = [item for item in candidates if item.id not in dropped]
     for item in candidates:
         if item.staff_id in credits:
             # Uncontacted Solver members may be selected for different targets in

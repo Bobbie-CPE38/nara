@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core import clock
 from app.db.models import (
     CandidateItem,
+    CandidateOutreach,
     RosterAssignment,
     Staff,
     StaffingCase,
@@ -35,7 +36,7 @@ from app.domain.enums import (
 )
 from app.services import hard_rule_service, optimization_service, wave_service
 from app.services.hard_rule_service import Cover
-from tests.integration.case_rows import RN, leave, make_case, offer, record_gap
+from tests.integration.case_rows import RN, approval, leave, make_case, offer, record_gap
 from tests.integration.test_cross_ward_pool import _duty, _night, _plan, _rn, _shift, _ward
 
 pytestmark = pytest.mark.usefixtures("frozen_clock")
@@ -318,14 +319,7 @@ def test_one_wave_never_picks_two_people_of_one_source_shift(seeded: Session) ->
     selection = wave_service.select_wave(seeded, case_id=case.id, shift=_night(seeded))
 
     chosen = [item.staff_id for item in selection.items if item.staff_id in scene.staff]
-    taken = [
-        row["staff_id"]
-        for row in selection.skipped
-        if row["reason"] == SOURCE_SHIFT_TAKEN and row["staff_id"] in scene.staff
-    ]
-    # Every holder but the first in rank order is skipped for this wave
     assert len(chosen) <= 1
-    assert len(taken) == len(scene.staff) - 1
 
 
 @pytest.mark.parametrize("status", [OutreachStatus.SENT, OutreachStatus.ACCEPTED])
@@ -351,6 +345,9 @@ def test_a_rejected_offer_does_not_take_the_source_shift(seeded: Session) -> Non
     selection = wave_service.select_wave(seeded, case_id=case.id, shift=_night(seeded))
 
     assert scene.staff[0] not in {item.staff_id for item in selection.items}
+    # The next person of the same source shift is still free to be offered
+    reasons = {row["staff_id"]: row["reason"] for row in selection.skipped}
+    assert reasons.get(scene.staff[1]) != SOURCE_SHIFT_TAKEN
 
 
 def test_a_completed_move_takes_the_source_shift(seeded: Session) -> None:
@@ -358,6 +355,10 @@ def test_a_completed_move_takes_the_source_shift(seeded: Session) -> None:
     first, second = scene.staff[:2]
     source_row = scene.row(first)
     source_row.status = RosterStatus.CANCELLED
+    request = approval(seeded, case, _items(result)[first], approved=True)
+    live = seeded.get(CandidateOutreach, request.outreach_id)
+    assert live is not None
+    live.status = OutreachStatus.CANCELLED
     seeded.add(
         RosterAssignment(
             staff_id=first,
@@ -375,3 +376,92 @@ def test_a_completed_move_takes_the_source_shift(seeded: Session) -> None:
     reasons = {row["staff_id"]: row["reason"] for row in selection.skipped}
     assert reasons[second] == SOURCE_SHIFT_TAKEN
     assert not {item.staff_id for item in selection.items} & set(scene.staff)
+
+
+def _move(db: Session, case: StaffingCase, item: CandidateItem, scene: Scene) -> None:
+    """The first approval of `case` ends in a done move out of the source shift."""
+    source_row = scene.row(item.staff_id)
+    source_row.status = RosterStatus.CANCELLED
+    request = approval(db, case, item, approved=True)
+    live = db.get(CandidateOutreach, request.outreach_id)
+    assert live is not None
+    live.status = OutreachStatus.CANCELLED
+    db.add(
+        RosterAssignment(
+            staff_id=item.staff_id,
+            shift_id=item.proposed_shift_id,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REPLACEMENT,
+            candidate_source=CandidateSource.CROSS_WARD,
+            transferred_from_assignment_id=source_row.id,
+        )
+    )
+    db.flush()
+
+
+def test_an_earlier_cases_move_does_not_take_the_source_shift_for_a_new_case(
+    seeded: Session,
+) -> None:
+    scene, result, first_case = _movers(seeded)
+    _move(seeded, first_case, _items(result)[scene.staff[0]], scene)
+    first_case.status = CaseStatus.RESOLVED
+    # Another absence opens a second case on the same destination shift
+    leave(seeded, 104)
+    second_case = make_case(seeded, CaseStatus.OPTIMIZING)
+    record_gap(seeded, second_case)
+    optimization_service.create_plan(seeded, second_case)
+
+    selection = wave_service.select_wave(seeded, case_id=second_case.id, shift=_night(seeded))
+
+    assert SOURCE_SHIFT_TAKEN not in {row["reason"] for row in selection.skipped}
+
+
+def test_a_later_wave_keeps_the_person_who_fills_what_is_left_of_one_source_shift(
+    seeded: Session,
+) -> None:
+    """A ranks first but cannot fill the ICU gap; B of the same source shift can."""
+    scene = Scene(seeded, required=2, holders=3)
+    # One ICU nurse more than the ward has: the open gap is 1 person, 1 RN and 1 ICU
+    holders = {
+        staff_id
+        for staff_id in seeded.scalars(
+            select(RosterAssignment.staff_id).where(
+                RosterAssignment.shift_id == _night(seeded).id,
+                RosterAssignment.status == RosterStatus.ASSIGNED,
+                RosterAssignment.staff_id != 105,
+            )
+        )
+        if seeded.get(StaffSkill, (staff_id, ICU)) is not None
+    }
+    requirement_skill = seeded.scalars(
+        select(StaffingRequirementSkill)
+        .join(
+            StaffingRequirement,
+            StaffingRequirement.id == StaffingRequirementSkill.staffing_requirement_id,
+        )
+        .where(
+            StaffingRequirement.shift_id == _night(seeded).id,
+            StaffingRequirementSkill.skill_id == ICU,
+        )
+    ).one()
+    requirement_skill.required_count = len(holders) + 1
+    seeded.flush()
+    result = _plan(seeded)
+    case = _case(seeded, result)
+    items = _items(result)
+    plain, icu = scene.staff[:2]
+    _drop_skills(seeded, plain)
+    seeded.add(StaffSkill(staff_id=plain, skill_id=BLS))
+    seeded.flush()
+    first, second = sorted((items[plain], items[icu]), key=lambda item: item.rank)
+    if first.staff_id != plain:
+        first.rank, second.rank = second.rank, first.rank
+    # The first wave went out and nobody of it is left: this is a later wave
+    for staff_id in (201, 202, 203):
+        offer(seeded, case, items[staff_id], OutreachStatus.REJECTED)
+
+    selection = wave_service.select_wave(seeded, case_id=case.id, shift=_night(seeded))
+
+    chosen = {item.staff_id for item in selection.items}
+    assert icu in chosen
+    assert not chosen & {plain}
