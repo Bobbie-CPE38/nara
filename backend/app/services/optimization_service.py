@@ -324,10 +324,13 @@ def _movable(db: Session, shift: Shift) -> dict[int, Cover]:
     """Staff ID to the cover (with the source assignment) of people movable onto `shift`.
 
     Round 4 PR C3 (workflow.md 6.19). A person is movable when their only committed
-    row overlapping the shift (effective times, half-open) is an ASSIGNED row, on an
-    active shift of another active ward, and a move is still possible: the later of
-    the shift start, the row start and now is before the end of both. The row may be
-    partly outside the shift or already started.
+    row overlapping the time a move can still take (from max(shift start, now) to the
+    shift end; effective times, half-open) is an ASSIGNED row, on an active shift of
+    another active ward, and a move is still possible: the later of the shift start,
+    the row start and now is before the end of both. The row may be partly outside
+    the shift or already started. A row that ended before then is history, such as
+    the kept part of an earlier move: it does not block a second move and still
+    counts in the fatigue rules (hard_rule_service reads its own roster).
 
     The cover starts at m = max(shift start, row start), without the clock: the clock
     would cut a sliver [evaluated_from, now) off every replan, and the hours and rest
@@ -337,6 +340,7 @@ def _movable(db: Session, shift: Shift) -> dict[int, Cover]:
     source_ward = aliased(Ward)
     row_start = roster_time_service.start_at()
     row_end = roster_time_service.end_at()
+    now = clock.now()
     rows = db.execute(
         select(
             RosterAssignment.staff_id,
@@ -353,14 +357,13 @@ def _movable(db: Session, shift: Shift) -> dict[int, Cover]:
         .where(
             RosterAssignment.status.in_(list(COMMITTED_ROSTER_STATUSES)),
             row_start < shift.end_at,
-            row_end > shift.start_at,
+            row_end > max(shift.start_at, now),
         )
         .order_by(RosterAssignment.id)
     ).all()
     held: dict[int, list[Any]] = {}
     for row in rows:
         held.setdefault(row[0], []).append(row)
-    now = clock.now()
     movable: dict[int, Cover] = {}
     for staff_id, staff_rows in held.items():
         if len(staff_rows) != 1:

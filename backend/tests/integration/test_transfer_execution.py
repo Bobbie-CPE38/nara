@@ -190,6 +190,8 @@ def test_final_approval_after_the_source_shift_started_moves_mid_shift(scene):
     clock.set_time(moved_at)
     response = decide(client, request_id)
     assert response.json()["outcome"] == "ASSIGNED"
+    # The five minutes before the move have passed and need no one: the gap is closed
+    assert response.json()["case_status"] == CaseStatus.RESOLVED.value
     db.expire_all()
     old, new = rows_of(db)
     # The source row stays ASSIGNED and ends at the move; the new row starts there
@@ -205,6 +207,26 @@ def test_final_approval_after_the_source_shift_started_moves_mid_shift(scene):
     assert datetime.fromisoformat(audit.payload["transfer_at"]) == moved_at
     actions = list(db.scalars(select(AuditLog.action)))
     assert AuditAction.TRANSFER_CHECK_FAILED not in actions
+
+
+def test_the_recheck_proposes_the_shift_from_the_real_move_time(scene):
+    """check_items(move_at=...): a duty that ends before the move does not clash with it.
+
+    From the planned cover (the whole night shift) the duty below is a SHIFT_CONFLICT.
+    The person stays on the source shift until the move, so only the time from the
+    move on is proposed, and the move goes ahead.
+    """
+    db, client, request_id, source_headers = scene
+    assert decide(client, request_id, source_headers).json()["outcome"] == "WAITING_OTHER_WARD"
+    request = db.get(ApprovalRequest, request_id)
+    shift = db.get(Shift, db.get(StaffingCase, request.case_id).shift_id)
+    elapsed = _shift(db, _ward(db), shift.start_at, shift.start_at + timedelta(minutes=3))
+    _duty(db, 201, elapsed)
+    db.commit()
+    clock.set_time(shift.start_at + timedelta(minutes=5))
+    response = decide(client, request_id)
+    assert response.json()["outcome"] == "ASSIGNED"
+    assert response.json()["failed_rules"] == []
 
 
 def test_a_mid_shift_recheck_uses_the_real_move_time(scene):

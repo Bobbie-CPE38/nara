@@ -15,7 +15,7 @@ handler stops it (T5).
 
 from collections import Counter
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from types import MappingProxyType
 
@@ -60,6 +60,20 @@ class IntervalGap:
             raise ValueError("A gap slice must start before it ends")
         object.__setattr__(self, "role_gaps", MappingProxyType(dict(self.role_gaps)))
         object.__setattr__(self, "skill_gaps", MappingProxyType(dict(self.skill_gaps)))
+
+
+def remaining_intervals(
+    intervals: Iterable[IntervalGap], from_at: datetime
+) -> tuple[IntervalGap, ...]:
+    """The part of each slice from `from_at` on, with its counts (round 4 PR C3).
+
+    A slice over by then is dropped, one that has started is cut at `from_at`.
+    """
+    return tuple(
+        replace(interval, start_at=max(interval.start_at, from_at))
+        for interval in intervals
+        if interval.end_at > from_at
+    )
 
 
 def intervals_closed(intervals: Iterable[IntervalGap], fillers: Iterable[GapFiller]) -> bool:

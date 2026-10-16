@@ -237,6 +237,40 @@ def test_a_source_row_that_is_over_by_now_keeps_the_person_out(seeded: Session) 
     assert scene.staff[1] in _pooled(result)
 
 
+def test_a_nurse_moved_once_can_be_moved_again_from_her_new_shift(seeded: Session) -> None:
+    """The kept part of an earlier move is history: it does not block a second move."""
+    night = _night(seeded)
+    first = Scene(seeded, required=1, holders=2)
+    second = Scene(seeded, required=1, holders=1)
+    mover = first.staff[0]
+    # Moved off the first shift onto the second at 23:05
+    moved_at = night.start_at + timedelta(minutes=5)
+    prefix = first.row(mover)
+    prefix.actual_end_at = moved_at
+    current = RosterAssignment(
+        staff_id=mover,
+        shift_id=second.shift_id,
+        status=RosterStatus.ASSIGNED,
+        assignment_type=AssignmentType.REPLACEMENT,
+        actual_start_at=moved_at,
+        transferred_from_assignment_id=prefix.id,
+    )
+    seeded.add(current)
+    seeded.flush()
+    clock.set_time(night.start_at + timedelta(minutes=10))
+
+    item = _items(_plan(seeded))[mover]
+
+    assert item.source_assignment_id == current.id
+    assert item.cover_start_at == moved_at and item.cover_end_at == night.end_at
+    check = hard_rule_service.check_items(seeded, shift=night, items=[item])[item.id]
+    assert check.result.failed_rules == ()
+    # The fatigue rules still see the prefix: the chain is one duty from 23:00
+    assert check.context.linked_duty is not None
+    assert check.context.linked_duty.start_at == night.start_at
+    assert check.context.linked_duty.end_at == moved_at
+
+
 def test_the_linked_source_part_lets_a_mover_pass_the_rest_rule(seeded: Session) -> None:
     """Silent-failure table, T1 and C3: the cut-off source and the new shift are one duty."""
     night = _night(seeded)
