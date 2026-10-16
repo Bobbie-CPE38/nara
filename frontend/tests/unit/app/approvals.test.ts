@@ -555,7 +555,7 @@ describe("round 4 (PR U)", () => {
 
     const history = await screen.findByRole("table", { name: "Approved by the system" });
     const failed = await within(history).findByText(
-      "FAILED: approved, but the assignment was not made",
+      "FAILED: case workflow failed; check assignment outcome",
     );
     expect(failed.className).toContain("text-red-700");
     // Both wards of the request are listed, not only the first

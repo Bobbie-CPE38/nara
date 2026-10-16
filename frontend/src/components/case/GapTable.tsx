@@ -9,7 +9,9 @@ function Shortage({ count }: { count: number }) {
 
 function shortages(slice: GapIntervalView): string {
   const parts = [
-    ...(slice.headcount.gap_count > 0 ? [`${slice.headcount.gap_count} people`] : []),
+    ...(slice.headcount.gap_count > 0
+      ? [`${slice.headcount.gap_count} ${slice.headcount.gap_count === 1 ? "person" : "people"}`]
+      : []),
     ...slice.roles.filter((row) => row.gap_count > 0).map((row) => `${row.gap_count} ${row.name}`),
     ...slice.skills.filter((row) => row.gap_count > 0).map((row) => `${row.gap_count} ${row.name}`),
   ];

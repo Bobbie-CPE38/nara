@@ -825,7 +825,7 @@ describe("CaseView", () => {
 
       expect(rows("Gap by time")).toEqual([
         ["2026-10-09 23:00:00", "2026-10-10 03:00:00", "5 of 5", "Covered"],
-        ["2026-10-10 03:00:00", "2026-10-10 07:00:00", "4 of 5", "Short: 1 people, 1 RN"],
+        ["2026-10-10 03:00:00", "2026-10-10 07:00:00", "4 of 5", "Short: 1 person, 1 RN"],
       ]);
     });
 
@@ -846,7 +846,7 @@ describe("CaseView", () => {
       await tick();
 
       expect(rows("Gap by time")).toEqual([
-        ["2026-10-10 03:00:00", "2026-10-10 07:00:00", "4 of 5", "Short: 1 people, 1 RN"],
+        ["2026-10-10 03:00:00", "2026-10-10 07:00:00", "4 of 5", "Short: 1 person, 1 RN"],
       ]);
     });
 

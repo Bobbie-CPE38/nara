@@ -104,6 +104,8 @@ function decisionMessage(result: ApprovalDecisionResult): string {
   }
 }
 
+const AUTO_HISTORY_POLL_MS = 10_000;
+
 /** An auto-approved request with the current status of its case. null: not known */
 type AutoRow = AutoApprovedApproval & { caseStatus: string | null };
 
@@ -130,7 +132,8 @@ async function loadAutoRows(api: Api, signal: AbortSignal): Promise<AutoRow[]> {
 /** Requests the system approved for the caller's wards, newest first (GET /approvals/auto). */
 function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
   const load = useCallback((signal: AbortSignal) => loadAutoRows(api, signal), [api]);
-  const { data, error } = usePolling(load);
+  // History changes slowly, and each poll reads every case of up to 50 rows
+  const { data, error } = usePolling(load, { intervalMs: AUTO_HISTORY_POLL_MS });
   return (
     <section aria-label="Approved by the system" className="mt-8">
       <h2 className="text-xl font-semibold">Approved by the system</h2>
@@ -168,7 +171,7 @@ function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
                   {row.caseStatus === null
                     ? "—"
                     : row.caseStatus === "FAILED"
-                      ? "FAILED: approved, but the assignment was not made"
+                      ? "FAILED: case workflow failed; check assignment outcome"
                       : row.caseStatus}
                 </td>
               </tr>
