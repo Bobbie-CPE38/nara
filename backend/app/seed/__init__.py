@@ -1,7 +1,8 @@
 """Demo seed loaders. Run on a freshly migrated database in a caller-owned transaction.
 
-Freeze app.core.clock at D 21:00 +07:00 before calling load(db), or base_data.seed(db)
-then scenarios.golden_case.seed(db). The caller commits and owns rollback/reset.
+Freeze app.core.clock at D 21:00 +07:00 before calling load(db), or base_data.seed(db),
+scenarios.golden_case.seed(db), then scenarios.multi_ward.seed(db).
+The caller commits and owns rollback/reset.
 app.seed.reset.reset_demo() does all of this for POST /demo/reset.
 """
 
@@ -15,7 +16,7 @@ def load(db: Session) -> None:
     """Populate empty application tables without deleting data or committing."""
     # Imported here: the loaders import sync_sequences from this module
     from app.seed import base_data
-    from app.seed.scenarios import golden_case
+    from app.seed.scenarios import golden_case, multi_ward
 
     for table in Base.metadata.sorted_tables:
         if db.execute(select(table).limit(1)).first() is not None:
@@ -25,6 +26,7 @@ def load(db: Session) -> None:
             )
     base_data.seed(db)
     golden_case.seed(db)
+    multi_ward.seed(db)
 
 
 def sync_sequences(db: Session, tables: list[str]) -> None:

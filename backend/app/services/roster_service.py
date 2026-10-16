@@ -31,17 +31,14 @@ from app.schemas.roster import (
     StaffRoster,
     StaffRosterRow,
 )
+from app.services import roster_time_service
 from app.services.unavailability_service import leave_overlaps_shift_sql
 
 
-def create_replacement(
-    db: Session, case: StaffingCase, *, approval: ApprovalRequest
-) -> RosterAssignment:
-    """Create the selected approval's replacement in the decision transaction.
-
-    Caller holds Shift, Request, Offer, case and Staff locks. No commit or audit.
-    Do not recheck Hard Rules at execution (Q38); Safety owns that check.
-    """
+def _approved_item(
+    db: Session, case: StaffingCase, approval: ApprovalRequest
+) -> tuple[CandidateItem, Shift]:
+    """The approved request's item and its shift, after the checks both writers share."""
     db.flush()
     if approval.case_id != case.id or approval.is_pending or approval.is_approved is not True:
         raise ValueError("Replacement requires a decided, approved request of this case")
@@ -57,17 +54,105 @@ def create_replacement(
     shift = db.get(Shift, item.proposed_shift_id)
     if shift is None:
         raise LookupError(f"No shift {item.proposed_shift_id}")
+    return item, shift
 
+
+def create_replacement(
+    db: Session, case: StaffingCase, *, approval: ApprovalRequest
+) -> RosterAssignment:
+    """Create the selected approval's replacement in the decision transaction.
+
+    Caller holds Shift, Request, Offer, case and Staff locks. No commit or audit.
+    Do not recheck Hard Rules at execution (Q38); Safety owns that check.
+
+    This creates the destination row only. A move out of another shift
+    (item.source_assignment_id) goes through create_transfer, which also cancels
+    or cuts the source row; this writer refuses it, so one person is never left on
+    two overlapping shifts without a link.
+    """
+    item, shift = _approved_item(db, case, approval)
+    if item.source_assignment_id is not None:
+        raise ValueError("A move needs create_transfer")
+
+    start, end = roster_time_service.effective_interval(
+        shift_start_at=shift.start_at,
+        shift_end_at=shift.end_at,
+        actual_start_at=item.cover_start_at,
+        actual_end_at=item.cover_end_at,
+    )
+    whole_shift = start == shift.start_at and end == shift.end_at
     assignment = RosterAssignment(
         staff_id=item.staff_id,
         shift_id=item.proposed_shift_id,
         status=RosterStatus.ASSIGNED,
         assignment_type=AssignmentType.REPLACEMENT,
         candidate_source=item.source,
+        actual_start_at=None if whole_shift else item.cover_start_at,
+        actual_end_at=None if whole_shift else item.cover_end_at,
     )
     db.add(assignment)
     db.flush()
     return assignment
+
+
+def create_transfer(
+    db: Session, case: StaffingCase, *, approval: ApprovalRequest, transfer_at: datetime
+) -> tuple[RosterAssignment, RosterAssignment]:
+    """Move the approved person off their source row onto this case's shift.
+
+    Returns (destination, source). Caller holds the locks and has already run the
+    transfer checks (transfer_service.execute). No commit, audit or checks here.
+
+    A transfer at or before the source row's effective start cancels it. Later
+    than that the source row stays ASSIGNED and ends at `transfer_at`; that branch
+    is the mid-shift move of PR C3.
+    """
+    item, shift = _approved_item(db, case, approval)
+    if item.source_assignment_id is None:
+        raise ValueError("A transfer needs a source assignment")
+    source = db.get(RosterAssignment, item.source_assignment_id, populate_existing=True)
+    if source is None:
+        raise LookupError(f"No roster assignment {item.source_assignment_id}")
+    source_shift = db.get(Shift, source.shift_id)
+    if source_shift is None:
+        raise LookupError(f"No shift {source.shift_id}")
+
+    source_start, _ = roster_time_service.effective_interval(
+        shift_start_at=source_shift.start_at,
+        shift_end_at=source_shift.end_at,
+        actual_start_at=source.actual_start_at,
+        actual_end_at=source.actual_end_at,
+    )
+    if transfer_at <= source_start:
+        source.status = RosterStatus.CANCELLED
+    else:
+        roster_time_service.effective_interval(
+            shift_start_at=source_shift.start_at,
+            shift_end_at=source_shift.end_at,
+            actual_start_at=source.actual_start_at,
+            actual_end_at=transfer_at,
+        )
+        source.actual_end_at = transfer_at
+
+    actual_start = transfer_at if transfer_at > shift.start_at else None
+    roster_time_service.effective_interval(
+        shift_start_at=shift.start_at,
+        shift_end_at=shift.end_at,
+        actual_start_at=actual_start,
+        actual_end_at=None,
+    )
+    destination = RosterAssignment(
+        staff_id=item.staff_id,
+        shift_id=shift.id,
+        status=RosterStatus.ASSIGNED,
+        assignment_type=AssignmentType.REPLACEMENT,
+        candidate_source=item.source,
+        actual_start_at=actual_start,
+        transferred_from_assignment_id=source.id,
+    )
+    db.add(destination)
+    db.flush()
+    return destination, source
 
 
 def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
@@ -92,10 +177,15 @@ def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
             RosterAssignment.status,
             RosterAssignment.assignment_type,
             RosterAssignment.candidate_source,
+            RosterAssignment.actual_start_at,
+            RosterAssignment.actual_end_at,
+            RosterAssignment.transferred_from_assignment_id,
             RosterAssignment.staff_id,
             RosterAssignment.created_at,
             RosterAssignment.updated_at,
-            _is_unavailable(shift.start_at, shift.end_at).label("is_unavailable"),
+            _is_unavailable(roster_time_service.start_at(), roster_time_service.end_at()).label(
+                "is_unavailable"
+            ),
             Staff.first_name,
             Staff.last_name,
             Staff.status.label("staff_status"),
@@ -107,6 +197,7 @@ def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
         .join(Staff, Staff.id == RosterAssignment.staff_id)
         .join(Role, Role.id == Staff.role_id)
         .join(home_ward, home_ward.id == Staff.home_ward_id)
+        .join(Shift, Shift.id == RosterAssignment.shift_id)
         .where(RosterAssignment.shift_id == shift.id)
         # By id, never a time column: the demo clock is frozen (section 6.4)
         .order_by(RosterAssignment.id)
@@ -128,7 +219,7 @@ def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
 def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
     """Read the staff member and every roster row they hold, without flushes, commits or locks.
 
-    Rows come back in every status, ordered by shift start, then row ID: a
+    Rows come back in every status, ordered by effective start, then row ID: a
     person's shifts read as a timeline. Two statements whatever the number of
     rows. Only the staff columns the answer needs are loaded.
     """
@@ -160,9 +251,14 @@ def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
             RosterAssignment.status,
             RosterAssignment.assignment_type,
             RosterAssignment.candidate_source,
+            RosterAssignment.actual_start_at,
+            RosterAssignment.actual_end_at,
+            RosterAssignment.transferred_from_assignment_id,
             RosterAssignment.created_at,
             RosterAssignment.updated_at,
-            _is_unavailable(Shift.start_at, Shift.end_at).label("is_unavailable"),
+            _is_unavailable(roster_time_service.start_at(), roster_time_service.end_at()).label(
+                "is_unavailable"
+            ),
             Shift.id.label("shift_id"),
             Shift.ward_id,
             Ward.name.label("ward_name"),
@@ -174,7 +270,7 @@ def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
         .join(Shift, Shift.id == RosterAssignment.shift_id)
         .join(Ward, Ward.id == Shift.ward_id)
         .where(RosterAssignment.staff_id == staff_id)
-        .order_by(Shift.start_at, RosterAssignment.id)
+        .order_by(roster_time_service.start_at(), RosterAssignment.id)
     ).mappings()
     return StaffRoster(
         staff=RosterStaff.model_validate(found),
@@ -184,6 +280,9 @@ def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
                 status=row["status"],
                 assignment_type=row["assignment_type"],
                 candidate_source=row["candidate_source"],
+                actual_start_at=row["actual_start_at"],
+                actual_end_at=row["actual_end_at"],
+                transferred_from_assignment_id=row["transferred_from_assignment_id"],
                 shift=RosterShift(
                     id=row["shift_id"],
                     ward_id=row["ward_id"],
@@ -203,8 +302,8 @@ def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
 
 
 def _is_unavailable(
-    shift_start: datetime | InstrumentedAttribute[datetime],
-    shift_end: datetime | InstrumentedAttribute[datetime],
+    shift_start: datetime | InstrumentedAttribute[datetime] | ColumnElement[datetime],
+    shift_end: datetime | InstrumentedAttribute[datetime] | ColumnElement[datetime],
 ) -> ColumnElement[bool]:
     """ASSIGNED, and a leave period of the row's person overlaps the shift.
 

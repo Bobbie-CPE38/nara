@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import AuditLog, RosterAssignment, Staff
+from app.db.models import ApprovalRequest, AuditLog, RosterAssignment, Shift, Staff, StaffingCase
 from app.domain.enums import (
     AssignmentType,
     AuditAction,
@@ -20,6 +20,7 @@ from app.services import roster_service
 from app.workflow import orchestrator
 from app.workflow.handlers import execute_assignment
 from tests.integration.case_rows import approval, assign, make_case, make_plan, offer, short_case
+from tests.integration.test_cross_ward_pool import _duty, _shift, _ward
 
 
 def replacements(db: Session) -> list[RosterAssignment]:
@@ -81,6 +82,67 @@ def test_reference_mismatch_cannot_create_assignment(
     with pytest.raises(ValueError):
         roster_service.create_replacement(db, case, approval=request)
     assert replacements(db) == []
+
+
+def _move(db: Session) -> tuple[StaffingCase, ApprovalRequest, RosterAssignment]:
+    """An approved move of 201 off a row on a shift of the same hours in another ward."""
+    case, items = short_case(db)
+    destination = db.get(Shift, case.shift_id)
+    assert destination is not None
+    ward_id = _ward(db)
+    shift_id = _shift(db, ward_id, destination.start_at, destination.end_at)
+    _duty(db, 201, shift_id)
+    source = db.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id == 201, RosterAssignment.shift_id == shift_id
+        )
+    ).one()
+    items[201].source_assignment_id = source.id
+    items[201].source = CandidateSource.CROSS_WARD
+    return case, approval(db, case, items[201], approved=True), source
+
+
+def test_create_replacement_refuses_a_move_out_of_another_shift(
+    production_seeded: Session,
+) -> None:
+    """The plain writer would leave one person on two shifts, so a move needs create_transfer."""
+    db = production_seeded
+    case, request, _ = _move(db)
+    with pytest.raises(ValueError, match="create_transfer"):
+        roster_service.create_replacement(db, case, approval=request)
+    assert replacements(db) == []
+
+
+def test_create_transfer_cancels_the_source_row_and_links_the_destination(
+    production_seeded: Session,
+) -> None:
+    db = production_seeded
+    case, request, source = _move(db)
+    shift = db.get(Shift, case.shift_id)
+    assert shift is not None
+    with patch.object(db, "commit", side_effect=AssertionError("service committed")):
+        row, cut = roster_service.create_transfer(
+            db, case, approval=request, transfer_at=shift.start_at
+        )
+    assert cut is source and source.status == RosterStatus.CANCELLED
+    assert source.actual_start_at is None and source.actual_end_at is None
+    assert row.staff_id == 201 and row.shift_id == case.shift_id
+    assert row.status == RosterStatus.ASSIGNED
+    assert row.assignment_type == AssignmentType.REPLACEMENT
+    assert row.candidate_source == CandidateSource.CROSS_WARD
+    assert row.transferred_from_assignment_id == source.id
+    assert row.actual_start_at is None and row.actual_end_at is None
+    assert db.scalar(select(AuditLog.id)) is None
+
+
+def test_create_transfer_needs_a_source_assignment(production_seeded: Session) -> None:
+    db = production_seeded
+    case, items = short_case(db)
+    request = approval(db, case, items[201], approved=True)
+    shift = db.get(Shift, case.shift_id)
+    assert shift is not None
+    with pytest.raises(ValueError, match="source assignment"):
+        roster_service.create_transfer(db, case, approval=request, transfer_at=shift.start_at)
 
 
 def test_execution_does_not_recheck_safety(production_seeded: Session) -> None:

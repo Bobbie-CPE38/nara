@@ -78,6 +78,17 @@ def actions(db: Session, event_id: int) -> list[AuditAction]:
     )
 
 
+def night_rows(db: Session, assignment_ids: list[int]) -> list[int]:
+    """The IDs on the ICU night shift: the Medicine night of the seed ends at the same time."""
+    return list(
+        db.scalars(
+            select(RosterAssignment.id).where(
+                RosterAssignment.id.in_(assignment_ids), RosterAssignment.shift_id == NIGHT_SHIFT
+            )
+        )
+    )
+
+
 def test_a_leave_reported_before_the_end_applies_after_the_job_runs(merging: Session) -> None:
     event_id = report(merging, 105, EventType.STAFF_UNAVAILABLE)
 
@@ -88,7 +99,7 @@ def test_a_leave_reported_before_the_end_applies_after_the_job_runs(merging: Ses
     assert merging.scalars(select(StaffUnavailability.staff_id)).all() == [105]
     assert AuditAction.UNAVAILABILITY_CREATED in actions(merging, event_id)
     # The other four people on the shift were completed in the same tick
-    assert len(work.completed_assignment_ids) == 4
+    assert len(night_rows(merging, work.completed_assignment_ids)) == 4
 
 
 def test_a_cancellation_reported_before_the_end_applies_after_the_job_runs(
@@ -157,6 +168,10 @@ def test_a_person_without_a_queued_event_is_still_completed(merging: Session) ->
     completed = roster_completion_service.complete_ended_shifts(merging)
 
     completed_staff = set(
-        merging.scalars(select(RosterAssignment.staff_id).where(RosterAssignment.id.in_(completed)))
+        merging.scalars(
+            select(RosterAssignment.staff_id).where(
+                RosterAssignment.id.in_(night_rows(merging, completed))
+            )
+        )
     )
     assert completed_staff == {101, 102, 103, 104}

@@ -8,6 +8,7 @@ Timestamp values must be supplied using app.core.clock.now(), not database defau
 from app.db.models.actor import Actor
 from app.db.models.approval_policy import ApprovalPolicy
 from app.db.models.approval_request import ApprovalRequest
+from app.db.models.approval_ward_decision import ApprovalWardDecision
 from app.db.models.attendance import Attendance
 from app.db.models.audit_log import AuditLog
 from app.db.models.candidate_item import CandidateItem
@@ -35,6 +36,11 @@ from app.db.models.staff_working_time_snapshot import StaffWorkingTimeSnapshot
 from app.db.models.staffing_case import StaffingCase
 from app.db.models.staffing_event import StaffingEvent
 from app.db.models.staffing_gap import StaffingGap
+from app.db.models.staffing_gap_interval import (
+    StaffingGapInterval,
+    StaffingGapRoleInterval,
+    StaffingGapSkillInterval,
+)
 from app.db.models.staffing_gap_role import StaffingGapRole
 from app.db.models.staffing_gap_skill import StaffingGapSkill
 from app.db.models.staffing_requirement import StaffingRequirement
@@ -47,6 +53,7 @@ __all__ = [
     "Actor",
     "ApprovalPolicy",
     "ApprovalRequest",
+    "ApprovalWardDecision",
     "Attendance",
     "AuditLog",
     "CandidateItem",
@@ -74,8 +81,11 @@ __all__ = [
     "StaffingCase",
     "StaffingEvent",
     "StaffingGap",
+    "StaffingGapInterval",
     "StaffingGapRole",
+    "StaffingGapRoleInterval",
     "StaffingGapSkill",
+    "StaffingGapSkillInterval",
     "StaffingRequirement",
     "StaffingRequirementRole",
     "StaffingRequirementSkill",

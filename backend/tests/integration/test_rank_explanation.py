@@ -254,6 +254,42 @@ def test_payload_separates_plan_penalty_from_ranking_key(
     assert [c["rank"] for c in capped["candidates"]] == list(range(1, 11))
 
 
+# 5b (round 4 PR T4)
+def test_a_partial_plan_says_coverage_comes_first_without_new_keys(seeded: Session, llm_on) -> None:
+    case = _planned_case(seeded)
+    plan = seeded.scalars(
+        select(service.CandidatePlan).where(service.CandidatePlan.case_id == case.id)
+    ).one()
+    normal = service.build_payload(plan)
+
+    plan.input_snapshot = {**plan.input_snapshot, "partial_plan": True}
+    partial = service.build_payload(plan)
+
+    assert set(partial) == set(normal)
+    assert normal["plan_penalty"]["meaning"] == "selects which group becomes the first wave"
+    assert partial["plan_penalty"]["meaning"] == (
+        "breaks ties only: no group could cover every target, so the first wave is the group "
+        "that leaves the fewest uncovered person-minutes (headcount first, then role, then "
+        "skill); points choose only among groups that cover the same"
+    )
+    assert {**partial, "plan_penalty": normal["plan_penalty"]} == normal
+    plan.input_snapshot = {**plan.input_snapshot, "partial_plan": False}
+    assert service.build_payload(plan) == normal
+
+
+def test_the_prompt_version_is_v2_and_the_prompt_defers_to_the_meaning(
+    seeded: Session, llm_on
+) -> None:
+    _planned_case(seeded)
+
+    (row,) = _rows(seeded)
+
+    assert service.PROMPT_VERSION == "rank-explanation-v2"
+    assert row.prompt_version == "rank-explanation-v2"
+    assert "plan_penalty.meaning says what chose the first wave." in service.SYSTEM_PROMPT
+    assert "selects which group of candidates" not in service.SYSTEM_PROMPT
+
+
 # 6
 def test_polling_never_calls_the_llm(client: TestClient, seeded: Session, llm_on, gateway) -> None:
     case = _planned_case(seeded)

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Text, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core import clock
@@ -18,3 +18,5 @@ class Ward(Base):
     )
     deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active: Mapped[bool] = mapped_column(Boolean)
+    # Its staff are candidates of every ward with source FLOAT_POOL (docs/workflow.md 6.19)
+    is_float_pool: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())

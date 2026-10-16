@@ -23,6 +23,8 @@ export type ClockAdvanceResult = {
   /** Offers the new time set to TIMEOUT */
   timed_out_outreach_ids: number[];
   timed_out_approval_request_ids: number[];
+  auto_approved_request_ids: number[];
+  failed_auto_approval_ward_ids: number[];
   /** Waiting cases the recovery sweep moved on */
   recovered_case_ids: number[];
 };

@@ -196,6 +196,15 @@ def test_writes_one_optimal_plan(seeded: Session) -> None:
         "1018/1",
         "1018/1",
     ]
+    # Round 4 T1: the pool has no transfers, so every candidate covers the whole shift
+    for row in snapshot["candidates"]:
+        assert row["cover_start_at"] is None
+        assert row["cover_end_at"] is None
+        assert row["source_assignment_id"] is None
+    for item in _items(seeded, plan):
+        assert item.cover_start_at is None
+        assert item.cover_end_at is None
+        assert item.source_assignment_id is None
     assert snapshot["weights"] == {
         "candidate_count": "1000/1",
         "consecutive_shift": "5/1",
@@ -211,7 +220,12 @@ def test_writes_one_optimal_plan(seeded: Session) -> None:
         {"staff_id": 103, "reason": "ALREADY_ON_SHIFT"},
         {"staff_id": 104, "reason": "ALREADY_ON_SHIFT"},
         {"staff_id": 105, "reason": "UNAVAILABLE"},
+        {"staff_id": 301, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+        {"staff_id": 302, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+        {"staff_id": 401, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
         {"staff_id": 900, "reason": "ROLE_MISMATCH"},
+        {"staff_id": 902, "reason": "ROLE_MISMATCH"},
+        {"staff_id": 950, "reason": "ROLE_MISMATCH"},
     ]
 
 
@@ -663,7 +677,12 @@ def test_nobody_left_stops_the_case_at_manual_handoff(seeded: Session) -> None:
             {"staff_id": 201, "reason": "STAFF_NOT_ACTIVE"},
             {"staff_id": 202, "reason": "STAFF_NOT_ACTIVE"},
             {"staff_id": 203, "reason": "STAFF_NOT_ACTIVE"},
+            {"staff_id": 301, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+            {"staff_id": 302, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+            {"staff_id": 401, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
             {"staff_id": 900, "reason": "ROLE_MISMATCH"},
+            {"staff_id": 902, "reason": "ROLE_MISMATCH"},
+            {"staff_id": 950, "reason": "ROLE_MISMATCH"},
         ],
     }
     assert seeded.scalar(select(CandidateOutreach.id)) is None

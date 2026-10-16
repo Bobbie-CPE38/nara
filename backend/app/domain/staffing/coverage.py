@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.domain.enums import RosterStatus
 
@@ -20,3 +21,7 @@ class RosterMember:
     status: RosterStatus
     role_id: int
     skill_ids: frozenset[int]
+    # Effective roster interval: actual times, else the shift times (round 4
+    # PR T2). None covers from the shift start or until the shift end
+    start_at: datetime | None = None
+    end_at: datetime | None = None

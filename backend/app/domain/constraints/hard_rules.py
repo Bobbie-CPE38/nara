@@ -18,16 +18,17 @@ from app.domain.constraints.context import (
     HardRulePolicy,
     ShiftSlot,
     daily_hours,
+    duty_slot,
     hours,
     is_on_proposed_shift,
     leave_overlaps_shift,
     other_committed_shifts,
+    other_duties,
     projected_consecutive_shifts,
     was_removed_from_proposed_shift,
     weekly_hours,
 )
 from app.domain.enums import StaffStatus
-from app.domain.staffing.gap_calculator import effective_minimum_for
 
 
 def staff_not_active(context: CandidateContext, policy: HardRulePolicy) -> bool:
@@ -74,10 +75,13 @@ def insufficient_rest(context: CandidateContext, policy: HardRulePolicy) -> bool
 
     A shift that overlaps the proposed one is left to SHIFT_CONFLICT, so one clash
     is not reported under two codes.
+
+    With a linked_duty, rest is measured from the whole duty and the linked part
+    is not a separate shift: the move is not a break between two shifts.
     """
-    proposed = context.proposed_shift
+    proposed = duty_slot(context)
     minimum = Fraction(policy.minimum_rest_hours)
-    for other in other_committed_shifts(context):
+    for other in other_duties(context):
         if _overlaps(other, proposed):
             continue
         rest = (
@@ -103,20 +107,13 @@ def consecutive_shifts_exceeded(context: CandidateContext, policy: HardRulePolic
 
 
 def source_ward_minimum_violation(context: CandidateContext, policy: HardRulePolicy) -> bool:
-    """The source shift must keep its target headcount after the candidate leaves.
+    """The source shift must stay fully staffed after the candidate leaves.
 
-    The target comes from effective_minimum_for(), the function the gap
-    calculation uses, so "enough staff" means the same thing on both shifts.
+    The service layer measures this with the gap calculation of cases, per role
+    and skill and per time slice, so "enough staff" means the same thing on both
+    shifts (workflow.md 6.19). The rule only reads the result.
     """
-    source = context.source_shift
-    if source is None:
-        return False
-    target = effective_minimum_for(
-        required_staff=source.required_staff,
-        minimum_staff=source.minimum_staff,
-        preserve_minimum_staffing=policy.preserve_minimum_staffing,
-    )
-    return source.assigned_count - 1 < target
+    return context.source_shift is not None and context.source_shift.leaves_gap
 
 
 def _overlaps(first: ShiftSlot, second: ShiftSlot) -> bool:

@@ -196,6 +196,8 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
                     AuditAction.CASE_RESOLVED: "CASE_RESOLVED",
                     AuditAction.MANUAL_HANDOFF: "MANUAL_HANDOFF",
                     AuditAction.ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
+                    # A move onto another ward's shift (round 4 PR C2)
+                    AuditAction.ASSIGNMENT_TRANSFERRED: "CONFLICTING_ASSIGNMENT",
                     # A head nurse assigned the person by hand (section 6.12)
                     AuditAction.MANUAL_ASSIGNMENT_CREATED: "CONFLICTING_ASSIGNMENT",
                 }.get(row.action, "CANCELLED")
@@ -203,7 +205,9 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
                 if row.action == AuditAction.APPROVAL_TIMEOUT:
                     reasons[outreach_id] = "APPROVAL_TIMEOUT"
                     continue
-                if row.action == AuditAction.SAFETY_FAILED:
+                if row.action == AuditAction.TRANSFER_CHECK_FAILED:
+                    reasons[outreach_id] = "TRANSFER_CHECK_FAILED"
+                elif row.action == AuditAction.SAFETY_FAILED:
                     reasons[outreach_id] = (
                         ", ".join(payload.get("failed_rules", [])) or "SAFETY_FAILED"
                     )

@@ -7,8 +7,13 @@ from pydantic import AfterValidator
 
 from app.api.dependencies import DbSession, DemoUser
 from app.core.constants import MAX_BIGINT
-from app.schemas.approval import ApprovalDecision, ApprovalDecisionResult, PendingApproval
-from app.services import approval_service
+from app.schemas.approval import (
+    ApprovalDecision,
+    ApprovalDecisionResult,
+    AutoApprovedApproval,
+    PendingApproval,
+)
+from app.services import approval_service, approval_wards
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -30,6 +35,7 @@ def decide(
             actor_id=user.actor_id,
             approved=body.approved,
             reason=body.reason,
+            side=body.side,
         )
     except approval_service.ApprovalNotFoundError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(error)) from error
@@ -41,14 +47,12 @@ def decide(
         approval_service.ApprovalLockRetryError,
     ) as error:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error)) from error
-    except approval_service.InvalidApprovalReasonError as error:
+    except (
+        approval_service.InvalidApprovalReasonError,
+        approval_wards.InvalidApprovalSideError,
+    ) as error:
         raise HTTPException(422, detail=str(error)) from error
-    return ApprovalDecisionResult(
-        approval_id=request.id,
-        is_approved=request.is_approved is True,
-        case_id=case.id,
-        case_status=case.status,
-    )
+    return approval_service.decision_result(db, request=request, case=case)
 
 
 def _pending_only(value: bool) -> bool:
@@ -66,3 +70,16 @@ def pending_approvals(
 ) -> list[PendingApproval]:
     """Return the pending list to an authenticated demo user, without writing."""
     return approval_service.list_pending(db)
+
+
+@router.get("/auto")
+def auto_approvals(db: DbSession, user: DemoUser) -> list[AutoApprovedApproval]:
+    """Return up to 50 automatic decisions visible to this Head Nurse or Supervisor."""
+    try:
+        return approval_service.list_auto_approved(
+            db,
+            role_id=user.staff.role_id,
+            home_ward_id=user.staff.home_ward_id,
+        )
+    except approval_service.ApproverRoleError as error:
+        raise HTTPException(403, detail=str(error)) from error

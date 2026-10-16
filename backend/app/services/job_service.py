@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.services import (
     approval_timeout_service,
+    auto_approval_service,
     line_delivery_service,
     merge_window_service,
     offer_timeout_service,
@@ -31,20 +32,23 @@ class DueWork:
     timed_out_approval_request_ids: list[int] = field(default_factory=list)
     recovered_case_ids: list[int] = field(default_factory=list)
     completed_assignment_ids: list[int] = field(default_factory=list)
+    auto_approved_request_ids: list[int] = field(default_factory=list)
+    failed_auto_approval_ward_ids: list[int] = field(default_factory=list)
 
 
 def run_due_work(db: Session) -> DueWork:
-    """Complete ended shifts, expire offers and approvals, recover, close windows.
+    """Complete shifts, expire offers/approvals, auto-approve, recover, close windows.
 
     Case work commits per case; window work commits per shift. Releasing a case
-    first lets its queued window close in this same tick. The job route still
-    answers only the windows; the demo clock route also answers the timeout
+    first lets its queued window close in this same tick. Both routes expose
+    auto-approval IDs and failed wards; the demo route also exposes timeout
     and recovery IDs.
     """
     # First and in its own commit: it changes no count, so order does not matter
     completed = roster_completion_service.complete_ended_shifts(db)
     expired = offer_timeout_service.expire_due_offers(db)
     approvals = approval_timeout_service.expire_due_approvals(db)
+    automatic = auto_approval_service.approve_due_requests(db)
     recovered = offer_timeout_service.recover_waiting_cases(
         db, excluded_case_ids=expired.failed_case_ids | approvals.failed_case_ids
     )
@@ -56,4 +60,6 @@ def run_due_work(db: Session) -> DueWork:
         recovered_case_ids=recovered,
         timed_out_approval_request_ids=approvals.approval_ids,
         completed_assignment_ids=completed,
+        auto_approved_request_ids=automatic.approval_ids,
+        failed_auto_approval_ward_ids=sorted(automatic.failed_ward_ids),
     )

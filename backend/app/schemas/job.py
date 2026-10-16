@@ -38,10 +38,16 @@ class DueWorkResult(BaseModel):
     """Answer of POST /internal/merge-windows/close-due."""
 
     closed_windows: list[ClosedWindowView]
+    auto_approved_request_ids: list[int]
+    failed_auto_approval_ward_ids: list[int]
 
     @classmethod
     def of(cls, work: DueWork) -> "DueWorkResult":
-        return cls(closed_windows=_views(work))
+        return cls(
+            closed_windows=_views(work),
+            auto_approved_request_ids=sorted(work.auto_approved_request_ids),
+            failed_auto_approval_ward_ids=sorted(work.failed_auto_approval_ward_ids),
+        )
 
 
 class ClockAdvance(BaseModel):
@@ -55,6 +61,8 @@ class ClockAdvanceResult(BaseModel):
 
     clock: AppDatetime
     closed_windows: list[ClosedWindowView]
+    auto_approved_request_ids: list[int]
+    failed_auto_approval_ward_ids: list[int]
     # Offers the new time set to TIMEOUT, and waiting cases the sweep moved on
     # (sections 6.9 and 5.3). Both by ID, so the demo shows why a case left its wait
     timed_out_outreach_ids: list[int]
@@ -66,6 +74,8 @@ class ClockAdvanceResult(BaseModel):
         return cls(
             clock=now,
             closed_windows=_views(work),
+            auto_approved_request_ids=sorted(work.auto_approved_request_ids),
+            failed_auto_approval_ward_ids=sorted(work.failed_auto_approval_ward_ids),
             timed_out_outreach_ids=sorted(work.timed_out_outreach_ids),
             recovered_case_ids=sorted(work.recovered_case_ids),
             timed_out_approval_request_ids=sorted(work.timed_out_approval_request_ids),

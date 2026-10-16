@@ -1,25 +1,37 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import DemoControl from "../../../src/app/demo/control/page";
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 function stubFetch(body: unknown, status = 200) {
-  const fetchMock = vi.fn().mockImplementation(async () =>
-    new Response(JSON.stringify(body), { status }),
-  );
+  const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+    const match = url.match(/\/cases\/(\d+)$/);
+    return match
+      ? new Response(JSON.stringify({ id: Number(match[1]), status: "WAITING_RESPONSE" }))
+      : new Response(JSON.stringify(body), { status });
+  });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
 
 function click(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
+}
+
+// Read the action's own text separately from nested live-status controls.
+function directText(element: Element) {
+  return Array.from(element.childNodes)
+    .filter((node) => node.nodeType === Node.TEXT_NODE)
+    .map((node) => node.textContent)
+    .join("");
 }
 
 describe("demo control page", () => {
@@ -124,12 +136,14 @@ describe("demo control page", () => {
     click("Advance clock 10 minutes");
 
     expect(await screen.findByText("Clock: 2026-10-09T21:10:00+07:00")).toBeTruthy();
-    const items = screen.getAllByRole("listitem").map((item) => item.textContent);
-    expect(items).toEqual([
-      "Shift 1, events 3, 4: 7 (WAITING_RESPONSE)",
-      "Shift 3, events 5: no case opened",
-    ]);
-    const link = screen.getByRole("link", { name: "7 (WAITING_RESPONSE)" });
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(directText(items[0])).toBe("Shift 1, events 3, 4: ");
+    expect(items[1].textContent).toBe("Shift 3, events 5: no case opened");
+    expect(within(items[1]).queryByRole("link")).toBeNull();
+    const links = within(items[0]).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual(["7 (WAITING_RESPONSE)"]);
+    const link = links[0];
     expect(link.getAttribute("href")).toBe("/cases/7");
     const [url, request] = fetchMock.mock.calls[0];
     expect(url).toMatch(/\/demo\/clock\/advance$/);
@@ -167,10 +181,16 @@ describe("demo control page", () => {
     click("Advance clock 10 minutes");
 
     expect(await screen.findByText("Offers timed out: 1, 2")).toBeTruthy();
-    expect(screen.getByText(/Waiting cases rechecked/).textContent).toBe(
-      "Waiting cases rechecked: 7, 9",
-    );
-    expect(screen.getByRole("link", { name: "9" }).getAttribute("href")).toBe("/cases/9");
+    await screen.findByRole("link", { name: "9 (WAITING_RESPONSE)" });
+    const recovered = screen.getByText(/Waiting cases rechecked/);
+    expect(directText(recovered)).toBe("Waiting cases rechecked: ");
+    expect(Array.from(recovered.children).map(directText)).toEqual(["", ", "]);
+    const links = within(recovered).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual([
+      "7 (WAITING_RESPONSE)",
+      "9 (WAITING_RESPONSE)",
+    ]);
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/cases/7", "/cases/9"]);
   });
 
   it("shows why the clock cannot be advanced before a reset", async () => {
@@ -255,5 +275,264 @@ describe("demo control page", () => {
     }
     respond(new Response(JSON.stringify({ status: "ok", clock: "now" })));
     expect(await screen.findByText("Demo reset. Clock: now")).toBeTruthy();
+  });
+});
+
+describe("demo control live case status", () => {
+  const event = {
+    event_id: 3,
+    event_status: "PROCESSED",
+    case_id: 7,
+    case_status: "WAITING_RESPONSE",
+  };
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), { status });
+  const tick = async (ms = 0) => {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ms);
+    });
+  };
+
+  function serve() {
+    vi.useFakeTimers();
+    let reply = () =>
+      Promise.resolve(json({ id: 7, status: "WAITING_RESPONSE" }));
+    const fetchMock = vi.fn((url: string, options?: RequestInit) => {
+      if (options?.method === "POST") {
+        if (url.endsWith("/demo/reset"))
+          return Promise.resolve(json({ clock: "now" }));
+        return Promise.resolve(json(event));
+      }
+      return reply();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(DemoControl));
+    click("105 reports leave (shift 1)");
+    return {
+      fetchMock,
+      setReply: (next: typeof reply) => {
+        reply = next;
+      },
+    };
+  }
+
+  it("follows acceptance and approval without replaying the event, then stops on completion", async () => {
+    const { fetchMock, setReply } = serve();
+    await tick();
+    expect(
+      screen.getByRole("link", { name: "7 (WAITING_RESPONSE)" }),
+    ).toBeTruthy();
+    setReply(() =>
+      Promise.resolve(json({ id: 7, status: "WAITING_APPROVAL" })),
+    );
+    await tick(2000);
+    expect(
+      screen.getByRole("link", { name: "7 (WAITING_APPROVAL)" }),
+    ).toBeTruthy();
+    expect(screen.getByText("WAITING_RESPONSE")).toBeTruthy();
+    setReply(() => Promise.resolve(json({ id: 7, status: "RESOLVED" })));
+    await tick(2000);
+    expect(screen.getByRole("link", { name: "7 (RESOLVED)" })).toBeTruthy();
+    const count = fetchMock.mock.calls.length;
+    await tick(10000);
+    expect(fetchMock).toHaveBeenCalledTimes(count);
+    expect(
+      fetchMock.mock.calls.filter(([, options]) => options?.method === "POST"),
+    ).toHaveLength(1);
+  });
+
+  it("keeps reading MANUAL_HANDOFF because it can still be resolved manually", async () => {
+    const { setReply } = serve();
+    await tick();
+    setReply(() => Promise.resolve(json({ id: 7, status: "MANUAL_HANDOFF" })));
+    await tick(2000);
+    expect(
+      screen.getByRole("link", { name: "7 (MANUAL_HANDOFF)" }),
+    ).toBeTruthy();
+    setReply(() => Promise.resolve(json({ id: 7, status: "RESOLVED" })));
+    await tick(2000);
+    expect(screen.getByRole("link", { name: "7 (RESOLVED)" })).toBeTruthy();
+  });
+
+  it("keeps the last status with an error and recovers on a manual refresh", async () => {
+    const { setReply } = serve();
+    await tick();
+    setReply(() => Promise.resolve(json({ detail: "Unavailable" }, 503)));
+    await tick(2000);
+    expect(
+      screen.getByRole("link", { name: "7 (WAITING_RESPONSE)" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain(
+      "Status may be outdated",
+    );
+    setReply(() =>
+      Promise.resolve(json({ id: 7, status: "WAITING_APPROVAL" })),
+    );
+    click("Refresh case 7");
+    await tick();
+    expect(
+      screen.getByRole("link", { name: "7 (WAITING_APPROVAL)" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("drops stale status and stops polling when an external reset removes the case", async () => {
+    const { fetchMock, setReply } = serve();
+    await tick();
+    setReply(() => Promise.resolve(json({ detail: "Not found" }, 404)));
+    await tick(2000);
+    expect(screen.getByRole("link", { name: "7" })).toBeTruthy();
+    expect(screen.getByText(/Case no longer exists/)).toBeTruthy();
+    const count = fetchMock.mock.calls.length;
+    await tick(6000);
+    expect(fetchMock).toHaveBeenCalledTimes(count);
+  });
+
+  it("never refreshes a missing case even when a new case reuses its ID", async () => {
+    const { fetchMock, setReply } = serve();
+    await tick();
+    setReply(() => Promise.resolve(json({ detail: "Not found" }, 404)));
+    await tick(2000);
+    expect(screen.queryByRole("button", { name: "Refresh case 7" })).toBeNull();
+
+    // Reset reuses IDs. A later 200 belongs to a different case and must not
+    // replace the missing-case notice under the original event result.
+    setReply(() => Promise.resolve(json({ id: 7, status: "WAITING_APPROVAL" })));
+    const count = fetchMock.mock.calls.length;
+    await tick(10000);
+    expect(fetchMock).toHaveBeenCalledTimes(count);
+    expect(screen.getByText(/Case no longer exists/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "7" })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: "7 (WAITING_APPROVAL)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Refresh case 7" })).toBeNull();
+  });
+
+  it("ignores a response still in flight when the demo is reset", async () => {
+    const { fetchMock, setReply } = serve();
+    await tick();
+    let finish!: (response: Response) => void;
+    setReply(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await tick(2000);
+    const pendingOptions = fetchMock.mock.calls.at(-1)?.[1];
+    click("Reset demo");
+    await tick();
+    expect(pendingOptions?.signal?.aborted).toBe(true);
+    finish(json({ id: 7, status: "WAITING_APPROVAL" }));
+    await tick();
+    expect(screen.getByText("Demo reset. Clock: now")).toBeTruthy();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("updates both merge-window and recovery links after a clock action", async () => {
+    vi.useFakeTimers();
+    let status = "WAITING_APPROVAL";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, options?: RequestInit) => {
+        if (options?.method === "POST")
+          return json({
+            clock: "now",
+            closed_windows: [
+              {
+                shift_id: 1,
+                event_ids: [3],
+                case_id: 7,
+                case_status: "WAITING_RESPONSE",
+              },
+            ],
+            timed_out_approval_request_ids: [],
+            timed_out_outreach_ids: [],
+            recovered_case_ids: [9],
+          });
+        return json({ id: Number(url.split("/").at(-1)), status });
+      }),
+    );
+    render(createElement(DemoControl));
+    click("Advance clock 10 minutes");
+    await tick();
+    expect(
+      screen.getByRole("link", { name: "7 (WAITING_APPROVAL)" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "9 (WAITING_APPROVAL)" }),
+    ).toBeTruthy();
+    status = "RESOLVED";
+    await tick(2000);
+    expect(screen.getByRole("link", { name: "7 (RESOLVED)" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "9 (RESOLVED)" })).toBeTruthy();
+  });
+
+  it("ignores an old case response when another event replaces the displayed case", async () => {
+    const { fetchMock, setReply } = serve();
+    await tick();
+    let finish!: (response: Response) => void;
+    setReply(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await tick(2000);
+    const oldSignal = fetchMock.mock.calls.at(-1)?.[1]?.signal;
+    fetchMock.mockImplementation((url: string, options?: RequestInit) =>
+      Promise.resolve(
+        json(
+          options?.method === "POST"
+            ? { ...event, case_id: 8 }
+            : { id: Number(url.split("/").at(-1)), status: "WAITING_RESPONSE" },
+        ),
+      ),
+    );
+    click("900 reports 12 patients (shift 1)");
+    await tick();
+    expect(oldSignal?.aborted).toBe(true);
+    finish(json({ id: 7, status: "RESOLVED" }));
+    await tick();
+    expect(
+      screen.getByRole("link", { name: "8 (WAITING_RESPONSE)" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /7/ })).toBeNull();
+  });
+
+  it("cancels polling when the page unmounts", async () => {
+    const { fetchMock } = serve();
+    await tick();
+    cleanup();
+    const count = fetchMock.mock.calls.length;
+    await tick(10000);
+    expect(fetchMock).toHaveBeenCalledTimes(count);
+  });
+
+  it("reports a leave on the chosen ward, shift and person (PR U)", async () => {
+    const fetchMock = stubFetch(
+      { event_id: 5, event_status: "PROCESSED", case_id: 8, case_status: "WAITING_RESPONSE" },
+    );
+    render(createElement(DemoControl));
+    fireEvent.change(screen.getByLabelText("Ward"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Shift"), { target: { value: "22" } });
+    fireEvent.change(screen.getByLabelText("Staff on the shift"), { target: { value: "401" } });
+    click("Report leave");
+
+    expect(await screen.findByText("401 reports leave (Medicine, shift 22)")).toBeTruthy();
+    const [url, request] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/events$/);
+    expect(request.headers.get("X-Demo-User")).toBe("401");
+    expect(JSON.parse(request.body)).toEqual({ event_type: "STAFF_UNAVAILABLE", shift_id: 22 });
+  });
+
+  it("offers only the shifts and people of the chosen ward (PR U)", async () => {
+    stubFetch({});
+    render(createElement(DemoControl));
+    fireEvent.change(screen.getByLabelText("Ward"), { target: { value: "2" } });
+
+    const options = (label: string) =>
+      Array.from(screen.getByLabelText<HTMLSelectElement>(label).options).map((item) => item.value);
+    expect(options("Shift")).toEqual(["21", "22"]);
+    expect(options("Staff on the shift")).toEqual(["301", "302", "401", "902", "950"]);
   });
 });

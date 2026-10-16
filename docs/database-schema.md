@@ -24,7 +24,17 @@
 >
 > * `e1a4c7f2b9d6` (รอบ 3 PR X) ตาราง `RANK_EXPLANATION` และ `LLM_CALL_LOG`
 >
-> **Migration head ปัจจุบัน: `e1a4c7f2b9d6`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `a9c3e7f1b5d2` (รอบ 4 PR T1) `CANDIDATE_ITEMS.cover_start_at`, `cover_end_at`, `source_assignment_id` พร้อม CHECK สองข้อ
+>
+> * `b8d4f1a6c2e9` (รอบ 4 PR T2) เวลาจริงและลิงก์การย้ายใน `ROSTER_ASSIGNMENT`
+>
+> * `c4e8a2f6d1b3` (รอบ 4 PR C1) `WARD.is_float_pool`
+>
+> * `c6e2b9f4a1d7` (รอบ 4 PR T3) `STAFFING_GAP.evaluated_from` และตาราง Gap รายช่วง `STAFFING_GAP_INTERVAL`, `STAFFING_GAP_ROLE_INTERVAL`, `STAFFING_GAP_SKILL_INTERVAL` ไม่ Backfill
+>
+> * `f2a7c9d4e6b8` (รอบ 4 PR S) `APPROVAL_WARD_DECISION` และ `APPROVAL_POLICY.supervisor_after_seconds`
+>
+> **Migration head ปัจจุบัน: `f2a7c9d4e6b8`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -110,6 +120,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `updated_at` | timestamptz | NOT NULL |  |  |
 | `deactivated_at` | timestamptz | NULL |  |  |
 | `is_active` | boolean | NOT NULL |  |  |
+| `is_float_pool` | boolean | NOT NULL |  | Default false (รอบ 4 PR C1) หอ Float Pool ไม่มีเวรของตัวเอง คนที่หอบ้านเป็นหอนี้ได้ `source = FLOAT_POOL` ข้อ 6.19 ของ `workflow.md` |
 
 
 ### 4. SKILL
@@ -264,9 +275,14 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `status` | text | NOT NULL |  | `RosterStatus` |
 | `assignment_type` | text | NOT NULL |  | `AssignmentType` |
 | `candidate_source` | text | NULL |  | `CandidateSource` |
+| `actual_start_at` | timestamptz | NULL |  | ว่าง = `SHIFT.start_at` |
+| `actual_end_at` | timestamptz | NULL |  | ว่าง = `SHIFT.end_at`; CHECK start < end เมื่อมีทั้งคู่ |
+| `transferred_from_assignment_id` | bigint | NULL | FK ROSTER_ASSIGNMENT.id, UNIQUE | แถวต้นทางของการย้าย |
 | `created_at` | timestamptz | NOT NULL |  |  |
 | `updated_at` | timestamptz | NOT NULL |  |  |
 
+
+CHECK ของ `actual_start_at` / `actual_end_at` ตรวจได้เฉพาะเมื่อมีทั้งคู่ ส่วน mixed NULL ต้องตรวจปลายช่วงหลัง fallback กับเวลา Shift ผ่าน `roster_time_service.effective_interval()` ใน writer (replacement และ `create_transfer()` ของ C2 และ C3 เรียกแล้วหลังล็อก Shift) การเขียน SQL โดยตรงไม่ผ่านตัวตรวจนี้
 
 ### 15. CANDIDATE_PLANS
 
@@ -282,7 +298,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `solver_version` | text | NOT NULL |  | รอบ 2 PR B = `"cp-sat-v1"` (รอบ 1 = `"weighted-v1"`, Skeleton = `"stub"`) |
 | `hard_constraint_policy_id` | bigint | NOT NULL | FK HARD_CONSTRAINT_POLICY.id |  |
 | `soft_constraint_policy_id` | bigint | NOT NULL | FK SOFT_CONSTRAINT_POLICY.id |  |
-| `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `weights` (ค่าน้ำหนักของ `SoftWeights` เป็นข้อความ `"เศษ/ส่วน"` พร้อม `source_order`), `candidates` (ค่าของแต่ละคนเรียงตาม `rank` มี `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` คู่กับช่อง `float` เดิมที่ใช้แสดงผลอย่างเดียว; Plan ก่อน PR E ไม่มี `weights` และช่อง `_exact`), `skipped` |
+| `input_snapshot` | jsonb | NOT NULL |  | ค่าที่ Solver ใช้คิด: `captured_at`, `timezone`, `day`, `week_start`, `gap_id`, `targets`, `weights` (ค่าน้ำหนักของ `SoftWeights` เป็นข้อความ `"เศษ/ส่วน"` พร้อม `source_order`), `candidates` (ค่าของแต่ละคนเรียงตาม `rank` มี `hours_this_week_exact`, `overtime_hours_exact`, `penalty_exact` เป็นข้อความ `"เศษ/ส่วน"` คู่กับช่อง `float` เดิมที่ใช้แสดงผลอย่างเดียว; Plan ก่อน PR E ไม่มี `weights` และช่อง `_exact`), `skipped` (ช่วงที่แต่ละ `candidates[]` มีเพิ่มในรอบ 4 PR T1 คือ `cover_start_at`, `cover_end_at`, `source_assignment_id` `source_assignment_id` มีค่าตั้งแต่ C2 สำหรับผู้สมัครที่ย้ายทั้งเวร (`cover_*` ว่าง) และตั้งแต่ C3 `cover_*` มีค่าเมื่อย้ายบางส่วนของเวร และเป็น `null` สำหรับคนอื่น; รอบ 4 PR T4 เพิ่ม key ระดับบน `intervals` (ช่วงที่ยังขาด: `start_at`, `end_at` และ `headcount` / `roles` / `skills` รูปเดียวกับ `targets`) กับ `partial_plan` (boolean, true เมื่อ Wave แรกมาจากแผนบางส่วน) และในแต่ละ `candidates[]` ของ Wave แรกเพิ่ม `credits` (`target_type`, `selection_type`, `role_id`, `skill_id`, `start_at`, `end_at` ช่วงที่เครดิตนับ ว่าง = ทั้งเวร) ตัวอ่านคะแนนไม่สนใจ key ที่ไม่รู้จัก) |
 
 
 ### 16. CANDIDATE_ITEMS
@@ -297,6 +313,11 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 | `source` | text | NOT NULL |  | `CandidateSource` |
 | `proposed_shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
 | `working_time_snapshot_id` | bigint | NULL | FK STAFF_WORKING_TIME_SNAPSHOT.id | Snapshot ที่ Solver ใช้ตอนจัดอันดับผู้สมัครคนนี้ เพิ่มใน PR 2a NULL เฉพาะแถวที่เขียนก่อน PR 2a |
+| `cover_start_at` | timestamptz | NULL |  | เริ่มช่วงที่ผู้สมัครมาทำ ว่างทั้ง `cover_start_at` และ `cover_end_at` = ทั้งเวร (รอบ 4 PR T1) |
+| `cover_end_at` | timestamptz | NULL |  | สิ้นสุดช่วงที่ผู้สมัครมาทำ |
+| `source_assignment_id` | bigint | NULL | FK ROSTER_ASSIGNMENT.id | แถว Roster ของเวรต้นทางที่ผู้สมัครถูกย้ายออกมา ว่าง = ไม่ใช่การย้าย (รอบ 4 PR T1) |
+
+CHECK `ck_candidate_items_cover_both_or_neither`: `(cover_start_at IS NULL) = (cover_end_at IS NULL)` และ `ck_candidate_items_cover_in_order`: `cover_start_at < cover_end_at` ประกาศใน `__table_args__` ของ Model แถวเดิมทุกแถวได้ NULL ทั้งสามคอลัมน์ (ทั้งเวร ไม่ใช่การย้าย)
 
 
 ### 16.1 CANDIDATE_ITEM_TARGET
@@ -402,9 +423,10 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | Field | Type | Null | Key | Enum / หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
-| `ratio` | numeric | NOT NULL |  | Auto-approval threshold multiplier: activate when the nurse-to-patient ratio exceeds this value times the ward's required ratio. Team value = 2. |
+| `ratio` | numeric | NOT NULL |  | จำนวนคำขอรออนุมัติที่ Head Nurse หนึ่งคนรับไหว ใช้คำนวณเพดานของ Auto-Approval (`docs/workflow.md` ข้อ 6.22, รอบ 4 PR A) Seed = 2 ความหมายเดิม (ตัวคูณ Ratio ผู้ป่วยต่อพยาบาล) ยกเลิกในรอบ 4 |
 | `approval_timeout_seconds` | integer | NOT NULL | CHECK > 0 | Seed = 900; ใช้ตั้งเส้นตายตอนสร้างคำขอ PR T |
-| `incoming_count` | integer | NOT NULL |  | Policy value for the number of staff awaiting approval by the head nurse or nurse supervisor. Team value = 10; its comparison rule remains to be defined. |
+| `supervisor_after_seconds` | integer | NOT NULL | CHECK > 0 และ < approval_timeout_seconds | Seed = 600; Supervisor กดแทนได้ตั้งแต่ requested_at + ค่านี้ (PR S) |
+| `incoming_count` | integer | NOT NULL |  | เพดานสูงสุดของคิวคำขอรออนุมัติต่อหอ เพดานของ Auto-Approval คือค่าที่ต่ำกว่าระหว่าง `ratio` × จำนวน Head Nurse ที่ Active ของหอ กับค่านี้ (`docs/workflow.md` ข้อ 6.22) Seed = 10 |
 | `version` | text | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |
 
@@ -481,6 +503,7 @@ Model และ Migration `d91a6c8e203f` เพิ่มแล้วใน PR 1c
 | `headcount_gap` | integer | NOT NULL |  | `max(effective_minimum - จำนวนคนในเวร, 0)` |
 | `effective_minimum` | integer | NOT NULL |  | เป้าหมายจำนวนคนที่ใช้คิด Gap แถวนี้: `max(required_staff, minimum_staff)` เมื่อ `preserve_minimum_staffing` เปิด และ `required_staff` เมื่อปิด |
 | `computed_at` | timestamptz | NOT NULL |  |  |
+| `evaluated_from` | timestamptz | NULL |  | จุดเริ่มของช่วงที่วัด `max(Backend Clock ตอนประเมิน, เวลาเริ่มเวร)` เวรที่จบไปแล้วตอนประเมินวัดทั้งเวร จึงเป็นเวลาเริ่มเวร ว่างสำหรับแถวก่อนรอบ 4 (รอบ 4 PR T3) |
 
 
 
@@ -488,6 +511,8 @@ Model และ Migration `d91a6c8e203f` เพิ่มแล้วใน PR 1c
 `effective_minimum` คือเป้าหมายที่ใช้คิด Gap แถวนั้นจริง `required_staff` และ `minimum_staff` อ่านผ่าน `staffing_requirement_id` ไม่เก็บซ้ำ
 แต่ `required_staff` ถูก UPDATE ในแถวเดิม ค่าที่อ่านได้จึงเป็นค่าปัจจุบัน ค่าเดียวที่บอกเป้าหมายตอนคิดคือ `effective_minimum`
 Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `patients_per_nurse` และ CHECK `ck_staffing_gap_patients_per_nurse_valid`) ด้วยคอลัมน์นี้ ไม่ Backfill ทั้งขาขึ้นและขาลง และหยุดถ้ามีแถวใน `STAFFING_GAP` (ให้ `make reset` ก่อน)
+
+รอบ 4 PR T3: `headcount_gap` และตัวเลขใน `STAFFING_GAP_ROLE` กับ `STAFFING_GAP_SKILL` คือช่วงที่ขาดมากที่สุดของแต่ละด้านจากตารางรายช่วง (ข้อ 26.1 ถึง 26.3) ไม่บวกข้ามช่วง ใช้แสดงผลได้ แต่การตัดสิน `RESOLVED` อ่านตารางรายช่วง แถวที่ไม่มีแถวรายช่วง (ก่อนรอบ 4) ถือว่าขาดทั้งเวรตามตัวเลขในแถวนี้
 
 ### 25. STAFFING_GAP_ROLE
 
@@ -511,6 +536,58 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | `required_count` | integer | NOT NULL |  |  |
 | `current_count` | integer | NOT NULL |  |  |
 | `gap_count` | integer | NOT NULL |  |  |
+
+
+### 26.1 STAFFING_GAP_INTERVAL (รอบ 4 PR T3)
+
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `gap_id` | bigint | NOT NULL | FK STAFFING_GAP.id | มี Index |
+| `start_at` | timestamptz | NOT NULL |  | เริ่มช่วง |
+| `end_at` | timestamptz | NOT NULL |  | จบช่วง (ไม่รวม) |
+| `required_count` | integer | NOT NULL |  |  |
+| `current_count` | integer | NOT NULL |  | คนที่อยู่ตลอดช่วงนี้ |
+| `gap_count` | integer | NOT NULL |  |  |
+
+UNIQUE `(gap_id, start_at)`
+
+
+ช่วง `[start_at, end_at)` แบ่งตามเวลาที่คนในเวรเข้าหรือออกจริง (เวลาจริงของ `ROSTER_ASSIGNMENT` ข้อ 6.20 ของ `workflow.md`) ตั้งแต่ `STAFFING_GAP.evaluated_from` ถึงเวลาจบเวร ช่วงติดกันที่ตัวเลขเท่ากันถูกรวมเป็นช่วงเดียว เวรที่ทุกคนทำทั้งเวรจึงมีช่วงเดียว ทั้งสามตารางใช้ช่วงชุดเดียวกัน และเก็บทุกช่วงรวมช่วงที่ไม่ขาด CHECK `start_at < end_at` และ `gap_count = GREATEST(required_count - current_count, 0)` ตัวเลขไม่ติดลบ
+
+### 26.2 STAFFING_GAP_ROLE_INTERVAL (รอบ 4 PR T3)
+
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `gap_id` | bigint | NOT NULL | FK STAFFING_GAP.id | มี Index |
+| `role_id` | bigint | NOT NULL | FK ROLE.id |  |
+| `start_at` | timestamptz | NOT NULL |  | เริ่มช่วง |
+| `end_at` | timestamptz | NOT NULL |  | จบช่วง (ไม่รวม) |
+| `required_count` | integer | NOT NULL |  |  |
+| `current_count` | integer | NOT NULL |  | คนที่อยู่ตลอดช่วงนี้ |
+| `gap_count` | integer | NOT NULL |  |  |
+
+UNIQUE `(gap_id, role_id, start_at)`
+
+
+### 26.3 STAFFING_GAP_SKILL_INTERVAL (รอบ 4 PR T3)
+
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK |  |
+| `gap_id` | bigint | NOT NULL | FK STAFFING_GAP.id | มี Index |
+| `skill_id` | bigint | NOT NULL | FK SKILL.id |  |
+| `start_at` | timestamptz | NOT NULL |  | เริ่มช่วง |
+| `end_at` | timestamptz | NOT NULL |  | จบช่วง (ไม่รวม) |
+| `required_count` | integer | NOT NULL |  |  |
+| `current_count` | integer | NOT NULL |  | คนที่อยู่ตลอดช่วงนี้ |
+| `gap_count` | integer | NOT NULL |  |  |
+
+UNIQUE `(gap_id, skill_id, start_at)`
 
 
 ### 27. SAFETY_VALIDATION
@@ -549,6 +626,26 @@ Migration `d5e8f20b63a4` แทน Snapshot เดิม (`patient_count`, `pati
 | `decided_at` | timestamptz | NULL |  |  |
 | `requested_at` | timestamptz | NOT NULL |  |  |
 
+
+### 28.1 APPROVAL_WARD_DECISION (PR S)
+
+หนึ่งแถวต่อการตัดสินของคนในแต่ละฝั่ง คำขอหอเดียวใช้ DESTINATION; การย้ายใช้ DESTINATION และ SOURCE ตามหอของเวรต้นทาง ไม่ใช่หอบ้านของผู้สมัคร UNIQUE (`approval_request_id`, `side`) คำขอก่อน S ไม่ Backfill แถวประวัติ
+
+| Field | Type | Null | Key | Enum / หมายเหตุ |
+| :-- | :-- | :-- | :-- | :-- |
+| `id` | bigint | NOT NULL | PK | |
+| `approval_request_id` | bigint | NOT NULL | FK APPROVAL_REQUEST.id | |
+| `ward_id` | bigint | NOT NULL | FK WARD.id | |
+| `side` | text | NOT NULL | UNIQUE ร่วม | `ApprovalSide`: DESTINATION / SOURCE |
+| `approver_id` | bigint | NOT NULL | FK STAFF.id | ผู้กดจริง |
+| `decided_as` | text | NOT NULL | | `ApproverCapacity`: HEAD_NURSE / SUPERVISOR |
+| `is_approved` | boolean | NOT NULL | | |
+| `reason` | text | NULL | | เหตุผลของฝั่งนั้น |
+| `decided_at` | timestamptz | NOT NULL | | |
+
+การอนุมัติฝั่งแรกไม่เปลี่ยนผลรวมของ APPROVAL_REQUEST (`is_pending=true`, `is_approved/approver_id/decided_at=null`) ฝั่งสุดท้ายหรือการปฏิเสธจึงเขียนผลรวม Timeout คงประวัติฝั่งที่กดแล้ว Auto-Approval ไม่เขียนตารางนี้
+
+Migration ตั้ง delay ของ Policy เดิมเป็น `min(600, approval_timeout_seconds - 1)` เพื่อรองรับ Policy ที่สั้นกว่า 600 วินาที ถ้า timeout <= 1 หยุดก่อน DDL ต้องแก้ Policy ก่อนอัปเกรด ไม่เปลี่ยนเส้นตายของคำขอเดิม `supervisor_from` คำนวณจากเวลาสร้างกับ Policy ปัจจุบันเมื่ออ่าน
 
 ### 29. STRUCTURED_HANDOVER
 
@@ -632,7 +729,7 @@ CHECK `used_at IS NULL OR revoked_at IS NULL`; รหัสที่ใช้แ
 | `id` | bigint | NOT NULL | PK |
 | `case_id` | bigint | NOT NULL | FK STAFFING_CASES |
 | `plan_id` | bigint | NOT NULL | FK CANDIDATE_PLANS |
-| `prompt_version` | text | NOT NULL | เช่น `rank-explanation-v1` |
+| `prompt_version` | text | NOT NULL | เช่น `rank-explanation-v2` |
 | `status` | text | NOT NULL | `ExplanationStatus` (ไม่มี CHECK ตาม D8) |
 | `input_hash` | text | NULL | SHA-256 hex ของ `input_payload` แบบ Canonical |
 | `input_payload` | jsonb | NULL | ที่ส่งให้ LLM จริง มีแต่ตัวเลข อันดับ ชื่อพจน์ ไม่มีชื่อหรือ `staff_id` |
@@ -696,12 +793,16 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `Channel` | CANDIDATE_OUTREACH.channel | `LINE` |
 | `ValidationResult` | ผลตรวจรายข้อใน validation_snapshot | `PASS`, `FAIL` |
 | `ApprovalMode` | APPROVAL_REQUEST.approval_mode | `MANUAL`, `AUTO` |
+| `ApprovalOutcome` | API การตัดสิน (ไม่เก็บเป็นคอลัมน์) | `WAITING_OTHER_WARD`, `ASSIGNED`, `REJECTED`, `TRANSFER_CANCELLED`, `EXECUTION_FAILED` |
+| `ApprovalSide` | APPROVAL_WARD_DECISION.side (รอบ 4 PR S) | `DESTINATION`, `SOURCE` |
+| `ApproverCapacity` | APPROVAL_WARD_DECISION.decided_as (รอบ 4 PR S) | `HEAD_NURSE`, `SUPERVISOR` |
+| `TransferFailureReason` | payload `reason` ของ `TRANSFER_CHECK_FAILED` (รอบ 4 PR C2 เขียนแล้ว) | `SOURCE_COVERAGE_LOST`, `DESTINATION_WINDOW_PASSED`, `HARD_RULE_FAILED` (C3 ลบ `SOURCE_SHIFT_STARTED` ออกตาม R4-Q43 แถว Audit เก่าที่ C2 เขียนไว้ตอนอนุมัติครบหลังเวรต้นทางเริ่มอาจยังมีค่านี้ ตัวอ่านเก็บเป็นข้อความดิบ) |
 | `ActorType` | ACTORS.actor_type | `user`, `system`, `component` |
 | `ActorName` | ACTORS.name (ที่ไม่ใช่ user) | `system`, `workflow_orchestrator`, `staffing_gap_assessment_agent`, `constraint_fair_scheduling_agent`, `outreach_agent`, `safety_rule_engine` |
 | `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS` |
 | `ExplanationStatus` | RANK_EXPLANATION.status (รอบ 3 PR X) | `PENDING`, `READY`, `FAILED`, `SKIPPED` |
 | `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
-| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` |
+| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
 
 
 **กลุ่มของ EventType**
@@ -721,6 +822,12 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ---
 
+
+## Schema รอบ 4
+
+Schema ที่มี Migration ของรอบ 4 ทำครบถึง S แล้วตามรายการบนสุด: T1 → T2 → C1 → T3 → S (`f2a7c9d4e6b8`) Migration ที่เพิ่มภายหลังต้องต่อจาก head ของ staging จริงและรักษา head เดียว
+
+Role `SUPERVISOR` เป็นแถวข้อมูลใน `ROLE` ไม่มี Migration PR S เพิ่ม Role (id 3) ใน Seed แล้ว PR W4 ใช้ Role นี้เพิ่มผู้ใช้งาน Supervisor และข้อมูลหลายหอ
 
 ## Constraint ที่ควรใส่ใน Migration แรก
 
@@ -785,10 +892,12 @@ Only candidates examined and skipped in steps 3 and 4 belong in `skipped`. A can
 | `DAILY_HOURS_EXCEEDED` | Total hours of the day, including the proposed shift, would exceed the limit. | `maximum_daily_hours` |
 | `WEEKLY_HOURS_EXCEEDED` | Total hours of the week, including the proposed shift, would exceed the limit. | `maximum_weekly_hours` |
 | `CONSECUTIVE_SHIFTS_EXCEEDED` | Consecutive shifts, counted after inserting the proposed shift, would exceed the limit. A rest of 24 hours or less keeps two shifts in the same run. | `maximum_consecutive_shifts` |
-| `SOURCE_WARD_MINIMUM_VIOLATION` | Moving the candidate out of an existing assignment would leave the source shift below its target headcount. | `preserve_source_ward_minimum` |
+| `SOURCE_WARD_MINIMUM_VIOLATION` | Moving the candidate out of an existing assignment would leave the source shift below its target. Round 4 PR C2: `SourceShift(shift_id, leaves_gap)` is set when the cover is a move, and `leaves_gap` comes from `gap_service.gap_without()`, the same gap calculator as cases, over headcount, role and skill from `max(cover start, Backend Clock)` to the source shift end (`docs/workflow.md` 6.19). Checked at planning, Safety, wave selection and at the final transfer. | `preserve_source_ward_minimum` |
 | `OFFER_LIMIT_REACHED` | Candidate already holds the maximum number of open offers: `SENT`, or `ACCEPTED` on a case that is still running. | `OUTREACH_POLICY.maximum_concurrent_offers_per_staff` |
+| `GAP_TIME_MISMATCH` | Round 4 PR T4. The candidate's cover window (`cover_start_at` to `cover_end_at`, the whole shift when empty) overlaps no time slice of the gap that is still short, so they could only work while the ward is already full. Checked in `optimization_service` before the Solver runs. Can happen since PR C3, which gives candidates partial cover windows (for example a gap that is short only in the first half of the shift, and a mover whose cover starts in the second half); C2 moved only whole shifts. | Solver planning only; not a Hard Rule |
+| `SOURCE_SHIFT_TAKEN` | Round 4 PR C2: another candidate from the same source shift already gives this case a live offer, a pending request or a move (`docs/workflow.md` 6.19). | Wave selection only |
 
-The first eleven codes are Hard Rules. The Solver, wave selection and Safety must return the same result from the same data. `OFFER_LIMIT_REACHED` is not a Hard Rule: it is checked by the Solver and by wave selection, never by Safety, because the candidate being validated always holds the accepted offer of their own case.
+The first eleven codes are Hard Rules. The Solver, wave selection and Safety must return the same result from the same data. `GAP_TIME_MISMATCH` is not a Hard Rule either: the Solver step judges it from the gap slices and the cover window, so it is written to the plan snapshot's `skipped` only, never by wave selection or Safety. `OFFER_LIMIT_REACHED` is not a Hard Rule: it is checked by the Solver and by wave selection, never by Safety, because the candidate being validated always holds the accepted offer of their own case.
 
 The old codes `OPEN_OFFER`, `HAS_OPEN_OFFER` and `SOURCE_WARD_MINIMUM` are not used.
 
@@ -844,7 +953,7 @@ Their previous outcome is recorded by the outreach status and the matching audit
 
 `skipped` is a list of `{staff_id, reason}` with one fixed code per skipped candidate.
 
-A candidate may fail more than one rule. One code is kept: the first failed Hard Rule in the order of the Skip Reasons table above, which is also the order Safety uses for `failure_reason`. The offer limit is checked after the Hard Rules, so `OFFER_LIMIT_REACHED` appears only for a candidate who passed them. PR 2b removes the interim rule that excluded anyone holding another offer. Both the Solver and Wave selection now use the cap alone after the Hard Rules. Do not rely on database query order.
+A candidate may fail more than one rule. One code is kept: the first failed Hard Rule in the order of the Skip Reasons table above, which is also the order Safety uses for `failure_reason`. The Solver step checks the time slices after the Hard Rules and before the offer limit, so `GAP_TIME_MISMATCH` appears only for a candidate who passed the Hard Rules, in the plan snapshot's `skipped`. The offer limit is checked after the Hard Rules, so `OFFER_LIMIT_REACHED` appears only for a candidate who passed them. PR 2b removes the interim rule that excluded anyone holding another offer. Both the Solver and Wave selection now use the cap alone after the Hard Rules. Do not rely on database query order.
 
 ## OFFER_SENT Payload Example
 

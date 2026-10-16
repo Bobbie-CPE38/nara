@@ -13,14 +13,31 @@ export type GapCount = {
   gap_count: number;
 };
 
+/** Headcount of one time slice of a gap */
+export type HeadcountCount = { required_count: number; current_count: number; gap_count: number };
+
+/** One time slice [start_at, end_at) of a gap */
+export type GapIntervalView = {
+  start_at: string;
+  end_at: string;
+  headcount: HeadcountCount;
+  roles: GapCount[];
+  skills: GapCount[];
+};
+
 export type GapView = {
   id: number;
   /** The headcount target the gap was measured against */
   effective_minimum: number;
+  /** The worst slice of each dimension, for display */
   headcount_gap: number;
   computed_at: string;
   roles: GapCount[];
   skills: GapCount[];
+  /** Where the measured window starts; null for a gap written before round 4 */
+  evaluated_from: string | null;
+  /** Every slice in time order; empty for a gap written before round 4 */
+  intervals: GapIntervalView[];
 };
 
 /** One term of a score: points = weight x value, as stored with the plan */
@@ -40,6 +57,14 @@ export type RankExplanation = {
   model_id: string | null;
 };
 
+/** The roster row a candidate is moved out of when they take this shift */
+export type SourceAssignmentView = {
+  assignment_id: number;
+  shift_id: number;
+  ward_id: number;
+  ward_name: string;
+};
+
 export type CandidateView = {
   candidate_item_id: number;
   rank: number;
@@ -47,12 +72,20 @@ export type CandidateView = {
   first_name: string;
   last_name: string;
   source: string;
+  /** The candidate's home ward (docs/workflow.md, section 9.6) */
+  home_ward_id: number;
+  home_ward_name: string;
   /** null until an offer was created for this candidate */
   outreach_status: string | null;
   /** Where the candidate is in the case (docs/workflow.md, section 4.1) */
   stage: string;
   /** Numbers come from the plan's snapshot (docs/workflow.md, section 6.15). null means no score, for a reason the API does not give */
   score: CandidateScore | null;
+  /** Both null means the whole shift (docs/workflow.md, section 6.20) */
+  cover_start_at: string | null;
+  cover_end_at: string | null;
+  /** null means the candidate is not moved out of another shift */
+  source_assignment: SourceAssignmentView | null;
 };
 
 /** GET /cases/{id} */
@@ -73,6 +106,8 @@ export type CaseDetail = {
   candidates: CandidateView[];
   /** null when the latest plan has no explanation row (LLM off, an old plan, no plan) */
   explanation: RankExplanation | null;
+  /** true when no group could cover every target, so the solver used the partial plan */
+  partial_plan: boolean;
 };
 
 /** One item of GET /cases/{id}/audit */

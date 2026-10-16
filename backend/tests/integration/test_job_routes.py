@@ -131,6 +131,8 @@ def test_advancing_the_clock_closes_the_windows_that_became_due(
                 "case_status": "WAITING_RESPONSE",
             }
         ],
+        "auto_approved_request_ids": [],
+        "failed_auto_approval_ward_ids": [],
         "timed_out_approval_request_ids": [],
         "timed_out_outreach_ids": [],
         "recovered_case_ids": [],
@@ -148,6 +150,8 @@ def test_advancing_too_little_moves_the_clock_and_closes_nothing(
     assert response.json() == {
         "clock": "2026-10-09T21:09:59+07:00",
         "closed_windows": [],
+        "auto_approved_request_ids": [],
+        "failed_auto_approval_ward_ids": [],
         "timed_out_approval_request_ids": [],
         "timed_out_outreach_ids": [],
         "recovered_case_ids": [],
@@ -174,6 +178,8 @@ def test_advancing_the_clock_reports_timed_out_offers_and_rechecked_cases(
     assert response.json() == {
         "clock": "2026-10-09T21:05:00+07:00",
         "closed_windows": [],
+        "auto_approved_request_ids": [],
+        "failed_auto_approval_ward_ids": [],
         "timed_out_approval_request_ids": [],
         "timed_out_outreach_ids": [2, 5],
         "recovered_case_ids": [4, 9],
@@ -225,7 +231,14 @@ def test_job_route_closes_due_windows_with_the_backend_clock(
     due = client.post(CLOSE_DUE, headers=job_secret)
     again = client.post(CLOSE_DUE, headers=job_secret)
 
-    assert (too_early.status_code, too_early.json()) == (200, {"closed_windows": []})
+    assert (too_early.status_code, too_early.json()) == (
+        200,
+        {
+            "closed_windows": [],
+            "auto_approved_request_ids": [],
+            "failed_auto_approval_ward_ids": [],
+        },
+    )
     case_id = seeded.scalars(select(StaffingCase.id)).one()
     assert due.json() == {
         "closed_windows": [
@@ -235,10 +248,16 @@ def test_job_route_closes_due_windows_with_the_backend_clock(
                 "case_id": case_id,
                 "case_status": "WAITING_RESPONSE",
             }
-        ]
+        ],
+        "auto_approved_request_ids": [],
+        "failed_auto_approval_ward_ids": [],
     }
     # A closed window is not closed twice
-    assert again.json() == {"closed_windows": []}
+    assert again.json() == {
+        "closed_windows": [],
+        "auto_approved_request_ids": [],
+        "failed_auto_approval_ward_ids": [],
+    }
     assert seeded.scalar(select(func.count()).select_from(StaffingCase)) == 1
 
 
@@ -293,3 +312,24 @@ def test_ticker_calls_the_route_the_backend_serves() -> None:
 def test_ticker_reports_an_unreachable_backend_instead_of_raising() -> None:
     # Port 9 (discard) on localhost: nothing listens there in the test container
     assert "backend not reachable" in ticker.tick("http://127.0.0.1:9" + CLOSE_DUE, SECRET)
+
+
+@pytest.mark.parametrize("route", ["/demo/clock/advance", CLOSE_DUE])
+def test_due_work_routes_sort_auto_approval_result_ids(client, job_secret, monkeypatch, route):
+    monkeypatch.setattr(
+        job_service,
+        "run_due_work",
+        lambda db: DueWork(
+            closed_windows=[],
+            auto_approved_request_ids=[8, 3],
+            failed_auto_approval_ward_ids=[9, 2],
+        ),
+    )
+    response = client.post(
+        route,
+        headers=job_secret,
+        **({"json": {"seconds": 1}} if route.startswith("/demo") else {}),
+    )
+    assert response.status_code == 200
+    assert response.json()["auto_approved_request_ids"] == [3, 8]
+    assert response.json()["failed_auto_approval_ward_ids"] == [2, 9]

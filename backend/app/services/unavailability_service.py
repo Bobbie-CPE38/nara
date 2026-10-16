@@ -36,7 +36,7 @@ from app.domain.enums import (
     RosterStatus,
 )
 from app.domain.staffing.ward_authority import manages_ward
-from app.services import audit_service, hard_rule_service
+from app.services import audit_service, hard_rule_service, roster_time_service
 
 
 class NoAssignedRosterError(LookupError):
@@ -250,7 +250,9 @@ def _overlapping_assignments(
             .where(
                 RosterAssignment.staff_id == staff_id,
                 RosterAssignment.status == RosterStatus.ASSIGNED,
-                leave_overlaps_shift_sql(start_at, end_at, Shift.start_at, Shift.end_at),
+                leave_overlaps_shift_sql(
+                    start_at, end_at, roster_time_service.start_at(), roster_time_service.end_at()
+                ),
             )
             .order_by(RosterAssignment.id)
         )

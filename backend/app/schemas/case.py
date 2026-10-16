@@ -25,14 +25,38 @@ class GapCount(BaseModel):
     gap_count: int
 
 
+class HeadcountCount(BaseModel):
+    """Headcount of one time slice of a gap."""
+
+    required_count: int
+    current_count: int
+    gap_count: int
+
+
+class GapIntervalView(BaseModel):
+    """One time slice [start_at, end_at) of a gap (round 4 PR T3, workflow.md 6.20)."""
+
+    start_at: AppDatetime
+    end_at: AppDatetime
+    headcount: HeadcountCount
+    roles: list[GapCount]
+    skills: list[GapCount]
+
+
 class GapView(BaseModel):
     id: int
     # The headcount target the gap was measured against, stored with the gap row
     effective_minimum: int
+    # The worst slice of each dimension; display only, never for deciding
     headcount_gap: int
     computed_at: AppDatetime
     roles: list[GapCount]
     skills: list[GapCount]
+    # Where the measured window starts; null for a gap written before round 4
+    evaluated_from: AppDatetime | None
+    # Every slice in time order, also those without a shortage. Empty for a gap
+    # written before round 4, which is short for the whole shift
+    intervals: list[GapIntervalView]
 
 
 # Where a candidate is in the case (docs/workflow.md, section 4.1). Computed
@@ -76,6 +100,15 @@ class CandidateScore(BaseModel):
     first_wave: bool
 
 
+class SourceAssignmentView(BaseModel):
+    """The roster row a candidate is moved out of when they take this shift."""
+
+    assignment_id: int
+    shift_id: int
+    ward_id: int
+    ward_name: str
+
+
 class CandidateView(BaseModel):
     candidate_item_id: int
     rank: int
@@ -83,11 +116,19 @@ class CandidateView(BaseModel):
     first_name: str
     last_name: str
     source: CandidateSource
+    # The candidate's home ward (docs/workflow.md, section 9.6)
+    home_ward_id: int
+    home_ward_name: str
     # null until an offer was created for this candidate
     outreach_status: OutreachStatus | None
     stage: CandidateStage
     # null for a plan created before PR E: its snapshot has no exact values
     score: CandidateScore | None
+    # Both null = the candidate covers the whole shift (docs/workflow.md, section 6.20)
+    cover_start_at: AppDatetime | None
+    cover_end_at: AppDatetime | None
+    # null = the candidate is not moved out of another shift
+    source_assignment: SourceAssignmentView | None
 
 
 class RankExplanationView(BaseModel):
@@ -120,6 +161,9 @@ class CaseDetail(BaseModel):
     candidates: list[CandidateView]
     # null when the latest plan has no explanation row
     explanation: RankExplanationView | None
+    # True when the latest plan's first wave comes from the max-coverage stages: no
+    # group could cover every target (round 4 PR T4). False without a plan
+    partial_plan: bool
 
 
 class AuditEntry(BaseModel):

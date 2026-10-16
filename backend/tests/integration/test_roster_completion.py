@@ -30,6 +30,17 @@ from tests.integration.conftest import DEMO_NOW
 NIGHT_END = DEMO_NOW + timedelta(hours=10)  # 2026-10-10 07:00
 
 
+def night_rows(db: Session, assignment_ids: list[int]) -> list[int]:
+    """The IDs on the ICU night shift, sorted: other seeded shifts may end at the same time."""
+    return sorted(
+        db.scalars(
+            select(RosterAssignment.id).where(
+                RosterAssignment.id.in_(assignment_ids), RosterAssignment.shift_id == NIGHT_SHIFT
+            )
+        )
+    )
+
+
 def statuses(db: Session, shift_id: int) -> dict[int, RosterStatus]:
     db.expire_all()
     return {
@@ -55,7 +66,7 @@ def test_only_assigned_rows_of_ended_shifts_become_completed(production_seeded: 
     }
     assert night[105] is RosterStatus.CANCELLED
     assert set(statuses(db, DAY_SHIFT).values()) == {RosterStatus.ASSIGNED}
-    assert completed == sorted(
+    assert night_rows(db, completed) == sorted(
         db.scalars(
             select(RosterAssignment.id).where(
                 RosterAssignment.shift_id == NIGHT_SHIFT,
@@ -81,7 +92,7 @@ def test_the_job_tick_completes_ended_shifts(production_seeded: Session) -> None
 
     work = job_service.run_due_work(db)
 
-    assert len(work.completed_assignment_ids) == 5
+    assert len(night_rows(db, work.completed_assignment_ids)) == 5
     assert set(statuses(db, NIGHT_SHIFT).values()) == {RosterStatus.COMPLETED}
 
 
@@ -161,5 +172,6 @@ def test_a_row_held_by_another_transaction_is_left_for_the_next_tick(
         holder.rollback()
         second = roster_completion_service.complete_ended_shifts(job)
 
-    assert held_id not in first and len(first) == 4
+    with SessionLocal() as db:
+        assert held_id not in first and len(night_rows(db, first)) == 4
     assert second == [held_id]

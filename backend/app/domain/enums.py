@@ -239,6 +239,27 @@ class ApprovalMode(StrEnum):
     AUTO = "AUTO"
 
 
+# Round 4 PR S: APPROVAL_WARD_DECISION.side.
+class ApprovalSide(StrEnum):
+    DESTINATION = "DESTINATION"  # the ward of the shift that is short
+    SOURCE = "SOURCE"  # the ward of the shift the person is moved off
+
+
+# Round 4 PR S: APPROVAL_WARD_DECISION.decided_as.
+class ApproverCapacity(StrEnum):
+    HEAD_NURSE = "HEAD_NURSE"
+    SUPERVISOR = "SUPERVISOR"
+
+
+# Round 4 PR C2: `reason` of TRANSFER_CHECK_FAILED (docs/workflow.md 6.19).
+class TransferFailureReason(StrEnum):
+    SOURCE_COVERAGE_LOST = "SOURCE_COVERAGE_LOST"
+    DESTINATION_WINDOW_PASSED = "DESTINATION_WINDOW_PASSED"
+    HARD_RULE_FAILED = "HARD_RULE_FAILED"
+    # PR C3 removed SOURCE_SHIFT_STARTED (R4-Q43): a move after the source shift started
+    # is a mid-shift move now. Old audit rows may still hold it; the readers keep the raw string
+
+
 # --------------------------------------------------------------------------- #
 # Actors & audit
 # --------------------------------------------------------------------------- #
@@ -309,9 +330,15 @@ class AuditAction(StrEnum):
     APPROVAL_APPROVED = "APPROVAL_APPROVED"
     APPROVAL_REJECTED = "APPROVAL_REJECTED"
     APPROVAL_TIMEOUT = "APPROVAL_TIMEOUT"  # round 2 PR T, written by the job
+    # Round 4 PR S: one ward of a two-ward request approved. Not written yet
+    APPROVAL_WARD_APPROVED = "APPROVAL_WARD_APPROVED"
     ASSIGNMENT_CREATED = "ASSIGNMENT_CREATED"
     # Round 2: a head nurse staffed a MANUAL_HANDOFF case directly. Not written yet
     MANUAL_ASSIGNMENT_CREATED = "MANUAL_ASSIGNMENT_CREATED"
+    # Round 4 PR C2: a person moved off another ward's shift.
+    ASSIGNMENT_TRANSFERRED = "ASSIGNMENT_TRANSFERRED"
+    # Round 4 PR C2: the check at the real move failed; the request ends.
+    TRANSFER_CHECK_FAILED = "TRANSFER_CHECK_FAILED"
     HANDOVER_GENERATED = "HANDOVER_GENERATED"
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
@@ -366,3 +393,11 @@ GOLDEN_PATH_AUDIT_ACTIONS: tuple[AuditAction, ...] = (
     AuditAction.ASSIGNMENT_CREATED,
     AuditAction.CASE_RESOLVED,
 )
+
+
+class ApprovalOutcome(StrEnum):
+    WAITING_OTHER_WARD = "WAITING_OTHER_WARD"
+    ASSIGNED = "ASSIGNED"
+    REJECTED = "REJECTED"
+    TRANSFER_CANCELLED = "TRANSFER_CANCELLED"
+    EXECUTION_FAILED = "EXECUTION_FAILED"

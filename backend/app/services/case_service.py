@@ -8,6 +8,7 @@ frozen after a reset, so rows of one case can share the same time
 """
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -22,14 +23,20 @@ from app.db.models import (
     CandidatePlan,
     RankExplanation,
     Role,
+    RosterAssignment,
     SafetyValidation,
+    Shift,
     Skill,
     Staff,
     StaffingCase,
     StaffingEvent,
     StaffingGap,
+    StaffingGapInterval,
     StaffingGapRole,
+    StaffingGapRoleInterval,
     StaffingGapSkill,
+    StaffingGapSkillInterval,
+    Ward,
 )
 from app.domain.constraints.score_breakdown import (
     CandidateScore as ScoreBreakdown,
@@ -49,9 +56,12 @@ from app.schemas.case import (
     CandidateView,
     CaseDetail,
     GapCount,
+    GapIntervalView,
     GapView,
+    HeadcountCount,
     RankExplanationView,
     ScoreTerm,
+    SourceAssignmentView,
 )
 from app.services import case_facts_service
 
@@ -81,6 +91,7 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
         assigned_count=len(case_facts_service.assigned_staff_ids(db, case.id)),
         candidates=_latest_candidates(db, case.id),
         explanation=_latest_explanation(db, case.id),
+        partial_plan=_partial_plan(db, case.id),
     )
 
 
@@ -184,7 +195,63 @@ def _latest_gap(db: Session, case_id: int) -> GapView | None:
             )
             for row, name in skills
         ],
+        evaluated_from=gap.evaluated_from,
+        intervals=_gap_intervals(db, gap.id),
     )
+
+
+def _gap_intervals(db: Session, gap_id: int) -> list[GapIntervalView]:
+    """Every time slice of a gap in time order, with role and skill counts by ID."""
+    roles: dict[datetime, list[GapCount]] = {}
+    for role_row, name in db.execute(
+        select(StaffingGapRoleInterval, Role.name)
+        .join(Role, Role.id == StaffingGapRoleInterval.role_id)
+        .where(StaffingGapRoleInterval.gap_id == gap_id)
+        .order_by(StaffingGapRoleInterval.role_id)
+    ):
+        roles.setdefault(role_row.start_at, []).append(
+            GapCount(
+                id=role_row.role_id,
+                name=name,
+                required_count=role_row.required_count,
+                current_count=role_row.current_count,
+                gap_count=role_row.gap_count,
+            )
+        )
+    skills: dict[datetime, list[GapCount]] = {}
+    for skill_row, name in db.execute(
+        select(StaffingGapSkillInterval, Skill.name)
+        .join(Skill, Skill.id == StaffingGapSkillInterval.skill_id)
+        .where(StaffingGapSkillInterval.gap_id == gap_id)
+        .order_by(StaffingGapSkillInterval.skill_id)
+    ):
+        skills.setdefault(skill_row.start_at, []).append(
+            GapCount(
+                id=skill_row.skill_id,
+                name=name,
+                required_count=skill_row.required_count,
+                current_count=skill_row.current_count,
+                gap_count=skill_row.gap_count,
+            )
+        )
+    return [
+        GapIntervalView(
+            start_at=row.start_at,
+            end_at=row.end_at,
+            headcount=HeadcountCount(
+                required_count=row.required_count,
+                current_count=row.current_count,
+                gap_count=row.gap_count,
+            ),
+            roles=roles.get(row.start_at, []),
+            skills=skills.get(row.start_at, []),
+        )
+        for row in db.scalars(
+            select(StaffingGapInterval)
+            .where(StaffingGapInterval.gap_id == gap_id)
+            .order_by(StaffingGapInterval.start_at)
+        )
+    ]
 
 
 def _latest_plan(db: Session, case_id: int) -> CandidatePlan | None:
@@ -197,6 +264,12 @@ def _latest_plan(db: Session, case_id: int) -> CandidatePlan | None:
         .order_by(CandidatePlan.id.desc())
         .limit(1)
     )
+
+
+def _partial_plan(db: Session, case_id: int) -> bool:
+    """True when the latest plan was a partial plan; False without a plan."""
+    plan = _latest_plan(db, case_id)
+    return plan is not None and bool(plan.input_snapshot.get("partial_plan", False))
 
 
 def _latest_explanation(db: Session, case_id: int) -> RankExplanationView | None:
@@ -230,12 +303,13 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
         return []
     plan_id = plan.id
     items = db.execute(
-        select(CandidateItem, Staff.first_name, Staff.last_name)
+        select(CandidateItem, Staff.first_name, Staff.last_name, Ward.id, Ward.name)
         .join(Staff, Staff.id == CandidateItem.staff_id)
+        .join(Ward, Ward.id == Staff.home_ward_id)
         .where(CandidateItem.plan_id == plan_id)
         .order_by(CandidateItem.rank, CandidateItem.id)
     ).all()
-    scores = _scores(plan, [item.staff_id for item, _, _ in items])
+    scores = _scores(plan, [item.staff_id for item, *_ in items])
 
     # The newest outreach of each item: ascending id, so a later row overwrites
     latest_offers = {
@@ -271,6 +345,7 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
     }
     assigned = case_facts_service.assigned_staff_ids(db, case_id)
     pending = case_facts_service.pending_staff_ids(db, case_id)
+    sources = _source_assignments(db, [item.source_assignment_id for item, *_ in items])
     return [
         CandidateView(
             candidate_item_id=item.id,
@@ -279,6 +354,8 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
             first_name=first_name,
             last_name=last_name,
             source=item.source,
+            home_ward_id=home_ward_id,
+            home_ward_name=home_ward_name,
             outreach_status=outreach_status.get(item.id),
             stage=_stage(
                 outreach_status=outreach_status.get(item.id),
@@ -291,9 +368,36 @@ def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:
                 is_pending=item.staff_id in pending,
             ),
             score=scores[item.staff_id],
+            cover_start_at=item.cover_start_at,
+            cover_end_at=item.cover_end_at,
+            source_assignment=(
+                sources[item.source_assignment_id]
+                if item.source_assignment_id is not None
+                else None
+            ),
         )
-        for item, first_name, last_name in items
+        for item, first_name, last_name, home_ward_id, home_ward_name in items
     ]
+
+
+def _source_assignments(
+    db: Session, assignment_ids: list[int | None]
+) -> dict[int, SourceAssignmentView]:
+    """The source roster rows of a plan's items, by assignment ID, in one query."""
+    ids = {assignment_id for assignment_id in assignment_ids if assignment_id is not None}
+    if not ids:
+        return {}
+    return {
+        assignment_id: SourceAssignmentView(
+            assignment_id=assignment_id, shift_id=shift_id, ward_id=ward_id, ward_name=ward_name
+        )
+        for assignment_id, shift_id, ward_id, ward_name in db.execute(
+            select(RosterAssignment.id, Shift.id, Ward.id, Ward.name)
+            .join(Shift, Shift.id == RosterAssignment.shift_id)
+            .join(Ward, Ward.id == Shift.ward_id)
+            .where(RosterAssignment.id.in_(ids))
+        )
+    }
 
 
 def _scores(plan: CandidatePlan, staff_ids: list[int]) -> dict[int, CandidateScore | None]:

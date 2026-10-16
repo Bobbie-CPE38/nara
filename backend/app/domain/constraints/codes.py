@@ -9,6 +9,12 @@ Rules:
     `skipped` list in audit payloads). Change one only together with the contract.
   * OFFER_LIMIT_REACHED is not a Hard Rule. It needs CANDIDATE_OUTREACH, so it
     lives in the service layer and Safety never checks it.
+  * SOURCE_SHIFT_TAKEN (round 4 PR C2) is not a Hard Rule either. It is a wave
+    skip reason for the one-person-per-source-shift limit, and Safety never
+    checks it.
+  * GAP_TIME_MISMATCH (round 4 PR T4) is not a Hard Rule either. It is a skip
+    reason for a candidate whose cover window overlaps no time slice that is
+    still short, and Safety never checks it.
 """
 
 from enum import StrEnum
@@ -31,3 +37,15 @@ class HardRuleCode(StrEnum):
 # Not a Hard Rule (see the module docstring): the Solver and wave selection write
 # this code when a candidate already holds the maximum number of open offers
 OFFER_LIMIT_REACHED = "OFFER_LIMIT_REACHED"
+
+# Round 4 PR C2, not a Hard Rule: wave selection skips a candidate whose source
+# shift already gives this case a live offer, a pending request or a move
+# (docs/workflow.md 6.19).
+SOURCE_SHIFT_TAKEN = "SOURCE_SHIFT_TAKEN"
+
+# Round 4 PR T4, not a Hard Rule: the candidate's cover window (the time they can
+# come, cover_start_at..cover_end_at, or the whole shift when empty) overlaps no
+# time slice that is still short. They could only work while the ward is already
+# full, so the Solver leaves them out before it runs (docs/workflow.md 6.20).
+# Cannot happen until C2/C3 give candidates partial cover windows.
+GAP_TIME_MISMATCH = "GAP_TIME_MISMATCH"

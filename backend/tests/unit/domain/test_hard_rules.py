@@ -18,6 +18,7 @@ from app.domain.constraints.context import (
     UnavailabilityPeriod,
     projected_consecutive_shifts,
     week_start,
+    weekly_hours,
 )
 from app.domain.constraints.evaluator import evaluate
 from app.domain.constraints.hard_rules import HARD_RULES
@@ -108,7 +109,7 @@ BREAKS: dict[HardRuleCode, dict[str, Any]] = {
         "roster": day_shifts(range(-7, 0)),
     },
     HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION: {
-        "source_shift": SourceShift(assigned_count=5, required_staff=5, minimum_staff=4)
+        "source_shift": SourceShift(shift_id=9, leaves_gap=True)
     },
 }
 
@@ -556,25 +557,21 @@ def test_any_role_passes_only_when_the_requirement_lists_no_role() -> None:
 # --------------------------------------------------------------------------- #
 # SOURCE_WARD_MINIMUM_VIOLATION (Q15, Q51)
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize(
-    ("assigned", "required", "minimum", "preserve_minimum_staffing", "violates"),
-    [
-        (5, 5, 4, True, True),  # the example of Q15: 5 staff, target 5
-        (6, 5, 4, True, False),
-        (5, 3, 5, True, True),  # minimum_staff is the floor of the target
-        (5, 3, 5, False, False),  # flag off: required_staff alone
-        (4, 4, 2, False, True),
-    ],
-)
-def test_source_shift_keeps_the_target_of_the_gap_calculation(
-    assigned: int, required: int, minimum: int, preserve_minimum_staffing: bool, violates: bool
-) -> None:
-    policy = replace(POLICY, preserve_minimum_staffing=preserve_minimum_staffing)
-    source = SourceShift(assigned_count=assigned, required_staff=required, minimum_staff=minimum)
+@pytest.mark.parametrize("leaves_gap", [True, False])
+def test_source_shift_violates_only_when_it_is_left_short(leaves_gap: bool) -> None:
+    source = SourceShift(shift_id=9, leaves_gap=leaves_gap)
 
-    result = evaluate(candidate(source_shift=source), policy)
+    result = evaluate(candidate(source_shift=source), POLICY)
 
-    assert (HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION in result.failed_rules) is violates
+    assert (HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION in result.failed_rules) is leaves_gap
+
+
+def test_source_shift_rule_is_skipped_when_the_flag_is_off() -> None:
+    policy = replace(POLICY, preserve_source_ward_minimum=False)
+
+    result = evaluate(candidate(source_shift=SourceShift(shift_id=9, leaves_gap=True)), policy)
+
+    assert HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION not in result.failed_rules
 
 
 def test_candidate_without_a_source_shift_passes_but_the_rule_is_checked() -> None:
@@ -672,11 +669,48 @@ def test_shift_times_must_be_aware_and_in_order() -> None:
         UnavailabilityPeriod(at(2, 8), naive)
 
 
-def test_rows_that_disagree_about_a_shift_are_rejected() -> None:
-    moved = ShiftSlot(PROPOSED.shift_id, at(3, 8), at(3, 16))
+def test_cancelled_and_committed_intervals_on_the_proposed_shift_keep_identity() -> None:
+    partial = ShiftSlot(PROPOSED.shift_id, at(2, 12), at(2, 16))
+    context = candidate(roster=(on(PROPOSED, RosterStatus.CANCELLED), on(partial)))
 
-    with pytest.raises(ValueError, match="Conflicting times for shift_id=1"):
-        candidate(roster=(on(moved, RosterStatus.CANCELLED),))
+    result = evaluate(context, POLICY)
+
+    assert HardRuleCode.ALREADY_ON_SHIFT in result.failed_rules
+    assert HardRuleCode.UNAVAILABLE in result.failed_rules
+    assert HardRuleCode.SHIFT_CONFLICT not in result.failed_rules
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_overlap_checks_every_committed_interval_of_one_shift(reverse: bool) -> None:
+    overlapping = slot(2, at(2, 12), hours=2)
+    separate = slot(2, at(3, 8), hours=2)
+    entries = (on(overlapping), on(separate))
+    context = candidate(roster=entries[::-1] if reverse else entries)
+
+    assert HardRuleCode.SHIFT_CONFLICT in evaluate(context, POLICY).failed_rules
+
+
+def test_cancelled_interval_does_not_create_a_conflict() -> None:
+    context = candidate(
+        roster=(on(slot(2, at(2, 8)), RosterStatus.CANCELLED), on(slot(2, at(4, 8))))
+    )
+
+    assert evaluate(context, POLICY).passed
+
+
+def test_overlapping_committed_parts_of_one_shift_are_rejected() -> None:
+    """Corrupt data: 08:00-16:00 and 12:00-20:00 would count 12:00-16:00 twice."""
+    with pytest.raises(ValueError, match="Conflicting times for shift_id=2"):
+        candidate(roster=(on(slot(2, at(3, 8))), on(slot(2, at(3, 12)))))
+
+
+def test_repeated_and_separate_committed_parts_of_one_shift_are_accepted() -> None:
+    repeated = candidate(roster=(on(slot(2, at(3, 8))), on(slot(2, at(3, 8)))))
+    # Parts that only touch (08:00-12:00 then 12:00-16:00) do not overlap
+    touching = candidate(roster=(on(slot(2, at(3, 8), hours=4)), on(slot(2, at(3, 12), hours=4))))
+
+    assert weekly_hours(repeated) == 16
+    assert weekly_hours(touching) == 16
 
 
 @pytest.mark.parametrize(
@@ -695,8 +729,3 @@ def test_policy_rejects_limits_it_cannot_compare(
 ) -> None:
     with pytest.raises(error):
         replace(POLICY, **change)
-
-
-def test_source_shift_counts_cannot_be_negative() -> None:
-    with pytest.raises(ValueError, match="non-negative"):
-        SourceShift(assigned_count=-1, required_staff=1, minimum_staff=1)

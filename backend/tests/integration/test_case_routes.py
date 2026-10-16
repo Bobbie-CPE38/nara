@@ -17,12 +17,15 @@ from app.db.models import (
     CandidateOutreach,
     CandidatePlan,
     RosterAssignment,
+    Shift,
+    Staff,
     StaffingCase,
     StaffingEvent,
     StaffingGap,
     StaffingGapRole,
     StaffingGapSkill,
     StaffingRequirement,
+    Ward,
 )
 from app.domain.enums import (
     GOLDEN_PATH_AUDIT_ACTIONS,
@@ -218,6 +221,7 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
         "assigned_count",
         "candidates",
         "explanation",
+        "partial_plan",
     }
     assert (body["id"], body["event_ids"], body["shift_id"]) == (
         case.id,
@@ -233,6 +237,24 @@ def test_case_before_assessment_has_no_gap_and_no_candidates(
 
     assert body["gap"] is None
     assert body["candidates"] == []
+
+
+def test_partial_plan_follows_the_latest_plan(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    assert client.get(f"/cases/{case.id}").json()["partial_plan"] is False
+
+    case_rows.make_plan(seeded, case)
+    assert client.get(f"/cases/{case.id}").json()["partial_plan"] is False
+
+    plan = seeded.scalars(select(CandidatePlan).where(CandidatePlan.case_id == case.id)).one()
+    plan.input_snapshot = {"partial_plan": True}
+    seeded.flush()
+    assert client.get(f"/cases/{case.id}").json()["partial_plan"] is True
+
+    # A newer plan decides, not the older one
+    case_rows.make_plan(seeded, case)
+    assert client.get(f"/cases/{case.id}").json()["partial_plan"] is False
 
 
 def test_case_detail_needs_no_demo_user_header(client: TestClient, case: StaffingCase) -> None:
@@ -292,13 +314,77 @@ def test_candidates_come_from_the_latest_plan_in_rank_order(
         "first_name",
         "last_name",
         "source",
+        "home_ward_id",
+        "home_ward_name",
         "outreach_status",
         "stage",
         "score",
+        "cover_start_at",
+        "cover_end_at",
+        "source_assignment",
     }
+    # A plan without a cover: the whole shift, nobody moved
+    assert [
+        (c["cover_start_at"], c["cover_end_at"], c["source_assignment"]) for c in body["candidates"]
+    ] == [(None, None, None)] * 3
     # The helper plans store an empty snapshot: no exact values, so no score
     assert [c["score"] for c in body["candidates"]] == [None, None, None]
     assert (first["first_name"], first["source"]) == ("Arunee", "SAME_WARD")
+    assert [(c["home_ward_id"], c["home_ward_name"]) for c in body["candidates"]] == [
+        (1, "ICU")
+    ] * 3
+
+
+def test_candidate_of_another_ward_shows_that_ward(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    items = _add_plan(seeded, case, [201, 202, 203])
+    seeded.add(
+        Ward(id=90, name="Other ward", is_active=True, created_at=DEMO_NOW, updated_at=DEMO_NOW)
+    )
+    seeded.flush()
+    staff = seeded.get(Staff, 202)
+    assert staff is not None
+    staff.home_ward_id = 90
+    next(item for item in items if item.staff_id == 202).source = CandidateSource.CROSS_WARD
+    seeded.flush()
+
+    candidates = client.get(f"/cases/{case.id}").json()["candidates"]
+
+    by_staff = {c["staff_id"]: c for c in candidates}
+    assert (by_staff[202]["source"], by_staff[202]["home_ward_id"]) == ("CROSS_WARD", 90)
+    assert by_staff[202]["home_ward_name"] == "Other ward"
+    assert by_staff[201]["home_ward_name"] == "ICU"
+
+
+def test_candidate_with_cover_and_source_shows_the_times_and_the_ward_name(
+    client: TestClient, seeded: Session, case: StaffingCase
+) -> None:
+    first, _, _ = _add_plan(seeded, case, [201, 202, 203])
+    source = seeded.scalars(
+        select(RosterAssignment).where(RosterAssignment.staff_id == 202).limit(1)
+    ).one()
+    shift = seeded.get(Shift, source.shift_id)
+    assert shift is not None
+    ward = seeded.get(Ward, shift.ward_id)
+    assert ward is not None
+    shift_start = seeded.get(Shift, NIGHT_SHIFT)
+    assert shift_start is not None
+    first.cover_start_at = shift_start.start_at + timedelta(hours=2)
+    first.cover_end_at = shift_start.end_at
+    first.source_assignment_id = source.id
+    seeded.flush()
+
+    candidate = client.get(f"/cases/{case.id}").json()["candidates"][0]
+
+    assert candidate["cover_start_at"] is not None
+    assert candidate["cover_end_at"] is not None
+    assert candidate["source_assignment"] == {
+        "assignment_id": source.id,
+        "shift_id": source.shift_id,
+        "ward_id": ward.id,
+        "ward_name": ward.name,
+    }
 
 
 def test_assigned_count_is_the_approved_candidates_on_the_roster(
