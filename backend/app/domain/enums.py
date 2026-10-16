@@ -263,6 +263,12 @@ class TransferFailureReason(StrEnum):
 # --------------------------------------------------------------------------- #
 # Actors & audit
 # --------------------------------------------------------------------------- #
+# Round 5 PR N1: `source` in the payload of an ATTENDANCE_CHECKED_IN audit row (6.24)
+class CheckInSource(StrEnum):
+    SELF = "SELF"  # the nurse checked in, from the web page or LINE
+    SIMULATED = "SIMULATED"  # the demo simulated the arrival under /demo/
+
+
 class ActorType(StrEnum):
     """Stored in ACTORS.actor_type. Lowercase values by team convention."""
 
@@ -299,6 +305,8 @@ class EntityType(StrEnum):
     STAFFING_REQUIREMENTS = "STAFFING_REQUIREMENTS"
     # Round 3 PR K: linking and unlinking a LINE account. Not written yet
     CONTACTS = "CONTACTS"
+    # Round 5 PR N1: a check-in (docs/workflow.md 6.24). Not written yet
+    ATTENDANCE = "ATTENDANCE"
 
 
 class AuditAction(StrEnum):
@@ -339,7 +347,12 @@ class AuditAction(StrEnum):
     ASSIGNMENT_TRANSFERRED = "ASSIGNMENT_TRANSFERRED"
     # Round 4 PR C2: the check at the real move failed; the request ends.
     TRANSFER_CHECK_FAILED = "TRANSFER_CHECK_FAILED"
+    # Round 5 PR H1: the shared assignment function (docs/workflow.md 6.25). Not written yet
     HANDOVER_GENERATED = "HANDOVER_GENERATED"
+    # Round 5 PR N1: a nurse checked in, or the demo simulated it (6.24). Not written yet
+    ATTENDANCE_CHECKED_IN = "ATTENDANCE_CHECKED_IN"
+    # Round 5 PR N2: a late arrival made an offer or request unneeded (6.24). Not written yet
+    OFFER_CANCELLED_NOT_NEEDED = "OFFER_CANCELLED_NOT_NEEDED"
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
     UNAVAILABILITY_UPDATED = "UNAVAILABILITY_UPDATED"
