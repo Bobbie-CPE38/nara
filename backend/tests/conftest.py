@@ -1,6 +1,9 @@
 import os
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
+from urllib.request import Request
 
 import pytest
 from alembic import command
@@ -30,9 +33,35 @@ TEST_DATABASE_URL = _test_database_url()
 os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from app.core import clock  # noqa: E402
+from app.core.config import settings  # noqa: E402
 from app.db.session import engine  # noqa: E402
+from app.integrations.line import client as line_client  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(autouse=True)
+def isolated_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests own their LINE mode, regardless of the developer's real credentials.
+
+    Autouse fixtures run before explicit fixtures, so real-mode tests can still
+    opt in and replace push/reply or the HTTP transport with deterministic doubles.
+    Guard the transport too: accidentally enabling real mode must never send LINE.
+    urllib.request is shared; leave unrelated local HTTP tests working normally.
+    """
+    monkeypatch.setenv("LINE_MODE", "simulation")
+    monkeypatch.setattr(settings, "line_mode", "simulation")
+
+    original_urlopen = line_client.urllib.request.urlopen
+
+    def guarded_http(url: str | Request, *args: Any, **kwargs: Any) -> Any:
+        hostname = urlsplit(url.full_url if isinstance(url, Request) else url).hostname or ""
+        if hostname == "line.me" or hostname.endswith(".line.me"):
+            # Escape best-effort `except Exception`: fail, don't defer the send.
+            pytest.fail("Unmocked LINE HTTP call: replace the LINE transport in this test")
+        return original_urlopen(url, *args, **kwargs)
+
+    monkeypatch.setattr(line_client.urllib.request, "urlopen", guarded_http)
 
 
 @pytest.fixture(scope="session", autouse=True)
