@@ -25,6 +25,9 @@ export type PendingApproval = {
   supervisor_from: string;
 };
 
+/** One item of GET /approvals/auto: a request the system approved (workflow.md 6.22). */
+export type AutoApprovedApproval = PendingApproval & { decided_at: string };
+
 /** Answer of POST /approvals/{id}/decision. */
 export type ApprovalDecisionResult = {
   approval_id: number;
