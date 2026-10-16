@@ -13,7 +13,7 @@ from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 
 from app.db.base import Base
 from app.db.models import (
@@ -260,6 +260,37 @@ def test_a_new_offer_between_the_lock_steps_makes_the_check_in_start_again_and_s
         )
         assert attended == 5
         # The offer that appeared meanwhile was seen by the second try and trimmed with the rest
+        added = db.scalars(
+            select(CandidateOutreach)
+            .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+            .where(CandidateItem.rank == 99)
+        ).one()
+        assert added.status == OutreachStatus.CANCELLED
+
+
+def test_an_offer_inserted_right_after_the_offer_lock_query_makes_the_check_in_start_again(
+    case_without_101: int,
+) -> None:
+    """The gap the helper itself has: between its lock query and anything after it."""
+    at(DEADLINE + timedelta(minutes=5))
+    lock_queries = {"count": 0}
+
+    def after_execute(conn: Any, cursor: Any, statement: str, *args: Any) -> None:
+        if "FROM candidate_outreach" in statement and "FOR NO KEY UPDATE" in statement:
+            lock_queries["count"] += 1
+            if lock_queries["count"] == 1:
+                add_offer_from_another_connection()
+
+    event.listen(engine, "after_cursor_execute", after_execute)
+    try:
+        result = check_in_101()
+    finally:
+        event.remove(engine, "after_cursor_execute", after_execute)
+
+    # The first try saw an offer it had not locked and started again
+    assert result.on_time is False
+    assert lock_queries["count"] == 2
+    with SessionLocal() as db:
         added = db.scalars(
             select(CandidateOutreach)
             .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)

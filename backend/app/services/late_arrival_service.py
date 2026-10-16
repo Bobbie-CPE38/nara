@@ -221,7 +221,10 @@ def trim(db: Session, case: StaffingCase, *, late_staff_id: int) -> list[int]:
 def _trim_candidates(
     db: Session, case: StaffingCase
 ) -> list[tuple[CandidateOutreach, ApprovalRequest | None, CandidateItem]]:
-    """Pending requests with an ACCEPTED offer, then unexpired SENT offers (open or paused).
+    """Unexpired pending requests with an ACCEPTED offer, then unexpired SENT offers.
+
+    An expired request or offer is neither kept nor cancelled here: it is left to
+    the timeout job, which writes its own audit row.
 
     That is the order choose_kept() prefers on a tie: a request before an offer,
     then the better rank, then the lower offer ID. An accepted reserve without a
@@ -234,6 +237,7 @@ def _trim_candidates(
         .where(
             ApprovalRequest.case_id == case.id,
             ApprovalRequest.is_pending.is_(True),
+            ApprovalRequest.expires_at > clock.now(),
             # The same link as case_facts_service.accepted_offer_for_request()
             CandidateOutreach.case_id == ApprovalRequest.case_id,
             CandidateOutreach.candidate_item_id == ApprovalRequest.candidate_item_id,

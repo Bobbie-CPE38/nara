@@ -250,7 +250,7 @@ def _late_check_in(
         if (
             credited is None
             or credited.id != case_id
-            or _case_offer_ids(db, case_id) != offer_ids
+            or _unfinished_offer_ids(db, case_id) != offer_ids
             or _pending_request_ids(db, case_id) != request_ids
         ):
             # An offer or a request was added, or the case moved on, while locking
@@ -325,25 +325,35 @@ def _pending_request_ids(db: Session, case_id: int) -> set[int]:
 def _lock_unfinished_offers(db: Session, case_id: int) -> set[int]:
     """Lock the SENT and ACCEPTED offers of the case in one query ordered by id.
 
-    Returns the IDs of every offer of the case, so the caller can tell when a
-    new one appears after the locks were taken.
+    Returns the IDs this query locked, not a second read: an offer inserted
+    between the two would be in the baseline without a lock. The caller reads
+    the set again once every lock is held and starts again when it differs.
     """
-    list(
+    return set(
         db.scalars(
             select(CandidateOutreach.id)
             .where(
                 CandidateOutreach.case_id == case_id,
-                CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
+                CandidateOutreach.status.in_(_UNFINISHED_OFFER_STATUSES),
             )
             .order_by(CandidateOutreach.id)
             .with_for_update(key_share=True)
         )
     )
-    return _case_offer_ids(db, case_id)
 
 
-def _case_offer_ids(db: Session, case_id: int) -> set[int]:
-    return set(db.scalars(select(CandidateOutreach.id).where(CandidateOutreach.case_id == case_id)))
+_UNFINISHED_OFFER_STATUSES = (OutreachStatus.SENT, OutreachStatus.ACCEPTED)
+
+
+def _unfinished_offer_ids(db: Session, case_id: int) -> set[int]:
+    return set(
+        db.scalars(
+            select(CandidateOutreach.id).where(
+                CandidateOutreach.case_id == case_id,
+                CandidateOutreach.status.in_(_UNFINISHED_OFFER_STATUSES),
+            )
+        )
+    )
 
 
 def _lock_rows(

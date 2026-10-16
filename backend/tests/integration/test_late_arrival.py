@@ -19,6 +19,7 @@ from app.api.dependencies import get_db
 from app.db.models import (
     ApprovalRequest,
     AuditLog,
+    CandidateItem,
     CandidateOutreach,
     Shift,
     StaffingCase,
@@ -140,6 +141,14 @@ def requests_of(db: Session, case: StaffingCase) -> list[ApprovalRequest]:
             .order_by(ApprovalRequest.id)
         )
     )
+
+
+def pending_request(db: Session, case: StaffingCase, item: CandidateItem) -> ApprovalRequest:
+    """A pending request still open when the person arrives (approval() expires at 21:15)."""
+    request = approval(db, case, item)
+    request.expires_at = OPEN_UNTIL
+    db.flush()
+    return request
 
 
 def offer_status(db: Session, outreach_id: int) -> OutreachStatus:
@@ -306,7 +315,7 @@ def test_a_replacement_assigned_before_the_arrival_stays_and_only_the_surplus_is
     case = open_no_show_case(db, missing=(101, 102))
     items = make_plan(db, case, (201, 202, 203))
     assign(db, case, items[201])
-    request = approval(db, case, items[202])
+    request = pending_request(db, case, items[202])
     sent = offer(db, case, items[203])
     sent.expires_at = OPEN_UNTIL
     db.flush()
@@ -360,13 +369,34 @@ def test_a_pending_request_wins_a_tie_over_an_unanswered_offer(production_seeded
     # are RNs with ICU, so each one alone closes what the arrival left open
     sent = offer(db, case, items[201])
     sent.expires_at = OPEN_UNTIL
-    approval(db, case, items[203])
+    pending_request(db, case, items[203])
 
     arrive(db, 101)
 
     assert offer_status(db, sent.id) == OutreachStatus.CANCELLED
     assert [row.payload["staff_id"] for row in not_needed(db)] == [201]
     assert case_of(db).status == CaseStatus.WAITING_APPROVAL
+
+
+def test_an_expired_request_does_not_displace_a_valid_offer(production_seeded: Session) -> None:
+    """The check-in comes after 203's request expired but before the timeout job ran."""
+    db = production_seeded
+    case = open_no_show_case(db, missing=(101, 102))
+    items = make_plan(db, case, (201, 203))
+    sent = offer(db, case, items[201])
+    sent.expires_at = OPEN_UNTIL
+    request = approval(db, case, items[203])
+    request.expires_at = ARRIVAL - SECOND  # expired, the timeout job has not run yet
+    db.flush()
+
+    arrive(db, 101)
+
+    # One person is still missing: the valid offer stays, the expired request waits
+    # for the timeout job and trim writes nothing about it
+    assert offer_status(db, sent.id) == OutreachStatus.SENT
+    assert not_needed(db) == []
+    assert offer_status(db, request.outreach_id) == OutreachStatus.ACCEPTED
+    assert requests_of(db, case)[0].is_pending is True
 
 
 def test_trim_keeps_coverage_first_a_request_for_the_first_half_loses_to_an_offer_for_the_rest(
@@ -389,7 +419,7 @@ def test_trim_keeps_coverage_first_a_request_for_the_first_half_loses_to_an_offe
     items[202].cover_end_at = START + timedelta(hours=4)
     items[203].cover_start_at = START + timedelta(hours=4)
     items[203].cover_end_at = END
-    request = approval(db, case, items[202])
+    request = pending_request(db, case, items[202])
     second_half = offer(db, case, items[203])
     second_half.expires_at = OPEN_UNTIL
     db.flush()
