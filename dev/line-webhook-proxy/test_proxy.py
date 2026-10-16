@@ -143,6 +143,7 @@ class ProxyGate(unittest.TestCase):
             "/LINE/webhook",
             "/line/Webhook",
             "/demo/reset",
+            "/demo/attendance/check-in",
             "/internal/merge-windows/close-due",
             "/internal/line-accounts/201/issue-code",
             "/internal/line-accounts/201/unlink",
