@@ -13,24 +13,50 @@ row from that audit row).
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.core.constants import CHECK_IN_EARLIEST_SECONDS, NO_SHOW_GRACE_SECONDS
-from app.db.models import Attendance, AuditLog, RosterAssignment, Shift
+from app.db.models import (
+    ApprovalRequest,
+    Attendance,
+    AuditLog,
+    CandidateOutreach,
+    RosterAssignment,
+    Shift,
+    StaffingCase,
+    StaffingEvent,
+    StaffUnavailability,
+)
 from app.domain.enums import (
+    WAITING_CASE_STATUSES,
     AssignmentType,
     AuditAction,
     CheckInSource,
     EntityType,
+    EventType,
+    OutreachStatus,
     RosterStatus,
 )
-from app.services import audit_service, merge_window_service, unavailability_service
+from app.services import (
+    audit_service,
+    hard_rule_service,
+    merge_window_service,
+    unavailability_service,
+    wave_service,
+)
+
+# How many times a check-in after a NO_SHOW starts again when new offers appear
+CHECK_IN_LOCK_TRIES = 5
 
 
 class CheckInOutsideWindowError(ValueError):
     """A first check-in is before the earliest accepted time or at/after the effective end."""
+
+
+class CheckInLockRetryError(ValueError):
+    """New offers kept appearing while a late check-in tried to lock the case; retry."""
 
 
 @dataclass(frozen=True)
@@ -80,11 +106,31 @@ def check_in(
 
     Order: lock the SHIFT (404 if missing) → an existing ATTENDANCE row of this
     person in the shift is returned as it is, with no window check, no write and
-    no new audit row → lock the person's ASSIGNED roster rows (404) → choose the
-    row for the clock, or 422 when none takes it → write → commit. Lock order is SHIFT
-    then ROSTER_ASSIGNMENT (workflow.md 6.11). The shift lock also makes two simultaneous
+    no new audit row → lock the person's ASSIGNED roster rows, together with the
+    rows a NO_SHOW cancelled, in one query (404) → choose the row for the clock, or
+    422 when none takes it → write → commit. Lock order is SHIFT then
+    ROSTER_ASSIGNMENT (workflow.md 6.11). The shift lock also makes two simultaneous
     check-ins of one person run one after the other. On any error the caller must roll back.
+
+    A chosen row that a NO_SHOW cancelled is a late arrival after stage 2
+    (workflow.md 6.24): _late_check_in() takes the rest of the locks and
+    late_arrival_service restores the row. New offers of the case can appear
+    between its lock steps; it then starts again, CHECK_IN_LOCK_TRIES times in
+    all, and raises CheckInLockRetryError after that (the routes answer 409).
     """
+    for _ in range(CHECK_IN_LOCK_TRIES):
+        result = _check_in_once(
+            db, staff_id=staff_id, shift_id=shift_id, source=source, actor_id=actor_id
+        )
+        if result is not None:
+            return result
+    raise CheckInLockRetryError("Could not lock a stable offer set for the check-in; retry")
+
+
+def _check_in_once(
+    db: Session, *, staff_id: int, shift_id: int, source: CheckInSource, actor_id: int
+) -> CheckInResult | None:
+    """One try of check_in(). None means the transaction was rolled back and must restart."""
     shift = merge_window_service.lock_shift(db, shift_id)
 
     existing = db.scalar(
@@ -95,7 +141,8 @@ def check_in(
         db.commit()
         return result
 
-    rows = _lock_assigned_rows(db, staff_id=staff_id, shift_id=shift_id)
+    no_show_rows = _no_show_rows(db, staff_id=staff_id, shift_id=shift_id)
+    rows = _lock_rows(db, staff_id=staff_id, shift_id=shift_id, no_show_row_ids=set(no_show_rows))
     now = clock.now()
     roster = _row_for(rows, shift, now)
     if roster is None:
@@ -106,19 +153,169 @@ def check_in(
             f"Check-in for shift {shift_id} is accepted from {_iso(earliest)}"
             f" until {_iso(effective_end_at(roster, shift))}, not at {_iso(now)}"
         )
+    if roster.status == RosterStatus.ASSIGNED:
+        result = record(
+            db, roster=roster, shift=shift, check_in_at=now, source=source, actor_id=actor_id
+        )
+        db.commit()
+        return result
+    return _late_check_in(
+        db,
+        shift=shift,
+        roster=roster,
+        unavailability_id=no_show_rows[roster.id],
+        now=now,
+        source=source,
+        actor_id=actor_id,
+    )
+
+
+def _late_check_in(
+    db: Session,
+    *,
+    shift: Shift,
+    roster: RosterAssignment,
+    unavailability_id: int,
+    now: datetime,
+    source: CheckInSource,
+    actor_id: int,
+) -> CheckInResult | None:
+    """The person's row was cancelled by a NO_SHOW: lock the rest, record, restore, commit.
+
+    The shift and the rows are already locked. Order after them (workflow.md 6.11):
+    the case's pending approval requests, its unfinished offers, the case, then
+    the STAFF of its whole plan together with the late person (one query), and
+    last the absence, like update_end_at (STAFF, then the period). Without a
+    waiting case only the late person's STAFF row is locked. None when the case
+    got new requests or offers while the locks were taken: nothing is written,
+    the transaction is rolled back and the caller starts again.
+    """
+    # Imported here: late_arrival_service imports this module
+    from app.services import late_arrival_service
+
+    staff_id, shift_id = roster.staff_id, shift.id
+    case = late_arrival_service.credited_case(db, shift_id)
+    if case is not None and case.status in WAITING_CASE_STATUSES:
+        case_id = case.id
+        request_ids = _lock_pending_requests(db, case_id)
+        offer_ids = _lock_unfinished_offers(db, case_id)
+        db.scalars(
+            select(StaffingCase)
+            .where(StaffingCase.id == case_id)
+            .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
+        ).one()
+        try:
+            plan_staff = [item.staff_id for item in wave_service.plan_items(db, case_id)]
+        except LookupError:
+            plan_staff = []
+        hard_rule_service.lock_staff(db, [*plan_staff, staff_id])
+        credited = late_arrival_service.credited_case(db, shift_id)
+        if (
+            credited is None
+            or credited.id != case_id
+            or _case_offer_ids(db, case_id) != offer_ids
+            or _pending_request_ids(db, case_id) != request_ids
+        ):
+            # An offer or a request was added, or the case moved on, while locking
+            db.rollback()
+            return None
+    else:
+        hard_rule_service.lock_staff(db, [staff_id])
+    unavailability = db.scalars(
+        select(StaffUnavailability)
+        .where(StaffUnavailability.id == unavailability_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one()
     result = record(
         db, roster=roster, shift=shift, check_in_at=now, source=source, actor_id=actor_id
     )
-    db.commit()
+    late_arrival_service.arrive_after_no_show(
+        db, shift=shift, original=roster, unavailability=unavailability, check_in_at=now
+    )
     return result
 
 
-def _lock_assigned_rows(db: Session, *, staff_id: int, shift_id: int) -> list[RosterAssignment]:
-    """The person's ASSIGNED rows in the shift, locked, in one query ordered by id.
+def _no_show_rows(db: Session, *, staff_id: int, shift_id: int) -> dict[int, int]:
+    """Roster row ID -> unavailability ID of the rows a NO_SHOW cancelled for this person.
 
-    A person can hold several (T2 allows separate parts of one shift, and a move out
-    and back leaves the source prefix ASSIGNED), so this is not lock_assigned_roster(),
-    which refuses more than one row.
+    Stage 2 names the row in payload.roster_assignment_id of the STAFF_UNAVAILABLE
+    event and the period in `unavailability_id` of the UNAVAILABILITY_CREATED
+    audit row of that event. An event stage 2 has not processed has no audit row,
+    so its row is still ASSIGNED and is not listed.
+    """
+    rows = db.execute(
+        select(
+            StaffingEvent.payload["roster_assignment_id"].as_integer(),
+            AuditLog.payload["unavailability_id"].as_integer(),
+        )
+        .join(AuditLog, AuditLog.event_id == StaffingEvent.id)
+        .where(
+            StaffingEvent.shift_id == shift_id,
+            StaffingEvent.staff_id == staff_id,
+            StaffingEvent.event_type == EventType.STAFF_UNAVAILABLE,
+            StaffingEvent.payload["reason"].as_string() == merge_window_service.NO_SHOW_REASON,
+            AuditLog.action == AuditAction.UNAVAILABILITY_CREATED,
+        )
+    )
+    return {roster_id: unavailability_id for roster_id, unavailability_id in rows}
+
+
+def _lock_pending_requests(db: Session, case_id: int) -> set[int]:
+    """Lock the pending approval requests of the case in one query ordered by id."""
+    return set(
+        db.scalars(
+            select(ApprovalRequest.id)
+            .where(ApprovalRequest.case_id == case_id, ApprovalRequest.is_pending.is_(True))
+            .order_by(ApprovalRequest.id)
+            .with_for_update(key_share=True)
+        )
+    )
+
+
+def _pending_request_ids(db: Session, case_id: int) -> set[int]:
+    return set(
+        db.scalars(
+            select(ApprovalRequest.id).where(
+                ApprovalRequest.case_id == case_id, ApprovalRequest.is_pending.is_(True)
+            )
+        )
+    )
+
+
+def _lock_unfinished_offers(db: Session, case_id: int) -> set[int]:
+    """Lock the SENT and ACCEPTED offers of the case in one query ordered by id.
+
+    Returns the IDs of every offer of the case, so the caller can tell when a
+    new one appears after the locks were taken.
+    """
+    list(
+        db.scalars(
+            select(CandidateOutreach.id)
+            .where(
+                CandidateOutreach.case_id == case_id,
+                CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
+            )
+            .order_by(CandidateOutreach.id)
+            .with_for_update(key_share=True)
+        )
+    )
+    return _case_offer_ids(db, case_id)
+
+
+def _case_offer_ids(db: Session, case_id: int) -> set[int]:
+    return set(db.scalars(select(CandidateOutreach.id).where(CandidateOutreach.case_id == case_id)))
+
+
+def _lock_rows(
+    db: Session, *, staff_id: int, shift_id: int, no_show_row_ids: set[int]
+) -> list[RosterAssignment]:
+    """The person's ASSIGNED rows in the shift and the rows a NO_SHOW cancelled, locked.
+
+    One query ordered by id. A person can hold several ASSIGNED rows (T2 allows
+    separate parts of one shift, and a move out and back leaves the source prefix
+    ASSIGNED), so this is not lock_assigned_roster(), which refuses more than one row.
     """
     rows = list(
         db.scalars(
@@ -126,10 +323,14 @@ def _lock_assigned_rows(db: Session, *, staff_id: int, shift_id: int) -> list[Ro
             .where(
                 RosterAssignment.staff_id == staff_id,
                 RosterAssignment.shift_id == shift_id,
-                RosterAssignment.status == RosterStatus.ASSIGNED,
+                or_(
+                    RosterAssignment.status == RosterStatus.ASSIGNED,
+                    RosterAssignment.id.in_(no_show_row_ids),
+                ),
             )
             .order_by(RosterAssignment.id)
             .with_for_update(key_share=True)
+            .execution_options(populate_existing=True)
         )
     )
     if not rows:

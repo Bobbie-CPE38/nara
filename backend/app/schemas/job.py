@@ -40,6 +40,7 @@ class DueWorkResult(BaseModel):
     closed_windows: list[ClosedWindowView]
     auto_approved_request_ids: list[int]
     failed_auto_approval_ward_ids: list[int]
+    no_show_event_ids: list[int]
 
     @classmethod
     def of(cls, work: DueWork) -> "DueWorkResult":
@@ -47,6 +48,7 @@ class DueWorkResult(BaseModel):
             closed_windows=_views(work),
             auto_approved_request_ids=sorted(work.auto_approved_request_ids),
             failed_auto_approval_ward_ids=sorted(work.failed_auto_approval_ward_ids),
+            no_show_event_ids=sorted(work.no_show_event_ids),
         )
 
 
@@ -63,6 +65,8 @@ class ClockAdvanceResult(BaseModel):
     closed_windows: list[ClosedWindowView]
     auto_approved_request_ids: list[int]
     failed_auto_approval_ward_ids: list[int]
+    # NO_SHOW events the new time made the job write (stage 1, section 6.24)
+    no_show_event_ids: list[int]
     # Offers the new time set to TIMEOUT, and waiting cases the sweep moved on
     # (sections 6.9 and 5.3). Both by ID, so the demo shows why a case left its wait
     timed_out_outreach_ids: list[int]
@@ -76,6 +80,7 @@ class ClockAdvanceResult(BaseModel):
             closed_windows=_views(work),
             auto_approved_request_ids=sorted(work.auto_approved_request_ids),
             failed_auto_approval_ward_ids=sorted(work.failed_auto_approval_ward_ids),
+            no_show_event_ids=sorted(work.no_show_event_ids),
             timed_out_outreach_ids=sorted(work.timed_out_outreach_ids),
             recovered_case_ids=sorted(work.recovered_case_ids),
             timed_out_approval_request_ids=sorted(work.timed_out_approval_request_ids),

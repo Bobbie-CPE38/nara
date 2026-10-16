@@ -62,6 +62,7 @@ def answer_my_offer(
 @router.post("/attendance/check-in")
 def check_in(body: MyCheckIn, db: DbSession, user: DemoUser) -> CheckInResponse:
     """Check the header user in. 401 header, 422 body, 404 no shift or roster row, 422 window.
+    409 when new offers kept arriving during a check-in after a NO_SHOW.
 
     A repeated check-in answers 200 with the first row (section 6.24).
     """
@@ -79,4 +80,7 @@ def check_in(body: MyCheckIn, db: DbSession, user: DemoUser) -> CheckInResponse:
     except attendance_service.CheckInOutsideWindowError as error:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+    except attendance_service.CheckInLockRetryError as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
     return CheckInResponse(**vars(result))

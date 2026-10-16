@@ -50,6 +50,9 @@ class EventIgnoredReason(StrEnum):
     NO_ASSIGNED_ROSTER = "NO_ASSIGNED_ROSTER"
     # Only this event: a role or skill it changes is not in the requirement
     REQUIREMENT_ITEM_NOT_FOUND = "REQUIREMENT_ITEM_NOT_FOUND"
+    # Only this event: a NO_SHOW recorded as history for a shift that has already
+    # ended, so it opens no case and no offer (workflow.md 6.24)
+    SHIFT_ENDED = "SHIFT_ENDED"
 
 
 # --------------------------------------------------------------------------- #
