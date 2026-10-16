@@ -265,7 +265,7 @@ Contract ของรอบ 5 ตกลงแล้ว (PR #91) ไฟล์น�
 | N1 | คน 2 | `ATTENDANCE.shift_id`, Route check-in ของพยาบาล, Route จำลองการ check-in, รายการของด่าน proxy, Seed check-in | 6.24, 9.7 | 0 | 0 | มี (`ATTENDANCE`) | |
 | N2 | คน 2 | ตัวตรวจ `NO_SHOW` สองขั้น, ผลต่อ Roster, มาสาย | 6.24 | N1, H1 | N1, H1, G ถ้าแก้ Handler | ไม่มี | |
 | L5 | คน 3 | Test ตั้ง `LINE_MODE=simulation` เอง (ทำแล้ว) | | 0 | 0 | ไม่มี | [#95](https://github.com/Bobbie-CPE38/nara/pull/95) |
-| H1 | คน 3 | ฟังก์ชันกลางที่สร้างเวรพร้อม Handover, Route อ่าน | 6.25, 9.7 | 0 | 0, G ถ้าแก้ Handler | มี (`STRUCTURED_HANDOVER.roster_assignment_id`) | |
+| H1 | คน 3 | ฟังก์ชันกลางที่สร้างเวรพร้อม Handover, Route อ่าน (ทำแล้ว) | 6.25, 9.7 | 0 | 0, G ถ้าแก้ Handler | มี (`STRUCTURED_HANDOVER.roster_assignment_id`) | [#96](https://github.com/Bobbie-CPE38/nara/pull/96) |
 | H2 | คน 3 | ส่ง Handover ทาง LINE, คำสั่ง check-in ทาง LINE | 6.24, 6.25 | H1 | H1, N1, L5 | มี (สถานะการส่งของ Handover) | |
 | U5 | คน 1 | หน้าเว็บของรอบ 5 และ Route อ่าน Clock | 9.7 | N1, H1 | N2 | ไม่มี | |
 
