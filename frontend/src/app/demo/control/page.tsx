@@ -6,6 +6,8 @@ import { usePolling } from "@/hooks/usePolling";
 import { ApiError, apiRequest, createDemoApi } from "@/lib/api";
 import { TERMINAL_CASE_STATUSES } from "@/lib/constants";
 import { DEMO_WARDS } from "@/lib/demo";
+import { formatDateTime } from "@/lib/format";
+import type { CheckInResult } from "@/lib/types/attendance";
 import type { ClockAdvanceResult, EventResult } from "@/lib/types/event";
 
 // Golden Case IDs (docs/workflow.md, section 10). 900 is the head nurse, the
@@ -56,6 +58,7 @@ type Outcome =
   | { kind: "reset"; clock: string }
   | { kind: "clock"; result: ClockAdvanceResult }
   | { kind: "event"; label: string; result: EventResult }
+  | { kind: "checkIn"; label: string; result: CheckInResult }
   | { kind: "error"; label: string; message: string };
 
 function errorMessage(cause: unknown) {
@@ -182,6 +185,18 @@ export default function DemoControl() {
       json: { event_type: "STAFF_UNAVAILABLE", shift_id: shift.id },
     });
 
+  // Not the nurse's own check-in: the demo plays a character arriving (R5-Q23)
+  const simulateCheckIn = () => {
+    const label = `Simulated check-in of ${leaveStaffId} (${ward.name}, shift ${shift.id})`;
+    return run(label, async () => {
+      const result = await apiRequest<CheckInResult>("/demo/attendance/check-in", {
+        method: "POST",
+        json: { staff_id: leaveStaffId, shift_id: shift.id },
+      });
+      return { kind: "checkIn", label, result };
+    });
+  };
+
   const button = "rounded border px-3 py-2 text-left disabled:opacity-50";
   const select = "rounded border px-1";
 
@@ -209,7 +224,7 @@ export default function DemoControl() {
       </div>
 
       <fieldset className="mt-6 flex flex-col gap-2 rounded border p-3">
-        <legend className="px-1">Report leave on any ward</legend>
+        <legend className="px-1">Report leave or simulate a check-in on any ward</legend>
         <label htmlFor="leave-ward">
           Ward{" "}
           <select
@@ -261,6 +276,9 @@ export default function DemoControl() {
         <button type="button" className={button} disabled={busy} onClick={reportLeave}>
           Report leave
         </button>
+        <button type="button" className={button} disabled={busy} onClick={simulateCheckIn}>
+          Simulate check-in (demo)
+        </button>
       </fieldset>
 
       {busy && <p className="mt-4">Working…</p>}
@@ -301,6 +319,9 @@ export default function DemoControl() {
           {outcome.result.timed_out_outreach_ids.length > 0 && (
             <p>Offers timed out: {outcome.result.timed_out_outreach_ids.join(", ")}</p>
           )}
+          {(outcome.result.no_show_event_ids ?? []).length > 0 && (
+            <p>No-show events recorded: {outcome.result.no_show_event_ids.join(", ")}</p>
+          )}
           {outcome.result.recovered_case_ids.length > 0 && (
             <p>
               Waiting cases rechecked:{" "}
@@ -313,6 +334,13 @@ export default function DemoControl() {
             </p>
           )}
         </div>
+      )}
+      {outcome?.kind === "checkIn" && (
+        <p className={outcome.result.on_time ? "mt-4 text-green-700" : "mt-4 text-amber-700"}>
+          {outcome.label}: {outcome.result.on_time ? "on time" : "late"} at{" "}
+          {formatDateTime(outcome.result.check_in_at)} (deadline{" "}
+          {formatDateTime(outcome.result.deadline)})
+        </p>
       )}
       {outcome?.kind === "event" && (
         <dl className="mt-4 grid grid-cols-2 gap-2">

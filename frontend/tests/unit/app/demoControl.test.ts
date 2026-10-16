@@ -535,4 +535,40 @@ describe("demo control live case status", () => {
     expect(options("Shift")).toEqual(["21", "22"]);
     expect(options("Staff on the shift")).toEqual(["301", "302", "401", "902", "950"]);
   });
+
+  it("simulates the check-in of the chosen staff member through the demo route", async () => {
+    const fetchMock = stubFetch({
+      attendance_id: 4,
+      shift_id: 1,
+      check_in_at: "2026-10-09T22:50:00+07:00",
+      on_time: true,
+      deadline: "2026-10-09T23:15:00+07:00",
+    });
+    render(createElement(DemoControl));
+    click("Simulate check-in (demo)");
+
+    expect(
+      await screen.findByText(/Simulated check-in of 101 \(ICU, shift 1\): on time/),
+    ).toBeTruthy();
+    const [url, request] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/demo\/attendance\/check-in$/);
+    expect(request.method).toBe("POST");
+    expect(JSON.parse(request.body)).toEqual({ staff_id: 101, shift_id: 1 });
+  });
+
+  it("lists the no-show events the clock advance recorded", async () => {
+    stubFetch({
+      clock: "2026-10-09T23:20:00+07:00",
+      closed_windows: [],
+      timed_out_approval_request_ids: [],
+      timed_out_outreach_ids: [],
+      auto_approved_request_ids: [],
+      failed_auto_approval_ward_ids: [],
+      recovered_case_ids: [],
+      no_show_event_ids: [11, 12],
+    });
+    render(createElement(DemoControl));
+    click("Advance clock 10 minutes");
+    expect(await screen.findByText("No-show events recorded: 11, 12")).toBeTruthy();
+  });
 });

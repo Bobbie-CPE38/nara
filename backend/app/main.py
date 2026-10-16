@@ -8,6 +8,7 @@ from app.api.exception_handlers import register_exception_handlers
 from app.api.routes import (
     approvals,
     cases,
+    clock,
     demo,
     events,
     internal,
@@ -25,6 +26,7 @@ app = FastAPI(title="Staffing API")
 # Register each router once; route implementations live in their own modules.
 for module in (
     demo,
+    clock,
     events,
     cases,
     approvals,

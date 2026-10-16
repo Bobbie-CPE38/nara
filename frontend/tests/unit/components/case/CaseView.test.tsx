@@ -887,4 +887,27 @@ describe("CaseView", () => {
       ]);
     });
   });
+
+  it("shows the handovers of the case", async () => {
+    serve(
+      caseDetail({
+        status: "RESOLVED",
+        handovers: [
+          {
+            handover_id: 5,
+            roster_assignment_id: 40,
+            active: true,
+            generated_at: "2026-10-09T21:05:00+07:00",
+            content: { version: 1, shift: { id: 1, ward_name: "ICU" }, reason: "UNPLANNED_LEAVE", co_workers: [] },
+          },
+        ],
+      }),
+      [],
+    );
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(screen.getByRole("heading", { name: "Handovers" })).toBeTruthy();
+    expect(screen.getByText(/Shift 1 \(ICU\)/)).toBeTruthy();
+    expect(screen.getByText("Unplanned leave")).toBeTruthy();
+  });
 });

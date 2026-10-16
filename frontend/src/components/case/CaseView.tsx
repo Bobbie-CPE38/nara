@@ -6,6 +6,7 @@ import { CandidateTable } from "@/components/candidate/CandidateTable";
 import { ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
 import { SkippedTable } from "@/components/candidate/SkippedTable";
 import { GapTable } from "@/components/case/GapTable";
+import { HandoverList } from "@/components/handover/HandoverList";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError } from "@/lib/api";
 import { type CaseSnapshot, collectSkips, isCaseId, loadCase } from "@/lib/cases";
@@ -100,6 +101,10 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
             <SkippedTable skips={skips} candidates={detail.candidates} />
           </>
         )}
+      </section>
+      <section className="mt-6">
+        <h2 className="text-xl font-semibold">Handovers</h2>
+        <HandoverList handovers={detail.handovers ?? []} emptyText="No replacement has a handover yet." />
       </section>
       <section className="mt-6">
         <h2 className="text-xl font-semibold">Timeline</h2>

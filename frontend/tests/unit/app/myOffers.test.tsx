@@ -88,7 +88,7 @@ describe("My shift offers", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
-  it("reads only /me/offers as the signed-in nurse, never the simulator or a staff_id", async () => {
+  it("reads only its own /me routes as the signed-in nurse, never the simulator or a staff_id", async () => {
     replies(() => [offer]);
     render(<MyOffersPage />);
     await signInAs(202);
@@ -97,13 +97,14 @@ describe("My shift offers", () => {
       "/me/offers",
       expect.objectContaining({ demoUser: 202 }),
     );
+    // The page also lists the nurse's own handovers (round 5 PR U5)
     for (const path of requestedPaths()) {
-      expect(path).toBe("/me/offers");
+      expect(["/me/offers", "/me/handovers"]).toContain(path);
     }
     expect(window.localStorage.getItem(DEMO_SIGNED_IN_STORAGE_KEY)).toBe("202");
     expect(screen.getByText(/Demo mode: signed in as staff 202/)).toBeTruthy();
-    // No staff switcher while signed in.
-    expect(screen.queryByRole("combobox")).toBeNull();
+    // No staff switcher while signed in (the check-in shift picker is not one).
+    expect(screen.queryByLabelText("Staff member")).toBeNull();
   });
 
   it("says that Accept is not a shift assignment", async () => {
@@ -189,7 +190,7 @@ describe("My shift offers", () => {
   it("shows none of the previous nurse's rows after signing in as someone else", async () => {
     let releaseSecond: (offers: Offer[]) => void = () => {};
     request.mockImplementation(async <T,>(path: string, options?: { demoUser?: number }) => {
-      if (options?.demoUser === 203) {
+      if (options?.demoUser === 203 && path === "/me/offers") {
         return new Promise<Offer[]>((resolve) => {
           releaseSecond = resolve;
         }) as Promise<T>;
@@ -263,5 +264,56 @@ describe("My shift offers", () => {
       getItem.mockRestore();
       setItem.mockRestore();
     }
+  });
+
+  it("checks the nurse in to a seeded shift and says the arrival was late", async () => {
+    replies((path) =>
+      path === "/me/attendance/check-in"
+        ? {
+            attendance_id: 4,
+            shift_id: 1,
+            check_in_at: "2026-10-09T23:30:00+07:00",
+            on_time: false,
+            deadline: "2026-10-09T23:15:00+07:00",
+          }
+        : [],
+    );
+    render(<MyOffersPage />);
+    await signInAs(101);
+    fireEvent.click(await screen.findByRole("button", { name: "Check in" }));
+    const status = await screen.findByText(/Checked in to shift 1/);
+    expect(status.textContent).toContain("late (deadline 2026-10-09 23:15:00)");
+    expect(request).toHaveBeenCalledWith(
+      "/me/attendance/check-in",
+      expect.objectContaining({ method: "POST", json: { shift_id: 1 }, demoUser: 101 }),
+    );
+  });
+
+  it("explains a refused check-in", async () => {
+    replies((path) =>
+      path === "/me/attendance/check-in" ? new ApiError(409, { detail: "busy" }) : [],
+    );
+    render(<MyOffersPage />);
+    await signInAs(101);
+    fireEvent.click(await screen.findByRole("button", { name: "Check in" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("The shift is busy");
+  });
+
+  it("offers the shift of a handover for check-in and lists the handover", async () => {
+    const handover = {
+      handover_id: 9,
+      roster_assignment_id: 30,
+      active: true,
+      generated_at: "2026-10-09T21:05:00+07:00",
+      content: { version: 1, shift: { id: 21, ward_name: "Medicine" }, reason: "NO_SHOW", co_workers: [] },
+    };
+    replies((path) => (path === "/me/handovers" ? [handover] : []));
+    render(<MyOffersPage />);
+    await signInAs(201);
+    expect(await screen.findByText(/Shift 21 \(Medicine\)/)).toBeTruthy();
+    const options = Array.from(
+      (screen.getByLabelText("Shift") as HTMLSelectElement).options,
+    ).map((option) => option.value);
+    expect(options).toContain("21");
   });
 });
