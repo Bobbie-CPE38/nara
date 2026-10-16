@@ -390,14 +390,14 @@ Partial index `ix_candidate_outreach_delivery_due` ใช้กับ `delivery_
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `staff_id` | bigint | NOT NULL | FK STAFF.id |  |
-| `shift_id` | bigint | NULL | FK SHIFT.id | **[รอบ 5 · PR N1]** เวรของ check-in (`workflow.md` ข้อ 6.24) ไม่ Backfill แถวที่ว่างนับ OT ตามเดิมแต่ไม่นับเป็น check-in ของเวรใด |
+| `shift_id` | bigint | NULL | FK SHIFT.id | เวรของ check-in (`workflow.md` ข้อ 6.24) ไม่ Backfill แถวที่ว่างนับ OT ตามเดิมแต่ไม่นับเป็น check-in ของเวรใด |
 | `check_in_at` | timestamptz | NOT NULL |  | มาจาก `app.core.clock.now()` (รอบ 5) |
 | `check_out_at` | timestamptz | NULL |  |  |
 | `work_minutes` | integer | NULL |  | เวลาทำงานจริงทั้งหมด รวม OT |
 | `overtime_minutes` | integer | NULL | CHECK | ส่วนของ `work_minutes` ที่เป็น OT CHECK `0 <= overtime_minutes <= work_minutes` NULL = ข้อมูลยังไม่ครบ ไม่ใช่ 0 |
 | `synced_at` | timestamptz | NOT NULL |  |  |
 
-**[รอบ 5 · PR N1]** UNIQUE (`staff_id`, `shift_id`) เฉพาะแถวที่ `shift_id` ไม่ว่าง (Partial Unique Index) กด check-in ซ้ำได้แถวเดิม
+UNIQUE (`staff_id`, `shift_id`) เฉพาะแถวที่ `shift_id` ไม่ว่าง (Partial Unique Index `uq_attendance_staff_shift`) กด check-in ซ้ำได้แถวเดิม
 
 CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_minutes <= work_minutes` ผ่านเมื่อคอลัมน์ใดคอลัมน์หนึ่งเป็น NULL เพราะแถวนั้นยังไม่สรุป จึงยังไม่มีค่าให้เทียบ
 
@@ -804,11 +804,11 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `TransferFailureReason` | payload `reason` ของ `TRANSFER_CHECK_FAILED` (รอบ 4 PR C2 เขียนแล้ว) | `SOURCE_COVERAGE_LOST`, `DESTINATION_WINDOW_PASSED`, `HARD_RULE_FAILED` (C3 ลบ `SOURCE_SHIFT_STARTED` ออกตาม R4-Q43 แถว Audit เก่าที่ C2 เขียนไว้ตอนอนุมัติครบหลังเวรต้นทางเริ่มอาจยังมีค่านี้ ตัวอ่านเก็บเป็นข้อความดิบ) |
 | `ActorType` | ACTORS.actor_type | `user`, `system`, `component` |
 | `ActorName` | ACTORS.name (ที่ไม่ใช่ user) | `system`, `workflow_orchestrator`, `staffing_gap_assessment_agent`, `constraint_fair_scheduling_agent`, `outreach_agent`, `safety_rule_engine` |
-| `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS`, `ATTENDANCE` **[รอบ 5 · PR N1]** |
+| `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS`, `ATTENDANCE` |
 | `ExplanationStatus` | RANK_EXPLANATION.status (รอบ 3 PR X) | `PENDING`, `READY`, `FAILED`, `SKIPPED` |
 | `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
-| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `ATTENDANCE_CHECKED_IN` **[รอบ 5 · PR N1]**, `OFFER_CANCELLED_NOT_NEEDED` **[รอบ 5 · PR N2]**, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
-| `CheckInSource` | AUDIT_LOG.payload.source ของ `ATTENDANCE_CHECKED_IN` | `SELF`, `SIMULATED` **[รอบ 5 · PR N1]** |
+| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `ATTENDANCE_CHECKED_IN`, `OFFER_CANCELLED_NOT_NEEDED` **[รอบ 5 · PR N2]**, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
+| `CheckInSource` | AUDIT_LOG.payload.source ของ `ATTENDANCE_CHECKED_IN` | `SELF`, `SIMULATED` |
 | `HandoverReason` | STRUCTURED_HANDOVER.content.reason | `UNPLANNED_LEAVE`, `NO_SHOW`, `ASSIGNMENT_CANCELLED`, `PATIENT_SURGE`, `REQUIREMENT_CHANGED` **[รอบ 5 · PR H1]** |
 
 
