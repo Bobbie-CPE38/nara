@@ -14,7 +14,7 @@ The recipient, message and retry UUID stay immutable. Each retry checks the curr
 
 The retry policy is shared with offers: 60-second leases; 30-second retry delay; at most three counted attempts; 2xx/409 accepted; 400-class permanent failures stop; 429/401/403 defer without consuming attempts, with 401/403 stopping the entire sweep. Transport timeouts and other retryable failures stop after three attempts. As with offers, a crash after the third accepted HTTP call but before recording its result can leave a terminal FAILED after recovery; Handover failure never fails the case, cancels the roster, removes the snapshot or writes OFFER_DELIVERY_FAILED. The web snapshot remains available.
 
-Messages contain the snapshot's ward, effective cover interval, reason, patient count, requirements and coworkers, followed by a check-in button. Text is capped at 4,900 characters; the complete snapshot remains available from the nurse/case APIs. No LLM is called.
+Messages contain the snapshot's ward, effective cover interval, reason, patient count, requirements and coworkers, followed by a check-in button. The button instructions include the exact inclusive opening and exclusive closing times with dates, seconds and Thailand timezone, computed by the shared attendance rules (including replacement creation times and partial-shift ends). Already prepared/sent payloads remain immutable; the wording applies to new intents. Text is capped at 4,900 characters; the complete snapshot remains available from the nurse/case APIs. No LLM is called.
 
 ## Check-in
 
@@ -33,3 +33,5 @@ Tests use isolated PostgreSQL and fake LINE adapters: transaction rollback, repe
 Real LINE end-to-end validation is still required separately after upgrading/restarting the local demo deliberately. No development demo database was reset or migrated for these tests. For a manual test: configure real LINE, bind a nurse, complete an approval/manual assignment, wait for the Handover, advance the demo clock into its check-in window, then press the button. Verify the attendance audit is SELF and repeated presses keep one row. The Quick Tunnel still targets only the reviewed loopback webhook proxy; no new public route is needed.
 
 Verification on this branch: full backend 2,741 passed, 14 timing tests skipped; Ruff, Ruff format and mypy (174 source files) passed. The container inherits LINE_MODE=real; L5 fixtures isolate simulation tests and replace all real-mode LINE calls. No frontend files changed.
+
+Follow-up check-in wording verification: 142 targeted attendance, LINE and approval tests passed, including dates across midnight, replacement creation after shift start and partial-shift endings; Ruff and mypy passed.

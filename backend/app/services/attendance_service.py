@@ -64,10 +64,14 @@ def effective_end_at(roster: RosterAssignment, shift: Shift) -> datetime:
     return roster.actual_end_at if roster.actual_end_at is not None else shift.end_at
 
 
+def earliest_check_in_at(roster: RosterAssignment, shift: Shift) -> datetime:
+    """The inclusive opening time shared by validation and LINE instructions."""
+    return required_arrival_at(roster, shift) - timedelta(seconds=CHECK_IN_EARLIEST_SECONDS)
+
+
 def accepts_check_in(roster: RosterAssignment, shift: Shift, at: datetime) -> bool:
     """Half-open window: arrival - CHECK_IN_EARLIEST_SECONDS <= at < effective end."""
-    earliest = required_arrival_at(roster, shift) - timedelta(seconds=CHECK_IN_EARLIEST_SECONDS)
-    return earliest <= at < effective_end_at(roster, shift)
+    return earliest_check_in_at(roster, shift) <= at < effective_end_at(roster, shift)
 
 
 def is_on_time(roster: RosterAssignment, shift: Shift, check_in_at: datetime) -> bool:
@@ -112,7 +116,7 @@ def check_in(
     if roster is None:
         # No row takes this moment: say why with the row that comes first in time
         roster = min(rows, key=lambda row: (required_arrival_at(row, shift), row.id))
-        earliest = required_arrival_at(roster, shift) - timedelta(seconds=CHECK_IN_EARLIEST_SECONDS)
+        earliest = earliest_check_in_at(roster, shift)
         raise CheckInOutsideWindowError(
             f"Check-in for shift {shift_id} is accepted from {_iso(earliest)}"
             f" until {_iso(effective_end_at(roster, shift))}, not at {_iso(now)}"

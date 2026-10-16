@@ -75,6 +75,10 @@ def test_result_never_changes_assignment_or_case(
     calls = real_line[0].call_args_list
     assert all(c == calls[0] for c in calls)
     assert calls[0].args[0]["to"] == "U201"
+    instructions = calls[0].args[0]["messages"][1]["template"]["text"]
+    assert "กดได้ตั้งแต่ 09/10/2026 22:00:00 น." in instructions
+    assert "ถึงก่อน 10/10/2026 07:00:00 น." in instructions
+    assert len(instructions) <= 160
     assert (
         calls[0].args[0]["messages"][1]["template"]["actions"][0]["data"]
         == f"action=CHECK_IN&shift_id={roster.shift_id}"

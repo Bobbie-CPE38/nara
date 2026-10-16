@@ -33,7 +33,13 @@ from app.domain.enums import (
     RosterStatus,
 )
 from app.integrations.line import client
-from app.services import actor_service, audit_service, line_contact_service, outreach_service
+from app.services import (
+    actor_service,
+    attendance_service,
+    audit_service,
+    line_contact_service,
+    outreach_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -212,6 +218,17 @@ def _record_result(row: CandidateOutreach | StructuredHandover, result: str) -> 
     return False
 
 
+def _check_in_instructions(roster: RosterAssignment, shift: Shift) -> str:
+    """Use validation's exact local-time bounds, including partial/replacement shifts."""
+    earliest = attendance_service.earliest_check_in_at(roster, shift).astimezone(clock.APP_TIMEZONE)
+    end = attendance_service.effective_end_at(roster, shift).astimezone(clock.APP_TIMEZONE)
+    return (
+        "เมื่อมาถึงแล้ว กดเช็กอินเข้าเวร\n"
+        f"กดได้ตั้งแต่ {earliest:%d/%m/%Y %H:%M:%S} น.\n"
+        f"ถึงก่อน {end:%d/%m/%Y %H:%M:%S} น. (เวลาไทย)"
+    )
+
+
 def prepare_handover_delivery(db: Session, handover: StructuredHandover) -> None:
     """Write once, alongside the snapshot. No commit and no network."""
     uid = (
@@ -222,6 +239,11 @@ def prepare_handover_delivery(db: Session, handover: StructuredHandover) -> None
     if uid is None:
         handover.delivery_status = "NO_CONTACT"
         return
+    roster = db.get(RosterAssignment, handover.roster_assignment_id)
+    shift = db.get(Shift, handover.shift_id)
+    if roster is None or shift is None:
+        raise LookupError("Handover assignment or shift is missing")
+    check_in_text = _check_in_instructions(roster, shift)
     content = handover.content
     requirements = content["requirement"]
     detail = (
@@ -249,7 +271,7 @@ def prepare_handover_delivery(db: Session, handover: StructuredHandover) -> None
                 "altText": "เช็กอินเวรที่ได้รับมอบหมาย",
                 "template": {
                     "type": "buttons",
-                    "text": "เมื่อมาถึงแล้ว กดเช็กอินเข้าเวร",
+                    "text": check_in_text,
                     "actions": [
                         {
                             "type": "postback",
