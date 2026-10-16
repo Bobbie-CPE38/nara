@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.db.models import RosterAssignment, Shift
+from app.db.models import RosterAssignment, Shift, StaffingRequirement
 from app.domain.enums import AssignmentType, RosterStatus, ShiftType
 from app.services import roster_completion_service, roster_service, working_time_service
 from tests.integration.conftest import DEMO_NOW
@@ -28,6 +28,12 @@ def pair(db: Session):
         for _ in range(2)
     ]
     db.add_all(shifts)
+    db.flush()
+    # A source shift is judged like a case (round 4 PR C2): it needs a requirement
+    db.add_all(
+        StaffingRequirement(shift_id=shift.id, required_staff=0, minimum_staff=0)
+        for shift in shifts
+    )
     db.flush()
     source = RosterAssignment(
         staff_id=201,
@@ -229,7 +235,6 @@ def test_t1_move_extends_an_existing_recorded_duty_without_double_counting(seede
 
 
 def test_persisted_transfer_has_one_duty_for_future_hard_rules(seeded):
-    from app.db.models import StaffingRequirement
     from app.services import hard_rule_service
 
     source, destination, shifts = pair(seeded)
@@ -332,7 +337,6 @@ def test_t2_has_one_migration_head_after_t1():
 
 @pytest.mark.parametrize("window", ["cover", "scheduled", "whole_shift"])
 def test_existing_proposed_non_root_segment_counts_the_whole_duty_once(seeded, window):
-    from app.db.models import StaffingRequirement
     from app.domain.constraints.codes import HardRuleCode
     from app.services import hard_rule_service
     from app.services.hard_rule_service import Cover
@@ -426,7 +430,6 @@ def test_lookahead_does_not_leak_next_week_shifts_into_current_snapshot(seeded):
 
 @pytest.mark.parametrize("on_proposed_shift", [False, True])
 def test_cancelled_full_and_assigned_partial_row_do_not_crash_hard_rules(seeded, on_proposed_shift):
-    from app.db.models import StaffingRequirement
     from app.domain.constraints.codes import HardRuleCode
     from app.services import hard_rule_service
 
@@ -462,7 +465,6 @@ def test_cancelled_full_and_assigned_partial_row_do_not_crash_hard_rules(seeded,
 
 
 def test_separate_committed_parts_of_one_shift_are_not_dropped(seeded):
-    from app.db.models import StaffingRequirement
     from app.domain.constraints.codes import HardRuleCode
     from app.services import hard_rule_service
 
@@ -489,7 +491,6 @@ def test_separate_committed_parts_of_one_shift_are_not_dropped(seeded):
 
 @pytest.mark.parametrize("reverse_intervals", [False, True])
 def test_existing_duty_attribution_uses_earliest_start_not_row_order(seeded, reverse_intervals):
-    from app.db.models import StaffingRequirement
     from app.domain.constraints.context import week_start
     from app.services import hard_rule_service
 

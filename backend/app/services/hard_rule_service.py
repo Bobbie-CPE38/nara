@@ -50,6 +50,7 @@ from app.domain.constraints.context import (
     HardRulePolicy,
     RosterEntry,
     ShiftSlot,
+    SourceShift,
     UnavailabilityPeriod,
     week_start,
 )
@@ -230,14 +231,31 @@ def _check(
         roster = _roster(db, staff_ids, full_shift, policy)
         unavailability = _unavailability(db, staff_ids, full_shift)
 
+        covered = {}
+        for staff_id in staff_ids:
+            subject = subjects[staff_id]
+            proposed = _proposed_slot(shift, subject.cover)
+            covered[staff_id] = (
+                proposed,
+                _apply_cover(
+                    db, shift, proposed, subject.cover, staff_id, roster.get(staff_id, ())
+                ),
+            )
+        # One read of every source shift the moves leave
+        source_ids = {
+            applied[4].shift_id for _, applied in covered.values() if applied[4] is not None
+        }
+        source_shifts = (
+            {row.id: row for row in db.scalars(select(Shift).where(Shift.id.in_(source_ids)))}
+            if source_ids
+            else {}
+        )
+
         contexts: dict[int, CandidateContext] = {}
         for staff_id in staff_ids:
             status, role_id = staff[staff_id]
             subject = subjects[staff_id]
-            proposed = _proposed_slot(shift, subject.cover)
-            entries, linked_duty, duties, existing_duty = _apply_cover(
-                db, shift, proposed, subject.cover, staff_id, roster.get(staff_id, ())
-            )
+            proposed, (entries, linked_duty, duties, existing_duty, moved_from) = covered[staff_id]
             contexts[staff_id] = CandidateContext(
                 staff_id=staff_id,
                 status=status,
@@ -251,6 +269,19 @@ def _check(
                 linked_duty=linked_duty,
                 recorded_duties=duties,
                 existing_proposed_duty=existing_duty,
+                source_shift=(
+                    None
+                    if moved_from is None
+                    else SourceShift(
+                        moved_from.shift_id,
+                        gap_service.gap_without(
+                            db,
+                            shift=source_shifts[moved_from.shift_id],
+                            staff_id=staff_id,
+                            from_at=proposed.start_at,
+                        ).has_gap,
+                    )
+                ),
             )
 
     return {
@@ -277,7 +308,13 @@ def _apply_cover(
     cover: Cover,
     staff_id: int,
     rows: Sequence[_Row],
-) -> tuple[tuple[RosterEntry, ...], ShiftSlot | None, tuple[ShiftSlot, ...], ShiftSlot | None]:
+) -> tuple[
+    tuple[RosterEntry, ...],
+    ShiftSlot | None,
+    tuple[ShiftSlot, ...],
+    ShiftSlot | None,
+    ShiftSlot | None,
+]:
     """Apply T1's hypothetical source cut before grouping persisted transfer duties.
 
     Physical rows preserve identity for ALREADY_ON_SHIFT/UNAVAILABLE/SHIFT_CONFLICT.
@@ -287,6 +324,10 @@ def _apply_cover(
     A move is permanent (workflow.md 6.19): the source row ends at the move and
     the person does not return, even when the source shift runs past the end of
     the proposed shift. So everything of the source after the cut is dropped.
+
+    The last item is the source slot when the cover is a move (the source row is
+    committed and overlaps the proposed slot), else None. _check judges the source
+    shift only then.
     """
     # Existing rows keep their own effective intervals, including cancelled
     # history and partial rows on the proposed shift. Only the selected source
@@ -368,6 +409,7 @@ def _apply_cover(
         linked,
         tuple(duty.shift for duty in duties),
         existing,
+        source.entry.shift if moved and source is not None else None,
     )
 
 

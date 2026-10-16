@@ -62,7 +62,12 @@ def test_a_shift_nobody_can_take_stops_at_manual_handoff(
         {"staff_id": 201, "reason": "UNAVAILABLE"},
         {"staff_id": 202, "reason": "INSUFFICIENT_REST"},
         {"staff_id": 203, "reason": "STAFF_NOT_ACTIVE"},
+        {"staff_id": 301, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+        {"staff_id": 302, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
+        {"staff_id": 401, "reason": "SOURCE_WARD_MINIMUM_VIOLATION"},
         {"staff_id": 900, "reason": "ROLE_MISMATCH"},
+        {"staff_id": 902, "reason": "ROLE_MISMATCH"},
+        {"staff_id": 950, "reason": "ROLE_MISMATCH"},
     ]
     changes = [
         (row["payload"]["from"], row["payload"]["to"])

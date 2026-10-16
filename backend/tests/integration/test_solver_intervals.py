@@ -21,6 +21,7 @@ from app.db.models import (
     Shift,
     Staff,
     StaffingCase,
+    StaffingRequirement,
     StaffingRequirementSkill,
 )
 from app.domain.constraints.codes import GAP_TIME_MISMATCH, HardRuleCode
@@ -121,6 +122,9 @@ def _source_shift(db: Session) -> Shift:
         is_active=True,
     )
     db.add(source)
+    db.flush()
+    # The source shift is judged like a case (round 4 PR C2): it needs a requirement
+    db.add(StaffingRequirement(shift_id=source.id, required_staff=0, minimum_staff=0))
     db.flush()
     return source
 

@@ -102,16 +102,14 @@ class UnavailabilityPeriod:
 class SourceShift:
     """The shift the candidate would be moved out of.
 
-    assigned_count is the headcount of that shift with the candidate still on it.
+    leaves_gap is True when the source shift, with the candidate gone from the
+    move time on, is short on headcount, a role or a skill. The service layer
+    measures it with the same gap calculation as cases (gap_service.gap_without),
+    so the rule does not recount heads.
     """
 
-    assigned_count: int
-    required_staff: int
-    minimum_staff: int
-
-    def __post_init__(self) -> None:
-        if min(self.assigned_count, self.required_staff, self.minimum_staff) < 0:
-            raise ValueError("Source shift counts must be non-negative")
+    shift_id: int
+    leaves_gap: bool
 
 
 @dataclass(frozen=True, kw_only=True)

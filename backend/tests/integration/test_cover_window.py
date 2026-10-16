@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy.orm import Session
 
-from app.db.models import CandidateItem, RosterAssignment, Shift
+from app.db.models import CandidateItem, RosterAssignment, Shift, StaffingRequirement
 from app.domain.constraints.codes import HardRuleCode
 from app.domain.constraints.context import ShiftSlot
 from app.domain.enums import (
@@ -48,6 +48,9 @@ def _shift(db: Session, start_at: datetime, end_at: datetime) -> Shift:
         is_active=True,
     )
     db.add(shift)
+    db.flush()
+    # A source shift is judged like a case (round 4 PR C2): it needs a requirement
+    db.add(StaffingRequirement(shift_id=shift.id, required_staff=0, minimum_staff=0))
     db.flush()
     return shift
 

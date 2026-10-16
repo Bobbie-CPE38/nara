@@ -54,6 +54,7 @@ from app.services import (
     outreach_service,
     policy_service,
     roster_service,
+    transfer_service,
 )
 from app.services.wave_service import plan_items
 from app.workflow import orchestrator
@@ -380,30 +381,67 @@ def _decide(
 
     def prepare(db: Session, case: StaffingCase) -> None:
         if approved:
-            assignment = roster_service.create_replacement(db, case, approval=request)
+            orchestrator_id = actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR)
+            moved = item.source_assignment_id is not None
+            if moved:
+                # A failed check never raises here: that would mark the case FAILED.
+                # The offer ends, and recompute promotes a reserve or sends the next wave.
+                result = transfer_service.execute(
+                    db, case, approval=request, item=item, actor_id=orchestrator_id
+                )
+                if result.assignment is None or result.source is None:
+                    outreach_service.cancel_offer(db, outreach)
+                    outreach_service.promote_reserves(db, case)
+                    return
+                assignment = result.assignment
+            else:
+                assignment = roster_service.create_replacement(db, case, approval=request)
             cancelled = offer_conflict_service.cancel_conflicting_offers(
                 db,
                 case=case,
                 assignment=assignment,
                 offers=offers,
-                actor_id=actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR),
+                actor_id=orchestrator_id,
                 source="APPROVAL",
             )
             foreign_cases.update(row.case_id for row in cancelled)
-            audit_service.log(
-                db,
-                case_id=case.id,
-                actor_id=actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR),
-                action=AuditAction.ASSIGNMENT_CREATED,
-                entity_type=EntityType.ROSTER_ASSIGNMENT,
-                entity_id=assignment.id,
-                payload={
-                    "assignment_id": assignment.id,
-                    "staff_id": assignment.staff_id,
-                    "assignment_type": assignment.assignment_type.value,
-                    "cancelled_outreach_ids": [row.id for row in cancelled],
-                },
-            )
+            cancelled_ids = [row.id for row in cancelled]
+            if moved:
+                assert result.source is not None and result.transfer_at is not None
+                source_shift_id = result.source.shift_id
+                audit_service.log(
+                    db,
+                    case_id=case.id,
+                    actor_id=orchestrator_id,
+                    action=AuditAction.ASSIGNMENT_TRANSFERRED,
+                    entity_type=EntityType.ROSTER_ASSIGNMENT,
+                    entity_id=assignment.id,
+                    payload={
+                        "assignment_id": assignment.id,
+                        "from_assignment_id": result.source.id,
+                        "staff_id": assignment.staff_id,
+                        "from_shift_id": source_shift_id,
+                        "to_shift_id": assignment.shift_id,
+                        "transfer_at": result.transfer_at.isoformat(),
+                        "from_status": result.source.status.value,
+                        "cancelled_outreach_ids": cancelled_ids,
+                    },
+                )
+            else:
+                audit_service.log(
+                    db,
+                    case_id=case.id,
+                    actor_id=orchestrator_id,
+                    action=AuditAction.ASSIGNMENT_CREATED,
+                    entity_type=EntityType.ROSTER_ASSIGNMENT,
+                    entity_id=assignment.id,
+                    payload={
+                        "assignment_id": assignment.id,
+                        "staff_id": assignment.staff_id,
+                        "assignment_type": assignment.assignment_type.value,
+                        "cancelled_outreach_ids": cancelled_ids,
+                    },
+                )
         outreach_service.promote_reserves(db, case)
 
     orchestrator.recompute(db, case.id, prepare=prepare)
