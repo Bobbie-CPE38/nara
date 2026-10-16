@@ -465,3 +465,21 @@ def test_a_later_wave_keeps_the_person_who_fills_what_is_left_of_one_source_shif
     chosen = {item.staff_id for item in selection.items}
     assert icu in chosen
     assert not chosen & {plain}
+
+
+@pytest.mark.parametrize("overdue_by", [timedelta(0), timedelta(minutes=5)])
+def test_an_overdue_offer_does_not_hold_the_source_shift(
+    seeded: Session, overdue_by: timedelta
+) -> None:
+    scene, result, case = _movers(seeded)
+    first, second = scene.staff[:2]
+    sent = offer(seeded, case, _items(result)[first], OutreachStatus.SENT)
+    sent.expires_at = clock.now() - overdue_by
+    seeded.flush()
+
+    selection = wave_service.select_wave(seeded, case_id=case.id, shift=_night(seeded))
+
+    reasons = {row["staff_id"]: row["reason"] for row in selection.skipped}
+    assert reasons.get(second) != SOURCE_SHIFT_TAKEN
+    # The overdue offer is left as it is for the timeout job
+    assert sent.status == OutreachStatus.SENT

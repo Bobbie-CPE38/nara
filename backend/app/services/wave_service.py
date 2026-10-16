@@ -6,9 +6,10 @@ The handler owns OFFER_SENT and MANUAL_HANDOFF. No commit or case-status write.
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session, aliased
 
+from app.core import clock
 from app.db.models import (
     ApprovalRequest,
     AuditLog,
@@ -78,7 +79,7 @@ def _source_shift_ids(db: Session, item_ids: list[int]) -> dict[int, int]:
 def _taken_source_shifts(db: Session, case_id: int) -> dict[int, set[int]]:
     """Source shift ID to the staff holding it for this case (workflow.md 6.19).
 
-    A staff member holds a source shift while their move has a live offer (SENT),
+    A staff member holds a source shift while their move has a live offer (SENT, not overdue),
     a pending approval request (ACCEPTED) or is done (a destination row linked to
     the source row). Only one person may be moved out of a source shift per case.
     """
@@ -89,7 +90,13 @@ def _taken_source_shifts(db: Session, case_id: int) -> dict[int, set[int]]:
         .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
         .where(
             CandidateOutreach.case_id == case_id,
-            CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
+            # An overdue SENT offer holds nothing, like in the case facts; the timeout
+            # job still ends it. An ACCEPTED one is a commitment until it is decided.
+            or_(
+                CandidateOutreach.status == OutreachStatus.ACCEPTED,
+                (CandidateOutreach.status == OutreachStatus.SENT)
+                & (CandidateOutreach.expires_at > clock.now()),
+            ),
         )
     ):
         taken.setdefault(shift_id, set()).add(staff_id)
