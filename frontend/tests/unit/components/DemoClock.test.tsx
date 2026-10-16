@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DemoClock } from "@/components/DemoClock";
 
@@ -25,5 +25,30 @@ describe("DemoClock", () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
     render(<DemoClock />);
     expect(await screen.findByText("Clock unavailable")).toBeTruthy();
+  });
+
+  it("marks the last clock as outdated while a refresh fails", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        calls += 1;
+        return calls === 1
+          ? new Response(JSON.stringify({ now: "2026-10-09T23:16:00+07:00", frozen: true }))
+          : new Response("{}", { status: 503 });
+      }),
+    );
+    try {
+      render(<DemoClock />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("status", { name: "Backend clock" }).textContent).not.toContain("outdated");
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      const clock = screen.getByRole("status", { name: "Backend clock" });
+      expect(clock.textContent).toContain("2026-10-09 23:16:00");
+      expect(clock.textContent).toContain("may be outdated, retrying");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

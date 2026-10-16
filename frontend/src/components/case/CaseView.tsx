@@ -28,8 +28,14 @@ function isWaitingForExplanation({ detail }: CaseSnapshot) {
   return detail.explanation?.status === "PENDING";
 }
 
+// A handover stays active after the case ends, until its row ends or the nurse is moved out
+// (section 6.25): keep reading so the section turns it into history.
+function hasActiveHandover({ detail }: CaseSnapshot) {
+  return (detail.handovers ?? []).some((handover) => handover.active);
+}
+
 function isDone(snapshot: CaseSnapshot) {
-  return isFinal(snapshot) && !isWaitingForExplanation(snapshot);
+  return isFinal(snapshot) && !isWaitingForExplanation(snapshot) && !hasActiveHandover(snapshot);
 }
 
 // 404: no such case. 422: the ID is outside the bigint range. A retry gives the same answer.
@@ -69,7 +75,9 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
             ? "Updating every 2 seconds."
             : isWaitingForExplanation({ detail, audit })
               ? "Final status. Still updating every 2 seconds until the explanation is ready."
-              : "Final status. Updates stopped."}
+              : hasActiveHandover({ detail, audit })
+                ? "Final status. Still updating every 2 seconds while a handover is active."
+                : "Final status. Updates stopped."}
         </p>
         <dl className="mt-2 grid grid-cols-2 gap-2">
           <dt>Shift</dt>

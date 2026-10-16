@@ -2332,6 +2332,7 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 | คำสั่ง check-in ทาง LINE | `CHECKIN <shift_id>` หรือปุ่ม `action=CHECK_IN&shift_id=<id>` ตัวตนจากบัญชีที่ผูกแล้ว กติกาเดียวกับ `POST /me/attendance/check-in` | H2 ทำแล้ว |
 | `GET /me/handovers` (ใหม่) | Handover ของผู้เรียกจาก `X-Demo-User` เท่านั้น (ไม่สนใจ `staff_id` ใน Query) ใช้งานอยู่ก่อน แล้วตามด้วยประวัติ ล่าสุดก่อน แต่ละรายการ `{handover_id, roster_assignment_id, active, generated_at, content}` (`generated_at` เป็น `+07:00`) | H1 (ทำแล้ว) |
 | `GET /cases/{id}` | เพิ่ม `handovers` = List ของรายการแบบเดียวกับข้างบน กติกาการอ่านเคสเดิมไม่เปลี่ยน | H1 (ทำแล้ว) |
+| `GET /me/handovers` (ต่อ) | **เลื่อนไปรอบ 6:** Cursor Pagination ของประวัติ (TODO ที่ H1 ฝากไว้ใน `docs/round5/pr-H1-handoff.md`) ต้องตกลงรูป API และการโหลดหน้าถัดไปกันก่อน ตอนนี้คืน List ทั้งหมดตาม Contract ของ H1 Demo มี Handover ไม่กี่แถวต่อคน | รอบ 6 |
 | `GET /clock` (ใหม่) | คืน `{now, frozen}` จาก `app.core.clock` อ่านอย่างเดียว ไม่ต้องมี `X-Demo-User` | U5 (ทำแล้ว) |
 | หน้า `/me/offers` | ปุ่ม check-in ส่ง `POST /me/attendance/check-in` เวรให้เลือกคือเวรใน Seed ที่มีชื่อคนนั้นรวมกับเวรของ Handover ของคนนั้น ผลบอกทันหรือสายพร้อมเส้นตาย `404`, `422` และ `409` แสดงเป็นข้อความ และรายการ Handover จาก `/me/handovers` ที่ใช้งานอยู่ก่อนแล้วตามด้วยประวัติ | U5 (ทำแล้ว) |
 | หน้า `demo/control` | ปุ่ม "Simulate check-in (demo)" ใช้หอ เวร และคนที่เลือกในกล่องเดียวกับการแจ้งลา ส่ง `POST /demo/attendance/check-in`; ผลของการเลื่อน Clock แสดง `no_show_event_ids` | U5 (ทำแล้ว) |

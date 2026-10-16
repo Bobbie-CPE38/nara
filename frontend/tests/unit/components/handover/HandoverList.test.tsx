@@ -49,4 +49,12 @@ describe("HandoverList", () => {
     expect(screen.getByRole("listitem").textContent).toContain("Shift 1 (—)");
     expect(screen.queryByRole("link")).toBeNull();
   });
+
+  it("shows the role and skill requirements with their counts", () => {
+    const row = handover(4, true, 1);
+    row.content = { ...row.content, requirement: { roles: [{ role_id: 1, name: "RN", required_count: 4 }], skills: [{ skill_id: 2, name: "ICU", required_count: 2 }] } };
+    render(<HandoverList handovers={[row]} emptyText="none" />);
+    expect(screen.getByText("RN × 4")).toBeTruthy();
+    expect(screen.getByText("ICU × 2")).toBeTruthy();
+  });
 });

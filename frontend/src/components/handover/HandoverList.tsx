@@ -5,6 +5,7 @@ import type { HandoverView } from "@/lib/types/case";
 // Content keys of version 1 (docs/workflow.md 6.25). Other versions show these keys only.
 type Shift = { id?: unknown; ward_name?: unknown; start_at?: unknown; end_at?: unknown };
 type CoWorker = { staff_id?: unknown; name?: unknown; role_name?: unknown };
+type Need = { name?: unknown; required_count?: unknown };
 
 const REASON_TEXT: Record<string, string> = {
   UNPLANNED_LEAVE: "Unplanned leave",
@@ -34,6 +35,12 @@ export function isHandover(value: unknown): value is HandoverView {
   );
 }
 
+/** "RN × 4, Head nurse × 1" from the role or skill list of content.requirement. */
+function needs(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return "None";
+  return (value as Need[]).map((need) => `${text(need.name)} × ${text(need.required_count)}`).join(", ");
+}
+
 function HandoverCard({ handover, linkCase }: { handover: HandoverView; linkCase: boolean }) {
   const content = handover.content;
   const shift = (typeof content.shift === "object" && content.shift !== null
@@ -41,6 +48,9 @@ function HandoverCard({ handover, linkCase }: { handover: HandoverView; linkCase
     : {}) as Shift;
   const coWorkers = Array.isArray(content.co_workers) ? (content.co_workers as CoWorker[]) : [];
   const reason = typeof content.reason === "string" ? content.reason : null;
+  const requirement = (typeof content.requirement === "object" && content.requirement !== null
+    ? content.requirement
+    : {}) as { roles?: unknown; skills?: unknown };
   return (
     <li className="rounded border border-slate-300 p-3">
       <p className="font-semibold">
@@ -60,6 +70,10 @@ function HandoverCard({ handover, linkCase }: { handover: HandoverView; linkCase
         <dd>{reason === null ? "—" : (REASON_TEXT[reason] ?? reason)}</dd>
         <dt>Patients</dt>
         <dd>{text(content.patient_count)}</dd>
+        <dt>Roles needed</dt>
+        <dd>{needs(requirement.roles)}</dd>
+        <dt>Skills needed</dt>
+        <dd>{needs(requirement.skills)}</dd>
         <dt>Working with</dt>
         <dd>
           {coWorkers.length === 0

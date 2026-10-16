@@ -17,6 +17,7 @@ export function DemoClock() {
     <span className="ml-auto" role="status" aria-label="Backend clock">
       Backend clock: {formatDateTime(data.now)}{" "}
       <span className="text-slate-500">{data.frozen ? "(demo, frozen)" : "(real time)"}</span>
+      {error && <span className="ml-1 text-amber-700">(may be outdated, retrying…)</span>}
     </span>
   );
 }

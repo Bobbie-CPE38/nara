@@ -316,4 +316,27 @@ describe("My shift offers", () => {
     ).map((option) => option.value);
     expect(options).toContain("21");
   });
+
+  it("keeps the handovers it has and warns when a refresh fails", async () => {
+    const handover = {
+      handover_id: 9,
+      roster_assignment_id: 30,
+      active: true,
+      generated_at: "2026-10-09T21:05:00+07:00",
+      content: { version: 1, shift: { id: 21, ward_name: "Medicine" }, co_workers: [] },
+    };
+    let reads = 0;
+    replies((path) => {
+      if (path !== "/me/handovers") return [];
+      reads += 1;
+      return reads === 1 ? [handover] : new ApiError(503, { detail: "down" });
+    });
+    render(<MyOffersPage />);
+    await signInAs(201);
+    expect(await screen.findByText(/Shift 21 \(Medicine\)/)).toBeTruthy();
+    expect(
+      await screen.findByText(/Could not refresh your handovers/, {}, { timeout: 4000 }),
+    ).toBeTruthy();
+    expect(screen.getByText(/Shift 21 \(Medicine\)/)).toBeTruthy();
+  });
 });

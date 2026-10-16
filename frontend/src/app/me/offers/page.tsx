@@ -226,10 +226,18 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => vo
         <h2 className="text-xl font-semibold">My handovers</h2>
         {handovers.error && handovers.data === undefined ? (
           <p role="alert" className="mt-2 text-red-700">
-            Cannot load your handovers.
+            Cannot load your handovers. Retrying…
           </p>
         ) : (
-          <HandoverList handovers={handoverRows} emptyText="You have no handovers." />
+          <>
+            {handovers.error && (
+              <p role="alert" className="mt-2 text-sm text-amber-700">
+                Could not refresh your handovers. Showing the last loaded list, which may be
+                outdated. Retrying…
+              </p>
+            )}
+            <HandoverList handovers={handoverRows} emptyText="You have no handovers." />
+          </>
         )}
       </section>
     </>
