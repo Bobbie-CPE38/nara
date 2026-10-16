@@ -260,15 +260,25 @@ class TransferFailureReason(StrEnum):
     # is a mid-shift move now. Old audit rows may still hold it; the readers keep the raw string
 
 
-# --------------------------------------------------------------------------- #
-# Actors & audit
-# --------------------------------------------------------------------------- #
 # Round 5 PR N1: `source` in the payload of an ATTENDANCE_CHECKED_IN audit row (6.24)
 class CheckInSource(StrEnum):
     SELF = "SELF"  # the nurse checked in, from the web page or LINE
     SIMULATED = "SIMULATED"  # the demo simulated the arrival under /demo/
 
 
+# Round 5 PR H1: `reason` in STRUCTURED_HANDOVER.content (docs/workflow.md 6.25), taken from
+# the case's first event. PLANNED_LEAVE never opens a case, so it is not here
+class HandoverReason(StrEnum):
+    UNPLANNED_LEAVE = "UNPLANNED_LEAVE"
+    NO_SHOW = "NO_SHOW"
+    ASSIGNMENT_CANCELLED = "ASSIGNMENT_CANCELLED"
+    PATIENT_SURGE = "PATIENT_SURGE"
+    REQUIREMENT_CHANGED = "REQUIREMENT_CHANGED"
+
+
+# --------------------------------------------------------------------------- #
+# Actors & audit
+# --------------------------------------------------------------------------- #
 class ActorType(StrEnum):
     """Stored in ACTORS.actor_type. Lowercase values by team convention."""
 
@@ -347,7 +357,7 @@ class AuditAction(StrEnum):
     ASSIGNMENT_TRANSFERRED = "ASSIGNMENT_TRANSFERRED"
     # Round 4 PR C2: the check at the real move failed; the request ends.
     TRANSFER_CHECK_FAILED = "TRANSFER_CHECK_FAILED"
-    # Round 5 PR H1: the shared assignment function (docs/workflow.md 6.25). Not written yet
+    # Exists since round 1; round 5 PR H1 starts writing it (docs/workflow.md 6.25)
     HANDOVER_GENERATED = "HANDOVER_GENERATED"
     # Round 5 PR N1: a nurse checked in, or the demo simulated it (6.24). Not written yet
     ATTENDANCE_CHECKED_IN = "ATTENDANCE_CHECKED_IN"
