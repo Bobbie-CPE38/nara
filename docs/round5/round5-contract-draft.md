@@ -107,15 +107,19 @@
 **ขั้นที่ 1 ตรวจพบ (Job, เขียนแค่ Event):**
 * Job ตรวจแถว Roster `ASSIGNED` ที่ `Backend Clock > เส้นตายของแถว` (มากกว่าเท่านั้น) และเวลาจบที่มีผลของแถวยังไม่ถึง
 * แถวนั้นต้องไม่มี check-in ที่ทันของแถวนั้นหรือของแถวใดในโซ่ของการย้าย (ข้อ 7.1 ข้อ 3), ไม่มีแถว `STAFF_UNAVAILABILITY` ที่ทับช่วงของแถว และ**ไม่มี Event `STAFF_UNAVAILABLE` ของคนนั้นในเวรนั้นที่ยังรอ Window อยู่**
-* ผ่านทุกข้อแล้ว Job บันทึก Event `STAFF_UNAVAILABLE` ผ่านทางเข้าใหม่ใน `event_service` (เช่น `record_no_show()`) ที่ใช้ขั้นรับ Event ภายในตัวเดียวกับ `receive_event()` เพราะ **[ตรวจแล้ว]** `receive_event()` รับ `staff_id` และ `role_id` ของผู้แจ้ง และสำหรับ `STAFF_UNAVAILABLE` ถือว่าผู้แจ้งคือคนที่ลา พารามิเตอร์ `reason` มีแค่ของ `ASSIGNMENT_CANCELLED` และ payload ของ `STAFF_UNAVAILABLE` มีแค่ `end_at` ทางเข้าใหม่ทำแบบนี้ (ข้อเสนอของคน 2): `event.staff_id` = พยาบาลที่ไม่มา, `actor_id` = Actor `ActorName.SYSTEM` (ตัวเดียวกับที่ Job อื่นใช้ **[ตรวจแล้ว]** `ActorName` ไม่มี Actor `SYSTEM` แยก) ไม่ตรวจ Role ของผู้แจ้ง และ payload ของ `STAFF_UNAVAILABLE` เพิ่ม Key `reason` ที่มีค่า `NO_SHOW` Event ของการลาเดิมไม่มี Key นี้ และถือเป็นการลาตามเดิม Audit `EVENT_RECEIVED` ผู้เขียนเป็น Actor `SYSTEM` Event รอ Window ตามปกติ (R5-Q10 ก)
+* ผ่านทุกข้อแล้ว Job บันทึก Event `STAFF_UNAVAILABLE` ผ่านทางเข้าใหม่ใน `event_service` (เช่น `record_no_show()`) ที่ใช้ขั้นรับ Event ภายในตัวเดียวกับ `receive_event()` เพราะ **[ตรวจแล้ว]** `receive_event()` รับ `staff_id` และ `role_id` ของผู้แจ้ง และสำหรับ `STAFF_UNAVAILABLE` ถือว่าผู้แจ้งคือคนที่ลา พารามิเตอร์ `reason` มีแค่ของ `ASSIGNMENT_CANCELLED` และ payload ของ `STAFF_UNAVAILABLE` มีแค่ `end_at` ทางเข้าใหม่ทำแบบนี้ (ข้อเสนอของคน 2): `event.staff_id` = พยาบาลที่ไม่มา, `actor_id` = Actor `ActorName.SYSTEM` (**[ตรวจแล้ว]** `ActorName` ไม่มี Actor ของ Job แยก จึงใช้ `ActorName.SYSTEM` ซ้ำแบบเดียวกับ Job อื่น) ไม่ตรวจ Role ของผู้แจ้ง และ payload ของ `STAFF_UNAVAILABLE` เพิ่ม Key `reason` ที่มีค่า `NO_SHOW` Event ของการลาเดิมไม่มี Key นี้ และถือเป็นการลาตามเดิม Audit `EVENT_RECEIVED` ผู้เขียนเป็น Actor `SYSTEM` Event รอ Window ตามปกติ (R5-Q10 ก)
 * ข้อ "ไม่มี Event ที่รออยู่" ทำให้ Job ที่รันทุก 30 วินาทีระหว่าง Window เปิดไม่สร้าง Event ซ้ำ ส่วน Job สองตัวพร้อมกันถูกเรียงด้วย Lock ของ `SHIFT` ที่ `receive_event()` ล็อกก่อนอยู่แล้ว
 
 **ขั้นที่ 2 ลงผล (ปิด Window, ทาง apply ของ `NO_SHOW` เอง ไม่ใช้ `_apply_leave()` ตรง ๆ):**
 * `merge_window_service._apply()` แยกทางด้วย `payload.reason` ของ Event: ถ้าเป็น `NO_SHOW` ไปทาง apply ของ `NO_SHOW` ถ้าไม่มี Key นี้ไป `_apply_leave()` เดิม **Key `reason` นี้คือสิ่งที่กันไม่ให้พฤติกรรมของ `_apply_leave()` (ใช้ตัวพยาบาลเป็นผู้เขียน Audit และบันทึกเป็นการลา) เกิดกับ `NO_SHOW`**
-* ล็อกแถว Roster ของคนนั้น แล้วข้ามด้วยทาง `_NotApplicableError` เดิม (Event เป็น `IGNORED` ด้วยเหตุผล `NO_ASSIGNED_ROSTER`) เมื่อข้อใดข้อหนึ่งจริง ไม่ดูแค่สถานะ (ข้อเสนอของคน 3)
-  * แถวไม่ `ASSIGNED` แล้ว (ลา หรือถูกยกเลิกระหว่างรอ หรือถูกย้ายก่อนแถวเริ่ม ซึ่ง C2 ตั้งแถวต้นทางเป็น `CANCELLED`)
+* ล็อกแถว Roster ของคนนั้น แล้วข้ามด้วยทาง `_NotApplicableError` เดิม (Event เป็น `IGNORED` ด้วยเหตุผล `NO_ASSIGNED_ROSTER`) เมื่อข้อใดข้อหนึ่งจริง ไม่ดูแค่สถานะ (ข้อเสนอของคน 3) ทั้งสองข้อคือกรณี "ย้ายออกหรือถูกยกเลิก"
+  * แถวไม่ `ASSIGNED` หรือ `COMPLETED` แล้ว (ลา หรือถูกยกเลิกระหว่างรอ หรือถูกย้ายก่อนแถวเริ่ม ซึ่ง C2 ตั้งแถวต้นทางเป็น `CANCELLED`) **[ตรวจแล้ว]** การปิด Window รับแถว `COMPLETED` อยู่แล้ว เพราะ Job ตั้งเวรที่จบแล้วเป็น `COMPLETED` ได้ระหว่างที่ Event รอ (`lock_assigned_roster()` ตอนปิด Window)
   * มีแถวที่ย้ายออกไปจากแถวนี้ (`transferred_from_assignment_id` = แถวนี้) **[ตรวจแล้ว]** C3 เก็บแถวต้นทางของการย้ายกลางเวรเป็น `ASSIGNED` และตั้ง `actual_end_at` เป็นเวลาย้าย สถานะอย่างเดียวจึงไม่บอกว่าย้ายออกไปแล้ว
-  * เวลาจบที่มีผลของแถว (`actual_end_at` ถ้ามี ไม่งั้นเวลาจบเวร) ไม่เกิน `Backend Clock`
+* **แถวที่จบไปเองระหว่างรอ ไม่ข้าม (ข้อเสนอของคน 3):** Window อาจรอนานจนเวรจบ เพราะเวรมีเคสอื่นเดินอยู่ (Q43) การที่เวลาจบที่มีผลของแถวผ่านไปแล้วจึงไม่ใช่เหตุให้ข้าม Event ขั้นที่ 2 ยังเก็บประวัติครบ:
+  * บันทึกแถว `NO_SHOW` และ Audit `UNAVAILABILITY_CREATED` ตามปกติ
+  * ถ้ามี check-in สายระหว่างรอ เดินทางมาสายตามปกติ แถวใหม่ได้ช่วงจาก `check_in_at` ถึงเวลาจบที่มีผลของแถวเดิม ชั่วโมงทำงานจึงตรงกับที่มาจริง
+  * ถ้าไม่มี check-in แถวเดิมเป็น `CANCELLED` และการขาดงานยังอยู่ในประวัติ
+  * **ไม่เปิดการหาคนใหม่ให้เวรที่จบแล้ว:** ถ้าตอนปิด Window เวรจบแล้ว Event ของ `NO_SHOW` เก็บประวัติอย่างเดียว ไม่ทำให้เปิดเคสหรือส่ง Offer วิธีแยก Event นี้ออกจากการตัดสินเปิดเคส PR 0 เขียนให้ตรงกับกติกาเดิมของเวรที่จบแล้ว (รอบ 3 PR R และรอบ 4 T3)
 * ถ้าระหว่างรอมี check-in เข้ามาแล้ว check-in นั้นต้องสายเสมอ เพราะ Event ถูกสร้างหลังเส้นตาย **apply ไม่ข้าม** ยังบันทึก `NO_SHOW` ตามกติกา "สายคือ `NO_SHOW` แล้วมาสาย" จากนั้นเดินทางมาสายต่อใน Transaction เดียวกันจาก `check_in_at` นั้น
 * บันทึกแถว `STAFF_UNAVAILABILITY` (`reason = NO_SHOW`, `end_at` = เวลาจบที่มีผลของแถว หรือ `check_in_at` ถ้าเดินทางมาสายต่อ) ตั้งแถว Roster เป็น `CANCELLED` และเขียน Audit `UNAVAILABILITY_CREATED` ในขั้นนี้ ผู้เขียนเป็น Actor `ActorName.SYSTEM` (R5-Q17 ก) ไม่ใช่ตัวพยาบาลแบบ `_apply_leave()`
 
@@ -185,6 +189,8 @@
 | Job สองรอบภายใน Window ที่ยังเปิด (`merge_window_seconds > 0`) ได้ Event `STAFF_UNAVAILABLE` ของคนนั้นในเวรนั้นแค่หนึ่ง Event | N2 |
 | ขั้นที่ 1 เขียนแค่ Event ไม่มีแถว `STAFF_UNAVAILABILITY` หรือ Audit `UNAVAILABILITY_CREATED` จนกว่า Window ปิด ขั้นที่ 2 เขียนทั้งสองอย่าง ผู้เขียน Audit เป็น Actor `SYSTEM` ไม่ใช่ตัวพยาบาล และ Event ของการลาเดิม (ไม่มี `payload.reason`) ยังเข้า `_apply_leave()` ตามเดิม | N2 |
 | ระหว่าง Event รอ Window แถว Roster ถูกยกเลิก หรือคนนั้นถูกย้ายออก ขั้นที่ 2 ข้ามเป็น `IGNORED` (`NO_ASSIGNED_ROSTER`) รวมการย้ายกลางเวรที่แถวต้นทางยังเป็น `ASSIGNED` แต่มีแถวปลายทางที่ลิงก์มา และไม่ยกเลิกแถวต้นทางนั้น | N2 |
+| Window ปิดหลังแถวจบไปเอง (รอเพราะเวรมีเคสอื่นเดินอยู่) และไม่มี check-in: ยังบันทึก `NO_SHOW` กับ Audit แถวเดิมเป็น `CANCELLED` และไม่เปิดเคสหรือส่ง Offer ให้เวรที่จบแล้ว | N2 |
+| Window ปิดหลังแถวจบไปเองและมี check-in สายระหว่างรอ: บันทึก `NO_SHOW` แล้วได้แถวใหม่ช่วง `check_in_at` ถึงเวลาจบเดิม ชั่วโมงทำงานตรงกับที่มาจริง และไม่เปิดการหาคน | N2 |
 | แถว `REGULAR` จาก Seed ของเวรที่เริ่มแล้วตอน Reset ได้เส้นตาย = เวลาเริ่มเวร + 15 นาที ไม่ใช่เวลา Reset + 15 นาที | N2 |
 | check-in กับ Job ตรวจ `NO_SHOW` พร้อมกัน (สอง Connection) ได้ผลเดียวที่สอดคล้องกัน ไม่มี Event ซ้ำ ไม่ยกเลิกเวรผิดคน | N2 |
 | คนที่แจ้งลาแล้ว หรือถูกย้ายออกจากเวรแล้ว ไม่ถูกนับเป็น `NO_SHOW` | N2 |
