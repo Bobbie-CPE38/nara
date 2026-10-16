@@ -201,7 +201,7 @@ Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์น�
 | C3 | คน 2 | ย้ายกลางเวร | 6.19, 6.20 | C2, T2, T3, T4 | ไม่มี | |
 | A | คน 3 | Auto-Approval | 6.22, 9.6 | 0, T1 | ไม่มี | [#80](https://github.com/Bobbie-CPE38/nara/pull/80) |
 | W4 | คน 1 | ข้อมูล Demo หลายหอ, หอ Float Pool, Role `SUPERVISOR` | 6.19, 6.21 | C1 | ไม่มี | [#85](https://github.com/Bobbie-CPE38/nara/pull/85) |
-| U | คน 1 | หน้าเว็บของรอบ 4 | 9.6 | A, S | ไม่มี | |
+| U | คน 1 | หน้าเว็บของรอบ 4 | 9.6 | A, S | ไม่มี | [#86](https://github.com/Bobbie-CPE38/nara/pull/86) |
 
 ลำดับ merge: 0 ก่อนทุกตัว, T3 หลัง T2, T4 หลัง T1 และ T3, C1 หลัง T1, S หลัง C1, C2 หลัง S (ห้ามมีการย้ายคนก่อนที่การอนุมัติสองหอจะมี), C3 หลัง C2 T2 T3 T4, A หลัง T1, U หลัง A และ S Migration ต่อจาก `e1a4c7f2b9d6` เป็นเส้นเดียวตามลำดับที่ merge จริง ลำดับจริงจนถึงตอนนี้คือ T1 → T2 → C1 → T3 → S (head ของ S `f2a7c9d4e6b8` ต่อจาก `c6e2b9f4a1d7`) ตัวที่ merge ทีหลังต้อง Rebase แก้ `down_revision` ให้ต่อจาก head ของ `staging` และรัน `alembic heads` ให้ได้ head เดียว รอบ 4 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R4-Q2)
 
