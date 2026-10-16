@@ -19,6 +19,11 @@ Rules:
   * Every status change is checked against ALLOWED_TRANSITIONS and writes one
     CASE_STATUS_CHANGED audit row with the workflow_orchestrator actor.
   * One round commits once, at the end (D4).
+  * The walk from one handler to the next inside a round is a LangGraph graph
+    (section 6.23): one node per status in HANDLERS, edges from
+    ALLOWED_TRANSITIONS. The case row stays the only record of where a case is
+    (D1): the graph has no checkpointer and keeps no state of its own. The
+    savepoint, the commit, D11 and the LINE dispatch stay outside the graph.
   * A round that raises is rolled back to its start with a savepoint. The
     caller's earlier work in the same transaction is kept (the event, the case,
     the recorded answer). The case then becomes FAILED with a WORKFLOW_FAILED
@@ -30,7 +35,13 @@ Rules:
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
+from typing import TypedDict
 
+from langchain_core.runnables import RunnableConfig
+from langgraph.errors import GraphRecursionError
+from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -49,7 +60,11 @@ from app.domain.enums import (
 # Import it from app.domain.errors in new code; drop this once nothing uses the old path
 from app.domain.errors import CaseNotFoundError as CaseNotFoundError
 from app.domain.workflow.case_status import decide_status
-from app.domain.workflow.transitions import InvalidTransitionError, assert_transition
+from app.domain.workflow.transitions import (
+    ALLOWED_TRANSITIONS,
+    InvalidTransitionError,
+    assert_transition,
+)
 from app.services import actor_service, audit_service, case_facts_service
 from app.workflow.handlers import (
     assess_staffing,
@@ -86,6 +101,67 @@ _MAX_STEPS = len(CaseStatus)
 
 class WorkflowError(RuntimeError):
     """A handler broke the contract in docs/workflow.md section 6.1."""
+
+
+@dataclass
+class _Round:
+    """What one round's graph run works on. Lives for one call of _run_round()."""
+
+    db: Session
+    case: StaffingCase
+    # The status of the step that is running, for the WORKFLOW_FAILED row
+    failed_at: CaseStatus
+
+
+class _GraphState(TypedDict):
+    # The graph keeps nothing of the case (D1): the case row is the state.
+    # LangGraph needs at least one channel; this one counts steps and nothing reads it
+    steps: int
+
+
+def _round_of(config: RunnableConfig) -> _Round:
+    run: _Round = config["configurable"]["round"]
+    return run
+
+
+def _step_node(state: _GraphState, config: RunnableConfig) -> _GraphState:
+    run = _round_of(config)
+    run.failed_at = run.case.status
+    _run_step(run.db, run.case)
+    return {"steps": state["steps"] + 1}
+
+
+def _next_node(state: _GraphState, config: RunnableConfig) -> str:
+    """The node for the case's status now, or END when the round is over."""
+    run = _round_of(config)
+    current = run.case.status
+    if current in WAITING_CASE_STATUSES or current in AUTOMATION_STOPPED_STATUSES:
+        return END
+    if current not in _GRAPH_NODES:
+        # The same error _run_step() raises for a status without a handler
+        run.failed_at = current
+        raise WorkflowError(f"No handler for status {current.value}")
+    return current.value
+
+
+def _build_graph() -> CompiledStateGraph[_GraphState, None, _GraphState, _GraphState]:
+    graph = StateGraph(_GraphState)
+    for status in _GRAPH_NODES:
+        graph.add_node(status.value, _step_node)
+    graph.add_conditional_edges(START, _next_node, [s.value for s in _GRAPH_NODES] + [END])
+    for status in _GRAPH_NODES:
+        targets = [s.value for s in ALLOWED_TRANSITIONS[status] if s in _GRAPH_NODES]
+        graph.add_conditional_edges(status.value, _next_node, [*sorted(targets), END])
+    # No checkpointer: the case row is the only record of the round (D1)
+    return graph.compile()
+
+
+# Built once from the statuses that have a handler. A node looks the handler up
+# in HANDLERS when it runs, so a test that swaps or removes one still works.
+# A status added to HANDLERS later has no node: the router fails the round with
+# "No handler". A new automatic status needs its handler here before import
+_GRAPH_NODES: frozenset[CaseStatus] = frozenset(HANDLERS)
+_GRAPH = _build_graph()
 
 
 def advance(db: Session, case_id: int) -> None:
@@ -259,12 +335,18 @@ def _run_round(
         with db.begin_nested():
             if before is not None:
                 before(db, case)
-            for _ in range(_MAX_STEPS):
-                failed_at = case.status
-                if not _run_step(db, case):
-                    break
-            else:
-                raise WorkflowError(f"Case {case.id} did not stop after {_MAX_STEPS} steps")
+            run = _Round(db=db, case=case, failed_at=case.status)
+            try:
+                _GRAPH.invoke(
+                    {"steps": 0},
+                    {"configurable": {"round": run}, "recursion_limit": _MAX_STEPS},
+                )
+            except GraphRecursionError as error:
+                raise WorkflowError(
+                    f"Case {case.id} did not stop after {_MAX_STEPS} steps"
+                ) from error
+            finally:
+                failed_at = run.failed_at
     except Exception as error:
         logger.exception("Workflow failed for case %s at %s", case.id, failed_at.value)
         _mark_failed(db, case, failed_at=failed_at, error=error)
