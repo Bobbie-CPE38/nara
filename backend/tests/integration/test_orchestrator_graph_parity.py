@@ -5,9 +5,11 @@ routes on the round 4 seed (the Golden Case with the second ward, the Float Pool
 and the Supervisor). Each expected list was recorded from the orchestrator
 before PR G, as (from, to) pairs of the CASE_STATUS_CHANGED rows in id order.
 The last tests check that LINE delivery still starts only after the round's
-commit, and finds nothing to send after a round that failed.
+commit, and finds nothing to send after a round that failed, and that the step
+limit still fails the case after the same number of handler calls.
 """
 
+import threading
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -19,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_db
 from app.db.models import AuditLog, CandidateOutreach, StaffingCase
 from app.domain.enums import AuditAction, CaseStatus
+from app.domain.workflow import transitions
 from app.main import app
 from app.seed.scenarios import (
     candidate_reject,
@@ -31,6 +34,7 @@ from app.services import line_delivery_service
 from app.workflow import orchestrator
 from app.workflow.handlers import contact_candidate
 from app.workflow.handlers.base import HandlerResult
+from tests.integration.case_rows import make_case
 
 RESPOND = "/demo/line-sim/respond"
 LEAVE = {"event_type": "STAFF_UNAVAILABLE", "shift_id": 1}
@@ -229,6 +233,8 @@ class _Dispatches:
 
     def __init__(self) -> None:
         self.calls: list[tuple[bool, CaseStatus, int]] = []
+        # _run_round() calls the dispatch itself, so this is the round's thread
+        self.threads: list[int] = []
 
     def __call__(self, db: Session, *, case_id: int | None = None) -> None:
         assert case_id is not None
@@ -236,6 +242,7 @@ class _Dispatches:
         assert case is not None
         offers = db.scalars(select(CandidateOutreach).where(CandidateOutreach.case_id == case_id))
         self.calls.append((db.in_nested_transaction(), case.status, len(list(offers))))
+        self.threads.append(threading.get_ident())
 
 
 def test_line_dispatch_runs_after_the_round_commits(
@@ -253,7 +260,10 @@ def test_line_dispatch_runs_after_the_round_commits(
 def test_a_failed_round_leaves_nothing_for_line_to_send(
     driver: Driver, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    threads: list[int] = []
+
     def contact_then_fail(db: Session, case: StaffingCase) -> HandlerResult:
+        threads.append(threading.get_ident())
         contact_candidate.handle(db, case)
         raise RuntimeError("after the offers were written")
 
@@ -271,3 +281,68 @@ def test_a_failed_round_leaves_nothing_for_line_to_send(
         )
     ).one()
     assert failure.payload["failed_at"] == "OUTREACH"
+    # The node's own exception reaches D11, and the node ran in the thread of the
+    # round that called the graph
+    assert failure.payload["error_type"] == "RuntimeError"
+    assert threads == dispatches.threads
+
+
+def test_a_round_that_never_stops_fails_after_max_steps_handler_calls(
+    production_seeded: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The old loop called _run_step() _MAX_STEPS times before giving up; so does the graph.
+
+    No edge between two automatic statuses forms a loop, so the test adds OPEN -> OPEN
+    and rebuilds the graph with it.
+    """
+    db = production_seeded
+    loop = transitions.ALLOWED_TRANSITIONS[CaseStatus.OPEN] | {CaseStatus.OPEN}
+    monkeypatch.setitem(transitions.ALLOWED_TRANSITIONS, CaseStatus.OPEN, loop)
+    monkeypatch.setattr(orchestrator, "_GRAPH", orchestrator._build_graph())
+    calls: list[int] = []
+
+    def again(db: Session, case: StaffingCase) -> HandlerResult:
+        calls.append(1)
+        return HandlerResult(next_status=CaseStatus.OPEN, wait=False)
+
+    monkeypatch.setitem(orchestrator.HANDLERS, CaseStatus.OPEN, again)
+    case = make_case(db, CaseStatus.OPEN)
+    db.commit()
+
+    orchestrator.advance(db, case.id)
+
+    assert len(calls) == orchestrator._MAX_STEPS
+    db.expire_all()
+    assert case.status is CaseStatus.FAILED
+    failure = db.scalars(
+        select(AuditLog).where(
+            AuditLog.case_id == case.id, AuditLog.action == AuditAction.WORKFLOW_FAILED
+        )
+    ).one()
+    assert failure.payload["failed_at"] == "OPEN"
+    assert failure.payload["error_type"] == "WorkflowError"
+
+
+def test_the_step_limit_message_is_the_old_one(
+    production_seeded: Session, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    db = production_seeded
+    loop = transitions.ALLOWED_TRANSITIONS[CaseStatus.OPEN] | {CaseStatus.OPEN}
+    monkeypatch.setitem(transitions.ALLOWED_TRANSITIONS, CaseStatus.OPEN, loop)
+    monkeypatch.setattr(orchestrator, "_GRAPH", orchestrator._build_graph())
+    monkeypatch.setitem(
+        orchestrator.HANDLERS,
+        CaseStatus.OPEN,
+        lambda db, case: HandlerResult(next_status=CaseStatus.OPEN, wait=False),
+    )
+    case = make_case(db, CaseStatus.OPEN)
+    db.commit()
+
+    with caplog.at_level("ERROR", logger=orchestrator.__name__):
+        orchestrator.advance(db, case.id)
+
+    [record] = [r for r in caplog.records if r.exc_info]
+    assert record.exc_info is not None
+    error = record.exc_info[1]
+    assert isinstance(error, orchestrator.WorkflowError)
+    assert str(error) == f"Case {case.id} did not stop after {orchestrator._MAX_STEPS} steps"

@@ -157,7 +157,9 @@ def _build_graph() -> CompiledStateGraph[_GraphState, None, _GraphState, _GraphS
 
 
 # Built once from the statuses that have a handler. A node looks the handler up
-# in HANDLERS when it runs, so a test that swaps or removes one still works
+# in HANDLERS when it runs, so a test that swaps or removes one still works.
+# A status added to HANDLERS later has no node: the router fails the round with
+# "No handler". A new automatic status needs its handler here before import
 _GRAPH_NODES: frozenset[CaseStatus] = frozenset(HANDLERS)
 _GRAPH = _build_graph()
 

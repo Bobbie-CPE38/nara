@@ -18,6 +18,8 @@ dependencies = [
     "boto3>=1.35",
     # Pinned exactly (docs/workflow.md 6.23, R5-Q5): the orchestrator's graph
     "langgraph==1.2.15",
+    # orchestrator.py imports RunnableConfig from it; the bound langgraph 1.2.15 declares
+    "langchain-core>=1.4.7,<2",
 ]
 
 [tool.setuptools.packages.find]
