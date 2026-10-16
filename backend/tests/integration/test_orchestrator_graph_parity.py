@@ -287,31 +287,42 @@ def test_a_failed_round_leaves_nothing_for_line_to_send(
     assert threads == dispatches.threads
 
 
-def test_a_round_that_never_stops_fails_after_max_steps_handler_calls(
-    production_seeded: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The old loop called _run_step() _MAX_STEPS times before giving up; so does the graph.
+@pytest.fixture
+def looping_open_handler(production_seeded: Session, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Make the OPEN handler always return OPEN again; returns the log of its calls.
 
-    No edge between two automatic statuses forms a loop, so the test adds OPEN -> OPEN
+    No edge between two automatic statuses forms a loop, so this adds OPEN -> OPEN
     and rebuilds the graph with it.
     """
-    db = production_seeded
     loop = transitions.ALLOWED_TRANSITIONS[CaseStatus.OPEN] | {CaseStatus.OPEN}
     monkeypatch.setitem(transitions.ALLOWED_TRANSITIONS, CaseStatus.OPEN, loop)
     monkeypatch.setattr(orchestrator, "_GRAPH", orchestrator._build_graph())
     calls: list[int] = []
 
-    def again(db: Session, case: StaffingCase) -> HandlerResult:
+    def again(_db: Session, _case: StaffingCase) -> HandlerResult:
         calls.append(1)
         return HandlerResult(next_status=CaseStatus.OPEN, wait=False)
 
     monkeypatch.setitem(orchestrator.HANDLERS, CaseStatus.OPEN, again)
+    return calls
+
+
+def _open_case(db: Session) -> StaffingCase:
     case = make_case(db, CaseStatus.OPEN)
     db.commit()
+    return case
+
+
+def test_a_round_that_never_stops_fails_after_max_steps_handler_calls(
+    production_seeded: Session, looping_open_handler: list[int]
+) -> None:
+    """The old loop called _run_step() _MAX_STEPS times before giving up; so does the graph."""
+    db = production_seeded
+    case = _open_case(db)
 
     orchestrator.advance(db, case.id)
 
-    assert len(calls) == orchestrator._MAX_STEPS
+    assert len(looping_open_handler) == orchestrator._MAX_STEPS
     db.expire_all()
     assert case.status is CaseStatus.FAILED
     failure = db.scalars(
@@ -324,24 +335,15 @@ def test_a_round_that_never_stops_fails_after_max_steps_handler_calls(
 
 
 def test_the_step_limit_message_is_the_old_one(
-    production_seeded: Session, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    production_seeded: Session, looping_open_handler: list[int], caplog: pytest.LogCaptureFixture
 ) -> None:
     db = production_seeded
-    loop = transitions.ALLOWED_TRANSITIONS[CaseStatus.OPEN] | {CaseStatus.OPEN}
-    monkeypatch.setitem(transitions.ALLOWED_TRANSITIONS, CaseStatus.OPEN, loop)
-    monkeypatch.setattr(orchestrator, "_GRAPH", orchestrator._build_graph())
-    monkeypatch.setitem(
-        orchestrator.HANDLERS,
-        CaseStatus.OPEN,
-        lambda db, case: HandlerResult(next_status=CaseStatus.OPEN, wait=False),
-    )
-    case = make_case(db, CaseStatus.OPEN)
-    db.commit()
+    case = _open_case(db)
 
     with caplog.at_level("ERROR", logger=orchestrator.__name__):
         orchestrator.advance(db, case.id)
 
-    [record] = [r for r in caplog.records if r.exc_info]
+    [record] = [r for r in caplog.records if r.name == orchestrator.__name__ and r.exc_info]
     assert record.exc_info is not None
     error = record.exc_info[1]
     assert isinstance(error, orchestrator.WorkflowError)
