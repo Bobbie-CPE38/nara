@@ -36,7 +36,7 @@ TODO ของ U5: เพิ่ม Cursor Pagination ของประวัต
 
 `content.version = 1` ตาม workflow 6.25 Snapshot ไม่เปลี่ยนเมื่อ DB เปลี่ยนภายหลัง เหตุของเคสมาจาก `CASE_OPENED.payload.event_id` ไม่ใช่ Event ที่มี ID น้อยสุด ถ้าไม่มีต้นทางที่ถูกต้องถือเป็นข้อผิดพลาด ไม่เดาค่า การอนุมัติผ่าน D11 จึงคงผลอนุมัติ แต่ Rollback เวรและ Handover พร้อมให้เคสเป็น `FAILED`
 
-`co_workers` ไม่รวมผู้รับเวรเอง หรือพนักงานใน Event `STAFF_UNAVAILABLE`/`ASSIGNMENT_CANCELLED` ของเคสที่กำลังหาแทน แม้แถวเดิมยัง `ASSIGNED`/`COMPLETED` และมีช่วงทับกันหลังตัดเวรบางส่วน เพื่อไม่แสดงคนที่กำลังหาแทนเป็นเพื่อนร่วมเวรของผู้รับแทน
+`co_workers` ไม่รวมผู้รับเวรเอง และตัดแถวต้นทางของคนที่เคสกำลังหาแทนเฉพาะเมื่อมีแถวปลายทางที่ลิงก์กลับด้วย `transferred_from_assignment_id` ยืนยันการย้ายจริง แม้แถวต้นทางยัง `ASSIGNED`/`COMPLETED` และทับช่วงบางส่วน การมี Event `STAFF_UNAVAILABLE`/`ASSIGNMENT_CANCELLED` อย่างเดียวไม่ตัดชื่อคนที่ยังทำงานอยู่ ช่วงงานบางส่วนที่วางแผนไว้โดยไม่มีการย้ายยังนับตามช่วงจริง และถ้าคนเดิมกลับมามีแถวใหม่ที่ทับช่วง Handover แถวนั้นยังนับเป็นเพื่อนร่วมเวรได้ (ชื่อไม่ซ้ำ)
 
 การจัดเองใน `MANUAL_HANDOFF` อยู่นอก Workflow Round: ถ้าไม่มีต้นทางที่ถูกต้อง Service Rollback งานที่ยังไม่ Commit และ Route ตอบ `409` พร้อม `detail.code = HANDOVER_SOURCE_UNAVAILABLE` เคสคง `MANUAL_HANDOFF` โดยไม่มี Roster/Handover/Audit การจัดใหม่ ข้อมูลต้องได้รับการตรวจแก้ก่อนลองใหม่ ไม่ใช้ผล `FAILED` ของ D11 แบบทางอนุมัติ
 

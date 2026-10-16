@@ -114,11 +114,105 @@ def test_partially_present_replaced_person_is_not_a_coworker(production_seeded, 
     ).one()
     original.status = status
     original.actual_end_at = db.get(Shift, case.shift_id).start_at + timedelta(hours=2)
+    # A real C3 cut has a linked destination, unlike a merely scheduled partial row.
+    from tests.integration.test_cross_ward_pool import _shift, _ward
+
+    shift = db.get(Shift, case.shift_id)
+    destination_id = _shift(db, _ward(db), shift.start_at, shift.end_at)
+    db.add(
+        RosterAssignment(
+            staff_id=105,
+            shift_id=destination_id,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REPLACEMENT,
+            candidate_source=CandidateSource.CROSS_WARD,
+            actual_start_at=original.actual_end_at,
+            transferred_from_assignment_id=original.id,
+        )
+    )
     request = approval(db, case, items[201], approved=True)
     roster_service.create_replacement(db, case, approval=request)
     content = db.scalars(select(StructuredHandover)).one().content
     assert {c["staff_id"] for c in content["co_workers"]} == {101, 102, 103, 104}
     assert original.status == status
+
+
+@pytest.mark.parametrize(
+    "event_type", [EventType.STAFF_UNAVAILABLE, EventType.ASSIGNMENT_CANCELLED]
+)
+@pytest.mark.parametrize("status", [RosterStatus.ASSIGNED, RosterStatus.COMPLETED])
+@pytest.mark.parametrize("end_mode", ["implicit", "full", "partial"])
+def test_case_event_does_not_hide_a_coworker_whose_row_is_intact(
+    production_seeded,
+    event_type,
+    status,
+    end_mode,
+):
+    db = production_seeded
+    case, items = short_case(db)
+    event = db.scalars(select(StaffingEvent).where(StaffingEvent.case_id == case.id)).one()
+    event.event_type = event_type
+    original = db.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id == 105,
+            RosterAssignment.shift_id == case.shift_id,
+        )
+    ).one()
+    original.status = status
+    shift = db.get(Shift, case.shift_id)
+    if end_mode == "full":
+        original.actual_end_at = shift.end_at
+    elif end_mode == "partial":
+        original.actual_end_at = shift.start_at + timedelta(hours=2)
+    request = approval(db, case, items[201], approved=True)
+    roster_service.create_replacement(db, case, approval=request)
+    content = db.scalars(select(StructuredHandover)).one().content
+    assert {c["staff_id"] for c in content["co_workers"]} == {101, 102, 103, 104, 105}
+
+
+def test_a_shortened_row_does_not_hide_the_same_person_restored_for_the_remainder(
+    production_seeded,
+):
+    db = production_seeded
+    case, items = short_case(db)
+    shift = db.get(Shift, case.shift_id)
+    original = db.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id == 105,
+            RosterAssignment.shift_id == case.shift_id,
+        )
+    ).one()
+    original.status = RosterStatus.ASSIGNED
+    original.actual_end_at = shift.start_at + timedelta(hours=2)
+    from tests.integration.test_cross_ward_pool import _shift, _ward
+
+    destination_id = _shift(db, _ward(db), shift.start_at, shift.end_at)
+    db.add(
+        RosterAssignment(
+            staff_id=105,
+            shift_id=destination_id,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REPLACEMENT,
+            candidate_source=CandidateSource.CROSS_WARD,
+            actual_start_at=original.actual_end_at,
+            transferred_from_assignment_id=original.id,
+        )
+    )
+    db.add(
+        RosterAssignment(
+            staff_id=105,
+            shift_id=shift.id,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REGULAR,
+            actual_start_at=original.actual_end_at,
+        )
+    )
+    request = approval(db, case, items[201], approved=True)
+    roster_service.create_replacement(db, case, approval=request)
+    content = db.scalars(select(StructuredHandover)).one().content
+    ids = [c["staff_id"] for c in content["co_workers"]]
+    assert set(ids) == {101, 102, 103, 104, 105}
+    assert ids.count(105) == 1
 
 
 @pytest.mark.parametrize("reason", list(HandoverReason))

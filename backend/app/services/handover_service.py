@@ -2,9 +2,9 @@
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core import clock
 from app.core.constants import HANDOVER_CONTENT_VERSION
@@ -88,12 +88,19 @@ def _content(db: Session, case: StaffingCase, row: RosterAssignment) -> dict[str
         )
     ]
     coworkers = {}
-    # A partially cut original row can remain ASSIGNED and overlap this cover.
-    # Do not present people this case is replacing as the incoming nurse's team.
+    # An event or a scheduled partial interval alone does not mean the person
+    # actually left. Only the recorded transfer link proves this source was cut.
     replaced_staff = select(StaffingEvent.staff_id).where(
         StaffingEvent.case_id == case.id,
         StaffingEvent.event_type.in_((EventType.STAFF_UNAVAILABLE, EventType.ASSIGNMENT_CANCELLED)),
         StaffingEvent.staff_id.is_not(None),
+    )
+    destination = aliased(RosterAssignment)
+    transferred = (
+        select(destination.id)
+        .where(destination.transferred_from_assignment_id == RosterAssignment.id)
+        .correlate(RosterAssignment)
+        .exists()
     )
     for person, role_name in db.execute(
         select(Staff, Role.name)
@@ -103,7 +110,10 @@ def _content(db: Session, case: StaffingCase, row: RosterAssignment) -> dict[str
             RosterAssignment.shift_id == shift.id,
             RosterAssignment.status.in_((RosterStatus.ASSIGNED, RosterStatus.COMPLETED)),
             RosterAssignment.staff_id != row.staff_id,
-            RosterAssignment.staff_id.not_in(replaced_staff),
+            or_(
+                RosterAssignment.staff_id.not_in(replaced_staff),
+                ~transferred,
+            ),
             roster_time_service.start_at() < end,
             roster_time_service.end_at() > start,
         )
