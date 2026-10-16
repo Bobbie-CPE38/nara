@@ -379,6 +379,9 @@ def assign(
             outcome.manual_assignment_id,
             sorted(foreign_case_ids),
         )
+    from app.services import line_delivery_service
+
+    line_delivery_service.dispatch_pending(db, case_id=outcome.case_id)
     return outcome
 
 

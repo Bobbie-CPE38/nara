@@ -24,7 +24,8 @@ def migration():
 
 def test_single_head_follows_attendance():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
-    assert script.get_heads() == [REVISION]
+    assert len(script.get_heads()) == 1
+    assert script.get_revision("f6b2d8a4c0e1").down_revision == REVISION
     assert script.get_revision(REVISION).down_revision == "a4d8e1b7c3f5"
 
 

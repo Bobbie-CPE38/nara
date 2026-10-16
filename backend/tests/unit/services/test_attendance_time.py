@@ -82,3 +82,34 @@ def test_on_time_includes_the_deadline_itself() -> None:
     deadline = rules.deadline_at(row(), SHIFT)
     assert rules.is_on_time(row(), SHIFT, deadline)
     assert not rules.is_on_time(row(), SHIFT, deadline + timedelta(seconds=1))
+
+
+@pytest.mark.parametrize(
+    "roster,opening,closing",
+    [
+        (row(AssignmentType.REPLACEMENT), "09/10/2026 22:00:00", "10/10/2026 07:00:00"),
+        (
+            row(AssignmentType.REPLACEMENT, created=START + timedelta(hours=2, seconds=25)),
+            "10/10/2026 00:00:25",
+            "10/10/2026 07:00:00",
+        ),
+        (
+            row(
+                AssignmentType.REPLACEMENT,
+                start=START + timedelta(hours=3),
+                end=START + timedelta(hours=5),
+            ),
+            "10/10/2026 01:00:00",
+            "10/10/2026 04:00:00",
+        ),
+    ],
+)
+def test_line_instructions_use_exact_checkin_bounds(roster, opening, closing):
+    from app.services.line_delivery_service import _check_in_instructions
+
+    message = _check_in_instructions(roster, SHIFT)
+    assert f"กดได้ตั้งแต่ {opening} น." in message
+    assert f"ถึงก่อน {closing} น." in message
+    assert len(message) <= 160  # LINE buttons template, without title/image
+    assert rules.accepts_check_in(roster, SHIFT, rules.earliest_check_in_at(roster, SHIFT))
+    assert not rules.accepts_check_in(roster, SHIFT, rules.effective_end_at(roster, SHIFT))
