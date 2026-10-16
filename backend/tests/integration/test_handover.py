@@ -97,6 +97,30 @@ def test_snapshot_is_database_only_and_immutable(production_seeded):
     )
 
 
+@pytest.mark.parametrize(
+    "event_type", [EventType.STAFF_UNAVAILABLE, EventType.ASSIGNMENT_CANCELLED]
+)
+@pytest.mark.parametrize("status", [RosterStatus.ASSIGNED, RosterStatus.COMPLETED])
+def test_partially_present_replaced_person_is_not_a_coworker(production_seeded, event_type, status):
+    db = production_seeded
+    case, items = short_case(db)
+    event = db.scalars(select(StaffingEvent).where(StaffingEvent.case_id == case.id)).one()
+    event.event_type = event_type
+    original = db.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id == 105,
+            RosterAssignment.shift_id == case.shift_id,
+        )
+    ).one()
+    original.status = status
+    original.actual_end_at = db.get(Shift, case.shift_id).start_at + timedelta(hours=2)
+    request = approval(db, case, items[201], approved=True)
+    roster_service.create_replacement(db, case, approval=request)
+    content = db.scalars(select(StructuredHandover)).one().content
+    assert {c["staff_id"] for c in content["co_workers"]} == {101, 102, 103, 104}
+    assert original.status == status
+
+
 @pytest.mark.parametrize("reason", list(HandoverReason))
 def test_reason_uses_the_threshold_passing_event_not_lowest_event_id(production_seeded, reason):
     db = production_seeded
@@ -344,6 +368,77 @@ def test_manual_assignment_generates_handover_with_human_actor(production_seeded
         select(AuditLog).where(AuditLog.action == AuditAction.HANDOVER_GENERATED)
     ).one()
     assert log.actor_id == actor
+
+
+def test_manual_handoff_with_missing_origin_returns_conflict_and_rolls_back(production_seeded):
+    from app.domain.enums import CaseStatus
+
+    db = production_seeded
+    case, _ = short_case(db, status=CaseStatus.MANUAL_HANDOFF)
+    case_id = case.id
+    db.execute(
+        delete(AuditLog).where(
+            AuditLog.case_id == case_id, AuditLog.action == AuditAction.CASE_OPENED
+        )
+    )
+    db.commit()
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/cases/{case_id}/handoff/assignments",
+                headers={"X-Demo-User": "900"},
+                json={"staff_id": 201},
+            )
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "HANDOVER_SOURCE_UNAVAILABLE"
+        assert db.get(StaffingCase, case_id).status == CaseStatus.MANUAL_HANDOFF
+        assert db.scalar(select(StructuredHandover.id)) is None
+        assert (
+            db.scalar(
+                select(RosterAssignment.id).where(
+                    RosterAssignment.staff_id == 201,
+                    RosterAssignment.shift_id == case.shift_id,
+                )
+            )
+            is None
+        )
+        assert (
+            db.scalar(
+                select(AuditLog.id).where(
+                    AuditLog.case_id == case_id,
+                    AuditLog.action.in_(
+                        (AuditAction.HANDOVER_GENERATED, AuditAction.MANUAL_ASSIGNMENT_CREATED)
+                    ),
+                )
+            )
+            is None
+        )
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_legacy_replacement_restoration_does_not_invent_a_handover(production_seeded):
+    db = production_seeded
+    original = RosterAssignment(
+        staff_id=201,
+        shift_id=1,
+        status=RosterStatus.CANCELLED,
+        assignment_type=AssignmentType.REPLACEMENT,
+        candidate_source=CandidateSource.SAME_WARD,
+    )
+    db.add(original)
+    db.flush()
+    shift = db.get(Shift, 1)
+    restored = roster_service.restore_late_arrival(
+        db,
+        original=original,
+        check_in_at=shift.start_at + timedelta(hours=1),
+        actor_id=actor_service.component_id(db, ActorName.SYSTEM),
+    )
+    assert restored.assignment_type == AssignmentType.REPLACEMENT
+    assert restored.candidate_source == original.candidate_source
+    assert db.scalar(select(StructuredHandover.id)) is None
 
 
 def test_nurse_and_case_api_share_views_and_keep_history(production_seeded):

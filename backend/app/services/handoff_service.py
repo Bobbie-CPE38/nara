@@ -49,6 +49,7 @@ from app.services import (
     actor_service,
     audit_service,
     case_facts_service,
+    handover_service,
     hard_rule_service,
     offer_conflict_service,
     outreach_service,
@@ -283,14 +284,20 @@ def assign(
         raise HardRulesFailedError(staff_id, [rule.value for rule in failed])
     stored_reason = _note(reason)
 
-    assignment = roster_service.create_assignment(
-        db,
-        case=case,
-        shift=shift,
-        actor_id=actor_id,
-        staff_id=staff_id,
-        candidate_source=CandidateSource.SAME_WARD,
-    )
+    try:
+        assignment = roster_service.create_assignment(
+            db,
+            case=case,
+            shift=shift,
+            actor_id=actor_id,
+            staff_id=staff_id,
+            candidate_source=CandidateSource.SAME_WARD,
+        )
+    except handover_service.HandoverProvenanceError:
+        # Manual handoff is outside a workflow round: keep the stopped case and
+        # report a data conflict, with no partial roster or handover left behind.
+        db.rollback()
+        raise
     # Judged against the roster row just written, with the offers under lock
     clashing = offer_conflict_service.conflicting_offers(
         db, case_id=case.id, staff_id=staff_id, offers=offers

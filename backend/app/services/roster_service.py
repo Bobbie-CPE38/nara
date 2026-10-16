@@ -168,8 +168,9 @@ def create_assignment(
     """Shared writer for all runtime assignment paths. No locks or commits.
 
     Callers hold their existing lock set, check eligibility and handle request
-    idempotency. A case means a replacement and requires a Handover; only N2's
-    restoration of original staff uses case=None. H2 adds delivery intents here.
+    idempotency. Providing a case requires a Handover. N2 passes case=None when
+    the restored row had no Handover, including legacy replacements predating H1.
+    H2 adds delivery intents here.
     """
     roster_time_service.effective_interval(
         shift_start_at=shift.start_at,
@@ -213,6 +214,10 @@ def restore_late_arrival(
     N2 owns cancellation, attendance, locking and idempotency. No N1 columns are
     read here. Keep the old row/handover as history; do not reuse its unique
     transfer link (which still belongs to that historical row).
+
+    A pre-H1 replacement may have no Handover. This function preserves that absence;
+    N2 must not assume that every restored REPLACEMENT receives one, or infer that
+    a missing Handover means REGULAR. No case provenance is guessed or backfilled.
     """
     if original.status != RosterStatus.CANCELLED:
         raise ValueError("Late arrival requires a cancelled roster row")

@@ -32,6 +32,10 @@ from app.schemas.handover import HandoverView
 from app.services import audit_service, requirement_service, roster_time_service
 
 
+class HandoverProvenanceError(ValueError):
+    """The case's opening event is missing or inconsistent; do not guess a reason."""
+
+
 def case_reason(db: Session, case: StaffingCase) -> HandoverReason:
     """Use the threshold-passing event recorded by CASE_OPENED, never guess."""
     opened = db.scalar(
@@ -43,7 +47,7 @@ def case_reason(db: Session, case: StaffingCase) -> HandoverReason:
     event_id = opened.payload.get("event_id") if opened is not None else None
     event = db.get(StaffingEvent, event_id) if type(event_id) is int else None
     if event is None or event.case_id != case.id or event.shift_id != case.shift_id:
-        raise ValueError(f"Case {case.id} has no valid opening event")
+        raise HandoverProvenanceError(f"Case {case.id} has no valid opening event")
     if event.event_type == EventType.STAFF_UNAVAILABLE:
         return (
             HandoverReason.NO_SHOW
@@ -84,6 +88,13 @@ def _content(db: Session, case: StaffingCase, row: RosterAssignment) -> dict[str
         )
     ]
     coworkers = {}
+    # A partially cut original row can remain ASSIGNED and overlap this cover.
+    # Do not present people this case is replacing as the incoming nurse's team.
+    replaced_staff = select(StaffingEvent.staff_id).where(
+        StaffingEvent.case_id == case.id,
+        StaffingEvent.event_type.in_((EventType.STAFF_UNAVAILABLE, EventType.ASSIGNMENT_CANCELLED)),
+        StaffingEvent.staff_id.is_not(None),
+    )
     for person, role_name in db.execute(
         select(Staff, Role.name)
         .join(Role, Role.id == Staff.role_id)
@@ -92,6 +103,7 @@ def _content(db: Session, case: StaffingCase, row: RosterAssignment) -> dict[str
             RosterAssignment.shift_id == shift.id,
             RosterAssignment.status.in_((RosterStatus.ASSIGNED, RosterStatus.COMPLETED)),
             RosterAssignment.staff_id != row.staff_id,
+            RosterAssignment.staff_id.not_in(replaced_staff),
             roster_time_service.start_at() < end,
             roster_time_service.end_at() > start,
         )

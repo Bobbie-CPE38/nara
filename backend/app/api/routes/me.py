@@ -31,6 +31,8 @@ router = APIRouter(prefix="/me", tags=["me"])
 @router.get("/handovers")
 def my_handovers(db: DbSession, user: DemoUser) -> list[HandoverView]:
     """The header user's current handovers and history; ignore staff_id parameters."""
+    # TODO(U5): add cursor pagination for history with the nurse-page consumer;
+    # keep the H1 list response contract until that API/UI change is agreed.
     return handover_service.list_handovers(db, staff_id=user.staff.id)
 
 
