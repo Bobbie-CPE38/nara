@@ -6,8 +6,8 @@ create_plan() is the Solver step (OR-Tools since round 2 PR B):
      case's shift (SAME_WARD), plus staff of other active wards who hold no
      committed roster duty overlapping the shift (FLOAT_POOL when their home ward
      is_float_pool, else CROSS_WARD). Someone on another ward's overlapping shift
-     is pooled only when moving them is a whole-shift transfer (PR C2): see
-     _movable_rows().
+     is pooled only when they can still be moved onto this shift, mid-shift or from
+     a partly overlapping shift (PR C3): see _movable().
   2. Drop who cannot be offered the shift, each with one reason code. The first
      that applies is kept:
        * the first failed Hard Rule, in the order of HardRuleCode
@@ -20,9 +20,10 @@ create_plan() is the Solver step (OR-Tools since round 2 PR B):
          window this is the check on the summary counts;
        * the offer cap (availability_service.staff_at_offer_limit): OFFER_LIMIT_REACHED.
      _covers() gives the cover window (and source assignment) of a candidate who
-     would take only part of the shift or be moved out of another shift. PR C2
-     gives a movable person the whole shift and their source assignment; PR C3
-     fills the partial windows. The hard rules, the solver windows, the item
+     would take only part of the shift or be moved out of another shift. A movable
+     person (PR C3) covers the shift from the move time, with their source
+     assignment: the whole shift when the move is at its start, else a window
+     that ends with it. The hard rules, the solver windows, the item
      columns and the snapshot all read it.
   3. Capture a working-time snapshot of everyone left (working_time_service).
   4. optimization.solver.solve() with the time limit of the soft policy and the
@@ -283,10 +284,10 @@ def _pool(db: Session, shift: Shift) -> dict[int, CandidateSource]:
     The ward of the shift keeps all its people, so a same-ward person with a
     conflict still reaches the Hard Rules and is skipped with a code. Other active
     wards lend only people with no committed duty overlapping [start, end) by its
-    effective times, in any ward, or whose only such duty is movable (_movable_rows).
+    effective times, in any ward, or whose only such duty is movable (_movable).
     Staff status is left to the Hard Rules.
     """
-    movable = _movable_rows(db, shift)
+    movable = _movable(db, shift)
     overlapping_duty = (
         select(RosterAssignment.id)
         .join(Shift, Shift.id == RosterAssignment.shift_id)
@@ -319,18 +320,27 @@ def _pool(db: Session, shift: Shift) -> dict[int, CandidateSource]:
     return sources
 
 
-def _movable_rows(db: Session, shift: Shift) -> dict[int, int]:
-    """Staff ID to the source assignment ID, for people who can be moved onto `shift`.
+def _movable(db: Session, shift: Shift) -> dict[int, Cover]:
+    """Staff ID to the cover (with the source assignment) of people movable onto `shift`.
 
-    Round 4 PR C2 moves a whole shift only (workflow.md 6.19). A person is movable
-    when their only committed row overlapping the shift (effective times,
-    half-open) is an ASSIGNED row, with no actual times other than the shift's
-    own, on a shift that
-      * is active, in another active ward,
-      * has exactly the start and end of `shift`,
-      * has not started (until PR C3 handles a move mid-shift).
+    Round 4 PR C3 (workflow.md 6.19). A person is movable when their only committed
+    row overlapping the time a move can still take (from max(shift start, now) to the
+    shift end; effective times, half-open) is an ASSIGNED row, on an active shift of
+    another active ward, and a move is still possible: the later of the shift start,
+    the row start and now is before the end of both. The row may be partly outside
+    the shift or already started. A row that ended before then is history, such as
+    the kept part of an earlier move: it does not block a second move and still
+    counts in the fatigue rules (hard_rule_service reads its own roster).
+
+    The cover starts at m = max(shift start, row start), without the clock: the clock
+    would cut a sliver [evaluated_from, now) off every replan, and the hours and rest
+    rules come out the same wherever the cut falls. It runs to the end of the shift,
+    since the move is permanent. m = shift start is the whole shift (None, None).
     """
     source_ward = aliased(Ward)
+    row_start = roster_time_service.start_at()
+    row_end = roster_time_service.end_at()
+    now = clock.now()
     rows = db.execute(
         select(
             RosterAssignment.staff_id,
@@ -339,67 +349,50 @@ def _movable_rows(db: Session, shift: Shift) -> dict[int, int]:
             Shift.ward_id,
             Shift.is_active,
             source_ward.is_active,
-            Shift.start_at,
-            Shift.end_at,
-            RosterAssignment.actual_start_at,
-            RosterAssignment.actual_end_at,
+            row_start,
+            row_end,
         )
         .join(Shift, Shift.id == RosterAssignment.shift_id)
         .join(source_ward, source_ward.id == Shift.ward_id)
         .where(
             RosterAssignment.status.in_(list(COMMITTED_ROSTER_STATUSES)),
-            roster_time_service.start_at() < shift.end_at,
-            roster_time_service.end_at() > shift.start_at,
+            row_start < shift.end_at,
+            row_end > max(shift.start_at, now),
         )
         .order_by(RosterAssignment.id)
     ).all()
     held: dict[int, list[Any]] = {}
     for row in rows:
         held.setdefault(row[0], []).append(row)
-    now = clock.now()
-    movable: dict[int, int] = {}
+    movable: dict[int, Cover] = {}
     for staff_id, staff_rows in held.items():
         if len(staff_rows) != 1:
             continue
-        (
-            _,
-            row_id,
-            status,
-            ward_id,
-            shift_active,
-            ward_active,
-            start_at,
-            end_at,
-            actual_start,
-            actual_end,
-        ) = staff_rows[0]
+        _, row_id, status, ward_id, shift_active, ward_active, start_at, end_at = staff_rows[0]
         if (
             status is RosterStatus.ASSIGNED
             and ward_id != shift.ward_id
             and shift_active
             and ward_active
-            and start_at == shift.start_at
-            and end_at == shift.end_at
-            and actual_start in (None, start_at)
-            and actual_end in (None, end_at)
-            and start_at > now
+            and max(shift.start_at, start_at, now) < min(end_at, shift.end_at)
         ):
-            movable[staff_id] = row_id
+            move_start = max(shift.start_at, start_at)
+            if move_start == shift.start_at:
+                movable[staff_id] = Cover(None, None, row_id)
+            else:
+                movable[staff_id] = Cover(move_start, shift.end_at, row_id)
     return movable
 
 
 def _covers(db: Session, shift: Shift, pool: Sequence[int]) -> dict[int, Cover]:
     """Staff ID to cover, for people who take only part of the shift or are moved.
 
-    A movable pool member covers the whole shift and leaves their source
-    assignment (PR C2, _movable_rows): a same-ward person on another ward's
-    equal-time shift is moved too. Partial windows come with PR C3; tests
-    monkeypatch this.
+    A movable pool member (_movable) leaves their source assignment and covers the
+    shift from the move time (PR C3): a same-ward person on another ward's shift is
+    moved too. Tests monkeypatch this.
     """
-    movable = _movable_rows(db, shift)
-    return {
-        staff_id: Cover(None, None, movable[staff_id]) for staff_id in pool if staff_id in movable
-    }
+    movable = _movable(db, shift)
+    return {staff_id: movable[staff_id] for staff_id in pool if staff_id in movable}
 
 
 def _cover(covers: Mapping[int, Cover], staff_id: int) -> Cover:

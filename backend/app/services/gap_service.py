@@ -10,7 +10,8 @@ uses the same function, so both always agree.
 
 Round 4 PR T3: the gap is measured from max(Backend Clock, shift start) to the
 shift end, per time slice, with each roster row counted only inside its actual
-interval (workflow.md 6.20). `get_case_gap()` returns those slices for deciding.
+interval (workflow.md 6.20). `get_case_gap()` returns those slices for deciding,
+from the same point on: time that has passed is never refilled (round 4 PR C3).
 """
 
 from dataclasses import dataclass, field, replace
@@ -35,7 +36,7 @@ from app.db.models import (
 )
 from app.domain.staffing.coverage import RosterMember
 from app.domain.staffing.gap_calculator import GapResult, calculate_gap, effective_minimum_for
-from app.domain.workflow.case_status import IntervalGap
+from app.domain.workflow.case_status import IntervalGap, remaining_intervals
 from app.services import policy_service, requirement_service, roster_time_service
 from app.services.requirement_service import ShiftRequirement
 
@@ -63,8 +64,8 @@ class CaseGap:
     gap: StaffingGap
     role_gaps: dict[int, int]
     skill_gaps: dict[int, int]
-    # What each time slice misses, in time order. The only input for deciding
-    # whether the gap is closed: the summary counts are for display (6.20).
+    # What each time slice misses from now on, in time order. The only input for
+    # deciding whether the gap is closed: the summary counts are for display (6.20).
     # A gap written before round 4 is one whole-shift slice with its counts
     intervals: tuple[IntervalGap, ...] = field(default=())
 
@@ -85,13 +86,7 @@ def assess_shift(db: Session, shift: Shift) -> ShiftAssessment:
 
     shift_requirement = requirement_service.get_current_requirement(db, shift.id)
     policy = policy_service.get_hard_constraint_policy(db)
-    # Past time is never refilled: measure from now once the shift has started.
-    # A shift with no time left keeps the whole-shift measure it had before
-    # round 4 (a window can close after the shift ended, round 3 PR R)
-    evaluated_from = max(clock.now(), shift.start_at)
-    if evaluated_from >= shift.end_at:
-        evaluated_from = shift.start_at
-    window = (evaluated_from, shift.end_at)
+    window = (_evaluated_from(shift.start_at, shift.end_at), shift.end_at)
     result = calculate_gap(
         shift_id=shift.id,
         required_staff=shift_requirement.requirement.required_staff,
@@ -103,6 +98,17 @@ def assess_shift(db: Session, shift: Shift) -> ShiftAssessment:
         window=window,
     )
     return ShiftAssessment(shift_requirement=shift_requirement, result=result)
+
+
+def _evaluated_from(start_at: datetime, end_at: datetime) -> datetime:
+    """Where a gap of the shift starts to count: max(Backend Clock, shift start).
+
+    Past time is never refilled: measure from now once the shift has started.
+    A shift with no time left keeps the whole-shift measure it had before
+    round 4 (a window can close after the shift ended, round 3 PR R).
+    """
+    evaluated_from = max(clock.now(), start_at)
+    return start_at if evaluated_from >= end_at else evaluated_from
 
 
 def gap_without(db: Session, *, shift: Shift, staff_id: int, from_at: datetime) -> GapResult:
@@ -235,6 +241,12 @@ def get_case_gap(db: Session, case_id: int) -> CaseGap:
 
     The one loader for the Solver and Safety (workflow.md section 6.4, seam 11).
     "Latest" is the highest id. Raises GapNotFoundError when the case has no gap.
+
+    The stored slices keep their counts (Q19), but `intervals` starts where
+    assess_shift() would measure now (round 4 PR C3): the time before it has
+    passed and cannot be filled, so a person who joined mid-shift, such as a
+    nurse moved at the final approval, closes the gap from then on. The rows
+    themselves are not changed.
     """
     gap = db.scalar(
         select(StaffingGap)
@@ -257,16 +269,28 @@ def get_case_gap(db: Session, case_id: int) -> CaseGap:
     )
     role_gaps = {role_id: count for role_id, count in roles}
     skill_gaps = {skill_id: count for skill_id, count in skills}
+    shift_start, shift_end = db.execute(
+        select(Shift.start_at, Shift.end_at)
+        .join(StaffingCase, StaffingCase.shift_id == Shift.id)
+        .where(StaffingCase.id == gap.case_id)
+    ).one()
     return CaseGap(
         gap=gap,
         role_gaps=role_gaps,
         skill_gaps=skill_gaps,
-        intervals=_interval_gaps(db, gap, role_gaps, skill_gaps),
+        intervals=remaining_intervals(
+            _interval_gaps(db, gap, role_gaps, skill_gaps, (shift_start, shift_end)),
+            _evaluated_from(shift_start, shift_end),
+        ),
     )
 
 
 def _interval_gaps(
-    db: Session, gap: StaffingGap, role_gaps: dict[int, int], skill_gaps: dict[int, int]
+    db: Session,
+    gap: StaffingGap,
+    role_gaps: dict[int, int],
+    skill_gaps: dict[int, int],
+    shift_window: tuple[datetime, datetime],
 ) -> tuple[IntervalGap, ...]:
     """The stored slices of a gap; a gap without slices is short for the whole shift."""
     slices = db.execute(
@@ -279,15 +303,10 @@ def _interval_gaps(
         .order_by(StaffingGapInterval.start_at)
     ).all()
     if not slices:
-        shift_start, shift_end = db.execute(
-            select(Shift.start_at, Shift.end_at)
-            .join(StaffingCase, StaffingCase.shift_id == Shift.id)
-            .where(StaffingCase.id == gap.case_id)
-        ).one()
         return (
             IntervalGap(
-                start_at=shift_start,
-                end_at=shift_end,
+                start_at=shift_window[0],
+                end_at=shift_window[1],
                 headcount_gap=gap.headcount_gap,
                 role_gaps=role_gaps,
                 skill_gaps=skill_gaps,

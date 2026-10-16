@@ -6,8 +6,9 @@ events nor cases nor candidate plans.
 The Golden Case must plan exactly as with one ward (round 4 status, R4-Q38). Since
 PR C1, every free person of another active ward joins the pool of an ICU shift, and
 a person who fails a Hard Rule is listed in the plan's `skipped`. So everyone added
-here holds a Medicine duty at the same times as ICU shifts 1 and 2. Since PR C2 that
-makes them movable, so they reach the pool, but Medicine is exactly at its target:
+here holds a Medicine duty at the same times as ICU shifts 1 and 2. Since PR C3 an
+ASSIGNED duty that overlaps the shift and is not over makes them movable (PR C2 needed
+equal times), so they reach the pool, but Medicine is exactly at its target:
 each is skipped (SOURCE_WARD_MINIMUM_VIOLATION, or ROLE_MISMATCH for the head nurse
 and the supervisor) and none is ever a candidate. The Float Pool ward has no shifts
 of its own (6.19): its nurse works Medicine's shifts.

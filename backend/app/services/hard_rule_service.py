@@ -183,12 +183,20 @@ def check_staff(
 
 
 def check_items(
-    db: Session, *, shift: Shift, items: Sequence[CandidateItem]
+    db: Session,
+    *,
+    shift: Shift,
+    items: Sequence[CandidateItem],
+    move_at: Mapping[int, datetime] | None = None,
 ) -> dict[int, CandidateCheck]:
     """Check plan items against their CANDIDATE_ITEM_TARGET rows, keyed by item ID.
 
     For wave selection and Safety. Every item must propose `shift`. The cover and
     the source assignment come from the item row, so Safety never computes a window.
+
+    `move_at` (item ID to time) is for transfer execution, which checks the move at
+    its real time (6.19): those items cover from that time to the end of their
+    window instead of from the planned cover start.
     """
     for item in items:
         if item.proposed_shift_id != shift.id:
@@ -200,8 +208,21 @@ def check_items(
         raise ValueError("Two items of the same staff member")
     with db.no_autoflush:
         targets = _item_targets(db, [item.id for item in items])
+    move_at = move_at or {}
     checks = _check(
-        db, shift, {item.staff_id: _Subject(targets[item.id], Cover.of(item)) for item in items}
+        db,
+        shift,
+        {
+            item.staff_id: _Subject(
+                targets[item.id],
+                Cover(
+                    move_at[item.id], item.cover_end_at or shift.end_at, item.source_assignment_id
+                )
+                if item.id in move_at
+                else Cover.of(item),
+            )
+            for item in items
+        },
     )
     return {item.id: checks[item.staff_id] for item in items}
 

@@ -1,4 +1,4 @@
-"""Execution of a whole-shift transfer (round 4 PR C2, docs/workflow.md 6.19).
+"""Execution of a transfer, whole-shift or mid-shift (round 4 PR C2 and C3, docs/workflow.md 6.19).
 
 The final approval moves the person, or refuses the move with TRANSFER_CHECK_FAILED
 when the check at the real move fails. A refusal ends the request and the offer, and
@@ -7,7 +7,7 @@ the case goes on with a reserve or the next wave: it is never FAILED.
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -34,12 +34,13 @@ from app.domain.enums import (
     AuditAction,
     CandidateSource,
     CaseStatus,
+    EntityType,
     OutreachStatus,
     RosterStatus,
 )
 from app.main import app
 from app.seed import load
-from app.services import outreach_service
+from app.services import actor_service, approval_service, audit_service, outreach_service
 from tests.integration.case_rows import (
     RN,
     approval,
@@ -179,16 +180,102 @@ def test_destination_window_passed(scene):
     assert_refused(db, request_id, response, "DESTINATION_WINDOW_PASSED")
 
 
-def test_source_shift_started_before_the_final_approval(scene):
+def test_final_approval_after_the_source_shift_started_moves_mid_shift(scene):
     db, client, request_id, source_headers = scene
     # The source ward approves in time; the destination ward approves after the start
     assert decide(client, request_id, source_headers).json()["outcome"] == "WAITING_OTHER_WARD"
     request = db.get(ApprovalRequest, request_id)
     shift = db.get(Shift, db.get(StaffingCase, request.case_id).shift_id)
+    moved_at = shift.start_at + timedelta(minutes=5)
+    clock.set_time(moved_at)
+    response = decide(client, request_id)
+    assert response.json()["outcome"] == "ASSIGNED"
+    # The five minutes before the move have passed and need no one: the gap is closed
+    assert response.json()["case_status"] == CaseStatus.RESOLVED.value
+    db.expire_all()
+    old, new = rows_of(db)
+    # The source row stays ASSIGNED and ends at the move; the new row starts there
+    assert old.status == RosterStatus.ASSIGNED and old.actual_end_at == moved_at
+    assert old.actual_start_at is None
+    assert new.status == RosterStatus.ASSIGNED and new.shift_id == shift.id
+    assert new.actual_start_at == moved_at and new.actual_end_at is None
+    assert new.transferred_from_assignment_id == old.id
+    audit = db.scalars(
+        select(AuditLog).where(AuditLog.action == AuditAction.ASSIGNMENT_TRANSFERRED)
+    ).one()
+    assert audit.payload["from_status"] == "ASSIGNED"
+    assert datetime.fromisoformat(audit.payload["transfer_at"]) == moved_at
+    actions = list(db.scalars(select(AuditLog.action)))
+    assert AuditAction.TRANSFER_CHECK_FAILED not in actions
+
+
+def test_the_recheck_proposes_the_shift_from_the_real_move_time(scene):
+    """check_items(move_at=...): a duty that ends before the move does not clash with it.
+
+    From the planned cover (the whole night shift) the duty below is a SHIFT_CONFLICT.
+    The person stays on the source shift until the move, so only the time from the
+    move on is proposed, and the move goes ahead.
+    """
+    db, client, request_id, source_headers = scene
+    assert decide(client, request_id, source_headers).json()["outcome"] == "WAITING_OTHER_WARD"
+    request = db.get(ApprovalRequest, request_id)
+    shift = db.get(Shift, db.get(StaffingCase, request.case_id).shift_id)
+    elapsed = _shift(db, _ward(db), shift.start_at, shift.start_at + timedelta(minutes=3))
+    _duty(db, 201, elapsed)
+    db.commit()
     clock.set_time(shift.start_at + timedelta(minutes=5))
     response = decide(client, request_id)
-    assert_refused(db, request_id, response, "SOURCE_SHIFT_STARTED")
+    assert response.json()["outcome"] == "ASSIGNED"
+    assert response.json()["failed_rules"] == []
+
+
+def test_a_mid_shift_recheck_uses_the_real_move_time(scene):
+    db, client, request_id, source_headers = scene
+    assert decide(client, request_id, source_headers).json()["outcome"] == "WAITING_OTHER_WARD"
+    request = db.get(ApprovalRequest, request_id)
+    shift = db.get(Shift, db.get(StaffingCase, request.case_id).shift_id)
+    # At the start of the source shift there is a surplus of 1, but the other holder
+    # leaves early: moving 201 at the real time leaves the shift without a nurse
+    moved = source_row(db)
+    other = db.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.shift_id == moved.shift_id, RosterAssignment.staff_id != 201
+        )
+    ).one()
+    other.actual_end_at = shift.start_at + timedelta(minutes=1)
+    db.commit()
+    clock.set_time(shift.start_at + timedelta(minutes=5))
+    response = decide(client, request_id)
+    assert_refused(db, request_id, response, "SOURCE_COVERAGE_LOST")
     assert source_row(db).actual_end_at is None
+
+
+def test_an_old_source_shift_started_audit_stays_readable(scene):
+    db, _, request_id, _ = scene
+    request = db.get(ApprovalRequest, request_id)
+    request.is_pending = False
+    request.is_approved = True
+    request.decided_at = DEMO_NOW
+    audit_service.log(
+        db,
+        case_id=request.case_id,
+        actor_id=actor_service.user_id(db, 900),
+        action=AuditAction.TRANSFER_CHECK_FAILED,
+        entity_type=EntityType.APPROVAL_REQUEST,
+        entity_id=request.id,
+        payload={
+            "approval_id": request.id,
+            "outreach_id": request.outreach_id,
+            "staff_id": 201,
+            "reason": "SOURCE_SHIFT_STARTED",
+            "failed_rules": [],
+        },
+    )
+    db.commit()
+    result = approval_service.decision_result(
+        db, request=request, case=db.get(StaffingCase, request.case_id)
+    )
+    assert result.outcome.value == TRANSFER_CANCELLED and result.reason == "SOURCE_SHIFT_STARTED"
 
 
 def test_source_row_cancelled_after_the_request(scene):

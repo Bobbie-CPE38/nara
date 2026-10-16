@@ -12,7 +12,12 @@ from app.core.clock import APP_TIMEZONE
 from app.domain.enums import RosterStatus
 from app.domain.staffing.coverage import RosterMember
 from app.domain.staffing.gap_calculator import CountGap, GapResult, calculate_gap
-from app.domain.workflow.case_status import GapFiller, IntervalGap, intervals_closed
+from app.domain.workflow.case_status import (
+    GapFiller,
+    IntervalGap,
+    intervals_closed,
+    remaining_intervals,
+)
 
 RN, HEAD_NURSE = 1, 2
 ICU = 1
@@ -202,6 +207,19 @@ def test_two_people_in_relay_close_one_slice() -> None:
 
     assert intervals_closed(one_slice, [filler(201, 0, 3), filler(202, 3, 8)]) is True
     assert intervals_closed(one_slice, [filler(201, 0, 3), filler(202, 4, 8)]) is False
+
+
+def test_time_that_has_passed_is_cut_off_the_slices() -> None:
+    """Round 4 PR C3: a slice that is over is dropped, a started one starts at now."""
+    left = remaining_intervals(TWO_SHORT_SLICES, at(3))
+
+    assert [(s.start_at, s.end_at, s.headcount_gap) for s in left] == [
+        (at(3), at(4), 0),
+        (at(4), at(8), 1),
+    ]
+    # Someone who joins at 03:00, like a nurse moved at the final approval, closes it
+    assert intervals_closed(left, [filler(201, start=3, end=8)]) is True
+    assert remaining_intervals(TWO_SHORT_SLICES, at(0)) == TWO_SHORT_SLICES
 
 
 def test_a_slice_must_start_before_it_ends() -> None:

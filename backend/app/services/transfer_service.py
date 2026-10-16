@@ -1,4 +1,8 @@
-"""The checks at the real move of a whole-shift transfer (docs/workflow.md 6.19).
+"""The checks at the real move of a transfer, whole-shift or mid-shift (docs/workflow.md 6.19).
+
+The move happens at transfer_at = max(destination start, source row start, the time of
+the final approval). The source row stays ASSIGNED and ends there, unless the move is
+at its start, which cancels it (roster_service.create_transfer).
 
 Runs inside the final approval's decision transaction, after lock_approval_attempt
 took its locks. A check that fails never raises: a raise inside the orchestrator's
@@ -14,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.db.models import ApprovalRequest, CandidateItem, RosterAssignment, Shift, StaffingCase
 from app.domain.constraints.codes import HardRuleCode
 from app.domain.enums import AuditAction, EntityType, RosterStatus, TransferFailureReason
-from app.services import audit_service, hard_rule_service, roster_service
+from app.services import audit_service, hard_rule_service, roster_service, roster_time_service
 
 # Rules that depend on the roster as it is now. The others are not rechecked at
 # execution (Q38): the person already passed them in Safety.
@@ -62,19 +66,27 @@ def execute(
     if source_shift is None:
         raise LookupError(f"No shift {source.shift_id}")
 
-    transfer_at = max(dest.start_at, source_shift.start_at, approval.decided_at)
+    # The row's own times (actual times fall back to the shift's), as in the Pool
+    source_start, source_end = roster_time_service.effective_interval(
+        shift_start_at=source_shift.start_at,
+        shift_end_at=source_shift.end_at,
+        actual_start_at=source.actual_start_at,
+        actual_end_at=source.actual_end_at,
+    )
+    transfer_at = max(dest.start_at, source_start, approval.decided_at)
     reason: TransferFailureReason | None = None
     failed_rules: tuple[str, ...] = ()
-    if transfer_at >= min(source_shift.end_at, dest.end_at):
+    if transfer_at >= min(source_end, dest.end_at):
         reason = TransferFailureReason.DESTINATION_WINDOW_PASSED
-    elif transfer_at > source_shift.start_at:
-        reason = TransferFailureReason.SOURCE_SHIFT_STARTED
     elif source.status != RosterStatus.ASSIGNED:
         reason = TransferFailureReason.SOURCE_COVERAGE_LOST
     else:
         db.flush()
+        # The cover starts at the real move time, not at the planned one
         failed = set(
-            hard_rule_service.check_items(db, shift=dest, items=[item])[item.id].result.failed_rules
+            hard_rule_service.check_items(
+                db, shift=dest, items=[item], move_at={item.id: transfer_at}
+            )[item.id].result.failed_rules
         )
         if HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION in failed:
             reason = TransferFailureReason.SOURCE_COVERAGE_LOST
