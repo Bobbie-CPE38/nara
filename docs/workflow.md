@@ -266,7 +266,7 @@ Contract ของรอบ 5 ตกลงแล้ว (PR #91) ไฟล์น�
 | N2 | คน 2 | ตัวตรวจ `NO_SHOW` สองขั้น, ผลต่อ Roster, มาสาย | 6.24 | N1, H1 | N1, H1, G ถ้าแก้ Handler | ไม่มี | |
 | L5 | คน 3 | Test ตั้ง `LINE_MODE=simulation` เอง (ทำแล้ว) | | 0 | 0 | ไม่มี | [#95](https://github.com/Bobbie-CPE38/nara/pull/95) |
 | H1 | คน 3 | ฟังก์ชันกลางที่สร้างเวรพร้อม Handover, Route อ่าน (ทำแล้ว) | 6.25, 9.7 | 0 | 0, G ถ้าแก้ Handler | มี (`STRUCTURED_HANDOVER.roster_assignment_id`) | [#96](https://github.com/Bobbie-CPE38/nara/pull/96) |
-| H2 | คน 3 | ส่ง Handover ทาง LINE, คำสั่ง check-in ทาง LINE (ทำแล้ว) | 6.24, 6.25 | H1 | H1, N1, L5 | มี (สถานะการส่งของ Handover) | |
+| H2 | คน 3 | ส่ง Handover ทาง LINE, คำสั่ง check-in ทาง LINE (ทำแล้ว) | 6.24, 6.25 | H1 | H1, N1, L5 | มี (สถานะการส่งของ Handover) |[#97](https://github.com/Bobbie-CPE38/nara/pull/97) |
 | U5 | คน 1 | หน้าเว็บของรอบ 5 และ Route อ่าน Clock | 9.7 | N1, H1 | N2 | ไม่มี | |
 
 ลำดับ merge: 0 ก่อนทุกตัว, G ก่อน PR ใดที่แก้ Handler หรือ `orchestrator.py` (R5-Q3), N2 หลัง N1 และ H1, H2 หลัง H1, N1 และ L5, U5 หลัง N2 Migration ต่อจาก `f2a7c9d4e6b8` เป็นเส้นเดียวตามลำดับที่ merge จริง ตัวที่ merge ทีหลังต้อง Rebase แก้ `down_revision` ให้ต่อจาก head ของ `staging` และแก้ Test ของ Migration ตัวก่อนหน้าที่ตรวจ head (Test ของ Migration ทุกตัวตรวจ `len(get_heads()) == 1` CI จึงจับได้) รอบ 5 ไม่ใช้ Branch รวม ทุก PR เข้า `staging` ตรง (R5-Q1)
