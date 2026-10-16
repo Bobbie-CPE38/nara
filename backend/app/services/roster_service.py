@@ -1,7 +1,8 @@
 """Replacement assignment creation (workflow.md section 6.4, seam 8) and the
 roster reads of a shift and of a staff member (sections 9.3 and 9.5).
 
-The execution handler owns audit rows; the orchestrator owns status and commit.
+Assignment callers own their execution audit; this writer owns Handover audit.
+The orchestrator owns status and commit.
 """
 
 from datetime import datetime
@@ -19,9 +20,10 @@ from app.db.models import (
     Staff,
     StaffingCase,
     StaffUnavailability,
+    StructuredHandover,
     Ward,
 )
-from app.domain.enums import AssignmentType, RosterStatus
+from app.domain.enums import ActorName, AssignmentType, CandidateSource, RosterStatus
 from app.domain.errors import ShiftNotFoundError, StaffNotFoundError
 from app.schemas.roster import (
     RosterRow,
@@ -31,7 +33,7 @@ from app.schemas.roster import (
     StaffRoster,
     StaffRosterRow,
 )
-from app.services import roster_time_service
+from app.services import actor_service, handover_service, roster_time_service
 from app.services.unavailability_service import leave_overlaps_shift_sql
 
 
@@ -62,7 +64,7 @@ def create_replacement(
 ) -> RosterAssignment:
     """Create the selected approval's replacement in the decision transaction.
 
-    Caller holds Shift, Request, Offer, case and Staff locks. No commit or audit.
+    Caller holds Shift, Request, Offer, case and Staff locks. No commit.
     Do not recheck Hard Rules at execution (Q38); Safety owns that check.
 
     This creates the destination row only. A move out of another shift
@@ -81,18 +83,15 @@ def create_replacement(
         actual_end_at=item.cover_end_at,
     )
     whole_shift = start == shift.start_at and end == shift.end_at
-    assignment = RosterAssignment(
+    return create_assignment(
+        db,
+        case=case,
+        shift=shift,
         staff_id=item.staff_id,
-        shift_id=item.proposed_shift_id,
-        status=RosterStatus.ASSIGNED,
-        assignment_type=AssignmentType.REPLACEMENT,
         candidate_source=item.source,
         actual_start_at=None if whole_shift else item.cover_start_at,
         actual_end_at=None if whole_shift else item.cover_end_at,
     )
-    db.add(assignment)
-    db.flush()
-    return assignment
 
 
 def create_transfer(
@@ -101,7 +100,7 @@ def create_transfer(
     """Move the approved person off their source row onto this case's shift.
 
     Returns (destination, source). Caller holds the locks and has already run the
-    transfer checks (transfer_service.execute). No commit, audit or checks here.
+    transfer checks (transfer_service.execute). No commit or eligibility checks here.
 
     A transfer at or before the source row's effective start cancels it. Later
     than that the source row stays ASSIGNED and ends at `transfer_at`; that branch
@@ -141,18 +140,102 @@ def create_transfer(
         actual_start_at=actual_start,
         actual_end_at=None,
     )
-    destination = RosterAssignment(
+    destination = create_assignment(
+        db,
+        case=case,
+        shift=shift,
         staff_id=item.staff_id,
-        shift_id=shift.id,
-        status=RosterStatus.ASSIGNED,
-        assignment_type=AssignmentType.REPLACEMENT,
         candidate_source=item.source,
         actual_start_at=actual_start,
         transferred_from_assignment_id=source.id,
     )
-    db.add(destination)
-    db.flush()
     return destination, source
+
+
+def create_assignment(
+    db: Session,
+    *,
+    shift: Shift,
+    staff_id: int,
+    case: StaffingCase | None,
+    candidate_source: CandidateSource | None,
+    actor_id: int | None = None,
+    assignment_type: AssignmentType = AssignmentType.REPLACEMENT,
+    actual_start_at: datetime | None = None,
+    actual_end_at: datetime | None = None,
+    transferred_from_assignment_id: int | None = None,
+) -> RosterAssignment:
+    """Shared writer for all runtime assignment paths. No locks or commits.
+
+    Callers hold their existing lock set, check eligibility and handle request
+    idempotency. Providing a case requires a Handover. N2 passes case=None when
+    the restored row had no Handover, including legacy replacements predating H1.
+    H2 adds delivery intents here.
+    """
+    roster_time_service.effective_interval(
+        shift_start_at=shift.start_at,
+        shift_end_at=shift.end_at,
+        actual_start_at=actual_start_at,
+        actual_end_at=actual_end_at,
+    )
+    assignment = RosterAssignment(
+        staff_id=staff_id,
+        shift_id=shift.id,
+        status=RosterStatus.ASSIGNED,
+        assignment_type=assignment_type,
+        candidate_source=candidate_source,
+        actual_start_at=actual_start_at,
+        actual_end_at=actual_end_at,
+        transferred_from_assignment_id=transferred_from_assignment_id,
+    )
+    db.add(assignment)
+    db.flush()
+    if case is not None:
+        handover_service.ensure(
+            db,
+            case=case,
+            assignment=assignment,
+            actor_id=actor_id
+            if actor_id is not None
+            else actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR),
+        )
+    return assignment
+
+
+def restore_late_arrival(
+    db: Session,
+    *,
+    original: RosterAssignment,
+    check_in_at: datetime,
+    actor_id: int,
+) -> RosterAssignment:
+    """N2 seam: restore only the remaining interval, with a new snapshot if needed.
+
+    N2 owns cancellation, attendance, locking and idempotency. No N1 columns are
+    read here. Keep the old row/handover as history; do not reuse its unique
+    transfer link (which still belongs to that historical row).
+
+    A pre-H1 replacement may have no Handover. This function preserves that absence;
+    N2 must not assume that every restored REPLACEMENT receives one, or infer that
+    a missing Handover means REGULAR. No case provenance is guessed or backfilled.
+    """
+    if original.status != RosterStatus.CANCELLED:
+        raise ValueError("Late arrival requires a cancelled roster row")
+    shift = db.get_one(Shift, original.shift_id)
+    old = db.scalar(
+        select(StructuredHandover).where(StructuredHandover.roster_assignment_id == original.id)
+    )
+    return create_assignment(
+        db,
+        shift=shift,
+        staff_id=original.staff_id,
+        case=db.get_one(StaffingCase, old.case_id) if old is not None else None,
+        actor_id=actor_id,
+        assignment_type=original.assignment_type,
+        candidate_source=original.candidate_source,
+        actual_start_at=check_in_at,
+        actual_end_at=original.actual_end_at,
+    )
 
 
 def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:

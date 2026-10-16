@@ -4,9 +4,18 @@ from fastapi import APIRouter, HTTPException, status
 
 from app.api.dependencies import DbSession
 from app.core import clock
+from app.db.models import Staff
+from app.domain.enums import ActorName, CheckInSource
+from app.domain.errors import ShiftNotFoundError, StaffNotFoundError
+from app.schemas.attendance import CheckInResponse, SimulatedCheckIn
 from app.schemas.job import ClockAdvance, ClockAdvanceResult
 from app.seed.reset import reset_demo
-from app.services import job_service
+from app.services import (
+    actor_service,
+    attendance_service,
+    job_service,
+    unavailability_service,
+)
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -32,3 +41,36 @@ def advance_clock(body: ClockAdvance, db: DbSession) -> ClockAdvanceResult:
         )
     now = clock.advance(timedelta(seconds=body.seconds))
     return ClockAdvanceResult.of(now, job_service.run_due_work(db))
+
+
+@router.post("/attendance/check-in")
+def simulate_check_in(body: SimulatedCheckIn, db: DbSession) -> CheckInResponse:
+    """Simulate the arrival of a character: no X-Demo-User, audit source SIMULATED by SYSTEM.
+
+    Same function and answers as POST /me/attendance/check-in, plus 404 for an
+    unknown staff ID. Must stay unreachable from the public channel (section 6.24).
+    """
+    try:
+        if db.get(Staff, body.staff_id) is None:
+            raise StaffNotFoundError(f"No staff {body.staff_id}")
+        result = attendance_service.check_in(
+            db,
+            staff_id=body.staff_id,
+            shift_id=body.shift_id,
+            source=CheckInSource.SIMULATED,
+            actor_id=actor_service.component_id(db, ActorName.SYSTEM),
+        )
+    except (
+        StaffNotFoundError,
+        ShiftNotFoundError,
+        unavailability_service.NoAssignedRosterError,
+    ) as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
+    except attendance_service.CheckInOutsideWindowError as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+    except attendance_service.CheckInLockRetryError as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    return CheckInResponse(**vars(result))

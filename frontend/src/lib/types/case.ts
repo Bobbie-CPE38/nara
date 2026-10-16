@@ -88,6 +88,16 @@ export type CandidateView = {
   source_assignment: SourceAssignmentView | null;
 };
 
+/** Immutable snapshot returned by /me/handovers and the case detail API. */
+export type HandoverView = {
+  handover_id: number;
+  roster_assignment_id: number;
+  active: boolean;
+  generated_at: string;
+  /** Preserve unknown content keys/versions for future readers. */
+  content: Record<string, unknown>;
+};
+
 /** GET /cases/{id} */
 export type CaseDetail = {
   id: number;
@@ -108,6 +118,7 @@ export type CaseDetail = {
   explanation: RankExplanation | null;
   /** true when no group could cover every target, so the solver used the partial plan */
   partial_plan: boolean;
+  handovers: HandoverView[];
 };
 
 /** One item of GET /cases/{id}/audit */

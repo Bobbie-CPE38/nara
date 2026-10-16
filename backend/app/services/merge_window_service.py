@@ -15,11 +15,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.db.models import (
+    Attendance,
     HardConstraintPolicy,
     RosterAssignment,
     Shift,
@@ -27,12 +28,14 @@ from app.db.models import (
     StaffingEvent,
     StaffingRequirementRole,
     StaffingRequirementSkill,
+    StaffUnavailability,
 )
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     COVERING_ROSTER_STATUSES,
     ActorName,
     AuditAction,
+    AvailabilityReason,
     CaseStatus,
     EntityType,
     EventIgnoredReason,
@@ -45,9 +48,11 @@ from app.domain.staffing.gap_calculator import required_staff_for
 from app.domain.staffing.threshold import ThresholdResult, check_threshold
 from app.services import (
     actor_service,
+    attendance_service,
     audit_service,
     gap_service,
     handoff_service,
+    late_arrival_service,
     policy_service,
     requirement_service,
     unavailability_service,
@@ -60,6 +65,10 @@ logger = logging.getLogger(__name__)
 # Key of STAFFING_EVENTS.payload that names who reported an event about someone
 # or something else. A leave is reported by the person themselves (staff_id)
 REPORTED_BY = "reported_by"
+
+# Value of payload["reason"] on a STAFF_UNAVAILABLE event that the NO_SHOW job
+# wrote (stage 1, workflow.md 6.24). A leave event has no such key
+NO_SHOW_REASON = "NO_SHOW"
 
 
 @dataclass(frozen=True)
@@ -180,16 +189,21 @@ def close_locked_window(db: Session, shift: Shift) -> ClosedWindow | None:
     policy = policy_service.get_hard_constraint_policy(db)
     orchestrator_actor = actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR)
     skipped: set[int] = set()
+    # Events that only record history, like a NO_SHOW of a shift that has ended
+    history_only: set[int] = set()
     first_passed: StaffingEvent | None = None
 
     # Every event updates its tables first. Whether a case opens is decided
     # only after the last one: a later event can undo what an earlier one did
     for event in events:
         try:
-            _apply(db, shift, event)
+            counts_for_threshold = _apply(db, shift, event)
         except _NotApplicableError as error:
             skipped.add(event.id)
             _ignore(db, event, now=now, actor_id=orchestrator_actor, reason=error.reason)
+            continue
+        if not counts_for_threshold:
+            history_only.add(event.id)
             continue
         if first_passed is None and _check_threshold(db, shift, policy).passed:
             first_passed = event
@@ -220,7 +234,13 @@ def close_locked_window(db: Session, shift: Shift) -> ClosedWindow | None:
         if event.id in skipped:
             continue
         if case is None:
-            _ignore(db, event, now=now, actor_id=orchestrator_actor, reason=reason)
+            _ignore(
+                db,
+                event,
+                now=now,
+                actor_id=orchestrator_actor,
+                reason=EventIgnoredReason.SHIFT_ENDED if event.id in history_only else reason,
+            )
         else:
             # Also the events that did not pass the threshold themselves (Q42)
             event.status = EventStatus.PROCESSED
@@ -328,12 +348,16 @@ def _ignore(
 # --------------------------------------------------------------------------- #
 # The tables each event type updates (section 3.4)
 # --------------------------------------------------------------------------- #
-def _apply(db: Session, shift: Shift, event: StaffingEvent) -> None:
+def _apply(db: Session, shift: Shift, event: StaffingEvent) -> bool:
     """Update the tables of one event and write its audit row.
 
-    Raises _NotApplicableError before the first write when it cannot.
+    Raises _NotApplicableError before the first write when it cannot. Returns
+    whether the event counts for the threshold: False for a history-only event
+    (a NO_SHOW of a shift that has ended), which can never open a case alone.
     """
     if event.event_type is EventType.STAFF_UNAVAILABLE:
+        if event.payload.get("reason") == NO_SHOW_REASON:
+            return _apply_no_show(db, shift, event)
         _apply_leave(db, shift, event)
     elif event.event_type is EventType.ASSIGNMENT_CANCELLED:
         _apply_cancellation(db, event)
@@ -343,6 +367,7 @@ def _apply(db: Session, shift: Shift, event: StaffingEvent) -> None:
         _apply_requirement(db, shift, event)
     else:
         raise ValueError(f"No rule for event type {event.event_type!r}")
+    return True
 
 
 def _assigned_roster(db: Session, event: StaffingEvent) -> RosterAssignment:
@@ -392,6 +417,73 @@ def _apply_leave(db: Session, shift: Shift, event: StaffingEvent) -> None:
             "end_at": iso(unavailability.end_at) if unavailability.end_at else None,
         },
     )
+
+
+def _apply_no_show(db: Session, shift: Shift, event: StaffingEvent) -> bool:
+    """Stage 2 of NO_SHOW (workflow.md 6.24): record the absence and cancel the row.
+
+    The row is the one stage 1 named in the payload, locked after the shift. A
+    row that ended while the event waited is not skipped: the history is still
+    written. Returns whether the shift is still running, i.e. whether this event
+    can count for a case.
+    """
+    roster = db.scalar(
+        select(RosterAssignment)
+        .where(RosterAssignment.id == int(event.payload["roster_assignment_id"]))
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    )
+    if (
+        roster is None
+        or roster.status not in COVERING_ROSTER_STATUSES
+        # The person was moved out of this row while the event waited
+        or db.scalar(
+            select(exists().where(RosterAssignment.transferred_from_assignment_id == roster.id))
+        )
+    ):
+        raise _NotApplicableError(EventIgnoredReason.NO_ASSIGNED_ROSTER)
+
+    attendance = db.scalar(
+        select(Attendance).where(
+            Attendance.staff_id == roster.staff_id, Attendance.shift_id == shift.id
+        )
+    )
+    end_at = attendance_service.effective_end_at(roster, shift)
+    # The event was written after the deadline, so a check-in found now is late
+    late_check_in_at = (
+        attendance.check_in_at
+        if attendance is not None and attendance.check_in_at < end_at
+        else None
+    )
+    unavailability = StaffUnavailability(
+        staff_id=roster.staff_id,
+        start_at=attendance_service.required_arrival_at(roster, shift),
+        end_at=end_at if late_check_in_at is None else late_check_in_at,
+        reason=AvailabilityReason.NO_SHOW,
+    )
+    db.add(unavailability)
+    roster.status = RosterStatus.CANCELLED
+    db.flush()
+    audit_service.log(
+        db,
+        case_id=None,
+        event_id=event.id,
+        actor_id=actor_service.component_id(db, ActorName.SYSTEM),
+        action=AuditAction.UNAVAILABILITY_CREATED,
+        entity_type=EntityType.STAFF_UNAVAILABILITY,
+        entity_id=unavailability.id,
+        payload={
+            "unavailability_id": unavailability.id,
+            "staff_id": roster.staff_id,
+            "reason": unavailability.reason.value,
+            "start_at": iso(unavailability.start_at),
+            "end_at": iso(unavailability.end_at) if unavailability.end_at else None,
+        },
+    )
+    if late_check_in_at is not None:
+        # No case runs while a window is due (_is_due), so nothing is surplus yet
+        late_arrival_service.restore(db, original=roster, check_in_at=late_check_in_at)
+    return shift.end_at > clock.now()
 
 
 def _apply_cancellation(db: Session, event: StaffingEvent) -> None:

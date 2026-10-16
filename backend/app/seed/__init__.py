@@ -15,7 +15,7 @@ from app.db.base import Base
 def load(db: Session) -> None:
     """Populate empty application tables without deleting data or committing."""
     # Imported here: the loaders import sync_sequences from this module
-    from app.seed import base_data
+    from app.seed import base_data, check_ins
     from app.seed.scenarios import golden_case, multi_ward
 
     for table in Base.metadata.sorted_tables:
@@ -27,6 +27,7 @@ def load(db: Session) -> None:
     base_data.seed(db)
     golden_case.seed(db)
     multi_ward.seed(db)
+    check_ins.seed(db)
 
 
 def sync_sequences(db: Session, tables: list[str]) -> None:

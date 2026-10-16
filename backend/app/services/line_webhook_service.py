@@ -11,12 +11,20 @@ from urllib.parse import parse_qs
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core import clock
 from app.core.config import settings
 from app.core.constants import MAX_BIGINT
 from app.db.models import LineWebhookEvent
-from app.domain.enums import CandidateResponse
+from app.domain.enums import CandidateResponse, CheckInSource
+from app.domain.errors import ShiftNotFoundError
 from app.integrations.line import client
-from app.services import line_account_service, line_contact_service, outreach_service
+from app.services import (
+    attendance_service,
+    line_account_service,
+    line_contact_service,
+    outreach_service,
+    unavailability_service,
+)
 
 logger = logging.getLogger(__name__)
 _LINK_COMMAND = re.compile(r"LINK(?:\s+|$)", re.IGNORECASE | re.ASCII)
@@ -78,6 +86,87 @@ def _business_refusal(db: Session, event_id: str) -> bool:
         raise
 
 
+def _check_in_event(db: Session, event: dict[str, Any], event_id: str) -> bool:
+    """Adapt CHECKIN <shift_id> / CHECK_IN postbacks; identity never comes from data."""
+    message = event.get("message")
+    text = (
+        message.get("text") if isinstance(message, dict) and message.get("type") == "text" else None
+    )
+    command = (
+        re.match(r"CHECKIN(?:\s+|$)", text, re.IGNORECASE | re.ASCII)
+        if isinstance(text, str) and event.get("type") == "message"
+        else None
+    )
+    postback = event.get("postback")
+    data = postback.get("data") if isinstance(postback, dict) else None
+    params = (
+        parse_qs(data, keep_blank_values=True)
+        if isinstance(data, str) and event.get("type") == "postback"
+        else {}
+    )
+    if command is None and "CHECK_IN" not in params.get("action", []):
+        return False
+    try:
+        if command is not None:
+            assert isinstance(text, str)
+            raw_id = text[command.end() :].strip()
+        else:
+            params = parse_qs(data, keep_blank_values=True, strict_parsing=True)
+            if (
+                set(params) != {"action", "shift_id"}
+                or any(len(v) != 1 for v in params.values())
+                or params["action"] != ["CHECK_IN"]
+            ):
+                raise ValueError("Invalid check-in action")
+            raw_id = params["shift_id"][0]
+        if (
+            not raw_id.isascii()
+            or not raw_id.isdecimal()
+            or len(raw_id) > 19
+            or not 1 <= int(raw_id) <= MAX_BIGINT
+        ):
+            raise ValueError("Invalid shift ID")
+    except (ValueError, KeyError):
+        if _business_refusal(db, event_id):
+            _reply(db, event, "คำสั่งเช็กอินไม่ถูกต้อง ใช้ CHECKIN ตามด้วยเลขเวร")
+        return True
+    source = event.get("source")
+    uid = (
+        source.get("userId") if isinstance(source, dict) and source.get("type") == "user" else None
+    )
+    staff = line_contact_service.staff_for_line_uid(db, uid) if isinstance(uid, str) else None
+    if staff is None:
+        if _business_refusal(db, event_id):
+            _reply(db, event, "กรุณาเช็กอินจากบัญชี LINE ส่วนตัวที่ผูกกับพนักงานแล้ว")
+        return True
+    try:
+        result = attendance_service.check_in(
+            db,
+            staff_id=staff[0],
+            actor_id=staff[1],
+            shift_id=int(raw_id),
+            source=CheckInSource.SELF,
+            after_lock=lambda session: _remember(session, event_id),
+        )
+    except (
+        ShiftNotFoundError,
+        unavailability_service.NoAssignedRosterError,
+        attendance_service.CheckInOutsideWindowError,
+    ):
+        if _business_refusal(db, event_id):
+            _reply(db, event, "เช็กอินไม่ได้ กรุณาตรวจเวรที่ได้รับมอบหมายและช่วงเวลาที่เปิดเช็กอิน")
+        return True
+    at = result.check_in_at.astimezone(clock.APP_TIMEZONE).strftime("%H:%M")
+    timing = "ทันเวลา" if result.on_time else "มาสาย"
+    message = (
+        f"คุณเช็กอินเวร {result.shift_id} แล้ว เวลา {at} น. ({timing}) ไม่ต้องเช็กอินซ้ำ"
+        if result.already_checked_in
+        else f"เช็กอินเวร {result.shift_id} สำเร็จ เวลา {at} น. ({timing})"
+    )
+    _reply(db, event, message)
+    return True
+
+
 def process_event(db: Session, event: dict[str, Any]) -> None:
     """Process an event or raise for retry. Expected refusals are terminal, not HTTP errors.
 
@@ -91,6 +180,8 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
         db.rollback()
         return
     try:
+        if _check_in_event(db, event, event_id):
+            return
         message = event.get("message")
         text = message.get("text") if isinstance(message, dict) else None
         command = _LINK_COMMAND.match(text) if isinstance(text, str) else None

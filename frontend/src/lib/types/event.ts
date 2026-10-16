@@ -27,4 +27,6 @@ export type ClockAdvanceResult = {
   failed_auto_approval_ward_ids: number[];
   /** Waiting cases the recovery sweep moved on */
   recovered_case_ids: number[];
+  /** STAFF_UNAVAILABLE events the NO_SHOW job wrote at the new time (section 6.24) */
+  no_show_event_ids: number[];
 };

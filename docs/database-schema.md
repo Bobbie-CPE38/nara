@@ -246,7 +246,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 |---|---|---|---|
 | `PLANNED_LEAVE` | แจ้งลา และช่วงที่ลาไม่ชนเวรที่มี `ROSTER_ASSIGNMENT` สถานะ `ASSIGNED` หรือ `PENDING_APPROVAL` | วันสิ้นสุดการลาที่อนุมัติ | ไม่สร้าง |
 | `UNPLANNED_LEAVE` | แจ้งลาก่อนระบบบันทึก `NO_SHOW` และช่วงที่ลาชนเวรที่มี `ROSTER_ASSIGNMENT` สถานะ `ASSIGNED` หรือ `PENDING_APPROVAL` | เวลากลับที่บุคลากรแจ้ง ถ้าแจ้งแค่ว่ามาเวรนี้ไม่ได้ ใช้ `SHIFT.end_at` | `STAFF_UNAVAILABLE` |
-| `NO_SHOW` | มีเวร ไม่แจ้งลา และไม่มี check-in ใน `ATTENDANCE` ภายในเวลาผ่อนผันหลัง `SHIFT.start_at` (สมมติ 15 นาที) ระบบสร้างแถวเอง | `SHIFT.end_at` ของเวรที่ขาด | `STAFF_UNAVAILABLE` |
+| `NO_SHOW` | มีเวร ไม่แจ้งลา และไม่มี check-in ที่ทันใน `ATTENDANCE` ภายในเวลาผ่อนผันหลังเวลาที่ต้องมาถึงของแถว Roster (`NO_SHOW_GRACE_SECONDS` = 900 วินาที) ระบบสร้างแถวเองตอนปิด Window ของ Event `STAFF_UNAVAILABLE` ที่ `payload.reason` = `NO_SHOW` | `start_at` = เวลาที่ต้องมาถึงของแถว Roster (ไม่ใช่ `SHIFT.start_at` เสมอไป: แถวของคนแทนนับจาก `max(เวลาเริ่มที่มีผล, created_at)`) `end_at` = `check_in_at` ถ้ามี check-in ก่อนเวลาจบที่มีผลของแถวตอนปิด Window ไม่งั้นเวลาจบที่มีผลของแถว (`actual_end_at` ถ้ามี ไม่งั้น `SHIFT.end_at`) | `STAFF_UNAVAILABLE` |
 
 
 **`reason` ไม่เปลี่ยนหลังสร้างแถว**
@@ -258,7 +258,7 @@ Roster ในอนาคตของคนนั้นด้วย; Coverage �
 **การเปลี่ยน `end_at`**
 
 
-* กลับมาเร็วกว่าที่บันทึก: ลด `end_at` เป็นเวลาที่กลับจริง รวมถึง `NO_SHOW` แล้วมาสาย ให้ใช้เวลา check-in
+* กลับมาเร็วกว่าที่บันทึก: ลด `end_at` เป็นเวลาที่กลับจริง รวมถึง `NO_SHOW` แล้วมาสาย ให้ใช้เวลา check-in ถ้า check-in สายหลังตอนปิด Window ไปแล้ว (หลังขั้นที่ 2) `late_arrival_service.arrive_after_no_show()` ย้าย `end_at` ของแถว `NO_SHOW` มาเป็น `check_in_at` ใน Transaction เดียวกับที่สร้างแถว Roster ใหม่ และเขียน Audit `UNAVAILABILITY_UPDATED` (`workflow.md` ข้อ 6.24, 7.1)
 * หยุดนานกว่าที่บันทึก: ขยาย `end_at` หรือเพิ่มแถวใหม่
 * ไม่รู้วันกลับ: `end_at` เป็น NULL ถือว่าไม่พร้อมตั้งแต่ `start_at` จนกว่าจะใส่ค่า เมื่อรู้วันกลับให้ใส่ `end_at`
 * `NO_SHOW` หลายเวรติดกัน: ระบบตรวจทีละเวรและสร้างแถวใหม่ทุกเวร ไม่เดาล่วงหน้า
@@ -390,11 +390,14 @@ Partial index `ix_candidate_outreach_delivery_due` ใช้กับ `delivery_
 | :-- | :-- | :-- | :-- | :-- |
 | `id` | bigint | NOT NULL | PK |  |
 | `staff_id` | bigint | NOT NULL | FK STAFF.id |  |
-| `check_in_at` | timestamptz | NOT NULL |  |  |
+| `shift_id` | bigint | NULL | FK SHIFT.id | เวรของ check-in (`workflow.md` ข้อ 6.24) ไม่ Backfill แถวที่ว่างนับ OT ตามเดิมแต่ไม่นับเป็น check-in ของเวรใด |
+| `check_in_at` | timestamptz | NOT NULL |  | มาจาก `app.core.clock.now()` (รอบ 5) |
 | `check_out_at` | timestamptz | NULL |  |  |
 | `work_minutes` | integer | NULL |  | เวลาทำงานจริงทั้งหมด รวม OT |
 | `overtime_minutes` | integer | NULL | CHECK | ส่วนของ `work_minutes` ที่เป็น OT CHECK `0 <= overtime_minutes <= work_minutes` NULL = ข้อมูลยังไม่ครบ ไม่ใช่ 0 |
 | `synced_at` | timestamptz | NOT NULL |  |  |
+
+UNIQUE (`staff_id`, `shift_id`) เฉพาะแถวที่ `shift_id` ไม่ว่าง (Partial Unique Index `uq_attendance_staff_shift`) กด check-in ซ้ำได้แถวเดิม
 
 CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_minutes <= work_minutes` ผ่านเมื่อคอลัมน์ใดคอลัมน์หนึ่งเป็น NULL เพราะแถวนั้นยังไม่สรุป จึงยังไม่มีค่าให้เทียบ
 
@@ -656,8 +659,10 @@ Migration ตั้ง delay ของ Policy เดิมเป็น `min(600,
 | `case_id` | bigint | NOT NULL | FK STAFFING_CASES.id |  |
 | `shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
 | `incoming_staff_id` | bigint | NULL | FK STAFF.id |  |
-| `content` | jsonb | NOT NULL |  |  |
+| `roster_assignment_id` | bigint | NOT NULL | FK ROSTER_ASSIGNMENT.id, UNIQUE | แถว Roster ของคนที่มาแทน หนึ่ง Handover ต่อหนึ่งแถว ตารางไม่มีแถวเดิม จึงไม่ต้อง Backfill |
+| `content` | jsonb | NOT NULL |  | รูปข้อมูลอยู่ที่ `workflow.md` ข้อ 6.25 (`version` = 1) |
 | `generated_at` | timestamptz | NOT NULL |  |  |
+| `delivery_*` | | | | **H2 ทำแล้ว** สถานะการส่งทาง LINE ชุดเดียวกับของ `CANDIDATE_OUTREACH` (`delivery_status`, `delivery_attempts`, `delivery_retry_key`, `delivery_payload`, `delivery_next_attempt_at`, `delivery_claim`, `delivery_lease_until`, `delivery_last_result`) ชื่อและ CHECK ตรงกับ Offer: status NULL หรือ `PENDING`, `ACCEPTED`, `FAILED`, `CANCELLED`, `NO_CONTACT`; attempts NOT NULL DEFAULT 0 และ 0–3; Payload เป็น JSONB; เวลาเป็น timestamptz; Key/Claim/Result เป็น text; มี Partial Index `ix_structured_handover_delivery_due` สำหรับ PENDING; Migration `f6b2d8a4c0e1` ไม่ Backfill Intent ของแถวเดิม |
 
 
 ### 30. AUDIT_LOG
@@ -799,10 +804,12 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `TransferFailureReason` | payload `reason` ของ `TRANSFER_CHECK_FAILED` (รอบ 4 PR C2 เขียนแล้ว) | `SOURCE_COVERAGE_LOST`, `DESTINATION_WINDOW_PASSED`, `HARD_RULE_FAILED` (C3 ลบ `SOURCE_SHIFT_STARTED` ออกตาม R4-Q43 แถว Audit เก่าที่ C2 เขียนไว้ตอนอนุมัติครบหลังเวรต้นทางเริ่มอาจยังมีค่านี้ ตัวอ่านเก็บเป็นข้อความดิบ) |
 | `ActorType` | ACTORS.actor_type | `user`, `system`, `component` |
 | `ActorName` | ACTORS.name (ที่ไม่ใช่ user) | `system`, `workflow_orchestrator`, `staffing_gap_assessment_agent`, `constraint_fair_scheduling_agent`, `outreach_agent`, `safety_rule_engine` |
-| `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS` |
+| `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS`, `ATTENDANCE` |
 | `ExplanationStatus` | RANK_EXPLANATION.status (รอบ 3 PR X) | `PENDING`, `READY`, `FAILED`, `SKIPPED` |
 | `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
-| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
+| `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `ATTENDANCE_CHECKED_IN`, `OFFER_CANCELLED_NOT_NEEDED` **[รอบ 5 · PR N2]**, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
+| `CheckInSource` | AUDIT_LOG.payload.source ของ `ATTENDANCE_CHECKED_IN` | `SELF`, `SIMULATED` |
+| `HandoverReason` | STRUCTURED_HANDOVER.content.reason | `UNPLANNED_LEAVE`, `NO_SHOW`, `ASSIGNMENT_CANCELLED`, `PATIENT_SURGE`, `REQUIREMENT_CHANGED` (H1 ทำแล้ว) |
 
 
 **กลุ่มของ EventType**

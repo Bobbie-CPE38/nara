@@ -19,6 +19,7 @@ from app.services import (
     auto_approval_service,
     line_delivery_service,
     merge_window_service,
+    no_show_service,
     offer_timeout_service,
     roster_completion_service,
 )
@@ -34,10 +35,12 @@ class DueWork:
     completed_assignment_ids: list[int] = field(default_factory=list)
     auto_approved_request_ids: list[int] = field(default_factory=list)
     failed_auto_approval_ward_ids: list[int] = field(default_factory=list)
+    no_show_event_ids: list[int] = field(default_factory=list)
 
 
 def run_due_work(db: Session) -> DueWork:
-    """Complete shifts, expire offers/approvals, auto-approve, recover, close windows.
+    """Complete shifts, expire offers/approvals, auto-approve, recover, detect NO_SHOW,
+    close windows.
 
     Case work commits per case; window work commits per shift. Releasing a case
     first lets its queued window close in this same tick. Both routes expose
@@ -52,6 +55,8 @@ def run_due_work(db: Session) -> DueWork:
     recovered = offer_timeout_service.recover_waiting_cases(
         db, excluded_case_ids=expired.failed_case_ids | approvals.failed_case_ids
     )
+    # Stage 1 of NO_SHOW writes only events; the windows below apply them (6.24)
+    no_shows = no_show_service.detect_due_no_shows(db)
     closed = merge_window_service.close_due_windows(db)
     line_delivery_service.dispatch_pending(db)
     return DueWork(
@@ -62,4 +67,5 @@ def run_due_work(db: Session) -> DueWork:
         completed_assignment_ids=completed,
         auto_approved_request_ids=automatic.approval_ids,
         failed_auto_approval_ward_ids=sorted(automatic.failed_ward_ids),
+        no_show_event_ids=no_shows,
     )

@@ -20,3 +20,13 @@ MAX_EVENT_REASON_LENGTH = 500
 
 # Bound approval free text stored in requests/audit and shown to candidates.
 MAX_APPROVAL_REASON_LENGTH = 500
+
+# Round 5 (docs/workflow.md 6.24). A check-in is on time up to the row's required
+# arrival plus this grace period; the NO_SHOW job acts only after it
+NO_SHOW_GRACE_SECONDS = 15 * 60
+
+# Round 5 (6.24). The earliest check-in accepted, before the row's required arrival
+CHECK_IN_EARLIEST_SECONDS = 60 * 60
+
+# Round 5 (6.25). Version of STRUCTURED_HANDOVER.content
+HANDOVER_CONTENT_VERSION = 1

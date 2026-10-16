@@ -112,7 +112,12 @@ def HEADERS_OF(body: dict[str, object]) -> dict[str, str]:
 
 def actions(db: Session, case_id: int) -> list[AuditAction]:
     return list(
-        db.scalars(select(AuditLog.action).where(AuditLog.case_id == case_id).order_by(AuditLog.id))
+        db.scalars(
+            select(AuditLog.action)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+            .where(AuditLog.case_id == case_id)
+            .order_by(AuditLog.id)
+        )
     )
 
 
@@ -215,12 +220,15 @@ def test_assigning_a_plan_candidate_closes_a_one_person_gap(
     # Nobody answers and nobody approves (R2-Q15, R2-Q16)
     assert db.scalar(select(func.count()).select_from(ApprovalRequest)) == 0
     assert actions(db, case.id) == [
+        AuditAction.HANDOVER_GENERATED,
         AuditAction.MANUAL_ASSIGNMENT_CREATED,
         AuditAction.CASE_RESOLVED,
         AuditAction.CASE_STATUS_CHANGED,
     ]
     created = db.scalars(
-        select(AuditLog).where(AuditLog.action == AuditAction.MANUAL_ASSIGNMENT_CREATED)
+        select(AuditLog)
+        .where(AuditLog.action != AuditAction.CASE_OPENED)
+        .where(AuditLog.action == AuditAction.MANUAL_ASSIGNMENT_CREATED)
     ).one()
     assert created.actor_id == actor_service.user_id(db, 900)
     assert created.payload == {
@@ -232,7 +240,9 @@ def test_assigning_a_plan_candidate_closes_a_one_person_gap(
         "cancelled_outreach_ids": [],
     }
     changed = db.scalars(
-        select(AuditLog).where(AuditLog.action == AuditAction.CASE_STATUS_CHANGED)
+        select(AuditLog)
+        .where(AuditLog.action != AuditAction.CASE_OPENED)
+        .where(AuditLog.action == AuditAction.CASE_STATUS_CHANGED)
     ).one()
     assert changed.payload == {"from": "MANUAL_HANDOFF", "to": "RESOLVED"}
 
@@ -282,7 +292,9 @@ def test_an_approved_replacement_and_a_manual_one_close_the_gap_together(
 
     assert response.json()["case_status"] == "RESOLVED"
     resolved = db.scalars(
-        select(AuditLog).where(AuditLog.action == AuditAction.CASE_RESOLVED)
+        select(AuditLog)
+        .where(AuditLog.action != AuditAction.CASE_OPENED)
+        .where(AuditLog.action == AuditAction.CASE_RESOLVED)
     ).one()
     assert len(resolved.payload["assignment_ids"]) == 2
 
@@ -340,6 +352,7 @@ def test_a_failed_notification_does_not_turn_the_committed_assignment_into_an_er
     db.expire_all()
     assert db.scalar(select(func.count()).select_from(ManualAssignment)) == 1
     assert actions(db, case.id) == [
+        AuditAction.HANDOVER_GENERATED,
         AuditAction.MANUAL_ASSIGNMENT_CREATED,
         AuditAction.CASE_RESOLVED,
         AuditAction.CASE_STATUS_CHANGED,
@@ -492,7 +505,9 @@ def test_confirming_cancels_the_clashing_offer_and_says_why_in_its_case(
     db.expire_all()
     assert db.get(CandidateOutreach, row.id).status is OutreachStatus.CANCELLED  # type: ignore[union-attr]
     lost = db.scalars(
-        select(AuditLog).where(
+        select(AuditLog)
+        .where(AuditLog.action != AuditAction.CASE_OPENED)
+        .where(
             AuditLog.case_id == other.id,
             AuditLog.action == AuditAction.OFFER_CANCELLED_BY_ASSIGNMENT,
         )
@@ -555,7 +570,9 @@ def test_an_approval_uses_the_same_rules_for_offers_elsewhere(
     else:
         assert status is OutreachStatus.CANCELLED and lost == 1
         audit = db.scalars(
-            select(AuditLog).where(AuditLog.action == AuditAction.OFFER_CANCELLED_BY_ASSIGNMENT)
+            select(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+            .where(AuditLog.action == AuditAction.OFFER_CANCELLED_BY_ASSIGNMENT)
         ).one()
         assert audit.payload["source"] == "APPROVAL"
         offers = client.get("/demo/line-sim/offers?staff_id=201", headers={"X-Demo-User": "201"})
@@ -582,7 +599,9 @@ def test_closing_needs_a_reason_then_ends_the_case(
 
     assert closed.json() == {"case_id": case.id, "case_status": "UNRESOLVED"}
     audit = db.scalars(
-        select(AuditLog).where(AuditLog.action == AuditAction.CASE_CLOSED_UNRESOLVED)
+        select(AuditLog)
+        .where(AuditLog.action != AuditAction.CASE_OPENED)
+        .where(AuditLog.action == AuditAction.CASE_CLOSED_UNRESOLVED)
     ).one()
     assert audit.payload == {"reason": "Nobody can come in", "closed_by": "HEAD_NURSE"}
     assert audit.actor_id == actor_service.user_id(db, 900)

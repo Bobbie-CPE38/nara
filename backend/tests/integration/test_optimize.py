@@ -94,7 +94,12 @@ def _items(db: Session, plan: CandidatePlan) -> list[CandidateItem]:
 def _audit(db: Session, case: StaffingCase) -> list[AuditLog]:
     # Ordered by id: the frozen demo clock gives every row the same created_at
     return list(
-        db.scalars(select(AuditLog).where(AuditLog.case_id == case.id).order_by(AuditLog.id))
+        db.scalars(
+            select(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+            .where(AuditLog.case_id == case.id)
+            .order_by(AuditLog.id)
+        )
     )
 
 

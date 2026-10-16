@@ -62,6 +62,7 @@ export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
     ],
     explanation: null,
     partial_plan: false,
+    handovers: [],
     ...overrides,
   };
 }

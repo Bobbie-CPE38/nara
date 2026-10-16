@@ -127,7 +127,7 @@ def _unchanged(db: Session, request: ApprovalRequest) -> None:
     assert request.approver_id is None
     assert request.reason is None
     assert request.decided_at is None
-    assert db.scalar(select(AuditLog.id)) is None
+    assert db.scalar(select(AuditLog.id).where(AuditLog.action != AuditAction.CASE_OPENED)) is None
 
 
 @pytest.mark.parametrize("reason", [None, "Coverage confirmed"])
@@ -154,9 +154,14 @@ def test_approval_fields_response_and_audit(
     assert request_row.approver_id == 900
     assert request_row.reason == reason
     assert request_row.decided_at == DEMO_NOW
-    rows = list(db.scalars(select(AuditLog).order_by(AuditLog.id)))
+    rows = list(
+        db.scalars(
+            select(AuditLog).where(AuditLog.action != AuditAction.CASE_OPENED).order_by(AuditLog.id)
+        )
+    )
     assert [row.action for row in rows] == [
         AuditAction.APPROVAL_APPROVED,
+        AuditAction.HANDOVER_GENERATED,
         AuditAction.ASSIGNMENT_CREATED,
         AuditAction.CASE_STATUS_CHANGED,
         AuditAction.CASE_RESOLVED,
@@ -168,8 +173,8 @@ def test_approval_fields_response_and_audit(
     assert rows[0].entity_id == request_row.id
     assert rows[0].payload == {"approval_id": request_row.id, "reason": reason}
     assert rows[0].created_at == DEMO_NOW
-    assert rows[2].payload == {"from": "WAITING_APPROVAL", "to": "EXECUTING"}
-    assert rows[4].payload == {"from": "EXECUTING", "to": "RESOLVED"}
+    assert rows[3].payload == {"from": "WAITING_APPROVAL", "to": "EXECUTING"}
+    assert rows[5].payload == {"from": "EXECUTING", "to": "RESOLVED"}
 
 
 def test_approved_request_leaves_pending_list(
@@ -216,7 +221,12 @@ def test_wrong_role_is_403_before_pending_and_answer(
     production_seeded.expire_all()
     assert request_row.is_pending is pending
     assert request_row.is_approved is None
-    assert production_seeded.scalar(select(AuditLog.id)) is None
+    assert (
+        production_seeded.scalar(
+            select(AuditLog.id).where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize("pending", [True, False])
@@ -243,7 +253,12 @@ def test_head_nurse_of_another_ward_is_403_before_pending_and_answer(
     assert request_row.is_pending is pending
     assert request_row.is_approved is None
     assert request_row.approver_id is None
-    assert production_seeded.scalar(select(AuditLog.id)) is None
+    assert (
+        production_seeded.scalar(
+            select(AuditLog.id).where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+        is None
+    )
 
 
 def test_the_ward_rule_follows_the_shift_not_a_fixed_ward(
@@ -278,7 +293,12 @@ def test_not_pending_is_409_before_answer(
     production_seeded.commit()
     response = client.post(_url(request_row), headers=HEADERS, json={"approved": approved})
     assert response.status_code == 409
-    assert production_seeded.scalar(select(AuditLog.id)) is None
+    assert (
+        production_seeded.scalar(
+            select(AuditLog.id).where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+        is None
+    )
 
 
 def test_role_and_approver_identity_follow_the_request_and_header(
@@ -294,7 +314,9 @@ def test_role_and_approver_identity_follow_the_request_and_header(
     db.expire_all()
     assert request_row.approver_id == staff_id
     audit = db.scalars(
-        select(AuditLog).where(AuditLog.action == AuditAction.APPROVAL_APPROVED)
+        select(AuditLog)
+        .where(AuditLog.action != AuditAction.CASE_OPENED)
+        .where(AuditLog.action == AuditAction.APPROVAL_APPROVED)
     ).one()
     assert audit.actor_id == actor_service.user_id(db, staff_id)
 
@@ -336,7 +358,11 @@ def test_repeat_does_not_overwrite_reason_or_write_a_second_audit(
     assert response.status_code == 409
     production_seeded.expire_all()
     assert request_row.reason == "First"
-    actions = list(production_seeded.scalars(select(AuditLog.action)))
+    actions = list(
+        production_seeded.scalars(
+            select(AuditLog.action).where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+    )
     assert actions.count(AuditAction.APPROVAL_APPROVED) == 1
 
 
@@ -431,7 +457,13 @@ def test_execution_failure_returns_200_failed_and_keeps_the_approval(
     production_seeded.expire_all()
     assert request_row.is_approved is True
     assert request_row.is_pending is False
-    actions = list(production_seeded.scalars(select(AuditLog.action).order_by(AuditLog.id)))
+    actions = list(
+        production_seeded.scalars(
+            select(AuditLog.action)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+            .order_by(AuditLog.id)
+        )
+    )
     assert actions == [
         AuditAction.APPROVAL_APPROVED,
         AuditAction.CASE_STATUS_CHANGED,
@@ -496,7 +528,9 @@ def test_concurrent_decisions_write_one_approval(committed_request: int) -> None
         assert request.is_approved is True
         assert request.is_pending is False
         assert request.decided_at == DEMO_NOW
-        actions = list(db.scalars(select(AuditLog.action)))
+        actions = list(
+            db.scalars(select(AuditLog.action).where(AuditLog.action != AuditAction.CASE_OPENED))
+        )
         assert actions.count(AuditAction.APPROVAL_APPROVED) == 1
 
 
@@ -551,7 +585,7 @@ def test_overlong_reason_does_not_override_decision_error_order(
     db.expire_all()
     assert request_row.is_pending == pending_before
     assert request_row.is_approved is None and request_row.reason is None
-    assert db.scalar(select(AuditLog.id)) is None
+    assert db.scalar(select(AuditLog.id).where(AuditLog.action != AuditAction.CASE_OPENED)) is None
 
 
 def test_roster_interval_validation_failure_returns_controlled_failed_result(
@@ -589,6 +623,8 @@ def test_roster_interval_validation_failure_returns_controlled_failed_result(
         == 0
     )
     failure = production_seeded.scalars(
-        select(AuditLog).where(AuditLog.action == AuditAction.WORKFLOW_FAILED)
+        select(AuditLog)
+        .where(AuditLog.action != AuditAction.CASE_OPENED)
+        .where(AuditLog.action == AuditAction.WORKFLOW_FAILED)
     ).one()
     assert failure.payload["error_type"] == "ValueError"

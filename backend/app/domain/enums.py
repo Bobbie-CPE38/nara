@@ -50,6 +50,9 @@ class EventIgnoredReason(StrEnum):
     NO_ASSIGNED_ROSTER = "NO_ASSIGNED_ROSTER"
     # Only this event: a role or skill it changes is not in the requirement
     REQUIREMENT_ITEM_NOT_FOUND = "REQUIREMENT_ITEM_NOT_FOUND"
+    # Only this event: a NO_SHOW recorded as history for a shift that has already
+    # ended, so it opens no case and no offer (workflow.md 6.24)
+    SHIFT_ENDED = "SHIFT_ENDED"
 
 
 # --------------------------------------------------------------------------- #
@@ -260,6 +263,22 @@ class TransferFailureReason(StrEnum):
     # is a mid-shift move now. Old audit rows may still hold it; the readers keep the raw string
 
 
+# Round 5 PR N1: `source` in the payload of an ATTENDANCE_CHECKED_IN audit row (6.24)
+class CheckInSource(StrEnum):
+    SELF = "SELF"  # the nurse checked in, from the web page or LINE
+    SIMULATED = "SIMULATED"  # the demo simulated the arrival under /demo/
+
+
+# Round 5 PR H1: `reason` in STRUCTURED_HANDOVER.content (docs/workflow.md 6.25), taken from
+# the event that opened the case. PLANNED_LEAVE never opens a case, so it is not here
+class HandoverReason(StrEnum):
+    UNPLANNED_LEAVE = "UNPLANNED_LEAVE"
+    NO_SHOW = "NO_SHOW"
+    ASSIGNMENT_CANCELLED = "ASSIGNMENT_CANCELLED"
+    PATIENT_SURGE = "PATIENT_SURGE"
+    REQUIREMENT_CHANGED = "REQUIREMENT_CHANGED"
+
+
 # --------------------------------------------------------------------------- #
 # Actors & audit
 # --------------------------------------------------------------------------- #
@@ -299,6 +318,8 @@ class EntityType(StrEnum):
     STAFFING_REQUIREMENTS = "STAFFING_REQUIREMENTS"
     # Round 3 PR K: linking and unlinking a LINE account. Not written yet
     CONTACTS = "CONTACTS"
+    # Round 5 PR N1: a check-in (docs/workflow.md 6.24)
+    ATTENDANCE = "ATTENDANCE"
 
 
 class AuditAction(StrEnum):
@@ -339,7 +360,12 @@ class AuditAction(StrEnum):
     ASSIGNMENT_TRANSFERRED = "ASSIGNMENT_TRANSFERRED"
     # Round 4 PR C2: the check at the real move failed; the request ends.
     TRANSFER_CHECK_FAILED = "TRANSFER_CHECK_FAILED"
+    # Exists since round 1; round 5 PR H1 starts writing it (docs/workflow.md 6.25)
     HANDOVER_GENERATED = "HANDOVER_GENERATED"
+    # Round 5 PR N1: a nurse checked in, or the demo simulated it (6.24)
+    ATTENDANCE_CHECKED_IN = "ATTENDANCE_CHECKED_IN"
+    # Round 5 PR N2: a late arrival made an offer or request unneeded (6.24). Not written yet
+    OFFER_CANCELLED_NOT_NEEDED = "OFFER_CANCELLED_NOT_NEEDED"
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
     UNAVAILABILITY_UPDATED = "UNAVAILABILITY_UPDATED"
@@ -390,6 +416,7 @@ GOLDEN_PATH_AUDIT_ACTIONS: tuple[AuditAction, ...] = (
     AuditAction.SAFETY_PASSED,
     AuditAction.APPROVAL_REQUESTED,
     AuditAction.APPROVAL_APPROVED,
+    AuditAction.HANDOVER_GENERATED,
     AuditAction.ASSIGNMENT_CREATED,
     AuditAction.CASE_RESOLVED,
 )

@@ -41,7 +41,12 @@ WAITING_APPROVAL = CaseStatus.WAITING_APPROVAL
 
 def _audit(db: Session, case: StaffingCase) -> list[AuditLog]:
     return list(
-        db.scalars(select(AuditLog).where(AuditLog.case_id == case.id).order_by(AuditLog.id))
+        db.scalars(
+            select(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+            .where(AuditLog.case_id == case.id)
+            .order_by(AuditLog.id)
+        )
     )
 
 

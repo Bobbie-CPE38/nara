@@ -133,6 +133,7 @@ def test_advancing_the_clock_closes_the_windows_that_became_due(
         ],
         "auto_approved_request_ids": [],
         "failed_auto_approval_ward_ids": [],
+        "no_show_event_ids": [],
         "timed_out_approval_request_ids": [],
         "timed_out_outreach_ids": [],
         "recovered_case_ids": [],
@@ -152,6 +153,7 @@ def test_advancing_too_little_moves_the_clock_and_closes_nothing(
         "closed_windows": [],
         "auto_approved_request_ids": [],
         "failed_auto_approval_ward_ids": [],
+        "no_show_event_ids": [],
         "timed_out_approval_request_ids": [],
         "timed_out_outreach_ids": [],
         "recovered_case_ids": [],
@@ -180,6 +182,7 @@ def test_advancing_the_clock_reports_timed_out_offers_and_rechecked_cases(
         "closed_windows": [],
         "auto_approved_request_ids": [],
         "failed_auto_approval_ward_ids": [],
+        "no_show_event_ids": [],
         "timed_out_approval_request_ids": [],
         "timed_out_outreach_ids": [2, 5],
         "recovered_case_ids": [4, 9],
@@ -237,6 +240,7 @@ def test_job_route_closes_due_windows_with_the_backend_clock(
             "closed_windows": [],
             "auto_approved_request_ids": [],
             "failed_auto_approval_ward_ids": [],
+            "no_show_event_ids": [],
         },
     )
     case_id = seeded.scalars(select(StaffingCase.id)).one()
@@ -251,12 +255,14 @@ def test_job_route_closes_due_windows_with_the_backend_clock(
         ],
         "auto_approved_request_ids": [],
         "failed_auto_approval_ward_ids": [],
+        "no_show_event_ids": [],
     }
     # A closed window is not closed twice
     assert again.json() == {
         "closed_windows": [],
         "auto_approved_request_ids": [],
         "failed_auto_approval_ward_ids": [],
+        "no_show_event_ids": [],
     }
     assert seeded.scalar(select(func.count()).select_from(StaffingCase)) == 1
 

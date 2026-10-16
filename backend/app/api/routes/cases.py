@@ -19,7 +19,7 @@ from app.schemas.handoff import (
     ManualAssignmentResult,
 )
 from app.schemas.types import MAX_BIGINT
-from app.services import case_service, handoff_service
+from app.services import case_service, handoff_service, handover_service
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -124,6 +124,11 @@ def assign_manually(
                 "message": str(error),
                 "case_ids": error.case_ids,
             },
+        ) from error
+    except handover_service.HandoverProvenanceError as error:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"code": "HANDOVER_SOURCE_UNAVAILABLE", "message": str(error)},
         ) from error
     except (
         handoff_service.HandoffCaseStateError,

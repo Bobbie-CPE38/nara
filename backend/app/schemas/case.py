@@ -12,6 +12,7 @@ from app.domain.enums import (
     EntityType,
     OutreachStatus,
 )
+from app.schemas.handover import HandoverView
 from app.schemas.types import AppDatetime
 
 
@@ -164,6 +165,7 @@ class CaseDetail(BaseModel):
     # True when the latest plan's first wave comes from the max-coverage stages: no
     # group could cover every target (round 4 PR T4). False without a plan
     partial_plan: bool
+    handovers: list[HandoverView]
 
 
 class AuditEntry(BaseModel):
