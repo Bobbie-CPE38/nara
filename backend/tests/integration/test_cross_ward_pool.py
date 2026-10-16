@@ -170,7 +170,30 @@ def test_a_free_nurse_of_the_float_pool_is_a_float_pool_candidate(seeded: Sessio
     assert _source_points(result.plan, lent) == 200
 
 
-def test_someone_on_another_wards_offset_overlapping_shift_is_not_in_the_pool(
+def test_someone_on_another_wards_offset_overlapping_shift_is_in_the_pool_with_a_source(
+    seeded: Session,
+) -> None:
+    """A partly overlapping shift is movable (round 4 PR C3, test_transfer_planning.py)."""
+    night = _night(seeded)
+    busy = _rn(seeded, _ward(seeded))
+    shift_id = _shift(
+        seeded,
+        _ward(seeded),
+        night.start_at - timedelta(hours=2),
+        night.end_at - timedelta(hours=2),
+    )
+    seeded.add(StaffingRequirement(shift_id=shift_id, required_staff=0, minimum_staff=0))
+    seeded.flush()
+    _duty(seeded, busy, shift_id)
+
+    result = _plan(seeded)
+
+    item = next(item for item in result.items if item.staff_id == busy)
+    assert item.source_assignment_id is not None
+    assert item.cover_start_at is None and item.cover_end_at is None
+
+
+def test_someone_on_a_pending_approval_overlapping_shift_is_not_in_the_pool(
     seeded: Session,
 ) -> None:
     night = _night(seeded)
@@ -181,7 +204,7 @@ def test_someone_on_another_wards_offset_overlapping_shift_is_not_in_the_pool(
         night.start_at - timedelta(hours=2),
         night.end_at - timedelta(hours=2),
     )
-    _duty(seeded, busy, shift_id)
+    _duty(seeded, busy, shift_id, status=RosterStatus.PENDING_APPROVAL)
 
     result = _plan(seeded)
 
@@ -252,12 +275,12 @@ def test_staff_of_an_inactive_ward_are_not_in_the_pool(seeded: Session) -> None:
     assert closed not in _pooled(_plan(seeded))
 
 
-def test_a_same_ward_person_on_another_wards_overlapping_shift_is_still_skipped(
+def test_a_same_ward_person_on_another_wards_pending_overlapping_shift_is_still_skipped(
     seeded: Session,
 ) -> None:
     night = _night(seeded)
     shift_id = _shift(seeded, _ward(seeded), night.start_at - timedelta(hours=2), night.end_at)
-    _duty(seeded, 201, shift_id)
+    _duty(seeded, 201, shift_id, status=RosterStatus.PENDING_APPROVAL)
 
     result = _plan(seeded)
 

@@ -105,7 +105,7 @@ def create_transfer(
 
     A transfer at or before the source row's effective start cancels it. Later
     than that the source row stays ASSIGNED and ends at `transfer_at`; that branch
-    is the mid-shift move of PR C3 and is not reachable in C2.
+    is the mid-shift move of PR C3.
     """
     item, shift = _approved_item(db, case, approval)
     if item.source_assignment_id is None:

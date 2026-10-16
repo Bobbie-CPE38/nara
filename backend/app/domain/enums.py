@@ -256,9 +256,8 @@ class TransferFailureReason(StrEnum):
     SOURCE_COVERAGE_LOST = "SOURCE_COVERAGE_LOST"
     DESTINATION_WINDOW_PASSED = "DESTINATION_WINDOW_PASSED"
     HARD_RULE_FAILED = "HARD_RULE_FAILED"
-    # C2 only: approval completed after the source shift started, which is a
-    # mid-shift move. PR C3 does those moves and removes this value (R4-Q43)
-    SOURCE_SHIFT_STARTED = "SOURCE_SHIFT_STARTED"
+    # PR C3 removed SOURCE_SHIFT_STARTED (R4-Q43): a move after the source shift started
+    # is a mid-shift move now. Old audit rows may still hold it; the readers keep the raw string
 
 
 # --------------------------------------------------------------------------- #

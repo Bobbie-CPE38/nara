@@ -1,8 +1,9 @@
-"""Planning and wave selection of a whole-shift transfer (round 4 PR C2, workflow.md 6.19).
+"""Planning and wave selection of a transfer (round 4 PR C2 and C3, workflow.md 6.19).
 
-A nurse on another ward's shift that has exactly the start and end of the short
-shift, and has not started, is movable: she enters the Pool with the whole shift
-as her cover and her roster row as the source assignment. Each test is a row of
+A nurse whose only duty overlapping the short shift is an ASSIGNED row on another
+ward's shift is movable while a move is still possible (C3; C2 allowed only an equal,
+not started shift): she enters the Pool with her roster row as the source assignment
+and a cover from the move time to the end of the short shift. Each test is a row of
 the silent-failure table of "สถานะของรอบ 4".
 """
 
@@ -24,7 +25,7 @@ from app.db.models import (
     StaffingRequirementSkill,
     StaffSkill,
 )
-from app.domain.constraints.codes import SOURCE_SHIFT_TAKEN, HardRuleCode
+from app.domain.constraints.codes import GAP_TIME_MISMATCH, SOURCE_SHIFT_TAKEN, HardRuleCode
 from app.domain.enums import (
     AssignmentType,
     CandidateSource,
@@ -46,7 +47,10 @@ VIOLATION = HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION.value
 
 
 class Scene:
-    """A source shift of another ward with the same hours as the night shift."""
+    """A source shift of another ward, by default with the same hours as the night shift.
+
+    `starts` and `ends` move its start and end away from the night shift's.
+    """
 
     def __init__(
         self,
@@ -56,11 +60,13 @@ class Scene:
         holders: int,
         skill: int | None = None,
         home_ward_id: int | None = None,
+        starts: timedelta = timedelta(0),
+        ends: timedelta = timedelta(0),
     ) -> None:
         night = _night(db)
         self.db = db
         self.ward_id = _ward(db)
-        self.shift_id = _shift(db, self.ward_id, night.start_at, night.end_at)
+        self.shift_id = _shift(db, self.ward_id, night.start_at + starts, night.end_at + ends)
         requirement = StaffingRequirement(
             shift_id=self.shift_id,
             required_staff=required,
@@ -155,38 +161,121 @@ def test_a_same_ward_nurse_on_another_wards_equal_time_shift_is_moved(seeded: Se
     assert item.source_assignment_id == scene.row(scene.staff[0]).id
 
 
-def test_a_source_shift_that_has_started_keeps_the_person_out(seeded: Session) -> None:
+def test_a_person_whose_source_shift_has_started_enters_the_pool(seeded: Session) -> None:
+    """R4-Q43: a started source shift is a mid-shift move, not a reason to leave the person out."""
     scene = Scene(seeded, required=1, holders=2)
     clock.set_time(_night(seeded).start_at + timedelta(minutes=30))
 
-    assert not set(scene.staff) & _pooled(_plan(seeded))
+    item = _items(_plan(seeded))[scene.staff[0]]
+
+    assert item.source_assignment_id == scene.row(scene.staff[0]).id
+    # m = the start of the night shift: the cover is the whole shift
+    assert item.cover_start_at is None and item.cover_end_at is None
 
 
-@pytest.mark.parametrize(
-    ("start_shift", "end_shift"),
-    [(timedelta(hours=-1), timedelta(0)), (timedelta(0), timedelta(hours=1))],
-)
-def test_a_source_shift_that_is_not_equal_keeps_the_person_out(
-    seeded: Session, start_shift: timedelta, end_shift: timedelta
+def test_a_source_shift_that_starts_earlier_keeps_its_first_part_as_a_linked_duty(
+    seeded: Session,
 ) -> None:
+    scene = Scene(seeded, required=1, holders=2, starts=timedelta(hours=-1))
     night = _night(seeded)
-    ward = _ward(seeded)
-    staff_id = _rn(seeded, ward)
-    shift_id = _shift(seeded, ward, night.start_at + start_shift, night.end_at + end_shift)
-    _duty(seeded, staff_id, shift_id)
 
-    assert staff_id not in _pooled(_plan(seeded))
+    item = _items(_plan(seeded))[scene.staff[0]]
+
+    assert item.source_assignment_id == scene.row(scene.staff[0]).id
+    assert item.cover_start_at is None and item.cover_end_at is None
+    context = hard_rule_service.check_items(seeded, shift=night, items=[item])[item.id].context
+    assert context.linked_duty is not None
+    assert context.linked_duty.shift_id == scene.shift_id
+    assert context.linked_duty.start_at == night.start_at - timedelta(hours=1)
+    assert context.linked_duty.end_at == night.start_at
 
 
-def test_a_source_row_with_actual_times_of_its_own_keeps_the_person_out(seeded: Session) -> None:
+def test_a_source_shift_that_starts_later_gives_a_cover_from_its_start(seeded: Session) -> None:
+    scene = Scene(seeded, required=1, holders=2, starts=timedelta(hours=1))
+    night = _night(seeded)
+
+    result = _plan(seeded)
+
+    item = _items(result)[scene.staff[0]]
+    assert item.source_assignment_id == scene.row(scene.staff[0]).id
+    assert item.cover_start_at == night.start_at + timedelta(hours=1)
+    assert item.cover_end_at == night.end_at
+    entry = next(
+        r for r in result.plan.input_snapshot["candidates"] if r["staff_id"] == item.staff_id
+    )
+    assert entry["cover_start_at"] is not None and entry["cover_end_at"] is not None
+
+
+def test_a_source_row_with_actual_times_is_covered_from_its_effective_times(
+    seeded: Session,
+) -> None:
     scene = Scene(seeded, required=1, holders=2)
-    scene.row(scene.staff[0]).actual_end_at = _night(seeded).end_at - timedelta(hours=1)
+    night = _night(seeded)
+    row = scene.row(scene.staff[0])
+    row.actual_start_at = night.start_at + timedelta(hours=2)
+    row.actual_end_at = night.end_at - timedelta(hours=1)
     seeded.flush()
+
+    item = _items(_plan(seeded))[scene.staff[0]]
+
+    assert item.source_assignment_id == row.id
+    assert item.cover_start_at == night.start_at + timedelta(hours=2)
+    # The move is permanent: the cover runs to the end of the short shift
+    assert item.cover_end_at == night.end_at
+
+
+def test_a_source_row_that_is_over_by_now_keeps_the_person_out(seeded: Session) -> None:
+    scene = Scene(seeded, required=1, holders=2)
+    night = _night(seeded)
+    scene.row(scene.staff[0]).actual_end_at = night.start_at + timedelta(hours=2)
+    seeded.flush()
+    clock.set_time(night.start_at + timedelta(hours=3))
 
     result = _plan(seeded)
 
     assert scene.staff[0] not in _pooled(result)
     assert scene.staff[1] in _pooled(result)
+
+
+def test_the_linked_source_part_lets_a_mover_pass_the_rest_rule(seeded: Session) -> None:
+    """Silent-failure table, T1 and C3: the cut-off source and the new shift are one duty."""
+    night = _night(seeded)
+    # 20:00 to 04:00 against the 23:00 to 07:00 night shift: 11 h as one duty
+    scene = Scene(
+        seeded, required=1, holders=2, starts=timedelta(hours=-3), ends=timedelta(hours=-3)
+    )
+    mover = scene.staff[0]
+    # A shift that ends exactly when the night shift starts, with no transfer link: 0 h of rest
+    control = _rn(seeded, _ward(seeded))
+    adjacent = _shift(seeded, _ward(seeded), night.start_at - timedelta(hours=8), night.start_at)
+    seeded.add(StaffingRequirement(shift_id=adjacent, required_staff=0, minimum_staff=0))
+    seeded.flush()
+    _duty(seeded, control, adjacent)
+
+    result = _plan(seeded)
+
+    assert mover in _items(result)
+    assert _skipped(result)[control] == HardRuleCode.INSUFFICIENT_REST.value
+
+
+def test_a_mover_whose_cover_misses_every_short_slice_is_skipped(seeded: Session) -> None:
+    """GAP_TIME_MISMATCH is reachable since C3: the gap is short only in the first 4 hours."""
+    night = _night(seeded)
+    scene = Scene(seeded, required=1, holders=2, starts=timedelta(hours=5))
+    row_105 = seeded.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id == 105, RosterAssignment.shift_id == night.id
+        )
+    ).one()
+    row_105.actual_start_at = night.start_at + timedelta(hours=4)
+    seeded.flush()
+    case = make_case(seeded, CaseStatus.OPTIMIZING)
+    record_gap(seeded, case)
+
+    result = optimization_service.create_plan(seeded, case)
+
+    assert _skipped(result)[scene.staff[0]] == GAP_TIME_MISMATCH
+    assert scene.staff[0] not in _items(result)
 
 
 def test_a_pending_approval_source_row_keeps_the_person_out(seeded: Session) -> None:
@@ -267,6 +356,49 @@ def test_planning_and_safety_give_the_same_answer(seeded: Session) -> None:
     assert HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION in planned.result.failed_rules
     assert HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION in safety.result.failed_rules
     assert safety.context.source_shift is not None and safety.context.source_shift.leaves_gap
+
+
+def test_planning_and_safety_give_the_same_answer_for_a_partial_cover(seeded: Session) -> None:
+    scene = Scene(seeded, required=2, holders=3, starts=timedelta(hours=1))
+    mover = scene.staff[0]
+    item = _items(_plan(seeded))[mover]
+    night = _night(seeded)
+    cover = Cover(night.start_at + timedelta(hours=1), night.end_at, scene.row(mover).id)
+    assert Cover.of(item) == cover
+
+    def both() -> tuple[hard_rule_service.CandidateCheck, hard_rule_service.CandidateCheck]:
+        planned = hard_rule_service.check_staff(
+            seeded, shift=night, staff_ids=[mover], covers={mover: cover}
+        )[mover]
+        return planned, hard_rule_service.check_items(seeded, shift=night, items=[item])[item.id]
+
+    planned, safety = both()
+    assert planned.result.failed_rules == safety.result.failed_rules == ()
+    assert planned.context.proposed_shift == safety.context.proposed_shift
+    assert safety.context.source_shift is not None and not safety.context.source_shift.leaves_gap
+
+    scene.row(scene.staff[1]).status = RosterStatus.CANCELLED
+    seeded.flush()
+    planned, safety = both()
+    assert HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION in planned.result.failed_rules
+    assert HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION in safety.result.failed_rules
+    assert safety.context.source_shift is not None and safety.context.source_shift.leaves_gap
+
+
+def test_check_items_with_a_move_time_cuts_the_source_at_that_time(seeded: Session) -> None:
+    scene = Scene(seeded, required=1, holders=2)
+    item = _items(_plan(seeded))[scene.staff[0]]
+    night = _night(seeded)
+    moved_at = night.start_at + timedelta(hours=3)
+
+    checked = hard_rule_service.check_items(
+        seeded, shift=night, items=[item], move_at={item.id: moved_at}
+    )[item.id]
+
+    assert checked.context.proposed_shift.start_at == moved_at
+    assert checked.context.proposed_shift.end_at == night.end_at
+    assert checked.context.linked_duty is not None
+    assert checked.context.linked_duty.end_at == moved_at
 
 
 # --------------------------------------------------------------------------- #
