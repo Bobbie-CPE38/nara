@@ -19,7 +19,13 @@ from sqlalchemy.orm import Session
 from app.core import clock
 from app.core.constants import CHECK_IN_EARLIEST_SECONDS, NO_SHOW_GRACE_SECONDS
 from app.db.models import Attendance, AuditLog, RosterAssignment, Shift
-from app.domain.enums import AssignmentType, AuditAction, CheckInSource, EntityType
+from app.domain.enums import (
+    AssignmentType,
+    AuditAction,
+    CheckInSource,
+    EntityType,
+    RosterStatus,
+)
 from app.services import audit_service, merge_window_service, unavailability_service
 
 
@@ -74,10 +80,10 @@ def check_in(
 
     Order: lock the SHIFT (404 if missing) → an existing ATTENDANCE row of this
     person in the shift is returned as it is, with no window check, no write and
-    no new audit row → lock the ASSIGNED roster row (404) → window check on the
-    clock (422) → write → commit. Lock order is SHIFT then ROSTER_ASSIGNMENT
-    (workflow.md 6.11). The shift lock also makes two simultaneous check-ins of
-    one person run one after the other. On any error the caller must roll back.
+    no new audit row → lock the person's ASSIGNED roster rows (404) → choose the
+    row for the clock, or 422 when none takes it → write → commit. Lock order is SHIFT
+    then ROSTER_ASSIGNMENT (workflow.md 6.11). The shift lock also makes two simultaneous
+    check-ins of one person run one after the other. On any error the caller must roll back.
     """
     shift = merge_window_service.lock_shift(db, shift_id)
 
@@ -89,9 +95,12 @@ def check_in(
         db.commit()
         return result
 
-    roster = unavailability_service.lock_assigned_roster(db, staff_id=staff_id, shift_id=shift_id)
+    rows = _lock_assigned_rows(db, staff_id=staff_id, shift_id=shift_id)
     now = clock.now()
-    if not accepts_check_in(roster, shift, now):
+    roster = _row_for(rows, shift, now)
+    if roster is None:
+        # No row takes this moment: say why with the row that comes first in time
+        roster = min(rows, key=lambda row: (required_arrival_at(row, shift), row.id))
         earliest = required_arrival_at(roster, shift) - timedelta(seconds=CHECK_IN_EARLIEST_SECONDS)
         raise CheckInOutsideWindowError(
             f"Check-in for shift {shift_id} is accepted from {_iso(earliest)}"
@@ -102,6 +111,41 @@ def check_in(
     )
     db.commit()
     return result
+
+
+def _lock_assigned_rows(db: Session, *, staff_id: int, shift_id: int) -> list[RosterAssignment]:
+    """The person's ASSIGNED rows in the shift, locked, in one query ordered by id.
+
+    A person can hold several (T2 allows separate parts of one shift, and a move out
+    and back leaves the source prefix ASSIGNED), so this is not lock_assigned_roster(),
+    which refuses more than one row.
+    """
+    rows = list(
+        db.scalars(
+            select(RosterAssignment)
+            .where(
+                RosterAssignment.staff_id == staff_id,
+                RosterAssignment.shift_id == shift_id,
+                RosterAssignment.status == RosterStatus.ASSIGNED,
+            )
+            .order_by(RosterAssignment.id)
+            .with_for_update(key_share=True)
+        )
+    )
+    if not rows:
+        raise unavailability_service.NoAssignedRosterError(
+            f"Staff {staff_id} has no assigned roster row in shift {shift_id}"
+        )
+    return rows
+
+
+def _row_for(rows: list[RosterAssignment], shift: Shift, at: datetime) -> RosterAssignment | None:
+    """The row a check-in at `at` belongs to: among the rows whose window takes `at`,
+    the one with the earliest required arrival (then the lowest id). None if no row does."""
+    taking = [row for row in rows if accepts_check_in(row, shift, at)]
+    if not taking:
+        return None
+    return min(taking, key=lambda row: (required_arrival_at(row, shift), row.id))
 
 
 def record(

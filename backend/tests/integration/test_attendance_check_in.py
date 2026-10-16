@@ -311,6 +311,81 @@ def test_check_in_after_a_mid_shift_transfer_out_is_422(
     assert attendance_rows(production_seeded) == []
 
 
+# ---- several ASSIGNED rows of one person in one shift ---------------------------------------
+
+
+def split_shift(db: Session, staff_id: int = 103) -> tuple[RosterAssignment, RosterAssignment]:
+    """Two ASSIGNED parts of one shift: 23:00-01:00 and 03:00-end."""
+    first = roster_of(db, staff_id)
+    first.actual_end_at = START + timedelta(hours=2)
+    second = RosterAssignment(
+        staff_id=staff_id,
+        shift_id=NIGHT_SHIFT,
+        status=RosterStatus.ASSIGNED,
+        assignment_type=AssignmentType.REGULAR,
+        actual_start_at=START + timedelta(hours=4),
+    )
+    db.add(second)
+    db.commit()
+    return first, second
+
+
+def test_two_assigned_rows_check_in_on_the_row_that_holds_the_clock(
+    client: TestClient, production_seeded: Session
+) -> None:
+    first, _ = split_shift(production_seeded)
+    at(START + timedelta(minutes=5))
+    response = me(client, staff="103")
+    assert response.status_code == 200
+    assert response.json()["deadline"] == DEADLINE.isoformat()
+    assert response.json()["on_time"] is True
+    audit = production_seeded.scalars(
+        select(AuditLog).where(AuditLog.action == AuditAction.ATTENDANCE_CHECKED_IN)
+    ).one()
+    assert audit.payload["roster_assignment_id"] == first.id
+    assert me(client, staff="103").json() == response.json()
+
+
+def test_two_assigned_rows_use_the_later_row_once_the_first_has_ended(
+    client: TestClient, production_seeded: Session
+) -> None:
+    _, second = split_shift(production_seeded)
+    at(START + timedelta(hours=4, minutes=5))
+    response = me(client, staff="103")
+    assert response.status_code == 200
+    deadline = START + timedelta(hours=4, seconds=NO_SHOW_GRACE_SECONDS)
+    assert response.json()["deadline"] == deadline.isoformat()
+    audit = production_seeded.scalars(
+        select(AuditLog).where(AuditLog.action == AuditAction.ATTENDANCE_CHECKED_IN)
+    ).one()
+    assert audit.payload["roster_assignment_id"] == second.id
+
+
+def test_two_assigned_rows_between_the_parts_is_422_not_500(
+    client: TestClient, production_seeded: Session
+) -> None:
+    split_shift(production_seeded)
+    # 01:30: the first part ended at 01:00, the second opens its window at 02:00
+    at(START + timedelta(hours=2, minutes=30))
+    assert me(client, staff="103").status_code == 422
+    assert simulate(client, 103).status_code == 422
+    assert attendance_rows(production_seeded) == []
+
+
+def test_two_assigned_rows_the_earlier_arrival_wins_when_both_windows_are_open(
+    client: TestClient, production_seeded: Session
+) -> None:
+    first, second = split_shift(production_seeded)
+    second.actual_start_at = START + timedelta(hours=2)  # starts as the first ends
+    production_seeded.commit()
+    at(START + timedelta(hours=1, minutes=30))  # the first part's window and the second's overlap
+    assert me(client, staff="103").status_code == 200
+    audit = production_seeded.scalars(
+        select(AuditLog).where(AuditLog.action == AuditAction.ATTENDANCE_CHECKED_IN)
+    ).one()
+    assert audit.payload["roster_assignment_id"] == first.id
+
+
 # ---- on time -------------------------------------------------------------------------------
 
 
