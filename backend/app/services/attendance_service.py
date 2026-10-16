@@ -11,7 +11,7 @@ row from that audit row).
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -41,6 +41,8 @@ class CheckInResult:
     check_in_at: datetime
     on_time: bool
     deadline: datetime
+    # Reply metadata; the recorded attendance remains the same on repeated reads.
+    already_checked_in: bool = field(default=False, compare=False)
 
 
 def required_arrival_at(roster: RosterAssignment, shift: Shift) -> datetime:
@@ -230,6 +232,7 @@ def _existing_result(db: Session, attendance: Attendance, shift: Shift) -> Check
         attendance_id=attendance.id,
         shift_id=shift.id,
         check_in_at=attendance.check_in_at,
+        already_checked_in=True,
         on_time=is_on_time(roster, shift, attendance.check_in_at),
         deadline=deadline_at(roster, shift),
     )

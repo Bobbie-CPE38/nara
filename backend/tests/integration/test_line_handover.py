@@ -179,9 +179,12 @@ def send(http_client, event):
 @pytest.mark.parametrize("data", [None, "action=CHECK_IN&shift_id=1"])
 def test_checkin_uses_bound_identity_and_dedups(production_seeded, real_line, http_client, data):
     db = production_seeded
-    bind(db)
+    shift = bind(db)
+    clock.set_time(shift.start_at - timedelta(hours=1))
     event = checkin_event(text="checkin\n1", data=data)
     assert send(http_client, event).status_code == 200
+    assert real_line[1].call_args.args[1] == "เช็กอินเวร 1 สำเร็จ เวลา 22:00 น. (ทันเวลา)"
+    clock.set_time(shift.start_at + timedelta(hours=2))
     event["webhookEventId"] = "second-event"
     assert send(http_client, event).status_code == 200
     assert send(http_client, event).status_code == 200
@@ -192,7 +195,9 @@ def test_checkin_uses_bound_identity_and_dedups(production_seeded, real_line, ht
     )
     assert len(logs) == 1 and logs[0].payload["source"] == "SELF"
     assert real_line[1].call_count == 2
-    assert "ทันเวลา" in real_line[1].call_args.args[1]
+    assert real_line[1].call_args.args[1] == (
+        "คุณเช็กอินเวร 1 แล้ว เวลา 22:00 น. (ทันเวลา) ไม่ต้องเช็กอินซ้ำ"
+    )
 
 
 @pytest.mark.parametrize(
@@ -408,3 +413,16 @@ def test_two_connections_check_in_once(frozen_clock, restore_empty_database, rea
         assert db.scalar(select(func.count()).select_from(LineWebhookEvent)) == (
             1 if same_event else 2
         )
+
+
+def test_late_checkin_repeat_keeps_original_time_and_late_result(
+    production_seeded, real_line, http_client
+):
+    db = production_seeded
+    shift = bind(db)
+    clock.set_time(shift.start_at + timedelta(minutes=16))
+    assert send(http_client, checkin_event()).status_code == 200
+    assert real_line[1].call_args.args[1] == "เช็กอินเวร 1 สำเร็จ เวลา 23:16 น. (มาสาย)"
+    clock.set_time(shift.end_at + timedelta(hours=1))
+    assert send(http_client, checkin_event(event_id="repeat-late")).status_code == 200
+    assert real_line[1].call_args.args[1] == ("คุณเช็กอินเวร 1 แล้ว เวลา 23:16 น. (มาสาย) ไม่ต้องเช็กอินซ้ำ")

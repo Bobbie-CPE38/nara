@@ -22,7 +22,11 @@ Send `CHECKIN <shift_id>` (case-insensitive, whitespace accepted) from the nurse
 
 The adapter calls `attendance_service.check_in(source=SELF)` with identity/actor from the active binding. Its optional `after_lock` callback joins webhook-event dedup to the service's existing Shift/Roster locking transaction. Both new and repeated check-ins remember the event before commit. Retrying the same event or using another event for the same shift creates one Attendance and one attendance audit. A new event for an existing check-in returns its original time/result, including after the shift ends.
 
-N1 rules remain unchanged: earliest arrival minus 60 minutes inclusive, effective end exclusive, on-time through arrival plus 15 minutes inclusive. Replacement arrival is max(effective start, creation time). Expected refusals are acknowledged and deduplicated with a safe reply; unexpected failures roll back event/Attendance/audit together and return 503 for retry. Reply failure does not undo a successful check-in. Signed webhook verification, LINK and offer actions retain their existing handling.
+N1 rules remain unchanged: earliest arrival minus 60 minutes inclusive, effective end exclusive, on-time through arrival plus 15 minutes inclusive. Replacement arrival is max(effective start, creation time). Expected refusals are acknowledged and deduplicated with a safe reply; unexpected failures roll back event/Attendance/audit together and return 503 for retry. The first LINE reply confirms success with the stored Thailand time and on-time/late result. Later distinct events say the nurse already checked in and show that original time/result; they never reset it. Redelivery of the identical webhook event remains a no-op without another reply. `CheckInResult.already_checked_in` is internal reply metadata and does not change the web response shape. Reply failure does not undo a successful check-in. Signed webhook verification, LINK and offer actions retain their existing handling.
+
+## Approval visibility after accepting an offer
+
+A signed LINE acceptance uses the same `record_response()` / Safety / request creation path as the web simulator. A candidate needed for the remaining gap who passes Safety gets a pending request; `GET /approvals?pending=true` includes it for the Head Nurse page (which polls every two seconds). H2 includes an integration test from a signed acceptance by 201 to that API read as 900. Acceptance acknowledgements alone do not promise a pending approval: reserves wait for promotion, Safety failures produce no request, and expired/closed/decided requests leave the pending list. This does not add Head Nurse LINE notifications.
 
 ## Migration and verification
 
@@ -32,6 +36,6 @@ Tests use isolated PostgreSQL and fake LINE adapters: transaction rollback, repe
 
 Real LINE end-to-end validation is still required separately after upgrading/restarting the local demo deliberately. No development demo database was reset or migrated for these tests. For a manual test: configure real LINE, bind a nurse, complete an approval/manual assignment, wait for the Handover, advance the demo clock into its check-in window, then press the button. Verify the attendance audit is SELF and repeated presses keep one row. The Quick Tunnel still targets only the reviewed loopback webhook proxy; no new public route is needed.
 
-Verification on this branch: full backend 2,741 passed, 14 timing tests skipped; Ruff, Ruff format and mypy (174 source files) passed. The container inherits LINE_MODE=real; L5 fixtures isolate simulation tests and replace all real-mode LINE calls. No frontend files changed.
+Verification on this branch: full backend 2,746 passed, 14 timing tests skipped; Ruff, Ruff format and mypy (174 source files) passed. The container inherits LINE_MODE=real; L5 fixtures isolate simulation tests and replace all real-mode LINE calls. No frontend files changed.
 
 Follow-up check-in wording verification: 142 targeted attendance, LINE and approval tests passed, including dates across midnight, replacement creation after shift start and partial-shift endings; Ruff and mypy passed.

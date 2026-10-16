@@ -11,6 +11,7 @@ from urllib.parse import parse_qs
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core import clock
 from app.core.config import settings
 from app.core.constants import MAX_BIGINT
 from app.db.models import LineWebhookEvent
@@ -155,9 +156,14 @@ def _check_in_event(db: Session, event: dict[str, Any], event_id: str) -> bool:
         if _business_refusal(db, event_id):
             _reply(db, event, "เช็กอินไม่ได้ กรุณาตรวจเวรที่ได้รับมอบหมายและช่วงเวลาที่เปิดเช็กอิน")
         return True
-    _reply(
-        db, event, f"บันทึกเช็กอินเวร {result.shift_id} แล้ว ({'ทันเวลา' if result.on_time else 'มาสาย'})"
+    at = result.check_in_at.astimezone(clock.APP_TIMEZONE).strftime("%H:%M")
+    timing = "ทันเวลา" if result.on_time else "มาสาย"
+    message = (
+        f"คุณเช็กอินเวร {result.shift_id} แล้ว เวลา {at} น. ({timing}) ไม่ต้องเช็กอินซ้ำ"
+        if result.already_checked_in
+        else f"เช็กอินเวร {result.shift_id} สำเร็จ เวลา {at} น. ({timing})"
     )
+    _reply(db, event, message)
     return True
 
 

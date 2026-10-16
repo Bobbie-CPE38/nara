@@ -522,6 +522,7 @@ def test_two_connections_checking_in_at_once_leave_one_row_and_one_audit(
     assert all(not thread.is_alive() for thread in threads)
     assert not errors
     assert results[0] == results[1]
+    assert sorted(result.already_checked_in for result in results) == [False, True]
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(Attendance)) == 1
         assert len(audit_rows(db)) == 1
