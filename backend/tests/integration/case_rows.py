@@ -24,19 +24,22 @@ from app.db.models import (
     StaffUnavailability,
 )
 from app.domain.enums import (
+    ActorName,
     ApprovalMode,
     AssignmentType,
+    AuditAction,
     AvailabilityReason,
     CandidateSource,
     CaseStatus,
     Channel,
+    EntityType,
     EventStatus,
     EventType,
     OutreachStatus,
     RosterStatus,
     SolverStatus,
 )
-from app.services import gap_service
+from app.services import actor_service, audit_service, gap_service
 from tests.integration.conftest import DEMO_NOW
 
 NIGHT_SHIFT, DAY_SHIFT = 1, 2
@@ -100,6 +103,16 @@ def make_case(
     db.flush()
     event.case_id = case.id
     db.flush()
+    # Handover uses the real case-opening provenance, not an arbitrary event.
+    audit_service.log(
+        db,
+        case_id=case.id,
+        actor_id=actor_service.component_id(db, ActorName.WORKFLOW_ORCHESTRATOR),
+        action=AuditAction.CASE_OPENED,
+        entity_type=EntityType.STAFFING_CASES,
+        entity_id=case.id,
+        payload={"event_id": event.id, "shift_id": shift_id},
+    )
     return case
 
 

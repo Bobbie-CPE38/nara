@@ -265,7 +265,7 @@ Contract ของรอบ 5 ตกลงแล้ว (PR #91) ไฟล์น�
 | N1 | คน 2 | `ATTENDANCE.shift_id`, Route check-in ของพยาบาล, Route จำลองการ check-in, รายการของด่าน proxy, Seed check-in | 6.24, 9.7 | 0 | 0 | มี (`ATTENDANCE`) | |
 | N2 | คน 2 | ตัวตรวจ `NO_SHOW` สองขั้น, ผลต่อ Roster, มาสาย | 6.24 | N1, H1 | N1, H1, G ถ้าแก้ Handler | ไม่มี | |
 | L5 | คน 3 | Test ตั้ง `LINE_MODE=simulation` เอง (ทำแล้ว) | | 0 | 0 | ไม่มี | [#95](https://github.com/Bobbie-CPE38/nara/pull/95) |
-| H1 | คน 3 | ฟังก์ชันกลางที่สร้างเวรพร้อม Handover, Route อ่าน | 6.25, 9.7 | 0 | 0, G ถ้าแก้ Handler | มี (`STRUCTURED_HANDOVER.roster_assignment_id`) | |
+| H1 | คน 3 | ฟังก์ชันกลางที่สร้างเวรพร้อม Handover, Route อ่าน (ทำแล้ว) | 6.25, 9.7 | 0 | 0, G ถ้าแก้ Handler | มี (`STRUCTURED_HANDOVER.roster_assignment_id`) | [#96](https://github.com/Bobbie-CPE38/nara/pull/96) |
 | H2 | คน 3 | ส่ง Handover ทาง LINE, คำสั่ง check-in ทาง LINE | 6.24, 6.25 | H1 | H1, N1, L5 | มี (สถานะการส่งของ Handover) | |
 | U5 | คน 1 | หน้าเว็บของรอบ 5 และ Route อ่าน Clock | 9.7 | N1, H1 | N2 | ไม่มี | |
 
@@ -1126,7 +1126,7 @@ Offer มี Timeout ตามข้อนี้ ส่วนคำขออน�
 * **ตัดสินอนุมัติในรอบ 4 (PR A และ S):** `with_for_update(key_share=True)` โดยไม่ตั้ง `read=True` สร้าง SQL `FOR NO KEY UPDATE` บน PostgreSQL (ไม่ใช่ `FOR KEY SHARE`) Lock นี้ขัดกับ `NO KEY UPDATE` อีกตัว จึงใช้เรียงการตัดสินของหอเดียวกันได้ ทั้ง `decide()` ที่คนกดและ Job อนุมัติเองล็อกแถว `WARD` ของหอปลายทางก่อนเสมอ แล้วจึงตามลำดับเดิมของการตัดสินอนุมัติ ลำดับเต็มคือ `WARD` → `SHIFT` → `APPROVAL_REQUEST` → Offer → เคส → `STAFF` เพื่อให้การนับคิวของ Auto-Approval กับการตัดสินของหอเดียวกันทำทีละรายการ (ข้อ 6.22) เส้นทางอื่นที่ล็อก `SHIFT` (รับ Event และปิด Merge Window, จัดคนเองและปิดเคสใน `MANUAL_HANDOFF`, Job ตั้งคำขอหมดเวลา) ไม่ล็อก `WARD` จึงไม่มีทางไหนล็อก `WARD` หลัง `SHIFT`
 * **ย้ายคนจริง (C2 ทำแล้ว):** ล็อก `SHIFT` ของเวรต้นทางและเวรปลายทางใน Query เดียวเรียงตาม `id` (หลัง `WARD`) แล้วจึงตามลำดับเดิม `transfer_service.execute()` ตรวจเวรต้นทางและกฎที่ขึ้นกับเวลาซ้ำหลังได้ Lock ครบ ใน Transaction เดียวกับการแก้แถวต้นทางและสร้างแถวปลายทาง (ข้อ 6.19) ไม่มีการล็อกเพิ่มจากลำดับของ PR S การย้ายกลางเวรของ C3 (แถวต้นทางยังอยู่และจบที่เวลาย้าย) ใช้ลำดับ Lock เดียวกัน
 * **[รอบ 5 · PR N2] check-in, ตรวจ `NO_SHOW` และมาสาย (ข้อ 6.24):** ทุกทางล็อกตามลำดับเดียวกัน: `SHIFT` → แถว `ROSTER_ASSIGNMENT` ของคนนั้น → (ถ้าเดินทางมาสายต่อ) `APPROVAL_REQUEST` และ `CANDIDATE_OUTREACH` ที่จะยกเลิก → เคส → `STAFF` ตรงกับลำดับเดิม และเหมือนการปิด Window ที่ล็อก `SHIFT` ก่อนแก้ Roster ฝั่งที่ได้ล็อกทีหลังอ่านข้อมูลใหม่หลังล็อก
-* **[รอบ 5 · PR H1] สร้างเวรพร้อม Handover (ข้อ 6.25):** ฟังก์ชันกลางเขียน Handover ใน Transaction และหลัง Lock ของทางที่เรียกมันเสมอ ไม่ล็อกแถวเพิ่ม การกันซ้ำใช้ Unique ของ `roster_assignment_id`
+* **H1 ทำแล้ว — สร้างเวรพร้อม Handover (ข้อ 6.25):** ฟังก์ชันกลางเขียน Handover ใน Transaction และหลัง Lock ของทางที่เรียกมันเสมอ ไม่ล็อกแถวเพิ่ม การกันซ้ำใช้ Unique ของ `roster_assignment_id`
 * ลำดับ Lock ในข้อนี้มี Test สอง Connection พิสูจน์ทุกเส้นทางที่ลงมือแล้ว (ใน `backend/tests/integration/`):
   * สองคนตอบรับเคสเดียวกันพร้อมกัน: `test_outreach_response.py::test_two_staff_accept_same_case_concurrently_one_is_reserve`
   * คนเดียวตอบรับสองเคสพร้อมกัน: `test_outreach_response.py::test_simultaneous_accepts_only_one_commitment`
@@ -1660,7 +1660,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * **เก็บใครไว้ก่อน:** ความครอบคลุมมาก่อน เก็บชุดคนที่ปิด Gap รายช่วงที่เหลือได้มากที่สุด (คนที่ครอบไม่เต็มช่วงไม่ได้ปิดช่วงที่ไม่ได้ครอบ) ถ้าเท่ากัน เก็บคนที่ไปไกลกว่า (คำขอที่รออนุมัติก่อน Offer ที่ยังไม่ตอบ) ถ้ายังเท่ากัน เก็บอันดับใน Plan ที่ดีกว่า ที่เหลือยกเลิกด้วย Audit `OFFER_CANCELLED_NOT_NEEDED` (ข้อ 7.1) การตัดสินว่า Gap ปิดแล้วใช้กติกาเดียวกับ `recompute()`
 * เวรเกินคนได้ Head Nurse ตัดสินเองว่าจะให้ใครกลับ รอบ 5 ไม่มีปุ่มสำหรับเรื่องนี้
 
-### 6.25 Handover [รอบ 5 · PR H1, H2]
+### 6.25 Handover (H1 ทำแล้ว; การส่ง LINE รอ H2)
 
 * หนึ่งแถว Handover ต่อหนึ่ง `roster_assignment_id` ของคนที่ได้เวรแทน (R5-Q14) สร้างใน Transaction เดียวกับการจัดเวร เขียน Audit `HANDOVER_GENERATED` เนื้อหาเป็นข้อมูลจาก DB ล้วน ไม่ใช้ LLM (R5-Q13)
 * ทุกทางที่สร้างเวรเรียกฟังก์ชันกลางตัวเดียว มีห้าทาง: อนุมัติ, อนุมัติเอง, จัดเองใน `MANUAL_HANDOFF`, การย้าย และแถวใหม่ตอนมาสาย สี่ทางแรกสร้าง Handover เสมอ ทางที่ห้าสร้างเฉพาะเมื่อแถวที่ถูกยกเลิกมี Handover
@@ -1670,6 +1670,10 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * คนที่มาแทนเห็นในหน้า `/me/offers` และได้ทาง LINE Head Nurse เห็นในหน้าเคส (R5-Q15) การย้ายไม่มี Handover ฝั่งต้นทาง (R5-Q16)
 * **ส่งทาง LINE (H2, R5-Q24):** ขยาย `line_delivery_service` ให้ส่ง Handover ได้ บันทึกความตั้งใจส่งใน Transaction เดียวกับ Handover แล้ว Job ส่งต่อ ได้ Retry key ลองไม่เกิน 3 ครั้ง และการกู้หลังเครื่องล่มแบบเดียวกับ Offer ส่งหลัง Commit เท่านั้น ส่งล้มไม่ย้อนการจัดเวร ตรวจว่า Handover ยังใช้งานอยู่ซ้ำก่อนส่งและทุกครั้งที่ลองใหม่
 * แนวทางของรอบ 6: ถ้าใช้ LLM เขียนข้อความ ให้บันทึก `PENDING` ใน Transaction นี้แล้วประมวลผลภายหลัง LLM ล้มต้องไม่ย้อนการจัดเวร
+
+**H1 ทำแล้ว:** ทุกทางสร้างแถวผ่าน `roster_service.create_assignment()` แล้ว `handover_service.ensure()` สร้าง Snapshot และ Audit โดยไม่ Commit หรือเพิ่ม Row Lock การเรียก `ensure()` ซ้ำได้แถวเดิม Unique Constraint และ `INSERT ... ON CONFLICT` กันสอง Connection เขียนซ้ำ Migration `e8c4b2a6f0d9` ต่อจาก N1 `a4d8e1b7c3f5` ส่วน N2 ใช้ `roster_service.restore_late_arrival()` หลังยกเลิกแถวเดิมและได้ Lock ครบ (ดู `docs/round5/pr-H1-handoff.md`) H1 ไม่อ่านคอลัมน์ใหม่ของ `ATTENDANCE` และยังไม่สร้าง LINE delivery intent ส่วนนี้เป็น H2
+
+การจัดเองใน `MANUAL_HANDOFF` ที่หา Event เปิดเคสไม่ได้: Rollback งานจัดครั้งนั้น ตอบ `409` พร้อม `HANDOVER_SOURCE_UNAVAILABLE` และคงเคสไว้ให้ตรวจข้อมูล ไม่ใช่ Workflow Round ของ D11 ส่วนประวัติ `/me/handovers` ยังคืน List ทั้งหมด TODO ของ U5 คือเพิ่ม Cursor Pagination พร้อมตัวอ่านในหน้าพยาบาล
 
 **รูปของ `content` (`HANDOVER_CONTENT_VERSION` = 1)** เวลาเป็น ISO 8601 พร้อม timezone แบบ API อื่น
 
@@ -1681,7 +1685,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 | `reason` | string (`HandoverReason`) | ไม่ | เหตุที่เวรขาดคนของเคส คิดจาก **Event ที่เปิดเคส** คือ Event แรกที่ผ่าน Threshold (`first_passed`) ซึ่ง **[ตรวจแล้ว]** `close_locked_window()` บันทึกไว้ใน `payload.event_id` ของ Audit `CASE_OPENED` ไม่ใช้ Event ที่ `id` น้อยที่สุด เพราะ Event ที่ไม่ผ่าน Threshold ก็ได้ `case_id` ด้วย (Q42) ค่าของ Handover จึงตรงกับแถว Audit: `STAFF_UNAVAILABLE` ที่ `payload.reason` = `NO_SHOW` → `NO_SHOW`, `STAFF_UNAVAILABLE` อื่น → `UNPLANNED_LEAVE`, Event ชนิดอื่นใช้ชื่อชนิด (`ASSIGNMENT_CANCELLED`, `PATIENT_SURGE`, `REQUIREMENT_CHANGED`) ไม่มี `PLANNED_LEAVE` เพราะไม่เปิดเคส ทุกทางที่สร้าง Handover ใช้ฟังก์ชันเดียวคิดค่านี้ เคสทุกเคสมี Event ที่เปิดเคสและตั้ง `case_id` แล้วเสมอ เพราะ **[ตรวจแล้ว]** เคสถูกเปิดตอนปิด Window เท่านั้น และ `close_locked_window()` ตั้ง `case_id` ให้ทุก Event ของ Window ใน Transaction เดียวกับที่สร้างเคส ก่อน Orchestrator เริ่มทำงาน ส่วน Handover ถูกสร้างทีหลังตอนจัดเวร ถ้าหา Event ไม่เจอ (ข้อมูลผิดปกติ) ถือเป็นความผิดพลาดของระบบตาม D11 ไม่เดาค่า |
 | `patient_count` | integer | ใช่ | จำนวนผู้ป่วยของเวรตอนสร้าง |
 | `requirement` | object `{roles: [{role_id, name, required_count}], skills: [{skill_id, name, required_count}]}` | ไม่ | Requirement ของเวรตอนสร้าง |
-| `co_workers` | list ของ `{staff_id, name, role_name}` | ไม่ (List ว่างได้) | คนที่อยู่เวรด้วยกันตอนสร้าง ไม่รวมตัวคนที่มาแทน |
+| `co_workers` | list ของ `{staff_id, name, role_name}` | ไม่ (List ว่างได้) | คนที่อยู่เวรด้วยกันตอนสร้างตามช่วงจริง ไม่รวมตัวผู้รับแทน และแถวต้นทางของคนใน Event ของเคสที่มีลิงก์ย้ายออกจริง (`transferred_from_assignment_id`) การมี Event อย่างเดียวไม่ซ่อนคนที่ยังทำงานอยู่ รวมแถวใหม่ที่กลับมาทำช่วงที่เหลือโดยไม่แสดงชื่อซ้ำ |
 | `case_id` | integer | ไม่ | เคสที่ทำให้ได้เวร |
 
 ---
@@ -1698,7 +1702,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 | `UNAVAILABILITY_CREATED` | `merge_window_service` ตอน Window ปิด (PART B) | user (คนที่ลา) หรือ system (`NO_SHOW` ข้อ 6.24) | STAFF_UNAVAILABILITY | `unavailability_id`, `staff_id`, `reason`, `start_at`, `end_at` |
 | `ATTENDANCE_CHECKED_IN` | ฟังก์ชันกลางของ check-in (ข้อ 6.24) | user (พยาบาลที่กด) หรือ system (การจำลอง) | ATTENDANCE | `attendance_id`, `staff_id`, `shift_id`, `roster_assignment_id`, `check_in_at`, `on_time` (boolean), `source` (`SELF` หรือ `SIMULATED`) |
 | `OFFER_CANCELLED_NOT_NEEDED` **[รอบ 5 · PR N2]** | ทางมาสาย (ข้อ 6.24) หนึ่งแถวต่อ Offer หรือคำขอที่ยกเลิก | system | CANDIDATE_OUTREACH | `cancelled_outreach_id`, `approval_request_id` (ว่างได้), `staff_id`, `late_staff_id`, `reason` = `NO_LONGER_NEEDED` |
-| `HANDOVER_GENERATED` **[รอบ 5 · PR H1]** | ฟังก์ชันกลางที่สร้างเวร (ข้อ 6.25) | ผู้กระทำของการจัดนั้น | STRUCTURED_HANDOVER | `handover_id`, `roster_assignment_id`, `staff_id`, `shift_id`, `case_id` |
+| `HANDOVER_GENERATED` | ฟังก์ชันกลางที่สร้างเวร (ข้อ 6.25) | ผู้กระทำของการจัดนั้น | STRUCTURED_HANDOVER | `handover_id`, `roster_assignment_id`, `staff_id`, `shift_id`, `case_id` |
 | `UNAVAILABILITY_UPDATED` | `unavailability_service.update_end_at()` (รอบ 3 PR R) | user (Head Nurse ที่แก้) | STAFF_UNAVAILABILITY | `unavailability_id`, `staff_id`, `previous_end_at` (`null` ได้), `end_at` เวลาเป็น `+07:00` แถวนี้มี `case_id = NULL` และ `event_id = NULL` |
 | `ASSIGNMENT_CANCELLED` | `merge_window_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง จาก `reported_by` ใน payload ของ Event) | ROSTER_ASSIGNMENT | `assignment_id` (Roster ที่ถูกยกเลิก), `staff_id`, `reason` |
 | `PATIENT_COUNT_UPDATED` | `merge_window_service` ตอน Window ปิด (PART B) | user (ผู้แจ้ง) | SHIFT | `shift_id`, `old_patient_count`, `new_patient_count` |
@@ -2109,7 +2113,8 @@ PostgreSQL คืน `timestamptz` ตาม Timezone ของ Session ซึ�
      "cover_start_at": null, "cover_end_at": null, "source_assignment": null}
   ],
   "explanation": {"status": "READY", "text": "[fake] ...", "provider": "fake", "model_id": null},
-  "partial_plan": false
+  "partial_plan": false,
+  "handovers": []
 }
 ```
 
@@ -2301,8 +2306,8 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 | `POST /me/attendance/check-in` (ใหม่) | Body `{shift_id}` ตัวตนจาก `X-Demo-User` ไม่รับ `staff_id` คืน `{attendance_id, shift_id, check_in_at, on_time, deadline}` `404` เมื่อไม่มีแถว Roster ของคนนั้นในเวรนั้น `422` เมื่ออยู่นอกขอบเวลา **ยกเว้น check-in ซ้ำ ซึ่งคืนแถวเดิมเสมอ** (หาแถวเดิมก่อนตรวจขอบเวลา ข้อ 6.24) | N1 (ทำแล้ว) |
 | `POST /demo/attendance/check-in` (ใหม่) | Body `{staff_id, shift_id}` จำลองการ check-in คำตอบและ Error เหมือน Route ข้างบน รวมข้อยกเว้นของ check-in ซ้ำที่คืนแถวเดิม Audit `source = SIMULATED` | N1 (ทำแล้ว) |
 | คำสั่ง check-in ทาง LINE | ตัวตนจากบัญชีที่ผูกแล้ว กติกาเดียวกับ `POST /me/attendance/check-in` | H2 |
-| `GET /me/handovers` (ใหม่) | Handover ของผู้เรียก ใช้งานอยู่ก่อน แล้วตามด้วยประวัติ ล่าสุดก่อน แต่ละรายการ `{handover_id, roster_assignment_id, active, generated_at, content}` | H1 |
-| `GET /cases/{id}` | เพิ่ม `handovers` = List ของรายการแบบเดียวกับข้างบน | H1 |
+| `GET /me/handovers` (ใหม่) | Handover ของผู้เรียกจาก `X-Demo-User` เท่านั้น (ไม่สนใจ `staff_id` ใน Query) ใช้งานอยู่ก่อน แล้วตามด้วยประวัติ ล่าสุดก่อน แต่ละรายการ `{handover_id, roster_assignment_id, active, generated_at, content}` (`generated_at` เป็น `+07:00`) | H1 (ทำแล้ว) |
+| `GET /cases/{id}` | เพิ่ม `handovers` = List ของรายการแบบเดียวกับข้างบน กติกาการอ่านเคสเดิมไม่เปลี่ยน | H1 (ทำแล้ว) |
 | `GET /clock` (ใหม่) | คืน `{now, frozen}` จาก `app.core.clock` อ่านอย่างเดียว | U5 |
 | หน้า `/me/offers` | ปุ่ม check-in และ Handover ของตัวเอง | U5 |
 | หน้า `demo/control` | ปุ่ม "จำลองการ check-in" | U5 |
@@ -2581,3 +2586,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-16 | รอบ 5 PR G: การเดินระหว่าง Handler ใน `_run_round()` เป็น Graph ของ LangGraph (ข้อ 6.23) หนึ่ง Node ต่อหนึ่งสถานะใน `HANDLERS` Edge ตาม `ALLOWED_TRANSITIONS` ไม่ใช้ Checkpointer; Savepoint, Commit, D11 และการส่ง LINE อยู่นอก Graph เหมือนเดิม; ล็อก `langgraph==1.2.15` และประกาศ `langchain-core>=1.4.7,<2` ที่ `orchestrator.py` Import ตรง; Test ใหม่เทียบลำดับ `CASE_STATUS_CHANGED` ของหก Scenario กับค่าที่บันทึกก่อน G และตรวจว่าการส่ง LINE เกิดหลัง Commit; ทุกคน Restart Backend หลัง merge | คน 1 |
 | 2026-10-16 | รอบ 5 PR N1: check-in, Migration `a4d8e1b7c3f5` เพิ่ม `ATTENDANCE.shift_id` (NULL ได้ ไม่ Backfill) กับ Partial Unique Index `uq_attendance_staff_shift` บน (`staff_id`, `shift_id`) เฉพาะแถวที่มี `shift_id`; `attendance_service` มี `required_arrival_at()`, `deadline_at()`, `effective_end_at()`, `accepts_check_in()`, `is_on_time()` และ `check_in()` ที่ล็อก `SHIFT` → `ROSTER_ASSIGNMENT` และหาแถวเดิมก่อนตรวจขอบเวลา check-in ซ้ำจึงคืนแถวเดิมเสมอ; Route `POST /me/attendance/check-in` และ `POST /demo/attendance/check-in`; Audit `ATTENDANCE_CHECKED_IN` ใส่ `source` (`SELF` หรือ `SIMULATED`); เพิ่ม `/demo/attendance/check-in` ในรายการของ `dev/line-webhook-proxy/check_gate.py` และ `test_proxy.py`; ขั้น Seed `seed/check_ins.py` (Seed ปัจจุบันได้ 0 แถว เพราะตอน Reset ยังไม่มีเวรที่เริ่ม); แก้ข้อ 6.11, 6.24, 7.1, 9.3, 9.7 และ `database-schema.md` ข้อ 19; Test: `test_attendance_check_in.py`, `test_attendance_shift_migration.py`, `tests/unit/services/test_attendance_time.py` | คน 2 |
 | 2026-10-16 | รอบ 5 PR L5: Test ตั้งโหมด LINE เองด้วย Autouse Fixture (Environment และ settings เป็น simulation); กัน HTTP ที่ไม่ได้จำลองไป LINE ด้วย pytest.fail เพื่อไม่ให้ส่งจริงหรือถูกจับเป็นการส่งที่รอลองใหม่; Test ของโหมดจริงยังใช้ตัวปลอมได้; เพิ่ม Test ของค่าเริ่มต้นและด่าน push/reply รวมทางตอบกลับที่จับ Exception; ไม่เปลี่ยนโค้ดของระบบหรือ Migration | คน 3 |
+| 2026-10-16 | รอบ 5 PR H1: เพิ่ม `STRUCTURED_HANDOVER.roster_assignment_id` NOT NULL และ Unique (Migration `e8c4b2a6f0d9` ต่อ N1); รวมตัวสร้าง Roster ใน `roster_service.create_assignment()` พร้อม Snapshot จาก DB และ Audit `HANDOVER_GENERATED`; เหตุจาก Event ที่เปิดเคสใน `CASE_OPENED`; ทางอนุมัติ จัดเอง และย้ายใช้ตัวกลาง พร้อม seam สำหรับ N2 ตอนมาสาย; API `/me/handovers` และ `handovers` ในหน้าเคสรวมปัจจุบันกับประวัติ; สร้างซ้ำและสอง Connection ได้แถวเดียว; Golden Path เพิ่ม Audit ของ Handover ก่อน `ASSIGNMENT_CREATED` โดยลำดับสถานะเดิมไม่เปลี่ยน; Frontend `CaseDetail` และ Fixture มี `handovers`; `co_workers` แยกแถวต้นทางที่มีลิงก์ย้ายออกจริงจากคนที่มี Event แต่ยังทำงานอยู่ และไม่ซ่อนแถวใหม่ที่กลับมาทำช่วงที่เหลือ; จัดเองที่ต้นทางเคสผิดปกติ Rollback และตอบ `409 HANDOVER_SOURCE_UNAVAILABLE`; ระบุข้อจำกัดของแถวก่อน H1, TODO Pagination ของ U5 และวิธีเตรียมข้อมูลก่อน Migration; ยังไม่ส่ง LINE (H2) | คน 3 |

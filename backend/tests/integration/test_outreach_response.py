@@ -78,7 +78,13 @@ def test_accept_runs_individual_safety_and_recompute(
     db = production_seeded
     assert db.scalar(select(func.count()).select_from(ApprovalRequest)) == 1
     assert db.scalar(select(func.count()).select_from(SafetyValidation)) == 1
-    actions = list(db.scalars(select(AuditLog.action).order_by(AuditLog.id)))
+    actions = list(
+        db.scalars(
+            select(AuditLog.action)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+            .order_by(AuditLog.id)
+        )
+    )
     assert actions == [
         AuditAction.OFFER_ACCEPTED,
         AuditAction.SAFETY_PASSED,
@@ -110,9 +116,18 @@ def test_repeated_answer_is_409_without_second_audit(
     client: TestClient, offer: CandidateOutreach, response: str, production_seeded: Session
 ) -> None:
     assert _post(client, offer, response).status_code == 200
-    before = production_seeded.scalar(select(func.count()).select_from(AuditLog))
+    before = production_seeded.scalar(
+        select(func.count()).select_from(AuditLog).where(AuditLog.action != AuditAction.CASE_OPENED)
+    )
     assert _post(client, offer, response).status_code == 409
-    assert production_seeded.scalar(select(func.count()).select_from(AuditLog)) == before
+    assert (
+        production_seeded.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+        == before
+    )
 
 
 @pytest.mark.parametrize("response", ["ACCEPT", "REJECT"])
@@ -194,7 +209,14 @@ def test_unknown_id_does_not_answer_another_offer(
     )
     production_seeded.refresh(offer)
     assert offer.status == OutreachStatus.SENT
-    assert production_seeded.scalar(select(func.count()).select_from(AuditLog)) == 0
+    assert (
+        production_seeded.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+        == 0
+    )
 
 
 def test_multiple_offers_select_by_id_and_pause_accept_only(
@@ -336,7 +358,14 @@ def test_stale_id_does_not_answer_replacement(
     assert result.status_code == 409
     production_seeded.refresh(replacement)
     assert replacement.status == OutreachStatus.SENT
-    assert production_seeded.scalar(select(func.count()).select_from(AuditLog)) == 0
+    assert (
+        production_seeded.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+        == 0
+    )
 
 
 def test_reserve_is_promoted_after_head_nurse_rejection(production_seeded: Session) -> None:
@@ -445,7 +474,14 @@ def test_unrecordable_workflow_failure_rolls_back_answer(
     production_seeded.refresh(offer)
     assert offer.status == OutreachStatus.SENT
     assert offer.response_at is None
-    assert production_seeded.scalar(select(func.count()).select_from(AuditLog)) == 0
+    assert (
+        production_seeded.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+        == 0
+    )
 
 
 def test_waiting_other_case_releases_offer_after_rejection(
@@ -505,7 +541,9 @@ def test_candidate_reject_scenario_reaches_second_wave(
                 "WAITING_APPROVAL" if final_answer == "ACCEPT" else "MANUAL_HANDOFF"
             )
             audit = db.scalar(
-                select(AuditLog).where(
+                select(AuditLog)
+                .where(AuditLog.action != AuditAction.CASE_OPENED)
+                .where(
                     AuditLog.entity_id == current["id"], AuditLog.action == AuditAction.OFFER_SENT
                 )
             )

@@ -210,6 +210,7 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
     assert body["status"] == "WAITING_RESPONSE"
     assert "case_status" not in body
     assert set(body) == {
+        "handovers",
         "id",
         "status",
         "event_ids",
