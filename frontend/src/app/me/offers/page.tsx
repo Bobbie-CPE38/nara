@@ -1,14 +1,19 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { HandoverList, isHandover } from "@/components/handover/HandoverList";
 import { type OfferApi, OfferList } from "@/components/outreach/OfferList";
-import { DEFAULT_POLL_INTERVAL_MS } from "@/hooks/usePolling";
-import { createDemoApi } from "@/lib/api";
+import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "@/hooks/usePolling";
+import { ApiError, createDemoApi } from "@/lib/api";
 import {
   DEMO_APPROVERS,
   DEMO_SIGNED_IN_STORAGE_KEY as SIGNED_IN_STORAGE_KEY,
   DEMO_STAFF_IDS,
+  DEMO_WARDS,
 } from "@/lib/demo";
+import { formatDateTime } from "@/lib/format";
+import type { CheckInResult } from "@/lib/types/attendance";
+import type { HandoverView } from "@/lib/types/case";
 import type { Offer, OfferResponse } from "@/lib/types/outreach";
 
 // Head nurses and the Supervisor approve; nurses are everyone else on the demo list
@@ -45,6 +50,101 @@ function myOffersApi(staffId: number): OfferApi {
         signal,
       }),
   };
+}
+
+/** Seeded shifts that list this person, plus the shifts of their handovers. */
+function shiftsOf(staffId: number, handovers: readonly HandoverView[]): number[] {
+  const seeded = DEMO_WARDS.flatMap((ward) =>
+    ward.shifts.filter((shift) => shift.staffIds.includes(staffId)).map((shift) => shift.id),
+  );
+  const handed = handovers.flatMap((handover) => {
+    const shift = handover.content.shift;
+    return typeof shift === "object" && shift !== null && "id" in shift && typeof shift.id === "number"
+      ? [shift.id]
+      : [];
+  });
+  return [...new Set([...seeded, ...handed])].sort((a, b) => a - b);
+}
+
+function checkInError(cause: unknown): string {
+  if (!(cause instanceof ApiError)) return "Cannot reach the API. Check that the backend is running.";
+  if (cause.status === 404) return "You have no roster row on this shift.";
+  if (cause.status === 409) return "The shift is busy. Try again in a moment.";
+  return cause.message;
+}
+
+/** Check in for yourself (section 6.24). The backend clock decides the time, not this browser. */
+function CheckIn({ staffId, handovers }: { staffId: number; handovers: readonly HandoverView[] }) {
+  const shifts = shiftsOf(staffId, handovers);
+  const [shiftId, setShiftId] = useState<number | null>(null);
+  const chosen = shiftId !== null && shifts.includes(shiftId) ? shiftId : (shifts[0] ?? null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<CheckInResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function checkIn() {
+    if (chosen === null) return;
+    setBusy(true);
+    setResult(null);
+    setError(null);
+    try {
+      setResult(
+        await createDemoApi(staffId)<CheckInResult>("/me/attendance/check-in", {
+          method: "POST",
+          json: { shift_id: chosen },
+        }),
+      );
+    } catch (cause) {
+      setError(checkInError(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6">
+      <h2 className="text-xl font-semibold">Check in</h2>
+      {chosen === null ? (
+        <p className="mt-2">You have no shift to check in to.</p>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label htmlFor="check-in-shift">Shift</label>
+          <select
+            id="check-in-shift"
+            className="rounded border border-slate-400 p-1"
+            value={chosen}
+            disabled={busy}
+            onChange={(event) => setShiftId(Number(event.target.value))}
+          >
+            {shifts.map((id) => (
+              <option key={id} value={id}>
+                Shift {id}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="rounded bg-blue-700 px-3 py-1 text-white disabled:opacity-40"
+            disabled={busy}
+            onClick={() => void checkIn()}
+          >
+            Check in
+          </button>
+        </div>
+      )}
+      {result && (
+        <p role="status" className={result.on_time ? "mt-2 text-green-700" : "mt-2 text-amber-700"}>
+          Checked in to shift {result.shift_id} at {formatDateTime(result.check_in_at)}:{" "}
+          {result.on_time ? "on time" : "late"} (deadline {formatDateTime(result.deadline)}).
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="mt-2 text-red-700">
+          Check-in failed: {error}
+        </p>
+      )}
+    </section>
+  );
 }
 
 function DemoSignIn({ onSignIn }: { onSignIn: (staffId: number) => void }) {
@@ -86,6 +186,12 @@ function DemoSignIn({ onSignIn }: { onSignIn: (staffId: number) => void }) {
 function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => void }) {
   const [responding, setResponding] = useState(false);
   const api = useMemo(() => myOffersApi(staffId), [staffId]);
+  const loadHandovers = useCallback(
+    (signal: AbortSignal) => createDemoApi(staffId)<HandoverView[]>("/me/handovers", { signal }),
+    [staffId],
+  );
+  const handovers = usePolling(loadHandovers);
+  const handoverRows = Array.isArray(handovers.data) ? handovers.data.filter(isHandover) : [];
   return (
     <>
       <div
@@ -115,6 +221,25 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => vo
         emptyText="You have no shift offers."
         onPendingChange={setResponding}
       />
+      <CheckIn staffId={staffId} handovers={handoverRows} />
+      <section className="mt-6">
+        <h2 className="text-xl font-semibold">My handovers</h2>
+        {handovers.error && handovers.data === undefined ? (
+          <p role="alert" className="mt-2 text-red-700">
+            Cannot load your handovers. Retrying…
+          </p>
+        ) : (
+          <>
+            {handovers.error && (
+              <p role="alert" className="mt-2 text-sm text-amber-700">
+                Could not refresh your handovers. Showing the last loaded list, which may be
+                outdated. Retrying…
+              </p>
+            )}
+            <HandoverList handovers={handoverRows} emptyText="You have no handovers." />
+          </>
+        )}
+      </section>
     </>
   );
 }

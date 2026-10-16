@@ -887,4 +887,55 @@ describe("CaseView", () => {
       ]);
     });
   });
+
+  it("shows the handovers of the case", async () => {
+    serve(
+      caseDetail({
+        status: "RESOLVED",
+        handovers: [
+          {
+            handover_id: 5,
+            roster_assignment_id: 40,
+            active: true,
+            generated_at: "2026-10-09T21:05:00+07:00",
+            content: { version: 1, shift: { id: 1, ward_name: "ICU" }, reason: "UNPLANNED_LEAVE", co_workers: [] },
+          },
+        ],
+      }),
+      [],
+    );
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(screen.getByRole("heading", { name: "Handovers" })).toBeTruthy();
+    expect(screen.getByText(/Shift 1 \(ICU\)/)).toBeTruthy();
+    expect(screen.getByText("Unplanned leave")).toBeTruthy();
+  });
+
+  it("keeps reading a resolved case while a handover is active and shows it as history later", async () => {
+    const card = (active: boolean) => ({
+      handover_id: 6,
+      roster_assignment_id: 41,
+      active,
+      generated_at: "2026-10-09T21:05:00+07:00",
+      content: {
+        version: 1,
+        shift: { id: 1, ward_name: "ICU" },
+        requirement: { roles: [{ role_id: 1, name: "RN", required_count: 4 }], skills: [{ skill_id: 2, name: "ICU", required_count: 2 }] },
+        co_workers: [],
+      },
+    });
+    serve(caseDetail({ status: "RESOLVED", handovers: [card(true)] }), []);
+    render(<CaseView caseId="1" />);
+    await tick();
+    expect(screen.getByText(/while a handover is active/)).toBeTruthy();
+    expect(screen.getByText("RN × 4")).toBeTruthy();
+    expect(screen.getByText("ICU × 2")).toBeTruthy();
+    serve(caseDetail({ status: "RESOLVED", handovers: [card(false)] }), []);
+    await tick(2000);
+    expect(screen.getByText(/history, no longer active/)).toBeTruthy();
+    expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+    const calls = fetchMock.mock.calls.length;
+    await tick(10000);
+    expect(fetchMock.mock.calls.length).toBe(calls);
+  });
 });

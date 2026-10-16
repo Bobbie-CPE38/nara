@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { DemoClock } from "@/components/DemoClock";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -40,6 +41,7 @@ export default function RootLayout({
           <Link href="/me/offers" className="text-blue-700 underline">
             My offers
           </Link>
+          <DemoClock />
         </nav>
         {children}
       </body>
