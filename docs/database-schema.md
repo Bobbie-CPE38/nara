@@ -662,7 +662,7 @@ Migration ตั้ง delay ของ Policy เดิมเป็น `min(600,
 | `roster_assignment_id` | bigint | NOT NULL | FK ROSTER_ASSIGNMENT.id, UNIQUE | แถว Roster ของคนที่มาแทน หนึ่ง Handover ต่อหนึ่งแถว ตารางไม่มีแถวเดิม จึงไม่ต้อง Backfill |
 | `content` | jsonb | NOT NULL |  | รูปข้อมูลอยู่ที่ `workflow.md` ข้อ 6.25 (`version` = 1) |
 | `generated_at` | timestamptz | NOT NULL |  |  |
-| `delivery_*` | | | | **[รอบ 5 · PR H2]** สถานะการส่งทาง LINE ชุดเดียวกับของ `CANDIDATE_OUTREACH` (`delivery_status`, `delivery_attempts`, `delivery_retry_key`, `delivery_payload`, `delivery_next_attempt_at`, `delivery_claim`, `delivery_lease_until`, `delivery_last_result`) H2 ตั้งชื่อและ CHECK ให้ตรงกับของ Offer |
+| `delivery_*` | | | | **H2 ทำแล้ว** สถานะการส่งทาง LINE ชุดเดียวกับของ `CANDIDATE_OUTREACH` (`delivery_status`, `delivery_attempts`, `delivery_retry_key`, `delivery_payload`, `delivery_next_attempt_at`, `delivery_claim`, `delivery_lease_until`, `delivery_last_result`) ชื่อและ CHECK ตรงกับ Offer: status NULL หรือ `PENDING`, `ACCEPTED`, `FAILED`, `CANCELLED`, `NO_CONTACT`; attempts NOT NULL DEFAULT 0 และ 0–3; Payload เป็น JSONB; เวลาเป็น timestamptz; Key/Claim/Result เป็น text; มี Partial Index `ix_structured_handover_delivery_due` สำหรับ PENDING; Migration `f6b2d8a4c0e1` ไม่ Backfill Intent ของแถวเดิม |
 
 
 ### 30. AUDIT_LOG

@@ -1,4 +1,4 @@
-"""Immutable database snapshots, in the assignment transaction; no LINE or commits."""
+"""Immutable database snapshots, in the assignment transaction; no network or commits."""
 
 from typing import Any
 
@@ -200,7 +200,13 @@ def ensure(
             case_id=case.id,
         ),
     )
-    return db.get_one(StructuredHandover, handover_id)
+    from app.core.config import settings
+    from app.services import line_delivery_service
+
+    handover = db.get_one(StructuredHandover, handover_id)
+    if settings.real_line_enabled:
+        line_delivery_service.prepare_handover_delivery(db, handover)
+    return handover
 
 
 def list_handovers(

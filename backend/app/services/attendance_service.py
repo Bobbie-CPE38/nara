@@ -10,6 +10,7 @@ with a shift_id has exactly one audit row (a repeated check-in reads its roster
 row from that audit row).
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -74,9 +75,17 @@ def is_on_time(roster: RosterAssignment, shift: Shift, check_in_at: datetime) ->
 
 
 def check_in(
-    db: Session, *, staff_id: int, shift_id: int, source: CheckInSource, actor_id: int
+    db: Session,
+    *,
+    staff_id: int,
+    shift_id: int,
+    source: CheckInSource,
+    actor_id: int,
+    after_lock: Callable[[Session], None] | None = None,
 ) -> CheckInResult:
     """Record the check-in, or return the one already recorded, then commit.
+
+    after_lock joins webhook deduplication to this transaction after its locks.
 
     Order: lock the SHIFT (404 if missing) → an existing ATTENDANCE row of this
     person in the shift is returned as it is, with no window check, no write and
@@ -92,6 +101,8 @@ def check_in(
     )
     if existing is not None:
         result = _existing_result(db, existing, shift)
+        if after_lock is not None:
+            after_lock(db)
         db.commit()
         return result
 
@@ -106,6 +117,8 @@ def check_in(
             f"Check-in for shift {shift_id} is accepted from {_iso(earliest)}"
             f" until {_iso(effective_end_at(roster, shift))}, not at {_iso(now)}"
         )
+    if after_lock is not None:
+        after_lock(db)
     result = record(
         db, roster=roster, shift=shift, check_in_at=now, source=source, actor_id=actor_id
     )
