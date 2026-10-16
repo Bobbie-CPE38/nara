@@ -507,4 +507,32 @@ describe("demo control live case status", () => {
     await tick(10000);
     expect(fetchMock).toHaveBeenCalledTimes(count);
   });
+
+  it("reports a leave on the chosen ward, shift and person (PR U)", async () => {
+    const fetchMock = stubFetch(
+      { event_id: 5, event_status: "PROCESSED", case_id: 8, case_status: "WAITING_RESPONSE" },
+    );
+    render(createElement(DemoControl));
+    fireEvent.change(screen.getByLabelText("Ward"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Shift"), { target: { value: "22" } });
+    fireEvent.change(screen.getByLabelText("Staff on the shift"), { target: { value: "401" } });
+    click("Report leave");
+
+    expect(await screen.findByText("401 reports leave (Medicine, shift 22)")).toBeTruthy();
+    const [url, request] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/events$/);
+    expect(request.headers.get("X-Demo-User")).toBe("401");
+    expect(JSON.parse(request.body)).toEqual({ event_type: "STAFF_UNAVAILABLE", shift_id: 22 });
+  });
+
+  it("offers only the shifts and people of the chosen ward (PR U)", async () => {
+    stubFetch({});
+    render(createElement(DemoControl));
+    fireEvent.change(screen.getByLabelText("Ward"), { target: { value: "2" } });
+
+    const options = (label: string) =>
+      Array.from(screen.getByLabelText<HTMLSelectElement>(label).options).map((item) => item.value);
+    expect(options("Shift")).toEqual(["21", "22"]);
+    expect(options("Staff on the shift")).toEqual(["301", "302", "401", "902", "950"]);
+  });
 });
