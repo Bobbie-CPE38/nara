@@ -75,6 +75,11 @@ The [Makefile](Makefile) wraps the common Docker Compose commands. Run `make` to
 | `make logs` | Follow logs. For one service: `make logs s=backend` |
 | `make ps` | Show service status and health |
 
+Backend tests default to LINE simulation even when your `.env` uses `LINE_MODE=real`.
+An autouse fixture also blocks unmocked HTTP calls to LINE, so a test
+cannot accidentally send a real LINE message. Real-mode tests explicitly enable
+the mode and supply fake push/reply functions or a fake HTTP transport.
+
 macOS and Linux already have `make`. On Windows, install it once and then open a new terminal:
 
 ```powershell
