@@ -468,3 +468,18 @@ def test_two_connections_process_same_webhook_once(real_line, frozen_clock, rest
             )
             == 1
         )
+
+
+def test_accepted_line_offer_appears_in_head_nurse_pending_page(
+    real_line, http_client, production_seeded
+):
+    db = production_seeded
+    case, _, row = prepared(db)
+    body, headers = signed([event(row)])
+    assert http_client.post("/line/webhook", content=body, headers=headers).status_code == 200
+    response = http_client.get("/approvals?pending=true", headers={"X-Demo-User": "900"})
+    assert response.status_code == 200
+    pending = response.json()
+    assert len(pending) == 1
+    assert pending[0]["staff_id"] == 201 and pending[0]["case_id"] == case.id
+    assert pending[0]["is_pending"] is True

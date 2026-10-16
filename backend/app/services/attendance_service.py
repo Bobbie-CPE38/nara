@@ -10,7 +10,8 @@ with a shift_id has exactly one audit row (a repeated check-in reads its roster
 row from that audit row).
 """
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -40,6 +41,8 @@ class CheckInResult:
     check_in_at: datetime
     on_time: bool
     deadline: datetime
+    # Reply metadata; the recorded attendance remains the same on repeated reads.
+    already_checked_in: bool = field(default=False, compare=False)
 
 
 def required_arrival_at(roster: RosterAssignment, shift: Shift) -> datetime:
@@ -63,10 +66,14 @@ def effective_end_at(roster: RosterAssignment, shift: Shift) -> datetime:
     return roster.actual_end_at if roster.actual_end_at is not None else shift.end_at
 
 
+def earliest_check_in_at(roster: RosterAssignment, shift: Shift) -> datetime:
+    """The inclusive opening time shared by validation and LINE instructions."""
+    return required_arrival_at(roster, shift) - timedelta(seconds=CHECK_IN_EARLIEST_SECONDS)
+
+
 def accepts_check_in(roster: RosterAssignment, shift: Shift, at: datetime) -> bool:
     """Half-open window: arrival - CHECK_IN_EARLIEST_SECONDS <= at < effective end."""
-    earliest = required_arrival_at(roster, shift) - timedelta(seconds=CHECK_IN_EARLIEST_SECONDS)
-    return earliest <= at < effective_end_at(roster, shift)
+    return earliest_check_in_at(roster, shift) <= at < effective_end_at(roster, shift)
 
 
 def is_on_time(roster: RosterAssignment, shift: Shift, check_in_at: datetime) -> bool:
@@ -74,9 +81,17 @@ def is_on_time(roster: RosterAssignment, shift: Shift, check_in_at: datetime) ->
 
 
 def check_in(
-    db: Session, *, staff_id: int, shift_id: int, source: CheckInSource, actor_id: int
+    db: Session,
+    *,
+    staff_id: int,
+    shift_id: int,
+    source: CheckInSource,
+    actor_id: int,
+    after_lock: Callable[[Session], None] | None = None,
 ) -> CheckInResult:
     """Record the check-in, or return the one already recorded, then commit.
+
+    after_lock joins webhook deduplication to this transaction after its locks.
 
     Order: lock the SHIFT (404 if missing) → an existing ATTENDANCE row of this
     person in the shift is returned as it is, with no window check, no write and
@@ -92,6 +107,8 @@ def check_in(
     )
     if existing is not None:
         result = _existing_result(db, existing, shift)
+        if after_lock is not None:
+            after_lock(db)
         db.commit()
         return result
 
@@ -101,11 +118,13 @@ def check_in(
     if roster is None:
         # No row takes this moment: say why with the row that comes first in time
         roster = min(rows, key=lambda row: (required_arrival_at(row, shift), row.id))
-        earliest = required_arrival_at(roster, shift) - timedelta(seconds=CHECK_IN_EARLIEST_SECONDS)
+        earliest = earliest_check_in_at(roster, shift)
         raise CheckInOutsideWindowError(
             f"Check-in for shift {shift_id} is accepted from {_iso(earliest)}"
             f" until {_iso(effective_end_at(roster, shift))}, not at {_iso(now)}"
         )
+    if after_lock is not None:
+        after_lock(db)
     result = record(
         db, roster=roster, shift=shift, check_in_at=now, source=source, actor_id=actor_id
     )
@@ -213,6 +232,7 @@ def _existing_result(db: Session, attendance: Attendance, shift: Shift) -> Check
         attendance_id=attendance.id,
         shift_id=shift.id,
         check_in_at=attendance.check_in_at,
+        already_checked_in=True,
         on_time=is_on_time(roster, shift, attendance.check_in_at),
         deadline=deadline_at(roster, shift),
     )
