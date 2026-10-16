@@ -499,7 +499,7 @@ describe("round 4 (PR U)", () => {
   });
 
   it("says an approved transfer was cancelled, with the reason and the rules", async () => {
-    stubFetch([TRANSFER], {
+    stubFetch([BOTH_WAITING], {
       body: { approval_id: 4, is_approved: true, case_id: 7, case_status: "WAITING_RESPONSE",
         outcome: "TRANSFER_CANCELLED", reason: "SOURCE_SHIFT_STARTED", failed_rules: ["SHIFT_CONFLICT"] },
     });
@@ -508,7 +508,7 @@ describe("round 4 (PR U)", () => {
 
     expect(
       await screen.findByText(
-        "Approval 4: approved, but the transfer was cancelled (SOURCE_SHIFT_STARTED: SHIFT_CONFLICT). Case 7: WAITING_RESPONSE",
+        "Approval 4: approved, but the transfer was cancelled (SOURCE_SHIFT_STARTED: SHIFT_CONFLICT). Case 7: WAITING_RESPONSE.",
       ),
     ).toBeTruthy();
   });
@@ -525,7 +525,7 @@ describe("round 4 (PR U)", () => {
   });
 
   it("lists what the system approved for the current approver", async () => {
-    const fetchMock = stubFetch([], null, undefined, [
+    const fetchMock = stubFetch([], null, { body: { ...CASE, status: "RESOLVED" } }, [
       { ...PENDING, id: 8, staff_id: 202, approval_mode: "AUTO", is_pending: false,
         wards: [{ ward_id: 1, side: "DESTINATION", status: "APPROVED" }],
         decided_at: "2026-10-09T21:05:00+07:00" },
@@ -533,11 +533,60 @@ describe("round 4 (PR U)", () => {
     render(createElement(Approvals));
 
     const history = await screen.findByRole("table", { name: "Approved by the system" });
+    await waitFor(() => expect(within(history).getByText("RESOLVED")).toBeTruthy());
     const [, row] = within(history).getAllByRole("row");
     expect(within(row).getAllByRole("cell").map((item) => item.textContent)).toEqual([
-      "8", "7", "202", "ICU", "2026-10-09 21:05:00",
+      "8", "7", "202", "ICU (destination): approved", "2026-10-09 21:05:00", "RESOLVED",
     ]);
     const [, request] = fetchMock.mock.calls.find(([url]) => /\/approvals\/auto$/.test(url))!;
     expect(request.headers.get("X-Demo-User")).toBe("900");
+  });
+
+  it("flags an automatic approval whose execution failed (D11)", async () => {
+    stubFetch([], null, { body: { ...CASE, status: "FAILED" } }, [
+      { ...TRANSFER, id: 8, approval_mode: "AUTO", is_pending: false,
+        wards: [
+          { ward_id: 1, side: "DESTINATION", status: "APPROVED" },
+          { ward_id: 2, side: "SOURCE", status: "APPROVED" },
+        ],
+        decided_at: "2026-10-09T21:05:00+07:00" },
+    ]);
+    render(createElement(Approvals));
+
+    const history = await screen.findByRole("table", { name: "Approved by the system" });
+    const failed = await within(history).findByText(
+      "FAILED: approved, but the assignment was not made",
+    );
+    expect(failed.className).toContain("text-red-700");
+    // Both wards of the request are listed, not only the first
+    expect(
+      within(history).getByText("ICU (destination): approved; Medicine (source): approved"),
+    ).toBeTruthy();
+  });
+
+  it("gives a head nurse no buttons on a request of another ward", async () => {
+    // Medicine-only request: 900 of ICU sees it in the list but cannot decide it
+    const MEDICINE = { ...PENDING, proposed_shift_id: 21,
+      wards: [{ ward_id: 2, side: "DESTINATION", status: "PENDING" }] };
+    const fetchMock = stubFetch([MEDICINE]);
+    render(createElement(Approvals));
+
+    const approve = await screen.findByRole<HTMLButtonElement>("button", { name: "Approve" });
+    expect(approve.disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Reject" }).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Acting as"), { target: { value: "902" } });
+    await waitFor(() => expect(
+      screen.getByRole<HTMLButtonElement>("button", { name: "Approve" }).disabled,
+    ).toBe(false));
+    expect(posts(fetchMock)).toHaveLength(0);
+  });
+
+  it("gives a head nurse no buttons once their own ward has approved", async () => {
+    stubFetch([TRANSFER]);
+    render(createElement(Approvals));
+
+    // 900 is ICU, and the ICU side is already approved; Medicine still waits
+    const approve = await screen.findByRole<HTMLButtonElement>("button", { name: "Approve" });
+    expect(approve.disabled).toBe(true);
   });
 });

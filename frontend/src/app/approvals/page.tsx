@@ -91,7 +91,7 @@ function decisionMessage(result: ApprovalDecisionResult): string {
     case "TRANSFER_CANCELLED":
       return `${head}: approved, but the transfer was cancelled (${
         result.reason ?? "unknown reason"
-      }${rules}). Case ${result.case_id}: ${result.case_status}`;
+      }${rules}). Case ${result.case_id}: ${result.case_status}.`;
     case "REJECTED":
     case "ASSIGNED":
     case undefined:
@@ -104,12 +104,32 @@ function decisionMessage(result: ApprovalDecisionResult): string {
   }
 }
 
+/** An auto-approved request with the current status of its case. null: not known */
+type AutoRow = AutoApprovedApproval & { caseStatus: string | null };
+
+/** The history, plus one read per case: approved is not assigned (workflow.md 9.6, D11). */
+async function loadAutoRows(api: Api, signal: AbortSignal): Promise<AutoRow[]> {
+  const history = await api<AutoApprovedApproval[]>("/approvals/auto", { signal });
+  const caseIds = [...new Set(history.map((row) => row.case_id))];
+  const statuses = new Map<number, string | null>(
+    await Promise.all(
+      caseIds.map(async (caseId): Promise<[number, string | null]> => {
+        try {
+          return [caseId, (await api<CaseDetail>(`/cases/${caseId}`, { signal })).status];
+        } catch (cause) {
+          if (signal.aborted) throw cause;
+          // The history is still worth showing without this column
+          return [caseId, null];
+        }
+      }),
+    ),
+  );
+  return history.map((row) => ({ ...row, caseStatus: statuses.get(row.case_id) ?? null }));
+}
+
 /** Requests the system approved for the caller's wards, newest first (GET /approvals/auto). */
 function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
-  const load = useCallback(
-    (signal: AbortSignal) => api<AutoApprovedApproval[]>("/approvals/auto", { signal }),
-    [api],
-  );
+  const load = useCallback((signal: AbortSignal) => loadAutoRows(api, signal), [api]);
   const { data, error } = usePolling(load);
   return (
     <section aria-label="Approved by the system" className="mt-8">
@@ -127,8 +147,9 @@ function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
               <th>ID</th>
               <th>Case</th>
               <th>Staff</th>
-              <th>Ward</th>
+              <th>Wards</th>
               <th>Decided at</th>
+              <th>Case status</th>
             </tr>
           </thead>
           <tbody>
@@ -141,8 +162,15 @@ function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
                   </Link>
                 </td>
                 <td>{row.staff_id}</td>
-                <td>{row.wards?.[0] ? wardName(row.wards[0].ward_id) : "—"}</td>
+                <td>{wardsText(row) || "—"}</td>
                 <td>{formatDateTime(row.decided_at)}</td>
+                <td className={row.caseStatus === "FAILED" ? "text-red-700" : undefined}>
+                  {row.caseStatus === null
+                    ? "—"
+                    : row.caseStatus === "FAILED"
+                      ? "FAILED: approved, but the assignment was not made"
+                      : row.caseStatus}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -241,7 +269,21 @@ export default function Approvals() {
   function sideFor(row: PendingApproval): ApprovalSide | undefined {
     const open = pendingSides(row);
     if (actorId !== SUPERVISOR_ID || open.length < 2) return undefined;
-    return sides[requestKey(row)] ?? open[0];
+    // A side another approver decided since the pick is no longer offered
+    const picked = sides[requestKey(row)];
+    return picked && open.includes(picked) ? picked : open[0];
+  }
+
+  /**
+   * A head nurse decides only a side of their own ward that still waits. The list
+   * holds every ward's requests, so the others show without buttons. The page does
+   * not know the backend clock, so the Supervisor's buttons stay enabled and the API
+   * answers 403 before supervisor_from (workflow.md 6.21).
+   */
+  function canDecide(row: PendingApproval): boolean {
+    const wardId = DEMO_APPROVERS.find((approver) => approver.id === actorId)?.wardId ?? null;
+    if (wardId === null || row.wards === undefined) return true;
+    return row.wards.some((ward) => ward.status === "PENDING" && ward.ward_id === wardId);
   }
 
   function changeActor(id: number) {
@@ -357,7 +399,7 @@ export default function Approvals() {
                   <button
                     type="button"
                     className={button}
-                    disabled={busy}
+                    disabled={busy || !canDecide(row)}
                     onClick={() => decide(row.id, true, undefined, sideFor(row))}
                   >
                     Approve
@@ -366,7 +408,7 @@ export default function Approvals() {
                     type="button"
                     className={button}
                     // One reason at a time: Cancel first, so a typed reason is never lost
-                    disabled={busy || rejecting !== undefined}
+                    disabled={busy || rejecting !== undefined || !canDecide(row)}
                     onClick={() => setDraft({ key: requestKey(row), reason: "" })}
                   >
                     Reject

@@ -829,13 +829,15 @@ describe("CaseView", () => {
       ]);
     });
 
-    it("shows no slice table when one slice covers the whole shift", async () => {
+    it("shows the bounds of a single slice: a started shift is measured from the assessment", async () => {
+      // A 23:00-07:00 shift assessed at 03:00 has one slice, 03:00-07:00 (review of #86)
       const base = caseDetail();
       serve(
         caseDetail({
           gap: {
             ...base.gap!,
-            intervals: [slice("2026-10-09T23:00:00+07:00", "2026-10-10T07:00:00+07:00", 1)],
+            evaluated_from: "2026-10-10T03:00:00+07:00",
+            intervals: [slice("2026-10-10T03:00:00+07:00", "2026-10-10T07:00:00+07:00", 1)],
           },
         }),
         waitingResponseAudit(),
@@ -843,6 +845,16 @@ describe("CaseView", () => {
       render(<CaseView caseId="1" />);
       await tick();
 
+      expect(rows("Gap by time")).toEqual([
+        ["2026-10-10 03:00:00", "2026-10-10 07:00:00", "4 of 5", "Short: 1 people, 1 RN"],
+      ]);
+    });
+
+    it("shows no slice table for a gap written before round 4", async () => {
+      render(<CaseView caseId="1" />);
+      await tick();
+
+      expect(caseDetail().gap!.intervals).toEqual([]);
       expect(screen.queryByRole("table", { name: "Gap by time" })).toBeNull();
     });
 

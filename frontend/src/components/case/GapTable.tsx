@@ -10,18 +10,20 @@ function Shortage({ count }: { count: number }) {
 function shortages(slice: GapIntervalView): string {
   const parts = [
     ...(slice.headcount.gap_count > 0 ? [`${slice.headcount.gap_count} people`] : []),
-    ...slice.roles.filter(row => row.gap_count > 0).map(row => `${row.gap_count} ${row.name}`),
-    ...slice.skills.filter(row => row.gap_count > 0).map(row => `${row.gap_count} ${row.name}`),
+    ...slice.roles.filter((row) => row.gap_count > 0).map((row) => `${row.gap_count} ${row.name}`),
+    ...slice.skills.filter((row) => row.gap_count > 0).map((row) => `${row.gap_count} ${row.name}`),
   ];
   return parts.length === 0 ? "Covered" : `Short: ${parts.join(", ")}`;
 }
 
 /**
- * The gap by time slice (docs/workflow.md, section 6.20). Shown only when the
- * shift is split: one slice means the same gap for the whole shift.
+ * The gap by time slice (docs/workflow.md, section 6.20). Shown for every gap that
+ * has slices: one slice is not always the whole shift, because a shift that has
+ * started is measured only from the assessment time (evaluated_from) to its end.
+ * A gap written before round 4 has no slices and shows none.
  */
 function GapIntervals({ intervals }: { intervals: GapIntervalView[] }) {
-  if (intervals.length < 2) return null;
+  if (intervals.length === 0) return null;
   return (
     <table aria-label="Gap by time" className="mt-2 w-full text-left">
       <thead>
@@ -33,7 +35,7 @@ function GapIntervals({ intervals }: { intervals: GapIntervalView[] }) {
         </tr>
       </thead>
       <tbody>
-        {intervals.map(slice => (
+        {intervals.map((slice) => (
           <tr key={slice.start_at}>
             <td className="py-1 pr-4">{formatDateTime(slice.start_at)}</td>
             <td className="py-1 pr-4">{formatDateTime(slice.end_at)}</td>
@@ -53,8 +55,8 @@ function GapIntervals({ intervals }: { intervals: GapIntervalView[] }) {
 /** Headcount, roles and skills are separate checks and are never added together. */
 export function GapTable({ gap }: { gap: GapView }) {
   const rows = [
-    ...gap.roles.map(row => ({ kind: "Role", ...row })),
-    ...gap.skills.map(row => ({ kind: "Skill", ...row })),
+    ...gap.roles.map((row) => ({ kind: "Role", ...row })),
+    ...gap.skills.map((row) => ({ kind: "Skill", ...row })),
   ];
   return (
     <>
@@ -85,7 +87,7 @@ export function GapTable({ gap }: { gap: GapView }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
+            {rows.map((row) => (
               <tr key={`${row.kind}-${row.id}`}>
                 <td className="py-1 pr-4">{row.kind}</td>
                 <td className="py-1 pr-4">{row.name}</td>

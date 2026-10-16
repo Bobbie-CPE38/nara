@@ -14,6 +14,8 @@ export type DemoWard = { id: number; name: string; shifts: readonly DemoShift[] 
 /**
  * Wards of the seed (docs/workflow.md, section 10.2; round 4 PR W4). The Float Pool
  * has no shifts of its own, so it is not here: its nurse 401 works Medicine shifts.
+ * Copied from backend/app/seed/scenarios/golden_case.py and multi_ward.py: change
+ * both together, because nothing checks that they still match.
  */
 export const DEMO_WARDS: readonly DemoWard[] = [
   {
@@ -46,11 +48,16 @@ export function wardName(wardId: number): string {
 }
 
 /** Who the approvals page can act as (docs/workflow.md, section 6.21). Not a real login. */
-export const DEMO_APPROVERS = [
-  { id: 900, label: "900 — Head Nurse, ICU" },
-  { id: 902, label: "902 — Head Nurse, Medicine" },
-  { id: 950, label: "950 — Supervisor, every ward" },
-] as const;
+export const DEMO_APPROVERS: readonly {
+  id: number;
+  label: string;
+  /** The ward a head nurse decides for; null for the Supervisor, who may decide any */
+  wardId: number | null;
+}[] = [
+  { id: 900, label: "900 — Head Nurse, ICU", wardId: 1 },
+  { id: 902, label: "902 — Head Nurse, Medicine", wardId: 2 },
+  { id: 950, label: "950 — Supervisor, every ward", wardId: null },
+];
 /** Where the nurse page keeps its demo sign-in (docs/workflow.md, section 6.17). Not a real login. */
 export const DEMO_SIGNED_IN_STORAGE_KEY = "nara.demo.signedInStaffId";
 

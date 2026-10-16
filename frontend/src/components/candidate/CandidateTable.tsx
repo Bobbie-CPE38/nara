@@ -11,8 +11,10 @@ function StageLabel({ stage }: { stage: string }) {
 /** Both ends null means the whole shift (docs/workflow.md, section 6.20). */
 function coverText(candidate: CandidateView): string {
   if (candidate.cover_start_at === null && candidate.cover_end_at === null) return "Whole shift";
-  const start = candidate.cover_start_at === null ? "shift start" : formatDateTime(candidate.cover_start_at);
-  const end = candidate.cover_end_at === null ? "shift end" : formatDateTime(candidate.cover_end_at);
+  const start =
+    candidate.cover_start_at === null ? "shift start" : formatDateTime(candidate.cover_start_at);
+  const end =
+    candidate.cover_end_at === null ? "shift end" : formatDateTime(candidate.cover_end_at);
   return `${start} – ${end}`;
 }
 
