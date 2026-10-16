@@ -288,9 +288,9 @@ Contract ของรอบ 5 ตกลงแล้ว (PR #91) ไฟล์น�
 
 | ข้อกำหนด | PR |
 |---|---|
-| ลำดับแถว `CASE_STATUS_CHANGED` ของ Golden Case และ Scenario ของรอบ 4 เท่ากับก่อนใช้ LangGraph | G |
-| Handler ที่ล้มยังได้ `FAILED` พร้อม `WORKFLOW_FAILED` และงานของผู้เรียกก่อนรอบยังถูก Commit (D11) | G |
-| ส่ง LINE เกิดหลัง Commit เท่านั้น ไม่เกิดในรอบที่ล้ม | G |
+| ลำดับแถว `CASE_STATUS_CHANGED` ของ Golden Case และ Scenario ของรอบ 4 เท่ากับก่อนใช้ LangGraph | G (`test_orchestrator_graph_parity.py`) |
+| Handler ที่ล้มยังได้ `FAILED` พร้อม `WORKFLOW_FAILED` และงานของผู้เรียกก่อนรอบยังถูก Commit (D11) | G (`test_orchestrator.py` `test_failure_keeps_the_callers_earlier_work` ซึ่งไม่ได้แก้) |
+| ส่ง LINE เกิดหลัง Commit เท่านั้น ไม่เกิดในรอบที่ล้ม | G (`test_orchestrator_graph_parity.py`) |
 | Migration ของ N1, H1 และ H2 ทำงานกับข้อมูลเดิม (Golden Case, Seed และแถว `ATTENDANCE` ที่ไม่มีเวร) และ Test ของรอบ 4 ยังผ่าน | N1, H1, H2 |
 | Route check-in ของพยาบาลบันทึกได้แค่ตัวผู้กด ไม่สนใจ `staff_id` ใน Query หรือ Body การจำลองทำได้แค่ Route ใต้ `/demo/` และทั้งสองใช้กติกาเดียวกัน | N1 |
 | ด่าน `dev/line-webhook-proxy` ตอบ `404` กับ Route จำลอง check-in (เพิ่มใน `check_gate.py` และ `test_proxy.py`) | N1 |
@@ -1601,7 +1601,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * **คนเห็น (R4-Q13):** `GET /approvals/auto` ทำแล้วใน PR A; หน้า `approvals` รายการ "ระบบอนุมัติแทน" เป็นงาน PR U และ Timeline ของหน้าเคสแสดง Audit
 * Golden Case มี Head Nurse 1 คน เพดาน 2 และคิวไม่เกิน 1 รายการ (คนที่ตอบรับทีหลังเป็นตัวสำรอง) จึงไม่เกิดการอนุมัติเอง Golden Path ไม่เปลี่ยน
 
-### 6.23 LangGraph [รอบ 5 · PR G]
+### 6.23 LangGraph
 
 * LangGraph ห่อแค่การเดินจาก Handler หนึ่งไป Handler ถัดไปใน `_run_round()` หนึ่ง Node ต่อหนึ่ง Handler ใน `HANDLERS` และ Edge ตาม `ALLOWED_TRANSITIONS` (R5-Q4)
 * สถานะเคสใน DB ยังเป็นความจริงเดียว (D1) ไม่ใช้ Checkpointer ของ LangGraph
@@ -1609,6 +1609,8 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 * `langgraph` ล็อกรุ่นตรงตัวใน `backend/pyproject.toml` (R5-Q5) หลัง merge ทุกคนต้อง Restart Backend
 * พิสูจน์ว่าไม่เปลี่ยน: Test เดิมทั้งหมดผ่านโดยไม่แก้ และ Test ใหม่เทียบลำดับแถว `CASE_STATUS_CHANGED` ของ Golden Case และ Scenario ของรอบ 4 กับค่าที่บันทึกจากโค้ดก่อน G (R5-Q6)
 * G เข้าก่อน PR ใดที่แก้ Handler หรือ `orchestrator.py` (R5-Q3)
+* **โค้ด (PR G):** Graph สร้างครั้งเดียวตอน Import จากสถานะที่มีใน `HANDLERS` แต่ละ Node เรียก `_run_step()` ซึ่งหา Handler จาก `HANDLERS` ตอนรัน Test ที่เปลี่ยนหรือลบ Handler ด้วย `monkeypatch` จึงใช้ได้เหมือนเดิม หลังแต่ละ Node ตัวเลือกทางไปดูสถานะของเคส ถ้าเป็นจุดรอหรือสถานะที่หยุดก็จบรอบ ถ้าเป็นสถานะที่ไม่มี Node ได้ `WorkflowError` ข้อความเดียวกับ `_run_step()` `recursion_limit` = `_MAX_STEPS` และ `GraphRecursionError` ถูกแปลงเป็น `WorkflowError` ข้อความเดิม State ของ Graph มีแค่ตัวนับก้าวที่ไม่มีใครอ่าน เคสและ Session ส่งผ่าน `config` ของการเรียกครั้งนั้น
+* **[ตรวจแล้ว]** LangGraph 1.2.15 ส่ง Exception ของ Node ออกมาเป็นตัวเดิม (`error_type` ใน `WORKFLOW_FAILED` จึงไม่เปลี่ยน) และรัน Node ใน Thread เดียวกับผู้เรียก ContextVar เห็นค่าเดิม Session จึงใช้ร่วมกันได้ Dependency ที่ติดมา: `langchain-core`, `langgraph-checkpoint`, `langgraph-prebuilt`, `langgraph-sdk`, `ormsgpack`, `xxhash`, `jsonpatch`, `tenacity`, `orjson`
 
 ### 6.24 check-in และ `NO_SHOW` [รอบ 5 · PR N1, N2, H2]
 
@@ -2553,3 +2555,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-16 | รอบ 4 PR U: หน้า `cases/[id]` แสดง Gap รายช่วงเมื่อมีมากกว่าหนึ่งช่วง (ตาราง "Gap by time") และผู้สมัครมีคอลัมน์หอบ้าน ช่วงที่มาทำได้ (ว่าง = ทั้งเวร) และเวรต้นทาง; หน้า `approvals` เลือกผู้กดได้ (900, 902, 950 ตาม Seed ของ W4) แสดงหอบ้าน หอต้นทาง สถานะของแต่ละหอ และ `supervisor_from` Supervisor เลือก `side` เมื่อรอมากกว่าหนึ่งหอ ส่วน Head Nurse ไม่ส่ง `side`; ข้อความผลอ่าน `outcome` (`WAITING_OTHER_WARD` คงแถวไว้, `TRANSFER_CANCELLED` พร้อม `reason` และ `failed_rules`, `EXECUTION_FAILED` เป็นข้อความล้มเหลว); รายการ "Approved by the system" จาก `GET /approvals/auto` ตามผู้กด; หน้า `demo/control` แจ้งลาโดยเลือกหอ เวร และคนได้; `/roster` เลือกเวร 21, 22 ได้ และหน้า `me/offers` ไม่นับผู้อนุมัติเป็นพยาบาล; ไม่มี Migration | คน 1 |
 | 2026-10-16 | ปิดรอบ 4: PR ทุกตัวของรอบ 4 เข้า `staging` ครบ; ส่วน "สถานะของรอบ 4" บอกว่าเสร็จแล้ว ใส่ #83, #84 และ #88 ในแถว S, T4 และ C3 และบอกว่า head ของ Migration ตอนปิดรอบคือ `f2a7c9d4e6b8`; งานค้างจากรอบ 3 (R4-Q3) ยังไม่มีบันทึกใน repo; ตาราง Test ของข้อกำหนดที่พังเงียบได้ชี้ไฟล์และชื่อ Test ที่ตรวจแล้วว่ามีจริง; ไม่เหลือป้าย **[รอบ 4 · PR X]**; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
 | 2026-10-16 | รอบ 5 PR 0: ย้าย Contract ของรอบ 5 เข้าไฟล์นี้ตามร่างรอบ 5 (PR #91): เพิ่มส่วน "สถานะของรอบ 5" (ตาราง PR, ลำดับ merge, Test ของข้อกำหนดที่พังเงียบได้), ข้อ 6.23 LangGraph, 6.24 check-in และ `NO_SHOW`, 6.25 Handover พร้อมรูปของ `content`, ลำดับ Lock ของ check-in และ Handover ในข้อ 6.11, Action ใหม่ `ATTENDANCE_CHECKED_IN`, `OFFER_CANCELLED_NOT_NEEDED` และแถวของ `HANDOVER_GENERATED` ในข้อ 7.1, ข้อ 9.7 API ที่จะเปลี่ยน; `enums.py` เพิ่ม `CheckInSource`, `HandoverReason` (คิดจาก Event ที่เปิดเคส), `EntityType.ATTENDANCE` และ Action สองตัว; ขอบเวลาของ check-in เป็นช่วงครึ่งเปิด (ขอบบนไม่รวม) และหาแถวเดิมก่อนตรวจขอบเวลา (check-in ซ้ำคืนแถวเดิมเสมอ ข้อ 9.7 ตรงกัน); ลบสี่แถวซ้ำในข้อ 9.6 ที่ต่างกันแค่ป้าย "(ทำแล้ว)" เก็บแถวที่มีป้าย; `core/constants.py` เพิ่ม `NO_SHOW_GRACE_SECONDS`, `CHECK_IN_EARLIEST_SECONDS`, `HANDOVER_CONTENT_VERSION`; `database-schema.md` เพิ่มคอลัมน์ที่ N1, H1 และ H2 จะทำ; บันทึกผล LINE จริงผ่าน Tunnel (R5-Q2); ข้อ 12 ย้าย LangGraph และ `NO_SHOW` ไปรอบ 5; กติกาที่มีป้าย **[รอบ 5 · PR X]** ยังรอ PR ที่ระบุ; ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
+| 2026-10-16 | รอบ 5 PR G: การเดินระหว่าง Handler ใน `_run_round()` เป็น Graph ของ LangGraph (ข้อ 6.23) หนึ่ง Node ต่อหนึ่งสถานะใน `HANDLERS` Edge ตาม `ALLOWED_TRANSITIONS` ไม่ใช้ Checkpointer; Savepoint, Commit, D11 และการส่ง LINE อยู่นอก Graph เหมือนเดิม; ล็อก `langgraph==1.2.15`; Test ใหม่เทียบลำดับ `CASE_STATUS_CHANGED` ของหก Scenario กับค่าที่บันทึกก่อน G และตรวจว่าการส่ง LINE เกิดหลัง Commit; ทุกคน Restart Backend หลัง merge | คน 1 |
