@@ -52,6 +52,7 @@ from app.services import (
     hard_rule_service,
     offer_conflict_service,
     outreach_service,
+    roster_service,
 )
 from app.workflow import orchestrator
 
@@ -282,15 +283,14 @@ def assign(
         raise HardRulesFailedError(staff_id, [rule.value for rule in failed])
     stored_reason = _note(reason)
 
-    assignment = RosterAssignment(
+    assignment = roster_service.create_assignment(
+        db,
+        case=case,
+        shift=shift,
+        actor_id=actor_id,
         staff_id=staff_id,
-        shift_id=shift.id,
-        status=RosterStatus.ASSIGNED,
-        assignment_type=AssignmentType.REPLACEMENT,
         candidate_source=CandidateSource.SAME_WARD,
     )
-    db.add(assignment)
-    db.flush()
     # Judged against the roster row just written, with the offers under lock
     clashing = offer_conflict_service.conflicting_offers(
         db, case_id=case.id, staff_id=staff_id, offers=offers

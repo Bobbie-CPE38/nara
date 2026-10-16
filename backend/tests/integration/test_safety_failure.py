@@ -121,6 +121,7 @@ def test_another_open_offer_keeps_the_case_waiting(
     assert still_open is not None
     assert still_open.status is OutreachStatus.SENT
     assert _actions(db, case.id, with_status_changes=True) == [
+        AuditAction.CASE_OPENED,
         AuditAction.OFFER_ACCEPTED,
         AuditAction.SAFETY_FAILED,
     ]
@@ -175,6 +176,7 @@ def test_nobody_left_stops_at_manual_handoff_not_failed(
     assert result.status_code == 200, result.text
     assert result.json()["case_status"] == "MANUAL_HANDOFF"
     assert _actions(db, case.id) == [
+        AuditAction.CASE_OPENED,
         AuditAction.OFFER_ACCEPTED,
         AuditAction.SAFETY_FAILED,
         AuditAction.MANUAL_HANDOFF,
@@ -203,7 +205,7 @@ def test_a_system_fault_still_fails_the_case_and_keeps_the_answer(
     assert result.json()["case_status"] == "FAILED"
     assert db.scalars(select(SafetyValidation)).all() == []
     actions = _actions(db, case.id)
-    assert actions[0] is AuditAction.OFFER_ACCEPTED
+    assert actions[:2] == [AuditAction.CASE_OPENED, AuditAction.OFFER_ACCEPTED]
     assert actions[-1] is AuditAction.WORKFLOW_FAILED
     assert _audit(db, case.id)[-1].payload["error_type"] == "RuntimeError"
 
@@ -303,6 +305,7 @@ def test_safety_failure_scenario_ends_with_the_other_candidate_resolved(
         "SAFETY_PASSED",
         "APPROVAL_REQUESTED",
         "APPROVAL_APPROVED",
+        "HANDOVER_GENERATED",
         "ASSIGNMENT_CREATED",
         "CASE_RESOLVED",
     ]

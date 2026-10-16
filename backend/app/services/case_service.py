@@ -63,7 +63,7 @@ from app.schemas.case import (
     ScoreTerm,
     SourceAssignmentView,
 )
-from app.services import case_facts_service
+from app.services import case_facts_service, handover_service
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
         candidates=_latest_candidates(db, case.id),
         explanation=_latest_explanation(db, case.id),
         partial_plan=_partial_plan(db, case.id),
+        handovers=handover_service.list_handovers(db, case_id=case.id),
     )
 
 

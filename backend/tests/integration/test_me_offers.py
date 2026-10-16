@@ -129,7 +129,14 @@ def test_body_with_any_other_field_is_refused_without_writes(
 ) -> None:
     result = _answer(client, offers[201].id, {"response": "ACCEPT", **extra})
     assert result.status_code == 422
-    assert production_seeded.scalar(select(func.count()).select_from(AuditLog)) == 0
+    assert (
+        production_seeded.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+        == 0
+    )
     production_seeded.refresh(offers[201])
     assert offers[201].status is OutreachStatus.SENT
 

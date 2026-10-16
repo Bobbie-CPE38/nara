@@ -65,7 +65,10 @@ def test_first_wave_uses_solver_group_and_one_timestamp(production_seeded: Sessi
     assert len({row.sent_at for row in rows}) == 1
     audits = list(
         db.scalars(
-            select(AuditLog).where(AuditLog.action == AuditAction.OFFER_SENT).order_by(AuditLog.id)
+            select(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+            .where(AuditLog.action == AuditAction.OFFER_SENT)
+            .order_by(AuditLog.id)
         )
     )
     assert len(audits) == 2
@@ -92,7 +95,10 @@ def test_first_wave_replaces_only_vacant_target_not_whole_group(seeded: Session)
         is not None
     )
     audit = seeded.scalar(
-        select(AuditLog).where(AuditLog.action == AuditAction.OFFER_SENT).order_by(AuditLog.id)
+        select(AuditLog)
+        .where(AuditLog.action != AuditAction.CASE_OPENED)
+        .where(AuditLog.action == AuditAction.OFFER_SENT)
+        .order_by(AuditLog.id)
     )
     assert audit is not None
     assert audit.payload["skipped"] == [{"staff_id": 201, "reason": "STAFF_NOT_ACTIVE"}]
@@ -104,7 +110,11 @@ def test_later_wave_does_not_contact_any_answered_staff_again(seeded: Session) -
     offer(seeded, case, items[202], OutreachStatus.TIMEOUT)
     contact_candidate.handle(seeded, case)
     assert _recipients(seeded, case.id) == [201, 202, 203]
-    audit = seeded.scalar(select(AuditLog).where(AuditLog.action == AuditAction.OFFER_SENT))
+    audit = seeded.scalar(
+        select(AuditLog)
+        .where(AuditLog.action != AuditAction.CASE_OPENED)
+        .where(AuditLog.action == AuditAction.OFFER_SENT)
+    )
     assert audit is not None and audit.payload["wave"] == 2
 
 
@@ -186,7 +196,14 @@ def test_send_service_leaves_audit_and_commit_to_handler(production_seeded: Sess
         rows = outreach_service.send_offer(db, case, [items[201], items[202]])
     assert len(rows) == 2
     assert rows[0].sent_at == rows[1].sent_at
-    assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+        )
+        == 0
+    )
 
 
 def test_a_missing_plan_does_not_use_another_cases_plan(seeded: Session) -> None:
@@ -220,7 +237,11 @@ def test_exhausted_case_waits_for_paused_offer_instead_of_handoff(seeded: Sessio
     assert result.next_status == CaseStatus.WAITING_RESPONSE
     assert paused.status == OutreachStatus.SENT
     assert (
-        seeded.scalar(select(AuditLog.id).where(AuditLog.action == AuditAction.MANUAL_HANDOFF))
+        seeded.scalar(
+            select(AuditLog.id)
+            .where(AuditLog.action != AuditAction.CASE_OPENED)
+            .where(AuditLog.action == AuditAction.MANUAL_HANDOFF)
+        )
         is None
     )
     outreach_service.cancel_offer(seeded, accepted)

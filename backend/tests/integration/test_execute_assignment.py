@@ -50,7 +50,10 @@ def test_replacement_uses_selected_approval_not_another_approved_item(
     assert row.status == RosterStatus.ASSIGNED
     assert row.assignment_type == AssignmentType.REPLACEMENT
     assert row.candidate_source == source
-    assert db.scalar(select(AuditLog.id)) is None
+    assert list(db.scalars(select(AuditLog.action).order_by(AuditLog.id))) == [
+        AuditAction.CASE_OPENED,
+        AuditAction.HANDOVER_GENERATED,
+    ]
 
 
 @pytest.mark.parametrize("approved", [None, False])
@@ -132,7 +135,10 @@ def test_create_transfer_cancels_the_source_row_and_links_the_destination(
     assert row.candidate_source == CandidateSource.CROSS_WARD
     assert row.transferred_from_assignment_id == source.id
     assert row.actual_start_at is None and row.actual_end_at is None
-    assert db.scalar(select(AuditLog.id)) is None
+    assert list(db.scalars(select(AuditLog.action).order_by(AuditLog.id))) == [
+        AuditAction.CASE_OPENED,
+        AuditAction.HANDOVER_GENERATED,
+    ]
 
 
 def test_create_transfer_needs_a_source_assignment(production_seeded: Session) -> None:
@@ -176,7 +182,11 @@ def test_finalization_keeps_assignment_history_and_cancels_sent_and_reserves(
     assert len(replacements(db)) == before
     assert assigned.status == OutreachStatus.ACCEPTED
     assert sent.status == reserve.status == OutreachStatus.CANCELLED
-    audit = db.scalars(select(AuditLog)).one()
+    assert list(db.scalars(select(AuditLog.action).order_by(AuditLog.id))) == [
+        AuditAction.CASE_OPENED,
+        AuditAction.CASE_RESOLVED,
+    ]
+    audit = db.scalars(select(AuditLog).where(AuditLog.action == AuditAction.CASE_RESOLVED)).one()
     assert audit.action == AuditAction.CASE_RESOLVED
     assert audit.payload == {
         "assignment_ids": [replacements(db)[0].id],
@@ -190,7 +200,9 @@ def test_finalization_requires_actual_assigned_gap_coverage(production_seeded: S
     assign(db, case, items[201])
     with pytest.raises(ValueError, match="do not close"):
         execute_assignment.handle(db, case)
-    assert db.scalar(select(AuditLog.id)) is None
+    assert list(db.scalars(select(AuditLog.action).order_by(AuditLog.id))) == [
+        AuditAction.CASE_OPENED
+    ]
     assert len(replacements(db)) == 1
 
 

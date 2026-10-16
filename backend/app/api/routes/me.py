@@ -16,10 +16,22 @@ from app.core.constants import MAX_BIGINT
 from app.domain.enums import CandidateResponse, CheckInSource
 from app.domain.errors import ShiftNotFoundError
 from app.schemas.attendance import CheckInResponse, MyCheckIn
+from app.schemas.handover import HandoverView
 from app.schemas.outreach import OfferView
-from app.services import attendance_service, outreach_service, unavailability_service
+from app.services import (
+    attendance_service,
+    handover_service,
+    outreach_service,
+    unavailability_service,
+)
 
 router = APIRouter(prefix="/me", tags=["me"])
+
+
+@router.get("/handovers")
+def my_handovers(db: DbSession, user: DemoUser) -> list[HandoverView]:
+    """The header user's current handovers and history; ignore staff_id parameters."""
+    return handover_service.list_handovers(db, staff_id=user.staff.id)
 
 
 @router.get("/offers")

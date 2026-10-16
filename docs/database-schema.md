@@ -659,7 +659,7 @@ Migration ตั้ง delay ของ Policy เดิมเป็น `min(600,
 | `case_id` | bigint | NOT NULL | FK STAFFING_CASES.id |  |
 | `shift_id` | bigint | NOT NULL | FK SHIFT.id |  |
 | `incoming_staff_id` | bigint | NULL | FK STAFF.id |  |
-| `roster_assignment_id` | bigint | NOT NULL | FK ROSTER_ASSIGNMENT.id, UNIQUE | **[รอบ 5 · PR H1]** แถว Roster ของคนที่มาแทน หนึ่ง Handover ต่อหนึ่งแถว ตารางไม่มีแถวเดิม จึงไม่ต้อง Backfill |
+| `roster_assignment_id` | bigint | NOT NULL | FK ROSTER_ASSIGNMENT.id, UNIQUE | แถว Roster ของคนที่มาแทน หนึ่ง Handover ต่อหนึ่งแถว ตารางไม่มีแถวเดิม จึงไม่ต้อง Backfill |
 | `content` | jsonb | NOT NULL |  | รูปข้อมูลอยู่ที่ `workflow.md` ข้อ 6.25 (`version` = 1) |
 | `generated_at` | timestamptz | NOT NULL |  |  |
 | `delivery_*` | | | | **[รอบ 5 · PR H2]** สถานะการส่งทาง LINE ชุดเดียวกับของ `CANDIDATE_OUTREACH` (`delivery_status`, `delivery_attempts`, `delivery_retry_key`, `delivery_payload`, `delivery_next_attempt_at`, `delivery_claim`, `delivery_lease_until`, `delivery_last_result`) H2 ตั้งชื่อและ CHECK ให้ตรงกับของ Offer |
@@ -809,7 +809,7 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
 | `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `ATTENDANCE_CHECKED_IN`, `OFFER_CANCELLED_NOT_NEEDED` **[รอบ 5 · PR N2]**, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
 | `CheckInSource` | AUDIT_LOG.payload.source ของ `ATTENDANCE_CHECKED_IN` | `SELF`, `SIMULATED` |
-| `HandoverReason` | STRUCTURED_HANDOVER.content.reason | `UNPLANNED_LEAVE`, `NO_SHOW`, `ASSIGNMENT_CANCELLED`, `PATIENT_SURGE`, `REQUIREMENT_CHANGED` **[รอบ 5 · PR H1]** |
+| `HandoverReason` | STRUCTURED_HANDOVER.content.reason | `UNPLANNED_LEAVE`, `NO_SHOW`, `ASSIGNMENT_CANCELLED`, `PATIENT_SURGE`, `REQUIREMENT_CHANGED` (H1 ทำแล้ว) |
 
 
 **กลุ่มของ EventType**
