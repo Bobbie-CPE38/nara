@@ -315,7 +315,7 @@ class EntityType(StrEnum):
     STAFFING_REQUIREMENTS = "STAFFING_REQUIREMENTS"
     # Round 3 PR K: linking and unlinking a LINE account. Not written yet
     CONTACTS = "CONTACTS"
-    # Round 5 PR N1: a check-in (docs/workflow.md 6.24). Not written yet
+    # Round 5 PR N1: a check-in (docs/workflow.md 6.24)
     ATTENDANCE = "ATTENDANCE"
 
 
@@ -359,7 +359,7 @@ class AuditAction(StrEnum):
     TRANSFER_CHECK_FAILED = "TRANSFER_CHECK_FAILED"
     # Exists since round 1; round 5 PR H1 starts writing it (docs/workflow.md 6.25)
     HANDOVER_GENERATED = "HANDOVER_GENERATED"
-    # Round 5 PR N1: a nurse checked in, or the demo simulated it (6.24). Not written yet
+    # Round 5 PR N1: a nurse checked in, or the demo simulated it (6.24)
     ATTENDANCE_CHECKED_IN = "ATTENDANCE_CHECKED_IN"
     # Round 5 PR N2: a late arrival made an offer or request unneeded (6.24). Not written yet
     OFFER_CANCELLED_NOT_NEEDED = "OFFER_CANCELLED_NOT_NEEDED"
