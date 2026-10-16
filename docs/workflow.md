@@ -189,16 +189,16 @@ Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์น�
 
 | PR ของรอบ 4 | ใคร | เรื่อง | ข้อของไฟล์นี้ | ต้องรอ | Migration | PR บน GitHub |
 |---|---|---|---|---|---|---|
-| เอกสาร | คน 1 | ร่างรอบ 4 และไฟล์คำถาม | | | ไม่มี | #73 |
-| 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, ค่าใหม่ใน Enum | ทุกข้อของรอบ 4 | เอกสาร | ไม่มี | #74 |
-| T1 | คน 2 | ช่วงที่มาทำได้และเวรต้นทางในรายชื่อผู้สมัคร, Safety และ Hard Rules ใช้ช่วงนี้, ช่วงทำงานต่อเนื่องตอนวางแผน | 6.20 | 0 | มี (`CANDIDATE_ITEMS`) | #78 |
-| T2 | คน 3 | เวลาจริงและลิงก์การย้ายใน Roster, ตัวอ่านเวลาของ Roster | 6.20 | 0 | มี (`ROSTER_ASSIGNMENT`) | #79 |
-| T3 | คน 1 | Gap รายช่วง | 6.20, 9.6 | 0, T2 | มี (`STAFFING_GAP` และตารางรายช่วง) | #82 |
-| T4 | คน 2 | Solver และการเลือก Wave ตามช่วง, แผนบางส่วน, ข้อความอธิบายอันดับ | 6.20 | T1, T3 | ไม่มี | #84 |
+| เอกสาร | คน 1 | ร่างรอบ 4 และไฟล์คำถาม | | | ไม่มี | [#73](https://github.com/Bobbie-CPE38/nara/pull/73) |
+| 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, ค่าใหม่ใน Enum | ทุกข้อของรอบ 4 | เอกสาร | ไม่มี | [#74](https://github.com/Bobbie-CPE38/nara/pull/74) |
+| T1 | คน 2 | ช่วงที่มาทำได้และเวรต้นทางในรายชื่อผู้สมัคร, Safety และ Hard Rules ใช้ช่วงนี้, ช่วงทำงานต่อเนื่องตอนวางแผน | 6.20 | 0 | มี (`CANDIDATE_ITEMS`) | [#78](https://github.com/Bobbie-CPE38/nara/pull/78) |
+| T2 | คน 3 | เวลาจริงและลิงก์การย้ายใน Roster, ตัวอ่านเวลาของ Roster | 6.20 | 0 | มี (`ROSTER_ASSIGNMENT`) | [#79](https://github.com/Bobbie-CPE38/nara/pull/79) |
+| T3 | คน 1 | Gap รายช่วง | 6.20, 9.6 | 0, T2 | มี (`STAFFING_GAP` และตารางรายช่วง) | [#82](https://github.com/Bobbie-CPE38/nara/pull/82) |
+| T4 | คน 2 | Solver และการเลือก Wave ตามช่วง, แผนบางส่วน, ข้อความอธิบายอันดับ | 6.20 | T1, T3 | ไม่มี | [#84](https://github.com/Bobbie-CPE38/nara/pull/84) |
 | C1 | คน 2 | ดึงคนว่างข้ามหอ, Float Pool | 6.19 | T1 | มี (`WARD.is_float_pool`) | [#81](https://github.com/Bobbie-CPE38/nara/pull/81) |
-| S | คน 3 | อนุมัติสองหอ, Supervisor, ตัวตรวจสิทธิ์ของคนกด | 6.21, 9.6 | C1 | มี (`APPROVAL_WARD_DECISION`, `APPROVAL_POLICY.supervisor_after_seconds`) | #83 |
+| S | คน 3 | อนุมัติสองหอ, Supervisor, ตัวตรวจสิทธิ์ของคนกด | 6.21, 9.6 | C1 | มี (`APPROVAL_WARD_DECISION`, `APPROVAL_POLICY.supervisor_after_seconds`) | [#83](https://github.com/Bobbie-CPE38/nara/pull/83) |
 | C2 | คน 2 | ย้ายทั้งเวร | 6.19, 9.6 | C1, S | ไม่มี | [#87](https://github.com/Bobbie-CPE38/nara/pull/87) |
-| C3 | คน 2 | ย้ายกลางเวร | 6.19, 6.20 | C2, T2, T3, T4 | ไม่มี | #88 |
+| C3 | คน 2 | ย้ายกลางเวร | 6.19, 6.20 | C2, T2, T3, T4 | ไม่มี | [#88](https://github.com/Bobbie-CPE38/nara/pull/88) |
 | A | คน 3 | Auto-Approval | 6.22, 9.6 | 0, T1 | ไม่มี | [#80](https://github.com/Bobbie-CPE38/nara/pull/80) |
 | W4 | คน 1 | ข้อมูล Demo หลายหอ, หอ Float Pool, Role `SUPERVISOR` | 6.19, 6.21 | C1 | ไม่มี | [#85](https://github.com/Bobbie-CPE38/nara/pull/85) |
 | U | คน 1 | หน้าเว็บของรอบ 4 | 9.6 | A, S | ไม่มี | [#86](https://github.com/Bobbie-CPE38/nara/pull/86) |
