@@ -273,7 +273,7 @@
 | R5-Q14 | ก (ปรับตามข้อเสนอของคน 2 และคน 3) | ดูข้อตกลงของ R5-Q14 ข้างล่าง |
 | R5-Q15 | ข | คนที่มาแทนเห็นในหน้า `/me/offers` Head Nurse เห็นในหน้าเคส และส่งทาง LINE ด้วย |
 | R5-Q16 | ก | ไม่มี Handover ฝั่งต้นทางของการย้าย |
-| R5-Q17 | ก | ใช้ `UNAVAILABILITY_CREATED` เดิม ใส่ `reason = NO_SHOW` ใน payload ผู้เขียนเป็น Actor ของ Job |
+| R5-Q17 | ก | ใช้ `UNAVAILABILITY_CREATED` เดิม ใส่ `reason = NO_SHOW` ใน payload ผู้เขียนเป็น Actor ของ Job ซึ่งในโค้ดคือ `ActorName.SYSTEM` (ระบุหลังรีวิว PR #91) |
 | R5-Q18 | ก | เพิ่ม Route อ่าน Clock และแสดงในแถบเมนู (คน 1) |
 
 ### ข้อตกลงของ R5-Q14
