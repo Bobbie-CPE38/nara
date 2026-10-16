@@ -261,7 +261,7 @@ Contract ของรอบ 5 ตกลงแล้ว (PR #91) ไฟล์น�
 |---|---|---|---|---|---|---|---|
 | เอกสาร | คน 1 | ร่างรอบ 5 และไฟล์คำถาม | | | | ไม่มี | [#91](https://github.com/Bobbie-CPE38/nara/pull/91) |
 | 0 | คน 1 | ย้าย Contract เข้าไฟล์นี้, ค่าใหม่ใน Enum และ constants | ทุกข้อของรอบ 5 | เอกสาร | เอกสาร | ไม่มี | [#92](https://github.com/Bobbie-CPE38/nara/pull/92) |
-| G | คน 1 | LangGraph | 6.23 | 0 | 0 | ไม่มี | |
+| G | คน 1 | LangGraph | 6.23 | 0 | 0 | ไม่มี | [#94](https://github.com/Bobbie-CPE38/nara/pull/94) |
 | N1 | คน 2 | `ATTENDANCE.shift_id`, Route check-in ของพยาบาล, Route จำลองการ check-in, รายการของด่าน proxy, Seed check-in | 6.24, 9.7 | 0 | 0 | มี (`ATTENDANCE`) | |
 | N2 | คน 2 | ตัวตรวจ `NO_SHOW` สองขั้น, ผลต่อ Roster, มาสาย | 6.24 | N1, H1 | N1, H1, G ถ้าแก้ Handler | ไม่มี | |
 | L5 | คน 3 | Test ตั้ง `LINE_MODE=simulation` เอง | | 0 | 0 | ไม่มี | |
