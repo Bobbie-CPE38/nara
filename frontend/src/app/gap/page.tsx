@@ -5,83 +5,88 @@ import { Suspense, useCallback, useMemo, useState } from "react";
 import { ScrollX } from "@/components/ScrollX";
 import { ActingAs } from "@/components/ActingAs";
 import { GapIntervals } from "@/components/case/GapTable";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Notice } from "@/components/ui/Notice";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
 import { wardName } from "@/lib/demo";
+import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
+import type { Translate } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/LanguageProvider";
 import type { Dashboard, GapShiftDetail, GapShiftSummary } from "@/lib/types/dashboard";
 
 /** The API's own words for a refused read (403 ward, 404 shift, 409 not set up). */
-function errorText(cause: Error): string {
-  return cause instanceof ApiError ? `${cause.message} (HTTP ${cause.status})` : cause.message;
+function errorText(cause: Error, t: Translate): string {
+  return cause instanceof ApiError ? `${describeError(cause, t)} (HTTP ${cause.status})` : describeError(cause, t);
 }
 
 /** Read-only: this page never creates an event or a case; that stays in Demo control (R6-Q17). */
 function ShiftDetail({ detail }: { detail: GapShiftDetail }) {
+  const t = useT();
   return (
-    <section aria-label="Shift gap" className="mt-6">
-      <h2 className="text-xl font-semibold">
-        Shift {detail.shift_id}, {wardName(detail.ward_id)}
-      </h2>
+    <Card label={t("gapPage.detail")} title={t("gapPage.detailTitle", { id: detail.shift_id, ward: wardName(detail.ward_id) })} className="mt-4">
       <p className="mt-1 text-sm">
-        {formatDateTime(detail.start_at)} to {formatDateTime(detail.end_at)}
-        {detail.evaluated_from && detail.evaluated_from !== detail.start_at && (
-          <> · Measured from {formatDateTime(detail.evaluated_from)}, the part still to come</>
-        )}
+        {t("gapPage.range", { start: formatDateTime(detail.start_at), end: formatDateTime(detail.end_at) })}
+        {detail.evaluated_from && detail.evaluated_from !== detail.start_at &&
+          ` · ${t("gapPage.measuredFrom", { time: formatDateTime(detail.evaluated_from) })}`}
       </p>
       <p className="mt-1">
         {detail.case_id === null ? (
-          "No running case on this shift."
+          t("gapPage.noCase")
         ) : (
           <Link className="underline" href={`/cases/${detail.case_id}`}>
-            Open case {detail.case_id}
+            {t("gapPage.openCase", { id: detail.case_id })}
           </Link>
         )}
       </p>
       <GapIntervals intervals={detail.intervals} />
-      <h3 className="mt-4 font-semibold">Roster</h3>
+      <h3 className="mt-4">{t("gapPage.roster")}</h3>
       {detail.roster.length === 0 ? (
-        <p className="mt-1">Nobody is on this shift&apos;s roster.</p>
+        <p className="mt-1">{t("gapPage.noRoster")}</p>
       ) : (
         <ScrollX>
-          <table aria-label="Roster" className="mt-2 w-full text-left">
+          <table aria-label={t("gapPage.roster")} className="mt-2">
             <thead>
               <tr>
-                <th className="py-1 pr-4">Staff</th>
-                <th className="py-1 pr-4">Name</th>
-                <th className="py-1 pr-4">Status</th>
-                <th className="py-1 pr-4">From</th>
-                <th className="py-1 pr-4">Until</th>
-                <th className="py-1 pr-4">On leave</th>
-                <th className="py-1 pr-4">Checked in</th>
+                <th>{t("common.staff")}</th>
+                <th>{t("common.name")}</th>
+                <th>{t("cand.status")}</th>
+                <th>{t("common.from")}</th>
+                <th>{t("common.until")}</th>
+                <th>{t("gapPage.onLeave")}</th>
+                <th>{t("gapPage.checkedIn")}</th>
               </tr>
             </thead>
             <tbody>
               {detail.roster.map((row) => (
                 <tr key={row.roster_assignment_id}>
-                  <td className="py-1 pr-4">{row.staff_id}</td>
-                  <td className="py-1 pr-4">{row.name}</td>
-                  <td className={`py-1 pr-4 ${row.status === "CANCELLED" ? "text-gray-500" : ""}`}>
+                  <td>{row.staff_id}</td>
+                  <td>{row.name}</td>
+                  <td className={row.status === "CANCELLED" ? "text-slate-500" : ""}>
                     {row.status}
                   </td>
-                  <td className="py-1 pr-4">{formatDateTime(row.effective_start_at)}</td>
-                  <td className="py-1 pr-4">{formatDateTime(row.effective_end_at)}</td>
-                  <td className={`py-1 pr-4 ${row.on_leave ? "text-amber-700" : ""}`}>
-                    {row.on_leave ? "Yes" : "No"}
+                  <td>{formatDateTime(row.effective_start_at)}</td>
+                  <td>{formatDateTime(row.effective_end_at)}</td>
+                  <td className={row.on_leave ? "font-medium text-amber-700" : ""}>
+                    {row.on_leave ? t("gapPage.yes") : t("gapPage.no")}
                   </td>
-                  <td className="py-1 pr-4">{row.checked_in ? "Yes" : "No"}</td>
+                  <td>{row.checked_in ? t("gapPage.yes") : t("gapPage.no")}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </ScrollX>
       )}
-    </section>
+    </Card>
   );
 }
 
 function GapCheckPage() {
+  const t = useT();
   const [actorId, setActorId] = useActor();
   const api = useMemo(() => createDemoApi(actorId), [actorId]);
 
@@ -121,113 +126,108 @@ function GapCheckPage() {
   }
 
   return (
-    <main className="mx-auto max-w-4xl p-8">
-      <h1 className="text-2xl font-semibold">Gap check</h1>
-      <p className="mt-1 text-sm">
-        Look at the gap of any shift, with or without a case. This page only reads: it creates no
-        event and no case. Use Demo control for that.
-      </p>
-      <div className="mt-2">
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+      <PageHeader title={t("gapPage.title")} description={t("gapPage.intro")}>
         <ActingAs id="gap-viewing-as" value={actorId} onChange={changeActor} />
-      </div>
+      </PageHeader>
 
-      {wardsError && <p role="alert" className="mt-4 text-red-700">{errorText(wardsError)}</p>}
-      {!dashboard && !wardsError && <p className="mt-4">Loading…</p>}
+      {wardsError && <Notice kind="error" role="alert">{errorText(wardsError, t)}</Notice>}
+      {!dashboard && !wardsError && <p>{t("common.loading")}</p>}
       {dashboard && (
-        <form className="mt-4 flex flex-wrap items-end gap-4" onSubmit={(event) => event.preventDefault()}>
-          <label className="block text-sm" htmlFor="gap-ward">
-            Ward{" "}
-            <select
-              id="gap-ward"
-              className="rounded border px-1"
-              value={wardId ?? ""}
-              onChange={(event) => {
-                setWardChoice(Number(event.target.value));
-                setShiftId(null);
-              }}
-            >
-              {wardIds.map((id) => (
-                <option key={id} value={id}>
-                  {wardName(id)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-sm" htmlFor="gap-date">
-            Day the shift starts{" "}
-            <input
-              id="gap-date"
-              type="date"
-              className="rounded border px-1"
-              min="2000-01-01"
-              max="2999-12-31"
-              value={date}
-              onChange={(event) => {
-                setDateChoice(event.target.value);
-                setShiftId(null);
-              }}
-            />
-          </label>
-        </form>
+        <Card>
+          <form className="flex flex-wrap items-end gap-4" onSubmit={(event) => event.preventDefault()}>
+            <label className="block text-sm font-medium" htmlFor="gap-ward">
+              {t("common.ward")}{" "}
+              <select
+                id="gap-ward"
+                value={wardId ?? ""}
+                onChange={(event) => {
+                  setWardChoice(Number(event.target.value));
+                  setShiftId(null);
+                }}
+              >
+                {wardIds.map((id) => (
+                  <option key={id} value={id}>
+                    {wardName(id)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium" htmlFor="gap-date">
+              {t("gapPage.day")}{" "}
+              <input
+                id="gap-date"
+                type="date"
+                min="2000-01-01"
+                max="2999-12-31"
+                value={date}
+                onChange={(event) => {
+                  setDateChoice(event.target.value);
+                  setShiftId(null);
+                }}
+              />
+            </label>
+          </form>
+        </Card>
       )}
 
-      {shiftsError && <p role="alert" className="mt-4 text-red-700">{errorText(shiftsError)}</p>}
-      {canList && !shifts && !shiftsError && <p className="mt-4">Loading shifts…</p>}
-      {shifts && shifts.length === 0 && <p className="mt-4">No shift starts on this day in this ward.</p>}
+      {shiftsError && <div className="mt-4"><Notice kind="error" role="alert">{errorText(shiftsError, t)}</Notice></div>}
+      {canList && !shifts && !shiftsError && <p className="mt-4">{t("gapPage.loadingShifts")}</p>}
+      {shifts && shifts.length === 0 && <p className="mt-4">{t("gapPage.noShifts")}</p>}
       {shifts && shifts.length > 0 && (
-        <ScrollX>
-          <table aria-label="Shifts of the day" className="mt-4 w-full text-left">
-            <thead>
-              <tr>
-                <th className="py-1 pr-4">Shift</th>
-                <th className="py-1 pr-4">From</th>
-                <th className="py-1 pr-4">Until</th>
-                <th className="py-1 pr-4">Required</th>
-                <th className="py-1 pr-4">On roster</th>
-                <th className="py-1 pr-4">Short by</th>
-                <th className="py-1 pr-4">Case</th>
-                <th className="py-1 pr-4" />
-              </tr>
-            </thead>
-            <tbody>
-              {shifts.map((row) => (
-                <tr key={row.shift_id}>
-                  <td className="py-1 pr-4">{row.shift_id}</td>
-                  <td className="py-1 pr-4">{formatDateTime(row.start_at)}</td>
-                  <td className="py-1 pr-4">{formatDateTime(row.end_at)}</td>
-                  <td className="py-1 pr-4">{row.required_staff}</td>
-                  <td className="py-1 pr-4">{row.rostered_count}</td>
-                  <td className={`py-1 pr-4 ${row.headcount_gap > 0 ? "text-red-700" : "text-green-700"}`}>
-                    {row.headcount_gap > 0 ? row.headcount_gap : "OK"}
-                  </td>
-                  <td className="py-1 pr-4">
-                    {row.case_id === null ? (
-                      "—"
-                    ) : (
-                      <Link className="underline" href={`/cases/${row.case_id}`}>
-                        {row.case_id}
-                      </Link>
-                    )}
-                  </td>
-                  <td className="py-1 pr-4">
-                    <button
-                      type="button"
-                      className="rounded border px-2 py-1"
-                      aria-pressed={shiftId === row.shift_id}
-                      onClick={() => setShiftId(row.shift_id)}
-                    >
-                      Check shift {row.shift_id}
-                    </button>
-                  </td>
+        <Card className="mt-4">
+          <ScrollX>
+            <table aria-label={t("gapPage.shiftsOfDay")}>
+              <thead>
+                <tr>
+                  <th>{t("common.shift")}</th>
+                  <th>{t("common.from")}</th>
+                  <th>{t("common.until")}</th>
+                  <th>{t("gap.required")}</th>
+                  <th>{t("gapPage.onRoster")}</th>
+                  <th>{t("dash.shortBy")}</th>
+                  <th>{t("common.case")}</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </ScrollX>
+              </thead>
+              <tbody>
+                {shifts.map((row) => (
+                  <tr key={row.shift_id}>
+                    <td>{row.shift_id}</td>
+                    <td>{formatDateTime(row.start_at)}</td>
+                    <td>{formatDateTime(row.end_at)}</td>
+                    <td>{row.required_staff}</td>
+                    <td>{row.rostered_count}</td>
+                    <td className={row.headcount_gap > 0 ? "font-semibold text-red-700" : "text-green-700"}>
+                      {row.headcount_gap > 0 ? row.headcount_gap : t("gap.ok")}
+                    </td>
+                    <td>
+                      {row.case_id === null ? (
+                        "—"
+                      ) : (
+                        <Link className="underline" href={`/cases/${row.case_id}`}>
+                          {row.case_id}
+                        </Link>
+                      )}
+                    </td>
+                    <td>
+                      <Button
+                        aria-pressed={shiftId === row.shift_id}
+                        onClick={() => setShiftId(row.shift_id)}
+                      >
+                        {t("gapPage.checkShift", { id: row.shift_id })}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </ScrollX>
+        </Card>
       )}
 
-      {detailError && <p role="alert" className="mt-4 text-red-700">{errorText(detailError)}</p>}
-      {shiftId !== null && !detail && !detailError && <p className="mt-4">Loading shift…</p>}
+      {detailError && <div className="mt-4"><Notice kind="error" role="alert">{errorText(detailError, t)}</Notice></div>}
+      {shiftId !== null && !detail && !detailError && <p className="mt-4">{t("gapPage.loadingShift")}</p>}
       {detail && <ShiftDetail detail={detail} />}
     </main>
   );

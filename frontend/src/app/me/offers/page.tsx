@@ -3,6 +3,9 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { HandoverList, isHandover } from "@/components/handover/HandoverList";
 import { type OfferApi, OfferList } from "@/components/outreach/OfferList";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { useHandoverHistory } from "@/hooks/useHandoverHistory";
 import { DEFAULT_POLL_INTERVAL_MS } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
@@ -12,7 +15,10 @@ import {
   DEMO_STAFF_IDS,
   DEMO_WARDS,
 } from "@/lib/demo";
+import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
+import type { MessageKey, Translate } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/LanguageProvider";
 import type { CheckInResult } from "@/lib/types/attendance";
 import type { HandoverView } from "@/lib/types/case";
 import type { Offer, OfferResponse } from "@/lib/types/outreach";
@@ -67,21 +73,24 @@ function shiftsOf(staffId: number, handovers: readonly HandoverView[]): number[]
   return [...new Set([...seeded, ...handed])].sort((a, b) => a - b);
 }
 
-function checkInError(cause: unknown): string {
-  if (!(cause instanceof ApiError)) return "Cannot reach the API. Check that the backend is running.";
-  if (cause.status === 404) return "You have no roster row on this shift.";
-  if (cause.status === 409) return "The shift is busy. Try again in a moment.";
-  return cause.message;
+/** Our text (a key, in the language of the user) or the words the API sent. */
+type Failure = { key: MessageKey } | { failure: unknown };
+
+function checkInError(cause: unknown): Failure {
+  if (cause instanceof ApiError && cause.status === 404) return { key: "me.noRosterRow" };
+  if (cause instanceof ApiError && cause.status === 409) return { key: "me.shiftBusy" };
+  return { failure: cause };
 }
 
 /** Check in for yourself (section 6.24). The backend clock decides the time, not this browser. */
 function CheckIn({ staffId, handovers }: { staffId: number; handovers: readonly HandoverView[] }) {
+  const t = useT();
   const shifts = shiftsOf(staffId, handovers);
   const [shiftId, setShiftId] = useState<number | null>(null);
   const chosen = shiftId !== null && shifts.includes(shiftId) ? shiftId : (shifts[0] ?? null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CheckInResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<Failure | null>(null);
 
   async function checkIn() {
     if (chosen === null) return;
@@ -103,88 +112,83 @@ function CheckIn({ staffId, handovers }: { staffId: number; handovers: readonly 
   }
 
   return (
-    <section className="mt-6">
-      <h2 className="text-xl font-semibold">Check in</h2>
+    <Card title={t("me.checkIn")} className="mt-4">
       {chosen === null ? (
-        <p className="mt-2">You have no shift to check in to.</p>
+        <p className="mt-2">{t("me.noShift")}</p>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <label htmlFor="check-in-shift">Shift</label>
+          <label htmlFor="check-in-shift">{t("common.shift")}</label>
           <select
             id="check-in-shift"
-            className="rounded border border-slate-400 p-1"
             value={chosen}
             disabled={busy}
             onChange={(event) => setShiftId(Number(event.target.value))}
           >
             {shifts.map((id) => (
               <option key={id} value={id}>
-                Shift {id}
+                {t("roster.shiftOption", { id })}
               </option>
             ))}
           </select>
-          <button
-            type="button"
-            className="rounded bg-blue-700 px-3 py-1 text-white disabled:opacity-40"
-            disabled={busy}
-            onClick={() => void checkIn()}
-          >
-            Check in
-          </button>
+          <Button variant="primary" disabled={busy} onClick={() => void checkIn()}>
+            {t("me.checkIn")}
+          </Button>
         </div>
       )}
       {result && (
         <p role="status" className={result.on_time ? "mt-2 text-green-700" : "mt-2 text-amber-700"}>
-          Checked in to shift {result.shift_id} at {formatDateTime(result.check_in_at)}:{" "}
-          {result.on_time ? "on time" : "late"} (deadline {formatDateTime(result.deadline)}).
+          {t("me.checkedIn", {
+            shift: result.shift_id,
+            time: formatDateTime(result.check_in_at),
+            when: t(result.on_time ? "me.onTime" : "me.late"),
+            deadline: formatDateTime(result.deadline),
+          })}
         </p>
       )}
       {error && (
         <p role="alert" className="mt-2 text-red-700">
-          Check-in failed: {error}
+          {t("me.checkInFailed", { error: "failure" in error ? describeError(error.failure, t) : t(error.key) })}
         </p>
       )}
-    </section>
+    </Card>
   );
 }
 
 function DemoSignIn({ onSignIn }: { onSignIn: (staffId: number) => void }) {
+  const t = useT();
   const [choice, setChoice] = useState<number>(NURSE_IDS[0]);
   function submit(event: FormEvent) {
     event.preventDefault();
     onSignIn(choice);
   }
   return (
-    <form onSubmit={submit} className="mt-6 max-w-md space-y-3 rounded border border-slate-300 p-4">
-      <p>
-        Demo sign-in: choose who you are. This is not a real login, and anyone
-        can choose any staff member.
-      </p>
+    <form onSubmit={submit} className="max-w-md space-y-3 rounded-xl border border-t-4 border-slate-200 border-t-brand-500 bg-white p-4 shadow-md">
+      <p>{t("me.demoSignIn")}</p>
       <label className="block" htmlFor="demo-staff">
-        Staff member
+        {t("sim.staffMember")}
       </label>
       <select
         id="demo-staff"
-        className="rounded border border-slate-400 p-2"
         value={choice}
         onChange={(event) => setChoice(Number(event.target.value))}
       >
         {NURSE_IDS.map((id) => (
           <option key={id} value={id}>
-            Staff {id}
+            {t("sim.staffOption", { id })}
           </option>
         ))}
       </select>
       <div>
-        <button type="submit" className="rounded bg-blue-700 px-3 py-2 text-white">
-          Sign in (demo)
-        </button>
+        <Button type="submit" variant="primary">
+          {t("me.signInButton")}
+        </Button>
       </div>
     </form>
   );
 }
 
 function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => void }) {
+  const t = useT();
   const [responding, setResponding] = useState(false);
   const api = useMemo(() => myOffersApi(staffId), [staffId]);
   const handovers = useHandoverHistory(staffId);
@@ -195,70 +199,60 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => vo
     <>
       <div
         role="note"
-        className="mt-4 flex flex-wrap items-center gap-3 rounded border border-amber-400 bg-amber-50 p-3"
+        className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900"
       >
-        <span>
-          Demo mode: signed in as staff {staffId}. There is no real login.
-        </span>
-        <button
-          type="button"
-          className="rounded border border-slate-400 px-3 py-1 disabled:opacity-40"
-          disabled={responding}
-          onClick={onSignOut}
-        >
-          Sign out
-        </button>
+        <span>{t("me.demoMode", { id: staffId })}</span>
+        <Button disabled={responding} onClick={onSignOut}>
+          {t("me.signOut")}
+        </Button>
       </div>
       <p className="mt-4">
-        Accepting an offer does not put you on the shift. You are assigned only
-        after the head nurse approves and the system confirms the assignment.
-        Updates every {DEFAULT_POLL_INTERVAL_MS / 1000} seconds.
+        {t("me.acceptNote", { seconds: DEFAULT_POLL_INTERVAL_MS / 1000 })}
       </p>
       <OfferList
         staffId={staffId}
         api={api}
-        emptyText="You have no shift offers."
+        emptyText={t("me.noOffers")}
         onPendingChange={setResponding}
       />
       <CheckIn staffId={staffId} handovers={handoverRows} />
-      <section className="mt-6">
-        <h2 className="text-xl font-semibold">My handovers</h2>
+      <Card title={t("me.handovers")} className="mt-4">
         {handovers.error && handovers.data === undefined ? (
           <p role="alert" className="mt-2 text-red-700">
-            Cannot load your handovers. Retrying…
+            {t("me.handoverLoadFailed")}
           </p>
         ) : (
           <>
             {handovers.error && (
               <p role="alert" className="mt-2 text-sm text-amber-700">
                 {handovers.loadMoreError
-                  ? "Could not load more history. Showing the last loaded list. Click Load more history to try again."
-                  : "Could not refresh your handovers. Showing the last loaded list, which may be outdated. Retrying…"}
+                  ? t("me.handoverMoreFailed")
+                  : t("me.handoverRefreshFailed")}
               </p>
             )}
             {handovers.isLoading ? (
-              <p className="mt-2">Loading your handovers…</p>
+              <p className="mt-2">{t("me.handoverLoading")}</p>
             ) : (
-              <HandoverList handovers={handoverRows} emptyText="You have no handovers." />
+              <HandoverList handovers={handoverRows} emptyText={t("me.noHandovers")} />
             )}
             {handovers.data?.next_cursor && (
-              <button
-                type="button"
+              <Button
+                className="mt-3"
                 disabled={handovers.loadingMore}
                 onClick={() => void handovers.loadMore()}
-                className="mt-3 rounded border border-slate-400 px-3 py-2 disabled:opacity-40"
               >
-                {handovers.loadingMore ? "Loading history…" : "Load more history"}
-              </button>
+                {handovers.loadingMore ? t("me.loadingMore") : t("me.loadMore")}
+              </Button>
             )}
           </>
         )}
-      </section>
+      </Card>
     </>
   );
 }
 
 export default function MyOffersPage() {
+  const t = useT();
   // undefined until storage is read in the browser, so the server render matches.
   const [staffId, setStaffId] = useState<number | null | undefined>(undefined);
   useEffect(() => setStaffId(readSignedIn()), []);
@@ -274,8 +268,8 @@ export default function MyOffersPage() {
   }
 
   return (
-    <main className="mx-auto max-w-7xl p-6 text-slate-900">
-      <h1 className="text-2xl font-semibold">My shift offers</h1>
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+      <PageHeader title={t("me.title")} />
       {staffId === null && <DemoSignIn onSignIn={signIn} />}
       {typeof staffId === "number" && (
         <SignedIn key={staffId} staffId={staffId} onSignOut={signOut} />

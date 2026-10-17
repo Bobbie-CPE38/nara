@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
 import { createDemoApi } from "@/lib/api";
+import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import type { Dashboard } from "@/lib/types/dashboard";
 
@@ -28,7 +29,7 @@ function DashboardPage() {
       {error && (
         <div className="mb-4">
           <Notice kind="error" role="alert">
-            {error.message}
+            {describeError(error, t)}
             {data && t("dash.staleNote")}
           </Notice>
         </div>

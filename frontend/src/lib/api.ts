@@ -3,6 +3,9 @@ const API_BASE_URL = (
 ).replace(/\/$/, "");
 
 export class ApiError extends Error {
+  /** False when the API sent no sentence of its own and the message is ours. */
+  readonly hasDetail: boolean;
+
   constructor(
     public readonly status: number,
     public readonly body: unknown,
@@ -12,7 +15,16 @@ export class ApiError extends Error {
         ? body.detail
         : body;
     super(typeof detail === "string" ? detail : `API request failed (${status})`);
+    this.hasDetail = typeof detail === "string";
     this.name = "ApiError";
+  }
+}
+
+/** fetch itself failed: the server cannot be reached (a bug in our own code is not this). */
+export class ApiUnreachableError extends Error {
+  constructor(public readonly original: unknown) {
+    super(original instanceof Error ? original.message : "API is unreachable");
+    this.name = "ApiUnreachableError";
   }
 }
 
@@ -39,12 +51,19 @@ export async function apiRequest<T>(
   }
   if (json !== undefined) headers.set("Content-Type", "application/json");
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers,
-    body: json === undefined ? undefined : JSON.stringify(json),
-    cache: init.cache ?? "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      headers,
+      body: json === undefined ? undefined : JSON.stringify(json),
+      cache: init.cache ?? "no-store",
+    });
+  } catch (cause) {
+    // An abort is the caller's own doing, not a failure of the server
+    if (cause instanceof DOMException && cause.name === "AbortError") throw cause;
+    throw new ApiUnreachableError(cause);
+  }
   const text = await response.text();
   let body: unknown = undefined;
   if (text) {

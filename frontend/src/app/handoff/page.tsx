@@ -4,11 +4,18 @@ import Link from "next/link";
 import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollX } from "@/components/ScrollX";
 import { ActingAs } from "@/components/ActingAs";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Notice } from "@/components/ui/Notice";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
-import { SKIP_REASON_INFO } from "@/lib/constants";
+import { SKIP_REASON_KEYS } from "@/lib/constants";
+import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
+import type { MessageKey, Params, Translate } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/LanguageProvider";
 import type {
   CloseCaseResult,
   HandoffCandidate,
@@ -25,10 +32,6 @@ function shortByText(row: HandoffCase): string {
   return String(Math.max(row.headcount_gap - row.assigned_count, 0));
 }
 
-function ruleText(code: string): string {
-  return SKIP_REASON_INFO.get(code) ?? code;
-}
-
 /** The data a 409 carries, or null for any other error. */
 function conflictOf(cause: unknown): HandoffConflict | null {
   if (!(cause instanceof ApiError) || cause.status !== 409) return null;
@@ -40,7 +43,7 @@ function conflictOf(cause: unknown): HandoffConflict | null {
 }
 
 /** The API's own words: a string detail, or the messages of a validation list. */
-function detailText(cause: ApiError): string {
+function detailText(cause: ApiError, t: Translate): string {
   const body = cause.body;
   const detail = typeof body === "object" && body !== null && "detail" in body ? body.detail : null;
   if (Array.isArray(detail)) {
@@ -53,18 +56,20 @@ function detailText(cause: ApiError): string {
     const message = detail.message;
     if (typeof message === "string") return message;
   }
-  return cause.message;
+  return describeError(cause, t);
 }
 
-function errorText(cause: unknown): string {
-  return cause instanceof ApiError
-    ? `${detailText(cause)} (HTTP ${cause.status})`
-    : "Cannot reach the API. Check that the backend is running.";
+/** A text of the page (a key and its values, in the language of the user) or the words of the API. */
+type Message = { key: MessageKey; params?: Params } | { failure: unknown };
+
+function errorText(cause: unknown, t: Translate): string {
+  return cause instanceof ApiError ? `${detailText(cause, t)} (HTTP ${cause.status})` : describeError(cause, t);
 }
 
-type Outcome = { kind: "ok" | "error" | "info"; message: string };
+type Outcome = { kind: "ok" | "error" | "info"; message: Message };
 
 function HandoffPage() {
+  const t = useT();
   // Who acts: the user a link carried here (the Dashboard counts), else the Golden Case head
   // nurse (docs/workflow.md, section 10). The API shows each one their own ward
   const [actorId, setActorId] = useActor();
@@ -90,6 +95,12 @@ function HandoffPage() {
   // The case whose staff list may still be shown. A late answer for another case is dropped
   const listedFor = useRef<number | null>(null);
 
+  const text = (message: Message) => ("failure" in message ? errorText(message.failure, t) : t(message.key, message.params));
+  const ruleText = (code: string) => {
+    const key = SKIP_REASON_KEYS.get(code);
+    return key ? t(key) : code;
+  };
+
   const loadCandidates = useCallback(async (caseId: number) => {
     listedFor.current = caseId;
     setCandidates(null);
@@ -97,7 +108,7 @@ function HandoffPage() {
       const rows = await api<HandoffCandidate[]>(`/cases/${caseId}/handoff/candidates`);
       if (listedFor.current === caseId) setCandidates(rows);
     } catch (cause) {
-      if (listedFor.current === caseId) setOutcome({ kind: "error", message: errorText(cause) });
+      if (listedFor.current === caseId) setOutcome({ kind: "error", message: { failure: cause } });
     }
   }, [api]);
 
@@ -109,8 +120,8 @@ function HandoffPage() {
     setOutcome({
       kind: "info",
       message: now
-        ? `Case ${selectedId} can no longer be managed: it is now ${now.status}.`
-        : `Case ${selectedId} is no longer handed off.`,
+        ? { key: "hand.noLonger", params: { id: selectedId, status: now.status } }
+        : { key: "hand.noLongerHanded", params: { id: selectedId } },
     });
     listedFor.current = null;
     setSelectedId(null);
@@ -164,11 +175,19 @@ function HandoffPage() {
       );
       setPendingConfirm(null);
       const cancelled = result.cancelled_outreach_ids.length
-        ? ` Offers cancelled elsewhere: ${result.cancelled_outreach_ids.join(", ")}.`
+        ? t("hand.cancelledElsewhere", { ids: result.cancelled_outreach_ids.join(", ") })
         : "";
       setOutcome({
         kind: "ok",
-        message: `Staff ${result.staff_id} assigned. Case ${result.case_id}: ${result.case_status}.${cancelled}`,
+        message: {
+          key: "hand.assigned",
+          params: {
+            staff: result.staff_id,
+            caseId: result.case_id,
+            caseStatus: result.case_status,
+            cancelled,
+          },
+        },
       });
       if (result.case_status === "RESOLVED") {
         listedFor.current = null;
@@ -185,12 +204,13 @@ function HandoffPage() {
       } else if (conflict?.code === "HARD_RULES_FAILED") {
         setOutcome({
           kind: "error",
-          message: `Staff ${staffId} cannot take this shift: ${conflict.failed_rules
-            .map(ruleText)
-            .join("; ")}`,
+          message: {
+            key: "hand.cannotTake",
+            params: { staff: staffId, rules: conflict.failed_rules.map(ruleText).join("; ") },
+          },
         });
       } else {
-        setOutcome({ kind: "error", message: errorText(cause) });
+        setOutcome({ kind: "error", message: { failure: cause } });
       }
     } finally {
       setBusy(false);
@@ -208,146 +228,136 @@ function HandoffPage() {
         method: "POST",
         json: { reason: trimmed },
       });
-      setOutcome({ kind: "ok", message: `Case ${result.case_id}: ${result.case_status}` });
+      setOutcome({
+        kind: "ok",
+        message: { key: "hand.closed", params: { caseId: result.case_id, caseStatus: result.case_status } },
+      });
       listedFor.current = null;
       setSelectedId(null);
       setCandidates(null);
       await refresh();
     } catch (cause) {
-      setOutcome({ kind: "error", message: errorText(cause) });
+      setOutcome({ kind: "error", message: { failure: cause } });
     } finally {
       setBusy(false);
     }
   }
 
-  const button = "rounded border px-2 py-1 disabled:opacity-50";
-
   return (
-    <main className="mx-auto max-w-4xl p-8">
-      <h1 className="text-2xl font-semibold">Handed-off cases</h1>
-      <p className="mt-1 text-sm">Cases the system could not staff, from the ward of the user below.</p>
-      <div className="mt-1">
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+      <PageHeader title={t("hand.title")} description={t("hand.intro")}>
         <ActingAs id="handoff-acting-as" value={actorId} onChange={changeActor} />
-      </div>
+      </PageHeader>
 
-      {error && <p className="mt-4 text-red-700">{error.message}</p>}
-      {outcome?.kind === "ok" && <p className="mt-4 text-green-700">{outcome.message}</p>}
-      {outcome?.kind === "info" && (
-        <p role="status" className="mt-4 text-amber-700">
-          {outcome.message}
-        </p>
-      )}
-      {outcome?.kind === "error" && (
-        <p role="alert" className="mt-4 text-red-700">
-          {outcome.message}
-        </p>
-      )}
-      {isLoading && <p className="mt-4">Loading…</p>}
-      {cases && cases.length === 0 && <p className="mt-4">No handed-off cases.</p>}
+      <div className="space-y-3">
+        {error && <p className="text-red-700">{describeError(error, t)}</p>}
+        {outcome?.kind === "ok" && <p className="font-medium text-green-700">{text(outcome.message)}</p>}
+        {outcome?.kind === "info" && (
+          <Notice kind="warning" role="status">
+            {text(outcome.message)}
+          </Notice>
+        )}
+        {outcome?.kind === "error" && (
+          <Notice kind="error" role="alert">
+            {text(outcome.message)}
+          </Notice>
+        )}
+      </div>
+      {isLoading && <p className="mt-4">{t("common.loading")}</p>}
+      {cases && cases.length === 0 && <p className="mt-4">{t("hand.noCases")}</p>}
       {cases && cases.length > 0 && (
-        <ScrollX>
-          <table className="mt-4 w-full text-left">
-            <thead>
-              <tr>
-                <th>Case</th>
-                <th>Status</th>
-                <th>Shift</th>
-                <th>Still short</th>
-                <th>Opened at</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cases.map((row) => (
-                <tr key={row.id}>
-                  <td>
-                    <Link className="underline" href={`/cases/${row.id}`}>
-                      {row.id}
-                    </Link>
-                  </td>
-                  <td>{row.status}</td>
-                  <td>{row.shift_id}</td>
-                  <td>{shortByText(row)}</td>
-                  <td>{formatDateTime(row.created_at)}</td>
-                  <td>
-                    {row.can_manage ? (
-                      <button
-                        type="button"
-                        className={button}
-                        disabled={busy}
-                        onClick={() => open(row.id)}
-                      >
-                        Manage
-                      </button>
-                    ) : (
-                      // FAILED stays an end point (R2-Q22)
-                      <span className="text-sm">Cannot be managed</span>
-                    )}
-                  </td>
+        <Card className="mt-4">
+          <ScrollX>
+            <table>
+              <thead>
+                <tr>
+                  <th>{t("common.case")}</th>
+                  <th>{t("cand.status")}</th>
+                  <th>{t("common.shift")}</th>
+                  <th>{t("hand.stillShort")}</th>
+                  <th>{t("hand.openedAt")}</th>
+                  <th>{t("offers.col.action")}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </ScrollX>
+              </thead>
+              <tbody>
+                {cases.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <Link className="underline" href={`/cases/${row.id}`}>
+                        {row.id}
+                      </Link>
+                    </td>
+                    <td>{row.status}</td>
+                    <td>{row.shift_id}</td>
+                    <td>{shortByText(row)}</td>
+                    <td>{formatDateTime(row.created_at)}</td>
+                    <td>
+                      {row.can_manage ? (
+                        <Button disabled={busy} onClick={() => open(row.id)}>
+                          {t("hand.manage")}
+                        </Button>
+                      ) : (
+                        // FAILED stays an end point (R2-Q22)
+                        <span className="text-sm">{t("hand.cannotManage")}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </ScrollX>
+        </Card>
       )}
 
       {selected && (
-        <section className="mt-8" aria-label={`Manage case ${selected.id}`}>
-          <h2 className="text-xl font-semibold">Case {selected.id}</h2>
-          <p className="mt-1 text-sm">
-            Assign someone who passes every rule, or close the case without a replacement.
-          </p>
+        <Card label={t("hand.manageLabel", { id: selected.id })} title={t("case.title", { id: selected.id })} className="mt-6">
+          <p className="mt-1 text-sm">{t("hand.assignHelp")}</p>
 
           <label className="mt-4 block" htmlFor="assignment-note">
-            Note for the assignment (optional)
+            {t("hand.noteLabel")}
           </label>
           <input
             id="assignment-note"
-            className="mt-1 w-full rounded border p-2"
+            className="mt-1 w-full"
             maxLength={MAX_REASON_LENGTH}
             value={note}
             onChange={(event) => setNote(event.target.value)}
           />
 
           {pendingConfirm && (
-            <div role="alertdialog" className="mt-4 rounded border border-amber-500 p-3">
+            <div role="alertdialog" className="mt-4 rounded-lg border border-amber-400 bg-amber-50 p-3 text-amber-900">
               <p>
-                Staff {pendingConfirm.staffId} has an offer on case{" "}
-                {pendingConfirm.caseIds.join(", ")} that this shift rules out. Assigning them
-                cancels that offer.
+                {t("hand.confirm", {
+                  staff: pendingConfirm.staffId,
+                  cases: pendingConfirm.caseIds.join(", "),
+                })}
               </p>
-              <div className="mt-2 flex gap-2">
-                <button
-                  type="button"
-                  className={button}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button
+                  variant="primary"
                   disabled={busy}
                   onClick={() => assign(pendingConfirm.staffId, true)}
                 >
-                  Assign and cancel the other offer
-                </button>
-                <button
-                  type="button"
-                  className={button}
-                  disabled={busy}
-                  onClick={() => setPendingConfirm(null)}
-                >
-                  Keep the other offer
-                </button>
+                  {t("hand.assignCancel")}
+                </Button>
+                <Button disabled={busy} onClick={() => setPendingConfirm(null)}>
+                  {t("hand.keepOffer")}
+                </Button>
               </div>
             </div>
           )}
 
-          {candidates === null && <p className="mt-4">Loading staff…</p>}
+          {candidates === null && <p className="mt-4">{t("hand.loadingStaff")}</p>}
           {candidates && (
             <ScrollX>
-              <table className="mt-4 w-full text-left">
+              <table className="mt-4">
                 <thead>
                   <tr>
-                    <th>Staff</th>
-                    <th>Name</th>
-                    <th>Role</th>
-                    <th>Can take the shift</th>
-                    <th>Action</th>
+                    <th>{t("common.staff")}</th>
+                    <th>{t("common.name")}</th>
+                    <th>{t("common.role")}</th>
+                    <th>{t("hand.canTake")}</th>
+                    <th>{t("offers.col.action")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -360,21 +370,19 @@ function HandoffPage() {
                       <td>{person.role_name}</td>
                       <td>
                         {person.blocking_rules.length === 0
-                          ? "Yes"
+                          ? t("gapPage.yes")
                           : person.blocking_rules.map(ruleText).join("; ")}
                         {person.other_case_ids.length > 0 &&
-                          ` (offer on case ${person.other_case_ids.join(", ")})`}
+                          t("hand.otherCase", { cases: person.other_case_ids.join(", ") })}
                       </td>
                       <td>
-                        <button
-                          type="button"
-                          className={button}
+                        <Button
                           // No override: a blocked person cannot be assigned (R2-Q14)
                           disabled={busy || pendingConfirm !== null || person.blocking_rules.length > 0}
                           onClick={() => assign(person.staff_id)}
                         >
-                          Assign
-                        </button>
+                          {t("hand.assign")}
+                        </Button>
                       </td>
                     </tr>
                   ))}
@@ -385,11 +393,11 @@ function HandoffPage() {
 
           <form className="mt-6 max-w-xl" onSubmit={close}>
             <label className="block" htmlFor="close-reason">
-              Reason for closing case {selected.id} without a replacement
+              {t("hand.closeReasonLabel", { id: selected.id })}
             </label>
             <textarea
               id="close-reason"
-              className="mt-1 w-full rounded border p-2"
+              className="mt-1 w-full"
               rows={3}
               maxLength={MAX_REASON_LENGTH}
               required
@@ -399,15 +407,11 @@ function HandoffPage() {
             <p className="text-sm">
               {closeReason.length} / {MAX_REASON_LENGTH}
             </p>
-            <button
-              type="submit"
-              className={`${button} mt-2`}
-              disabled={busy || !closeReason.trim()}
-            >
-              Close without a replacement
-            </button>
+            <Button type="submit" className="mt-2" disabled={busy || !closeReason.trim()}>
+              {t("hand.closeButton")}
+            </Button>
           </form>
-        </section>
+        </Card>
       )}
     </main>
   );

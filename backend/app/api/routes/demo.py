@@ -8,6 +8,7 @@ from app.db.models import Staff
 from app.domain.enums import ActorName, CheckInSource
 from app.domain.errors import ShiftNotFoundError, StaffNotFoundError
 from app.schemas.attendance import CheckInResponse, SimulatedCheckIn
+from app.schemas.clock import ClockView
 from app.schemas.job import ClockAdvance, ClockAdvanceResult
 from app.seed.reset import reset_demo
 from app.services import (
@@ -41,6 +42,19 @@ def advance_clock(body: ClockAdvance, db: DbSession) -> ClockAdvanceResult:
         )
     now = clock.advance(timedelta(seconds=body.seconds))
     return ClockAdvanceResult.of(now, job_service.run_due_work(db))
+
+
+@router.post("/clock/freeze")
+def freeze_clock() -> ClockView:
+    """Freeze the clock at the time it shows now. Already frozen: nothing changes."""
+    return ClockView(now=clock.freeze_now(), frozen=True)
+
+
+@router.post("/clock/unfreeze")
+def unfreeze_clock() -> ClockView:
+    """Let the clock follow real time again (POST /demo/reset freezes it once more)."""
+    clock.reset()
+    return ClockView(now=clock.now(), frozen=False)
 
 
 @router.post("/attendance/check-in")

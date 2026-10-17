@@ -192,3 +192,21 @@ def test_simultaneous_reset_requests_complete_and_allow_another_reset() -> None:
 
 def test_failed_reset_releases_lock_for_next_request() -> None:
     assert run_in_child_process(_failed_reset_then_reset) == 200
+
+
+def test_a_frozen_clock_stays_frozen_while_the_reset_runs(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.seed import reset as reset_module
+
+    client.post("/demo/reset")
+    seen: list[bool] = []
+    real_upgrade = reset_module.command.upgrade
+
+    def watch(*args: Any, **kwargs: Any) -> None:
+        seen.append(clock.is_frozen())  # the migration is the slow middle of a reset
+        real_upgrade(*args, **kwargs)
+
+    monkeypatch.setattr(reset_module.command, "upgrade", watch)
+
+    client.post("/demo/reset")
+
+    assert seen == [True]

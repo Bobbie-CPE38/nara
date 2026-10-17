@@ -1,4 +1,3 @@
-import { en } from "@/lib/i18n/en";
 import type { MessageKey } from "@/lib/i18n";
 
 export const POLL_INTERVAL_MS = 2000;
@@ -86,9 +85,4 @@ export const SKIP_REASON_KEYS: ReadonlyMap<string, MessageKey> = new Map(
     "OFFER_LIMIT_REACHED",
     "SOURCE_SHIFT_TAKEN",
   ].map((code) => [code, `skip.${code}` as MessageKey]),
-);
-
-/** English reason texts, for a page that is not translated yet (Handoff, until PR UI2). */
-export const SKIP_REASON_INFO: ReadonlyMap<string, string> = new Map(
-  [...SKIP_REASON_KEYS].map(([code, key]) => [code, en[key]]),
 );

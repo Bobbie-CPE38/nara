@@ -64,9 +64,10 @@ def reset_demo() -> datetime:
 
 
 def _reset_demo() -> datetime:
-    # D = today in real time, not whatever an earlier reset froze
-    clock.reset()
-    reset_at = clock.now()
+    # D = today in real time, not whatever an earlier reset froze. The clock is not unfrozen
+    # for this: the migration takes seconds, and a clock that followed real time meanwhile
+    # showed on the pages as unfrozen and let the job use real time
+    reset_at = datetime.now(clock.APP_TIMEZONE)
     demo_time = reset_at.replace(hour=21, minute=0, second=0, microsecond=0)
     config = Config(str(ALEMBIC_INI))
 

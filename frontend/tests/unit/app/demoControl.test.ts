@@ -3,6 +3,10 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ClockProvider } from "../../../src/components/ClockProvider";
+import { DemoClock } from "../../../src/components/DemoClock";
+import { LanguageSwitch } from "../../../src/components/layout/LanguageSwitch";
+import { LanguageProvider } from "../../../src/lib/i18n/LanguageProvider";
 import DemoControl from "../../../src/app/demo/control/page";
 
 afterEach(() => {
@@ -11,6 +15,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// The page also reads GET /clock every second (to enable the right freeze button). That read
+// is answered here and kept out of the mock, so the tests count only the calls they care about.
+const CLOCK_ANSWER = { now: "2026-10-09T21:00:00+07:00", frozen: true };
+
+function answerClock(fetchMock: (url: string, init?: RequestInit) => unknown) {
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
+    /\/clock$/.test(url)
+      ? Promise.resolve(new Response(JSON.stringify(CLOCK_ANSWER)))
+      : (fetchMock(url, init) as Promise<Response>),
+  );
+}
+
 function stubFetch(body: unknown, status = 200) {
   const fetchMock = vi.fn().mockImplementation(async (url: string) => {
     const match = url.match(/\/cases\/(\d+)$/);
@@ -18,7 +34,7 @@ function stubFetch(body: unknown, status = 200) {
       ? new Response(JSON.stringify({ id: Number(match[1]), status: "WAITING_RESPONSE" }))
       : new Response(JSON.stringify(body), { status });
   });
-  vi.stubGlobal("fetch", fetchMock);
+  answerClock(fetchMock);
   return fetchMock;
 }
 
@@ -243,7 +259,9 @@ describe("demo control page", () => {
         "105 reports leave (shift 1): Staff 105 has no assigned roster on shift 1 (HTTP 409)",
       ),
     ).toBeTruthy();
+    // the two clock buttons follow the state of the clock, the others only the running request
     for (const button of screen.getAllByRole<HTMLButtonElement>("button")) {
+      if (/^(Freeze|Unfreeze) clock/.test(button.textContent ?? "")) continue;
       expect(button.disabled).toBe(false);
     }
   });
@@ -305,7 +323,7 @@ describe("demo control live case status", () => {
       }
       return reply();
     });
-    vi.stubGlobal("fetch", fetchMock);
+    answerClock(fetchMock);
     render(createElement(DemoControl));
     click("105 reports leave (shift 1)");
     return {
@@ -570,5 +588,120 @@ describe("demo control live case status", () => {
     render(createElement(DemoControl));
     click("Advance clock 10 minutes");
     expect(await screen.findByText("No-show events recorded: 11, 12")).toBeTruthy();
+  });
+});
+
+describe("demo control clock buttons", () => {
+  function serveClock(frozen: boolean) {
+    let isFrozen = frozen;
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (init?.method === "POST") {
+        calls.push(path);
+        isFrozen = path.endsWith("/freeze");
+      }
+      return new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: isFrozen }));
+    });
+    return calls;
+  }
+
+  it("unfreezes a frozen clock, and the freeze button waits for it", async () => {
+    const calls = serveClock(true);
+    render(createElement(ClockProvider, null, createElement(DemoControl)));
+
+    const freeze = await screen.findByRole("button", { name: "Freeze clock" });
+    const unfreeze = screen.getByRole("button", { name: "Unfreeze clock (real time)" });
+    await vi.waitFor(() => expect((freeze as HTMLButtonElement).disabled).toBe(true));
+    expect((unfreeze as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(unfreeze);
+    expect(await screen.findByText(/Clock follows real time again/)).toBeTruthy();
+    expect(calls).toEqual(["/demo/clock/unfreeze"]);
+  });
+
+  it("freezes a clock that follows real time", async () => {
+    const calls = serveClock(false);
+    render(createElement(ClockProvider, null, createElement(DemoControl)));
+
+    const freeze = screen.getByRole("button", { name: "Freeze clock" });
+    await vi.waitFor(() =>
+      expect((screen.getByRole("button", { name: "Unfreeze clock (real time)" }) as HTMLButtonElement).disabled).toBe(true),
+    );
+    fireEvent.click(freeze);
+    expect(await screen.findByText(/Clock frozen at/)).toBeTruthy();
+    expect(calls).toEqual(["/demo/clock/freeze"]);
+  });
+});
+
+describe("demo control clock reads", () => {
+  it("makes one read of /clock a second for the top bar and the buttons together", async () => {
+    vi.useFakeTimers();
+    let reads = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (/\/clock$/.test(url)) reads += 1;
+      return new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }));
+    });
+    render(
+      createElement(
+        ClockProvider,
+        null,
+        createElement(DemoClock),
+        createElement(DemoControl),
+      ),
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(3500); });
+    // one at the start, then one at 1, 2 and 3 seconds
+    expect(reads).toBe(4);
+  });
+
+  it("disables Advance clock while the clock follows real time", async () => {
+    vi.stubGlobal("fetch", async () =>
+      new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: false })),
+    );
+    render(createElement(ClockProvider, null, createElement(DemoControl)));
+    const advance = screen.getByRole("button", { name: "Advance clock 10 minutes" }) as HTMLButtonElement;
+    await vi.waitFor(() => expect(advance.disabled).toBe(true));
+  });
+
+  it("gives the words of an error in the language of the page", async () => {
+    vi.stubGlobal("fetch", async (url: string) =>
+      /\/clock$/.test(url)
+        ? new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }))
+        : new Response("{}", { status: 500 }),
+    );
+    const view = render(
+      createElement(LanguageProvider, { initial: "th", children: createElement(DemoControl) }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "รีเซ็ต Demo" }));
+    expect(await screen.findByText(/คำขอไปยัง API ไม่สำเร็จ \(500\)/)).toBeTruthy();
+    view.unmount();
+    // the same failure shown in English: the sentence is ours, so it follows the language
+    render(createElement(LanguageProvider, { initial: "en", children: createElement(DemoControl) }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset demo" }));
+    expect(await screen.findByText(/API request failed \(500\)/)).toBeTruthy();
+  });
+});
+
+describe("demo control language switch", () => {
+  it("changes an error that stays on the screen from Thai to English without a remount", async () => {
+    vi.stubGlobal("fetch", async (url: string) =>
+      /\/clock$/.test(url)
+        ? new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }))
+        : new Response("{}", { status: 500 }),
+    );
+    render(
+      createElement(LanguageProvider, {
+        initial: "th",
+        children: [createElement(LanguageSwitch, { key: "switch" }), createElement(DemoControl, { key: "page" })],
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "รีเซ็ต Demo" }));
+    expect(await screen.findByText(/คำขอไปยัง API ไม่สำเร็จ \(500\)/)).toBeTruthy();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "EN" })); });
+
+    expect(screen.getByText(/Reset demo: API request failed \(500\)/)).toBeTruthy();
+    expect(screen.queryByText(/คำขอไปยัง API ไม่สำเร็จ/)).toBeNull();
   });
 });
