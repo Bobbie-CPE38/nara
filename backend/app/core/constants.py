@@ -49,8 +49,9 @@ LLM_MAX_INPUT_TOKENS = 5_000
 # the user. Asking again never resets it
 LLM_MAX_ATTEMPTS_PER_ROW = 4
 
-# Model trial (6.28): cases x models x attempts. The trial has its own allowance and
-# is counted in the monthly budget above
+# Model trial (6.28): cases x models x attempts. The cap is for the whole run, not per
+# day (LLM_TRIAL_USAGE keeps it by run id), and the trial is counted in the monthly
+# budget above
 LLM_TRIAL_CASES = 30
 LLM_TRIAL_MODELS = 3
 LLM_TRIAL_MAX_ATTEMPTS = 2

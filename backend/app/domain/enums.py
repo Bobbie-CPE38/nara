@@ -409,8 +409,9 @@ class LlmWorkType(StrEnum):
     MODEL_TRIAL = "MODEL_TRIAL"
 
 
-# Round 6 (6.27). Which daily allowance an attempt is counted against. Only code picks
-# it: a route of a user can never choose TRIAL
+# Round 6 (6.27). Which allowance an attempt is counted against: DEMO is a daily
+# counter, TRIAL is one cumulative counter per trial run. Only code picks it: a route
+# of a user can never choose TRIAL
 class LlmQuotaScope(StrEnum):
     DEMO = "DEMO"
     TRIAL = "TRIAL"

@@ -783,16 +783,27 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ### 36. LLM_DAILY_USAGE (รอบ 6 PR B1 ยังไม่มี Migration)
 
-ตัวนับคำขอ LLM ต่อวัน ข้อ 6.27 ของ `workflow.md`
+ตัวนับคำขอ LLM ต่อวัน เฉพาะขอบเขต `DEMO` ข้อ 6.27 ของ `workflow.md`
 
 | Field | Type | Null | หมายเหตุ |
 |---|---|---|---|
-| `usage_date` | date | NOT NULL | วันตามเวลา Asia/Bangkok (`LLM_QUOTA_TIMEZONE`) |
-| `scope` | text | NOT NULL | `LlmQuotaScope`: `DEMO` หรือ `TRIAL` |
-| `trial_run_id` | text | NOT NULL | ค่าว่างเมื่อ `scope = DEMO`; รหัสชุดทดลองเมื่อ `TRIAL` |
+| `usage_date` | date | NOT NULL | PK วันตามเวลา Asia/Bangkok (`LLM_QUOTA_TIMEZONE`) |
 | `used` | integer | NOT NULL | จำนวน Attempt ที่เรียก Bedrock จริงรวม Retry |
 
-PK (`usage_date`, `scope`, `trial_run_id`) จองด้วยคำสั่งเดียวแบบ `INSERT ... ON CONFLICT DO UPDATE SET used = used + 1 WHERE used < :cap RETURNING used` ชื่อและคอลัมน์ที่แน่นอน B1 ยืนยันใน PR ของตัวเอง
+จองด้วยคำสั่งเดียวแบบ `INSERT ... ON CONFLICT DO UPDATE SET used = used + 1 WHERE used < :cap RETURNING used` ชื่อและคอลัมน์ที่แน่นอน B1 ยืนยันใน PR ของตัวเอง
+
+### 36b. LLM_TRIAL_USAGE (รอบ 6 PR B1 ยังไม่มี Migration)
+
+ตัวนับสะสมของชุดทดลองเลือกโมเดลหนึ่งชุด ไม่ผูกกับวัน ข้อ 6.27 และ 6.28 ของ `workflow.md`
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `trial_run_id` | text | NOT NULL | PK |
+| `cap` | integer | NOT NULL | เพดานของชุดนี้ ตั้งครั้งเดียวตอนสร้างแถวจากสูตร `LLM_TRIAL_CALL_CAP` ไม่แก้ภายหลัง |
+| `used` | integer | NOT NULL | จำนวน Attempt สะสมของชุดนี้ |
+| `created_at` | timestamptz | NOT NULL | Backend Clock |
+
+จองด้วยคำสั่งเดียวแบบ `UPDATE LLM_TRIAL_USAGE SET used = used + 1 WHERE trial_run_id = :id AND used < cap RETURNING used` ไม่มีวันในคีย์ จึงไม่รีเซ็ตเมื่อข้ามเที่ยงคืนหรือรีสตาร์ต
 
 ### 37. LLM_CASE_SUMMARY (รอบ 6 PR S ยังไม่มี Migration)
 
@@ -846,7 +857,7 @@ UNIQUE (`case_id`, `input_hash`, `prompt_version`) ข้อมูลเปล�
 | `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS`, `ATTENDANCE` |
 | `ExplanationStatus` | RANK_EXPLANATION.status (รอบ 3 PR X) | `PENDING`, `READY`, `FAILED`, `SKIPPED` |
 | `LlmWorkType` | LLM_CALL_LOG.work_type (รอบ 6 PR B1) | `RANK_EXPLANATION`, `CASE_SUMMARY`, `MODEL_TRIAL` |
-| `LlmQuotaScope` | LLM_DAILY_USAGE.scope (รอบ 6 PR B1) | `DEMO`, `TRIAL` |
+| `LlmQuotaScope` | ขอบเขตที่ตัวห่อการเรียกจองโควตา (รอบ 6 PR B1): `DEMO` ใช้ LLM_DAILY_USAGE, `TRIAL` ใช้ LLM_TRIAL_USAGE | `DEMO`, `TRIAL` |
 | `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
 | `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `ATTENDANCE_CHECKED_IN`, `OFFER_CANCELLED_NOT_NEEDED` **[รอบ 5 · PR N2]**, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
 | `CheckInSource` | AUDIT_LOG.payload.source ของ `ATTENDANCE_CHECKED_IN` | `SELF`, `SIMULATED` |
