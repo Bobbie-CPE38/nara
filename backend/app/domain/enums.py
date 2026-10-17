@@ -401,6 +401,22 @@ class LlmCallStatus(StrEnum):
     INVALID_OUTPUT = "INVALID_OUTPUT"
 
 
+# Round 6 (docs/workflow.md 6.27). What one LLM_CALL_LOG row was spent on. The daily
+# counter and the monthly cost both add up every type
+class LlmWorkType(StrEnum):
+    RANK_EXPLANATION = "RANK_EXPLANATION"
+    CASE_SUMMARY = "CASE_SUMMARY"
+    MODEL_TRIAL = "MODEL_TRIAL"
+
+
+# Round 6 (6.27). Which allowance an attempt is counted against: DEMO is a daily
+# counter, TRIAL is one cumulative counter per trial run. Only code picks it: a route
+# of a user can never choose TRIAL
+class LlmQuotaScope(StrEnum):
+    DEMO = "DEMO"
+    TRIAL = "TRIAL"
+
+
 # Exact non-transition audit sequence expected by the Golden Case E2E test.
 # Its one-person gap has ceil(1.1 * 1) = 2 candidates: wave 1 sends to
 # both 201 and 202, hence two consecutive OFFER_SENT rows.

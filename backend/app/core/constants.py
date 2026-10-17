@@ -30,3 +30,29 @@ CHECK_IN_EARLIEST_SECONDS = 60 * 60
 
 # Round 5 (6.25). Version of STRUCTURED_HANDOVER.content
 HANDOVER_CONTENT_VERSION = 1
+
+# Round 6 (docs/workflow.md 6.27, 6.28). Defaults of the LLM allowance. They are
+# the values to start from; PR B1 reads them into settings so they can be changed
+# without a release. The cap counts every attempt that really calls Bedrock, retries
+# included, per calendar day in LLM_QUOTA_TIMEZONE
+LLM_DAILY_CALL_CAP = 100
+LLM_QUOTA_TIMEZONE = "Asia/Bangkok"
+
+# Monthly spend limit of every LLM work type together, in USD. A budget alert warns;
+# it does not stop calls (the daily cap does)
+LLM_MONTHLY_BUDGET_USD = 20
+
+# Largest prompt allowed per request, in tokens. A payload above it is not sent
+LLM_MAX_INPUT_TOKENS = 5_000
+
+# Most attempts one explanation or summary row may ever use across all requests of
+# the user. Asking again never resets it
+LLM_MAX_ATTEMPTS_PER_ROW = 4
+
+# Model trial (6.28): cases x models x attempts. The cap is for the whole run, not per
+# day (LLM_TRIAL_USAGE keeps it by run id), and the trial is counted in the monthly
+# budget above
+LLM_TRIAL_CASES = 30
+LLM_TRIAL_MODELS = 3
+LLM_TRIAL_MAX_ATTEMPTS = 2
+LLM_TRIAL_CALL_CAP = LLM_TRIAL_CASES * LLM_TRIAL_MODELS * LLM_TRIAL_MAX_ATTEMPTS
