@@ -11,6 +11,7 @@ from app.api.dependencies import DbSession, DemoUser
 from app.domain.enums import CaseStatus, ExplanationBlock
 from app.domain.errors import CaseNotFoundError
 from app.schemas.case import AuditEntry, CaseDetail, RankExplanationView
+from app.schemas.case_summary import CaseSummaryView
 from app.schemas.handoff import (
     CloseCaseRequest,
     CloseCaseResult,
@@ -20,7 +21,13 @@ from app.schemas.handoff import (
     ManualAssignmentResult,
 )
 from app.schemas.types import MAX_BIGINT
-from app.services import case_service, explanation_service, handoff_service, handover_service
+from app.services import (
+    case_service,
+    case_summary_service,
+    explanation_service,
+    handoff_service,
+    handover_service,
+)
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -98,6 +105,22 @@ def request_explanation(case_id: CaseId, db: DbSession) -> RankExplanationView:
         code, name = _EXPLANATION_REFUSALS[error.block]
         raise HTTPException(
             code, detail={"code": name, "message": _EXPLANATION_MESSAGES[error.block]}
+        ) from error
+
+
+@router.post("/{case_id}/summary")
+def request_summary(case_id: CaseId, db: DbSession) -> CaseSummaryView:
+    """Queue the current anonymous snapshot. No model call in this request."""
+    try:
+        return case_summary_service.request(db, case_id)
+    except CaseNotFoundError as error:
+        raise HTTPException(
+            404, detail={"code": "CASE_NOT_FOUND", "message": str(error)}
+        ) from error
+    except explanation_service.ExplanationRequestError as error:
+        status_code, code = _EXPLANATION_REFUSALS[error.block]
+        raise HTTPException(
+            status_code, detail={"code": code, "message": "Cannot request a case summary now"}
         ) from error
 
 

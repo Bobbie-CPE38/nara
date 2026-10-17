@@ -223,6 +223,7 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
         "candidates",
         "explanation",
         "partial_plan",
+        "summary",
     }
     assert (body["id"], body["event_ids"], body["shift_id"]) == (
         case.id,

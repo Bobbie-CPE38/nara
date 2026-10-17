@@ -1099,3 +1099,27 @@ Migration `b4e7a9c2d6f0` ต่อ `f6b2d8a4c0e1` เพิ่มตาราง
 | `delivery_last_result` | text | NULL | รหัส HTTP หรือ TIMEOUT ไม่มี remote body |
 
 เขียนพร้อมผลสุดท้าย/Audit ส่งหลัง Commit; การส่งล้มไม่เปลี่ยนผลของ Offer หรือการจัดเวร ไม่มีข้อมูลผู้ป่วยรายบุคคลหรือ LINE credentials ในข้อความ
+
+
+### CASE_SUMMARY (รอบ 6 PR S)
+
+Snapshot นิรนามหนึ่งฉบับต่อ (`case_id`, `input_hash`, `prompt_version`) ที่ผู้ใช้ขอเท่านั้น ไม่มี Backfill; Migration `f9a1c3e5b7d2` ต่อจาก `e7c3a5d9b1f4`
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `case_id` | bigint | NOT NULL | FK STAFFING_CASES; index |
+| `input_hash` | text | NOT NULL | SHA-256 ของ Canonical JSON |
+| `input_payload` | jsonb | NOT NULL | Snapshot ไม่แก้ไข ไม่มี Staff ID/ชื่อบุคคล/LINE ID |
+| `prompt_version` | text | NOT NULL | `case-summary-v1` |
+| `status` | text | NOT NULL | ExplanationStatus: PENDING, READY, FAILED, SKIPPED |
+| `text` | text | NULL | ข้อความที่ผ่านตัวตรวจรูปแบบ/ตัวเลขแล้ว |
+| `attempts` | integer | NOT NULL | default 0 ไม่ถูกล้าง |
+| `attempt_limit` | integer | NOT NULL | ขอบ Attempt ของคำขอปัจจุบัน; CHECK attempts >= 0 และ attempt_limit >= attempts |
+| `claim` | uuid | NULL | UUID ป้องกัน Worker เก่าเขียนทับ |
+| `lease_until` | timestamptz | NULL | Lease ตามเวลาจริง DB |
+| `failure_reason` | text | NULL | รหัสภายใน ไม่มีข้อความจาก SDK |
+| `created_at` | timestamptz | NOT NULL | Backend Clock ตอนขอ |
+| `ready_at` | timestamptz | NULL | Backend Clock ตอนสร้างสำเร็จ |
+
+Partial index บน `id` เมื่อ PENDING; UNIQUE (`case_id`, `input_hash`, `prompt_version`) การเรียก LLM บันทึกใน `LLM_CALL_LOG` ชนิด CASE_SUMMARY โดย `subject_id` = id นี้ (ไม่มี FK ตาม B1) Reset/Downgrade ถอดอ้างอิงและคงค่าใช้จ่าย/โควตา

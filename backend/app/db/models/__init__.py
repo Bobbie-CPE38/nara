@@ -15,6 +15,7 @@ from app.db.models.candidate_item import CandidateItem
 from app.db.models.candidate_item_target import CandidateItemTarget
 from app.db.models.candidate_outreach import CandidateOutreach
 from app.db.models.candidate_plan import CandidatePlan
+from app.db.models.case_summary import CaseSummary
 from app.db.models.contact import Contact
 from app.db.models.hard_constraint_policy import HardConstraintPolicy
 from app.db.models.line_account_link_code import LineAccountLinkCode
@@ -52,6 +53,7 @@ from app.db.models.structured_handover import StructuredHandover
 from app.db.models.ward import Ward
 
 __all__ = [
+    "CaseSummary",
     "Actor",
     "ApprovalPolicy",
     "ApprovalRequest",

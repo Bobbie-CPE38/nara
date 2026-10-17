@@ -13,8 +13,8 @@ from app.db.base import Base
 from app.db.session import engine
 
 # docs/database-schema.md (OUTREACH_POLICY and CANDIDATE_ITEM_TARGET added in round 1)
-# Issue 98 adds OFFER_OUTCOME_NOTIFICATION; round 6 PR B1 the two LLM quota counters
-EXPECTED_TABLE_COUNT = 44
+# Issue 98 adds OFFER_OUTCOME_NOTIFICATION; round 6 B1 quota counters and S CASE_SUMMARY
+EXPECTED_TABLE_COUNT = 45
 
 
 def test_models_cover_every_table_in_the_schema_document() -> None:

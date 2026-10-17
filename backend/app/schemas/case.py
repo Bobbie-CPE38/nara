@@ -14,6 +14,7 @@ from app.domain.enums import (
     ExplanationViewStatus,
     OutreachStatus,
 )
+from app.schemas.case_summary import CaseSummaryView
 from app.schemas.handover import HandoverView
 from app.schemas.types import AppDatetime
 
@@ -173,6 +174,7 @@ class CaseDetail(BaseModel):
     # group could cover every target (round 4 PR T4). False without a plan
     partial_plan: bool
     handovers: list[HandoverView]
+    summary: CaseSummaryView | None
 
 
 class AuditEntry(BaseModel):

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CaseView } from "../../../../src/components/case/CaseView";
 import {
@@ -938,4 +938,30 @@ describe("CaseView", () => {
     await tick(10000);
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
+});
+
+
+it("restarts final-case polling after a summary request and stops only after READY", async () => {
+  const notRequested = { current: { summary_id: null, status: "NOT_REQUESTED" as const,
+    text: null, generated_at: null, stale: false, can_request: true, request_blocked_reason: null }, history: [] };
+  serve(caseDetail({ status: "RESOLVED", summary: notRequested }), resolvedAudit());
+  render(<CaseView caseId="1" />);
+  await tick();
+  expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+  const pending = { current: { ...notRequested.current, summary_id: 1, status: "PENDING" as const,
+    can_request: false, request_blocked_reason: "PENDING" as const }, history: [] };
+  serve(caseDetail({ status: "RESOLVED", summary: pending }), resolvedAudit());
+  const regular = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url, init) => init?.method === "POST" && url.endsWith("/summary")
+    ? json(pending) : regular(url, init));
+  fireEvent.click(screen.getByRole("button", { name: "ขอสรุปสถานการณ์ด้วย AI" }));
+  await tick();
+  expect(screen.getByText("กำลังสร้างสรุป กรุณารอสักครู่")).toBeTruthy();
+  const ready = { current: { ...pending.current, status: "READY" as const, text: "สรุปหลังเคสจบแล้ว",
+    generated_at: DEMO_TIME, request_blocked_reason: "ALREADY_READY" as const }, history: [] };
+  serve(caseDetail({ status: "RESOLVED", summary: ready }), resolvedAudit());
+  await tick(2000);
+  expect(screen.getByText("สรุปหลังเคสจบแล้ว")).toBeTruthy();
+  expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
 });

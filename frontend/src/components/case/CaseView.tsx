@@ -5,6 +5,7 @@ import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
 import { ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
 import { SkippedTable } from "@/components/candidate/SkippedTable";
+import { CaseSummary } from "@/components/case/CaseSummary";
 import { GapTable } from "@/components/case/GapTable";
 import { HandoverList } from "@/components/handover/HandoverList";
 import { usePolling } from "@/hooks/usePolling";
@@ -28,6 +29,10 @@ function isWaitingForExplanation({ detail }: CaseSnapshot) {
   return detail.explanation?.status === "PENDING";
 }
 
+function isWaitingForSummary({ detail }: CaseSnapshot) {
+  return detail.summary?.current.status === "PENDING";
+}
+
 // A handover stays active after the case ends, until its row ends or the nurse is moved out
 // (section 6.25): keep reading so the section turns it into history.
 function hasActiveHandover({ detail }: CaseSnapshot) {
@@ -35,7 +40,7 @@ function hasActiveHandover({ detail }: CaseSnapshot) {
 }
 
 function isDone(snapshot: CaseSnapshot) {
-  return isFinal(snapshot) && !isWaitingForExplanation(snapshot) && !hasActiveHandover(snapshot);
+  return isFinal(snapshot) && !isWaitingForExplanation(snapshot) && !isWaitingForSummary(snapshot) && !hasActiveHandover(snapshot);
 }
 
 // 404: no such case. 422: the ID is outside the bigint range. A retry gives the same answer.
@@ -50,7 +55,7 @@ function describe(error: Error) {
     : error.message;
 }
 
-function CaseSections({ detail, audit }: CaseSnapshot) {
+function CaseSections({ detail, audit, onSummaryRequested }: CaseSnapshot & { onSummaryRequested: () => Promise<void> }) {
   const info = CASE_STATUS_INFO.get(detail.status);
   const skips = collectSkips(audit);
   // FAILED is a normal answer. Its reason is only in the audit, and only as an error type.
@@ -75,9 +80,11 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
             ? "Updating every 2 seconds."
             : isWaitingForExplanation({ detail, audit })
               ? "Final status. Still updating every 2 seconds until the explanation is ready."
-              : hasActiveHandover({ detail, audit })
-                ? "Final status. Still updating every 2 seconds while a handover is active."
-                : "Final status. Updates stopped."}
+              : isWaitingForSummary({ detail, audit })
+                ? "Final status. Still updating every 2 seconds until the summary is ready."
+                : hasActiveHandover({ detail, audit })
+                  ? "Final status. Still updating every 2 seconds while a handover is active."
+                  : "Final status. Updates stopped."}
         </p>
         <dl className="mt-2 grid grid-cols-2 gap-2">
           <dt>Shift</dt>
@@ -110,6 +117,7 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
           </>
         )}
       </section>
+      <CaseSummary caseId={detail.id} summary={detail.summary} onRequested={onSummaryRequested} />
       <section className="mt-6">
         <h2 className="text-xl font-semibold">Handovers</h2>
         <HandoverList handovers={detail.handovers ?? []} emptyText="No replacement has a handover yet." />
@@ -125,7 +133,7 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
 export function CaseView({ caseId }: { caseId: string }) {
   const valid = isCaseId(caseId);
   const load = useCallback((signal: AbortSignal) => loadCase(caseId, signal), [caseId]);
-  const { data, error, isLoading } = usePolling(load, {
+  const { data, error, isLoading, refresh } = usePolling(load, {
     intervalMs: POLL_INTERVAL_MS,
     enabled: valid,
     stopOnData: isDone,
@@ -151,7 +159,7 @@ export function CaseView({ caseId }: { caseId: string }) {
             Last update failed: {describe(error)} Showing the last known data. Retrying…
           </p>
         )}
-        <CaseSections detail={data.detail} audit={data.audit} />
+        <CaseSections detail={data.detail} audit={data.audit} onSummaryRequested={refresh} />
       </>
     );
   }
