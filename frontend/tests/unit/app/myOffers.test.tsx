@@ -61,6 +61,10 @@ function replies(handler: (path: string) => unknown) {
   request.mockImplementation(async <T,>(path: string) => {
     const result = handler(path);
     if (result instanceof Error) throw result;
+    // Tests concerned with offers/check-in use an empty handover page.
+    if (path === "/me/handovers" && Array.isArray(result)) {
+      return { active: [], history: [], next_cursor: null } as T;
+    }
     return result as T;
   });
 }
@@ -307,7 +311,7 @@ describe("My shift offers", () => {
       generated_at: "2026-10-09T21:05:00+07:00",
       content: { version: 1, shift: { id: 21, ward_name: "Medicine" }, reason: "NO_SHOW", co_workers: [] },
     };
-    replies((path) => (path === "/me/handovers" ? [handover] : []));
+    replies((path) => (path === "/me/handovers" ? { active: [handover], history: [], next_cursor: null } : []));
     render(<MyOffersPage />);
     await signInAs(201);
     expect(await screen.findByText(/Shift 21 \(Medicine\)/)).toBeTruthy();
@@ -329,7 +333,7 @@ describe("My shift offers", () => {
     replies((path) => {
       if (path !== "/me/handovers") return [];
       reads += 1;
-      return reads === 1 ? [handover] : new ApiError(503, { detail: "down" });
+      return reads === 1 ? { active: [handover], history: [], next_cursor: null } : new ApiError(503, { detail: "down" });
     });
     render(<MyOffersPage />);
     await signInAs(201);
@@ -339,4 +343,50 @@ describe("My shift offers", () => {
     ).toBeTruthy();
     expect(screen.getByText(/Shift 21 \(Medicine\)/)).toBeTruthy();
   });
+});
+
+it("loads older handovers on demand and keeps the active handover", async () => {
+  const make = (id: number, active: boolean) => ({
+    handover_id: id, roster_assignment_id: id, active,
+    generated_at: "2026-10-09T21:05:00+07:00",
+    content: { version: 1, shift: { id, ward_name: "ICU" }, co_workers: [] },
+  });
+  replies((path) => {
+    if (path === "/me/handovers") {
+      return { active: [make(21, true)], history: [make(20, false)], next_cursor: "opaque+cursor=" };
+    }
+    if (path === "/me/handovers?cursor=opaque%2Bcursor%3D") {
+      return { active: [make(21, true)], history: [make(19, false)], next_cursor: null };
+    }
+    return [];
+  });
+  render(<MyOffersPage />);
+  await signInAs(201);
+  await screen.findByText(/Shift 20 \(ICU\)/);
+  expect(screen.queryByText(/Shift 19 \(ICU\)/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Load more history" }));
+  expect(await screen.findByText(/Shift 19 \(ICU\)/)).toBeTruthy();
+  expect(screen.getAllByText(/Shift 21 \(ICU\)/)).toHaveLength(1);
+  expect(screen.getByText(/Shift 20 \(ICU\)/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Load more history" })).toBeNull();
+});
+
+it("keeps loaded handovers visible when the next page fails", async () => {
+  const handover = {
+    handover_id: 20, roster_assignment_id: 20, active: false,
+    generated_at: "2026-10-09T21:05:00+07:00",
+    content: { version: 1, shift: { id: 20, ward_name: "ICU" }, co_workers: [] },
+  };
+  replies((path) => {
+    if (path === "/me/handovers") return { active: [], history: [handover], next_cursor: "older" };
+    if (path.includes("cursor=")) return new ApiError(503, { detail: "offline" });
+    return [];
+  });
+  render(<MyOffersPage />);
+  await signInAs(201);
+  await screen.findByText(/Shift 20 \(ICU\)/);
+  fireEvent.click(screen.getByRole("button", { name: "Load more history" }));
+  await screen.findByText(/Could not refresh your handovers/);
+  expect(screen.getByText(/Shift 20 \(ICU\)/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Load more history" })).toBeTruthy();
 });
