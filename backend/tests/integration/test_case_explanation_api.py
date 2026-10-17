@@ -158,7 +158,7 @@ def test_ready_exposes_text_provider_and_model(client: TestClient, seeded: Sessi
     [
         (ExplanationStatus.FAILED, "TIMEOUT", None),
         (ExplanationStatus.FAILED, "INVALID_OUTPUT", "INVALID_INPUT"),
-        (ExplanationStatus.FAILED, "CONFIG_ERROR", "NOT_CONFIGURED"),
+        (ExplanationStatus.FAILED, "CONFIG_ERROR", None),
         (ExplanationStatus.SKIPPED, "INVALID_INPUT", "INVALID_INPUT"),
     ],
 )

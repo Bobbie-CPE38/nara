@@ -436,8 +436,9 @@ def test_bedrock_failure_never_falls_back_to_fake(
         "text": None,
         "provider": None,
         "model_id": None,
-        "can_request": False,
-        "request_blocked_reason": "NOT_CONFIGURED",
+        # A configuration error can be repaired outside the row: the user may ask again
+        "can_request": True,
+        "request_blocked_reason": None,
     }
 
 

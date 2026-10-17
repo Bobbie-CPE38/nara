@@ -27,10 +27,6 @@ services:
       # The pages and the API share one origin; this only covers direct calls
       CORS_ORIGINS: '["https://${SITE_DOMAIN:?SITE_DOMAIN must come from Parameter Store}"]'
       INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must come from Parameter Store}
-      # Pinned off until round 6 PR E1 merges (docs/workflow.md 6.27): the old
-      # explanation worker would call Bedrock for every plan on its own. PR E1
-      # removes this line. The model trial (B2) does not need LLM_ENABLED
-      LLM_ENABLED: "false"
 
   job:
     environment:

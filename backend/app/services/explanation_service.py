@@ -234,13 +234,16 @@ def llm_request(payload: dict[str, Any]) -> LlmRequest:
 # User side (round 6 PR E1, docs/workflow.md 6.27 and 9.8)
 # --------------------------------------------------------------------------- #
 # A failed or skipped row may be asked for again only after these: a passing fault, a
-# request cut short by a crash, or the day's quota. Every other reason (CONFIG_ERROR,
-# TRUNCATED, INVALID_OUTPUT, the invalid inputs) would fail the same way again
+# request cut short by a crash, the day's quota, or a provider configuration error
+# (credentials or Bedrock access can be repaired without the row knowing; a user has to
+# ask, the sweep never retries it). Every other reason (TRUNCATED, INVALID_OUTPUT, the
+# invalid inputs) would fail the same way again
 _ASK_AGAIN_REASONS = frozenset(
     {
         LlmCallStatus.TIMEOUT.value,
         LlmCallStatus.THROTTLED.value,
         LlmCallStatus.SERVICE_ERROR.value,
+        LlmCallStatus.CONFIG_ERROR.value,
         "ATTEMPTS_EXHAUSTED",
         LlmRefusal.QUOTA_EXHAUSTED.value,
     }
@@ -291,11 +294,12 @@ def _blocked(
             return ExplanationBlock.PENDING
     if not settings.llm_ready:
         return ExplanationBlock.NOT_CONFIGURED
-    if row is not None and row.status in (ExplanationStatus.FAILED, ExplanationStatus.SKIPPED):
-        if row.failure_reason == LlmCallStatus.CONFIG_ERROR.value:
-            return ExplanationBlock.NOT_CONFIGURED
-        if row.failure_reason not in _ASK_AGAIN_REASONS:
-            return ExplanationBlock.INVALID_INPUT
+    if (
+        row is not None
+        and row.status in (ExplanationStatus.FAILED, ExplanationStatus.SKIPPED)
+        and row.failure_reason not in _ASK_AGAIN_REASONS
+    ):
+        return ExplanationBlock.INVALID_INPUT
     if _cannot_explain(plan):
         return ExplanationBlock.INVALID_INPUT
     if row is not None and row.attempts >= settings.llm_max_attempts_per_row:

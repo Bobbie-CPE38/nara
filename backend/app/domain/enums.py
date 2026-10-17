@@ -442,7 +442,8 @@ class ExplanationViewStatus(StrEnum):
 class ExplanationBlock(StrEnum):
     ALREADY_READY = "ALREADY_READY"
     PENDING = "PENDING"
-    # LLM_ENABLED off, the provider not configured, or a call ended in CONFIG_ERROR
+    # LLM_ENABLED off or the provider not configured. A row that ended in CONFIG_ERROR may
+    # be asked for again once both are fine (review of PR #110)
     NOT_CONFIGURED = "NOT_CONFIGURED"
     # The plan cannot be explained, or a call ended in an error asking again cannot fix
     INVALID_INPUT = "INVALID_INPUT"

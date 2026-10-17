@@ -438,16 +438,9 @@ def test_attempts_exhausted_is_reported_before_a_used_up_day(
     assert _get(client, case)["request_blocked_reason"] == "ATTEMPTS_EXHAUSTED"
 
 
-@pytest.mark.parametrize(
-    ("status", "blocked"),
-    [
-        (LlmCallStatus.INVALID_OUTPUT, "INVALID_INPUT"),
-        (LlmCallStatus.TRUNCATED, "INVALID_INPUT"),
-        (LlmCallStatus.CONFIG_ERROR, "NOT_CONFIGURED"),
-    ],
-)
+@pytest.mark.parametrize("status", [LlmCallStatus.INVALID_OUTPUT, LlmCallStatus.TRUNCATED])
 def test_a_failure_asking_again_cannot_fix_is_refused(
-    client: TestClient, seeded: Session, llm_on, provider, status: LlmCallStatus, blocked: str
+    client: TestClient, seeded: Session, llm_on, provider, status: LlmCallStatus
 ) -> None:
     spy = provider(status)
     case = _planned_case(seeded)
@@ -462,8 +455,66 @@ def test_a_failure_asking_again_cannot_fix_is_refused(
     assert (answer["status"], answer["text"], answer["request_blocked_reason"]) == (
         "UNAVAILABLE",
         None,
-        blocked,
+        "INVALID_INPUT",
     )
+
+
+def test_a_repaired_configuration_error_can_be_asked_for_again(
+    client: TestClient, seeded: Session, llm_on, provider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of PR #110: denied Bedrock access or missing credentials are fixed outside the
+    row. The user may ask again; the sweep never retries it on its own, and attempts and
+    quota are kept."""
+    broken = provider(LlmCallStatus.CONFIG_ERROR)
+    case = _planned_case(seeded)
+    _ask(client, case)
+    service.run_pending(seeded)
+    (row,) = _rows(seeded)
+    assert (row.status, row.failure_reason, row.attempts) == (
+        ExplanationStatus.FAILED,
+        "CONFIG_ERROR",
+        1,
+    )
+    assert service.run_pending(seeded) == 0 and broken.calls == 1  # no retry on its own
+    answer = _get(client, case)
+    assert (answer["status"], answer["can_request"]) == ("UNAVAILABLE", True)
+
+    # Switched off: still NOT_CONFIGURED, nothing changes
+    monkeypatch.setattr(settings, "llm_enabled", False)
+    before = _snapshot(seeded)
+    _refused(_ask(client, case), 409, "LLM_UNAVAILABLE")
+    assert _get(client, case)["request_blocked_reason"] == "NOT_CONFIGURED"
+    assert _snapshot(seeded) == before
+    monkeypatch.setattr(settings, "llm_enabled", True)
+
+    repaired = provider()
+    assert _ask(client, case).json()["status"] == "PENDING"
+    (row,) = _rows(seeded)
+    assert (row.attempts, row.attempt_limit) == (1, 3)
+    assert _used(seeded) == 1
+
+    service.run_pending(seeded)
+
+    assert repaired.calls == 1 and _used(seeded) == 2
+    assert _get(client, case)["status"] == "READY"
+    assert [log.attempt for log in _logs(seeded)] == [1, 2]
+
+
+def test_a_configuration_error_still_ends_at_the_row_lifetime_limit(
+    client: TestClient, seeded: Session, llm_on, provider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "llm_max_attempts_per_row", 2)
+    spy = provider(LlmCallStatus.CONFIG_ERROR, LlmCallStatus.CONFIG_ERROR)
+    case = _planned_case(seeded)
+    _ask(client, case)
+    service.run_pending(seeded)
+    _ask(client, case)
+    service.run_pending(seeded)
+    before = _snapshot(seeded)
+
+    _refused(_ask(client, case), 409, "LLM_ATTEMPTS_EXHAUSTED")
+
+    assert spy.calls == 2 and _used(seeded) == 2 and _snapshot(seeded) == before
 
 
 # --------------------------------------------------------------------------- #

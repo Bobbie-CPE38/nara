@@ -58,7 +58,7 @@
 * ค่าห้ามมี `'` หรือขึ้นบรรทัดใหม่ เพราะไฟล์ env เก็บค่าในเครื่องหมาย `'` ซึ่งทำให้ `$` ใน Hash ไม่ถูกอ่านเป็นตัวแปร
 * ตัวแปรใหม่ต้องมีทั้ง Parameter และชื่อในส่วน `environment` ของ Service ใน `docker-compose.yml` เพราะไฟล์ env ใช้แทนค่าใน compose เท่านั้น ไม่ได้ส่งเข้า Container เอง ตัวแปร `LLM_*` กับ `AWS_REGION` มีใน `docker-compose.yml` แล้ว
 * **สอง Region แยกกันด้วยสองชื่อ (รีวิว PR #107):** `NARA_PARAMETER_REGION` ใน `/etc/nara/aws.conf` (ไฟล์ของ systemd) คือ Region ที่ `load-env.sh` อ่าน Parameter Store ส่วน `AWS_REGION` ที่เป็น Parameter ลงในไฟล์ env คือ Region ที่แอปเรียก Bedrock สองค่านี้ต่างกันได้ **อย่าใส่ `AWS_REGION` ใน `aws.conf`** เพราะ systemd ส่งทุกอย่างในไฟล์นั้นเข้า `docker compose` และ Compose เลือกตัวแปรของ Process ก่อน `--env-file` ทำให้ Region ของ Parameter Store ทับ Region ของ Bedrock เงียบๆ (และผลจะขึ้นกับว่าใครรัน `up` ล่าสุด เพราะ `dc` ที่รันด้วย `sudo` ไม่ส่ง Environment ต่อ) จึงมีสามชั้น: `load-env.sh` ไม่อ่าน `AWS_REGION` และปฏิเสธพร้อมบอกให้เปลี่ยนชื่อถ้าเจอชื่อเก่า, `nara.service` เรียก `docker compose` ผ่าน `env -u AWS_REGION` และ `deploy/aws/test_region.py` (ใน CI) ตรวจด้วยค่าสองค่าที่ต่างกัน
-* **`LLM_ENABLED` ถูกตรึงเป็น `false`** ใน `docker-compose.aws.yml` จนกว่า PR E1 merge (ข้อ 6.27) แม้ใส่ Parameter `LLM_ENABLED=true` ก็ไม่มีผล PR E1 ลบบรรทัดนี้ ชุดทดลองเลือกโมเดล (B2) ไม่ต้องใช้ค่านี้
+* **`LLM_ENABLED` มาจาก Parameter** (ค่าเริ่มต้น `false` ของ `docker-compose.yml`) PR D เคยตรึงเป็น `false` ใน `docker-compose.aws.yml` จนกว่าคำอธิบายจะสร้างเมื่อผู้ใช้ขอเท่านั้น PR E1 ทำแล้วจึงลบการตรึงออก (ข้อ 6.27) ตั้ง Parameter `LLM_ENABLED=true` แล้ว restart จึงเปิดปุ่มขอคำอธิบาย ชุดทดลองเลือกโมเดล (B2) ไม่ต้องใช้ค่านี้
 * เปลี่ยนค่าแล้วให้ `sudo systemctl restart nara` ค่าใหม่ถูกอ่านทุกครั้งที่เริ่ม
 
 ## ตั้งเครื่องครั้งแรก (คน 1)
@@ -138,7 +138,7 @@ Backend (และ Frontend จนกว่า F3 merge) เป็น Dev server
 * เพิ่มสิทธิ์เรียกเฉพาะโมเดลที่ใช้ลงใน IAM Role ของเครื่อง (Role เดียวกับข้อ 4) **ข้อสังเกตจาก AWS Price List ที่ต้องยืนยันก่อนเขียนนโยบาย (ข้อ 6.28 ขั้น 1):** ใน Singapore SKU ของ Nova 2 (Lite, Omni, Pro) มีคำว่า `cross-region-global` ส่วน Nova Micro, Lite และ Pro รุ่นแรกไม่มี ถ้าเลือก Nova 2 ชื่อโมเดลน่าจะเป็นรหัส inference profile IAM ต้องอนุญาตทั้ง inference profile และโมเดลใน Region ปลายทาง และข้อมูลอาจถูกประมวลผลนอก Singapore ไฟล์ Policy ของ Bedrock จึงยังไม่อยู่ใน PR นี้
 * Backend อยู่ใน Container จึงขอ Credential ของ Role ผ่าน IMDSv2 ข้าม Network ของ Docker หนึ่งชั้น ต้องตั้ง Hop limit ของ Metadata ของเครื่องเป็น 2 ขึ้นไป ถ้าเป็น 1 Container จะได้ Credential ไม่ได้
 * AWS Budget Alert เฉพาะ Bedrock 20 USD ต่อเดือน และตรวจว่าเครดิต AWS ครอบคลุม Bedrock
-* ตัวแปรของ LLM ใส่เป็น Parameter ตามหัวข้อความลับ ห้ามตั้ง `LLM_ENABLED=true` ก่อน E1 merge (ถูกตรึงใน `docker-compose.aws.yml`)
+* ตัวแปรของ LLM ใส่เป็น Parameter ตามหัวข้อความลับ `LLM_ENABLED=true` ตั้งได้ตั้งแต่ PR E1 merge (คน 2 ตั้งหลังตั้งโมเดล Region และ Budget แล้ว) ก่อน E1 ค่านี้ถูกตรึงเป็น `false`
 
 ## ส่วนของคน 3 (LINE)
 
