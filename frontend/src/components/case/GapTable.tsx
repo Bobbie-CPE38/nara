@@ -24,7 +24,7 @@ function shortages(slice: GapIntervalView): string {
  * started is measured only from the assessment time (evaluated_from) to its end.
  * A gap written before round 4 has no slices and shows none.
  */
-function GapIntervals({ intervals }: { intervals: GapIntervalView[] }) {
+export function GapIntervals({ intervals }: { intervals: GapIntervalView[] }) {
   if (intervals.length === 0) return null;
   return (
     <table aria-label="Gap by time" className="mt-2 w-full text-left">

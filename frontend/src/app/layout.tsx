@@ -21,7 +21,10 @@ export default function RootLayout({
           className="flex flex-wrap gap-4 border-b border-slate-300 px-6 py-4"
         >
           <Link href="/" className="text-blue-700 underline">
-            Home
+            Dashboard
+          </Link>
+          <Link href="/gap" className="text-blue-700 underline">
+            Gap check
           </Link>
           <Link href="/demo/control" className="text-blue-700 underline">
             Demo control
