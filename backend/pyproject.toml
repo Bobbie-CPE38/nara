@@ -16,6 +16,8 @@ dependencies = [
     "pydantic-settings>=2.4",
     "ortools>=9.15",
     "boto3>=1.35",
+    # LLM_QUOTA_TIMEZONE is checked with zoneinfo at startup; this works without OS zone files
+    "tzdata>=2024.1",
     # Pinned exactly (docs/workflow.md 6.23, R5-Q5): the orchestrator's graph
     "langgraph==1.2.15",
     # orchestrator.py imports RunnableConfig from it; the bound langgraph 1.2.15 declares

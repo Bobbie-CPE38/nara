@@ -1,16 +1,17 @@
 """One LLM sentence per plan (round 3 PR X): enqueue in the workflow, generate in the Job.
 
 The workflow only inserts a small PENDING row. A background sweep of the Job tick claims
-rows with a lease, builds a numbers-only payload, calls the gateway with no transaction
-or lock open, and records every attempt in llm_call_log. Attempts are counted durably, so
-the bound of 1 + LLM_MAX_RETRIES holds across crashes. An LLM failure never touches a case.
-No prompt, response or SDK message is logged; only exception type names.
+rows with a lease, builds a numbers-only payload, and sends every attempt through
+llm_gateway (round 6 PR B1), which reserves the daily quota and logs the attempt before
+the network and calls with no transaction or lock open. Attempts are counted durably, so
+the bound of max_attempts() holds across crashes. When the daily quota is used up, the
+due row ends SKIPPED with QUOTA_EXHAUSTED without a call. An LLM failure never touches a
+case. No prompt, response or SDK message is logged; only exception type names.
 """
 
 import hashlib
 import json
 import logging
-import time
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta
@@ -22,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.core.config import settings
-from app.db.models import CandidatePlan, LlmCallLog, RankExplanation
+from app.db.models import CandidatePlan, RankExplanation
 from app.db.session import SessionLocal
 from app.domain.constraints.score_breakdown import (
     ScoreMismatchError,
@@ -32,8 +33,8 @@ from app.domain.constraints.score_breakdown import (
     weights_from_snapshot,
 )
 from app.domain.constraints.soft_metrics import source_priority
-from app.domain.enums import CandidateSource, ExplanationStatus, LlmCallStatus
-from app.services import llm_service
+from app.domain.enums import CandidateSource, ExplanationStatus, LlmCallStatus, LlmRefusal
+from app.services import llm_gateway, llm_service
 from app.services.llm_service import LlmAttempt, LlmRequest
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,8 @@ class Claim:
 
 
 def max_attempts() -> int:
-    return 1 + settings.llm_max_retries
+    # row.attempts is never reset, so LLM_MAX_ATTEMPTS_PER_ROW bounds the row's lifetime
+    return min(1 + settings.llm_max_retries, settings.llm_max_attempts_per_row)
 
 
 def _db_now() -> Any:
@@ -270,8 +272,10 @@ def _skip(db: Session, claim: Claim, reason: str) -> None:
         db.commit()
 
 
-def _start_attempt(db: Session, claim: Claim, payload: dict[str, Any], digest: str) -> int | None:
-    """Count the attempt durably and log it IN_FLIGHT. Returns the attempt number or None."""
+def _start_attempt(
+    db: Session, claim: Claim, payload: dict[str, Any], digest: str, request: LlmRequest
+) -> llm_gateway.Ticket | None:
+    """Count the attempt durably, reserve quota and log it IN_FLIGHT, then commit."""
     row = _lock(db, claim)
     if row is None:
         return None
@@ -279,86 +283,44 @@ def _start_attempt(db: Session, claim: Claim, payload: dict[str, Any], digest: s
         _fail(row, "ATTEMPTS_EXHAUSTED", ExplanationStatus.FAILED)
         db.commit()
         return None
+    subject = llm_gateway.rank_explanation(
+        explanation_id=row.id,
+        case_id=row.case_id,
+        plan_id=row.plan_id,
+        prompt_version=row.prompt_version,
+        attempt=row.attempts + 1,
+        input_hash=digest,
+    )
+    ticket = llm_gateway.start(db, request, subject)
+    if isinstance(ticket, LlmRefusal):
+        if ticket in (LlmRefusal.QUOTA_EXHAUSTED, LlmRefusal.INPUT_TOO_LARGE):
+            _fail(row, ticket.value, ExplanationStatus.SKIPPED)
+            db.commit()
+        else:
+            # Switched off or misconfigured mid-sweep: the lease runs out, a later sweep
+            # takes the row again
+            db.rollback()
+        return None
     row.attempts += 1
     row.input_payload = payload
     row.input_hash = digest
-    bedrock = settings.llm_provider == "bedrock"
-    db.add(
-        LlmCallLog(
-            explanation_id=row.id,
-            case_id=row.case_id,
-            plan_id=row.plan_id,
-            provider=settings.llm_provider,
-            prompt_version=row.prompt_version,
-            model_id=settings.llm_model_id if bedrock else None,
-            region=settings.aws_region if bedrock else None,
-            input_hash=digest,
-            attempt=row.attempts,
-            status=LlmCallStatus.IN_FLIGHT,
-            started_at=clock.now(),
-        )
-    )
-    attempt = row.attempts
     db.commit()
-    return attempt
+    return ticket
 
 
-def _call(request: LlmRequest) -> tuple[LlmAttempt, int]:
-    """The only place the network is reached. Never raises; no transaction is open."""
-    started = time.monotonic()
-    try:
-        result = llm_service.generate_explanation(request)
-    except Exception as error:
-        logger.error("LLM call failed (%s)", type(error).__name__)
-        result = LlmAttempt(
-            status=LlmCallStatus.SERVICE_ERROR,
-            text=None,
-            input_tokens=None,
-            output_tokens=None,
-            total_tokens=None,
-            duration_ms=None,
-            error_type=type(error).__name__,
-            provider=settings.llm_provider,
-            model_id=None,
-            region=None,
-            input_rate=None,
-            output_rate=None,
-        )
-    return result, int((time.monotonic() - started) * 1000)
-
-
-def _record(db: Session, claim: Claim, attempt: int, result: LlmAttempt, elapsed_ms: int) -> bool:
-    """Persist one attempt. True asks the caller to try again."""
+def _record(db: Session, claim: Claim, result: LlmAttempt) -> bool:
+    """Apply one attempt to the row. llm_gateway.send() already logged it. True asks the
+    caller to try again."""
     row = _lock(db, claim)
     if row is None:
         return False
-    log = db.scalar(
-        select(LlmCallLog)
-        .where(LlmCallLog.explanation_id == row.id, LlmCallLog.attempt == attempt)
-        .with_for_update()
-    )
-    now = clock.now()
-    if log is not None:
-        log.status = result.status
-        log.error_type = result.error_type
-        log.input_tokens = result.input_tokens
-        log.output_tokens = result.output_tokens
-        log.total_tokens = result.total_tokens
-        log.duration_ms = result.duration_ms if result.duration_ms is not None else elapsed_ms
-        log.provider = result.provider
-        log.model_id = result.model_id
-        log.region = result.region
-        log.input_price_per_mtok_usd = result.input_rate
-        log.output_price_per_mtok_usd = result.output_rate
-        log.estimated_cost_usd = llm_service.estimate_cost(result)
-        log.finished_at = now
     retry = False
     if result.status == LlmCallStatus.SUCCEEDED and result.text:
         row.status = ExplanationStatus.READY
         row.text = result.text
         row.provider = result.provider
         row.model_id = result.model_id
-        row.ready_at = now
+        row.ready_at = clock.now()
         row.failure_reason = None
         row.claim = None
         row.lease_until = None
@@ -394,12 +356,12 @@ def _process_one(db: Session) -> bool:
         timeout_seconds=settings.llm_request_timeout_seconds,
     )
     while True:
-        started = _start_attempt(db, claim, payload, digest)
-        if started is None:
+        ticket = _start_attempt(db, claim, payload, digest, request)
+        if ticket is None:
             return True
         # _start_attempt committed: no transaction or lock is open during the call
-        result, elapsed_ms = _call(request)
-        if not _record(db, claim, started, result, elapsed_ms):
+        result = llm_gateway.send(db, ticket)
+        if not _record(db, claim, result):
             return True
 
 

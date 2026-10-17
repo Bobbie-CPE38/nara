@@ -417,6 +417,16 @@ class LlmQuotaScope(StrEnum):
     TRIAL = "TRIAL"
 
 
+# Round 6 PR B1: why the gateway sent nothing. No quota is used and no LLM_CALL_LOG
+# row is written. Also stored as RANK_EXPLANATION.failure_reason
+class LlmRefusal(StrEnum):
+    QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
+    INPUT_TOO_LARGE = "INPUT_TOO_LARGE"
+    # DEMO work while LLM_ENABLED is off, or bedrock without a model id or region
+    DISABLED = "DISABLED"
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+
+
 # Exact non-transition audit sequence expected by the Golden Case E2E test.
 # Its one-person gap has ceil(1.1 * 1) = 2 candidates: wave 1 sends to
 # both 201 and 202, hence two consecutive OFFER_SENT rows.

@@ -139,3 +139,47 @@ def test_estimate_cost_zero_rates():
 )
 def test_estimate_cost_unknown_is_none(overrides):
     assert llm_service.estimate_cost(_attempt(**overrides)) is None
+
+
+def test_a_number_not_in_the_payload_is_invalid_output(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "bedrock")
+    monkeypatch.setattr(bedrock, "generate", lambda request: _attempt(text="อันดับ 2 ได้ 7 คะแนน"))
+    request = replace(_request(), payload={"candidates": [{"rank": 2, "points": 5}]})
+
+    attempt = llm_service.generate_explanation(request)
+
+    assert attempt.status == LlmCallStatus.INVALID_OUTPUT
+    assert attempt.text is None and attempt.error_type == llm_service.UNVERIFIED_NUMBER
+    # Usage is still recorded: the call was made and billed
+    assert attempt.input_tokens == 1_000_000
+
+
+def test_numbers_from_the_payload_pass(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "bedrock")
+    monkeypatch.setattr(bedrock, "generate", lambda request: _attempt(text="อันดับ ๒ ได้ 5 คะแนน"))
+    request = replace(_request(), payload={"candidates": [{"rank": 2, "points": 5}]})
+
+    assert llm_service.generate_explanation(request).status == LlmCallStatus.SUCCEEDED
+
+
+@pytest.mark.parametrize(
+    "text,payload",
+    [("คะแนน .5", {"rank": 5}), ("คะแนน 1e3", {"rank": 1, "gap": 3})],
+)
+def test_a_number_read_in_pieces_is_invalid_output(monkeypatch, text, payload):
+    """Review of PR #108: .5 and 1e3 must not pass on the 5, or the 1 and 3, of the payload."""
+    monkeypatch.setattr(settings, "llm_provider", "bedrock")
+    monkeypatch.setattr(bedrock, "generate", lambda request: _attempt(text=text))
+
+    attempt = llm_service.generate_explanation(replace(_request(), payload=payload))
+
+    assert attempt.status == LlmCallStatus.INVALID_OUTPUT
+    assert attempt.error_type == llm_service.UNVERIFIED_NUMBER and attempt.text is None
+
+
+def test_a_rounded_decimal_still_passes(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "bedrock")
+    monkeypatch.setattr(bedrock, "generate", lambda request: _attempt(text="รวม 0.33 คะแนน"))
+    request = replace(_request(), payload={"total": 0.3333333333333333})
+
+    assert llm_service.generate_explanation(request).status == LlmCallStatus.SUCCEEDED

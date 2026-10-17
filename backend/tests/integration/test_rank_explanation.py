@@ -9,6 +9,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -20,9 +21,22 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_db
 from app.core import clock
 from app.core.config import settings
-from app.db.models import AuditLog, LlmCallLog, RankExplanation, Staff, StaffingCase
+from app.db.models import (
+    AuditLog,
+    LlmCallLog,
+    LlmDailyUsage,
+    RankExplanation,
+    Staff,
+    StaffingCase,
+)
 from app.db.session import SessionLocal
-from app.domain.enums import AuditAction, CaseStatus, ExplanationStatus, LlmCallStatus
+from app.domain.enums import (
+    AuditAction,
+    CaseStatus,
+    ExplanationStatus,
+    LlmCallStatus,
+    LlmWorkType,
+)
 from app.integrations.llm import LlmAttempt, LlmRequest, bedrock, fake
 from app.main import app
 from app.seed import load
@@ -426,6 +440,7 @@ def test_a_crash_cannot_exceed_the_attempt_bound(seeded: Session, llm_on, gatewa
     row.lease_until = datetime.now(UTC) - timedelta(seconds=1)
     seeded.add(
         LlmCallLog(
+            work_type=LlmWorkType.RANK_EXPLANATION,
             explanation_id=row.id,
             case_id=row.case_id,
             plan_id=row.plan_id,
@@ -687,3 +702,125 @@ def test_demo_clock_advance_does_not_call_the_gateway(
     assert response.status_code == 200
     assert spy.calls == 0
     assert _rows(seeded)[0].status == ExplanationStatus.PENDING
+
+
+# --------------------------------------------------------------------------- #
+# Round 6 PR B1: every attempt of the sweep goes through llm_gateway
+# --------------------------------------------------------------------------- #
+def _daily_used(db: Session) -> int:
+    db.expire_all()
+    return sum(db.scalars(select(LlmDailyUsage.used)))
+
+
+def test_the_sweep_reaches_the_provider_only_through_the_gateway(
+    seeded: Session, llm_on, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stand-in provider fails unless its attempt was counted and logged first."""
+    calls: list[int] = []
+
+    def provider(request: LlmRequest) -> LlmAttempt:
+        calls.append(1)
+        in_flight = seeded.scalars(
+            select(LlmCallLog).where(LlmCallLog.status == LlmCallStatus.IN_FLIGHT)
+        ).all()
+        if len(in_flight) != 1 or in_flight[0].attempt != len(calls):
+            pytest.fail("provider called without an IN_FLIGHT log row")
+        if _daily_used(seeded) != len(calls):
+            pytest.fail("provider called without a reserved quota unit")
+        return _failure(LlmCallStatus.TIMEOUT) if len(calls) == 1 else fake.generate(request)
+
+    monkeypatch.setattr(llm_service, "generate_explanation", provider)
+    _planned_case(seeded)
+
+    service.run_pending(seeded)
+
+    assert len(calls) == 2
+    assert _rows(seeded)[0].status == ExplanationStatus.READY
+    assert _daily_used(seeded) == 2
+    assert [log.work_type for log in _logs(seeded)] == [LlmWorkType.RANK_EXPLANATION] * 2
+
+
+def test_a_used_up_day_skips_the_row_without_a_call(
+    seeded: Session, llm_on, gateway, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "llm_daily_call_cap", 0)
+    spy = gateway()
+    _planned_case(seeded)
+
+    service.run_pending(seeded)
+
+    assert spy.calls == 0 and _logs(seeded) == [] and _daily_used(seeded) == 0
+    (row,) = _rows(seeded)
+    assert row.status == ExplanationStatus.SKIPPED
+    assert row.failure_reason == "QUOTA_EXHAUSTED" and row.attempts == 0 and row.claim is None
+
+
+def test_the_cap_also_stops_a_retry(
+    seeded: Session, llm_on, gateway, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "llm_daily_call_cap", 1)
+    spy = gateway(LlmCallStatus.TIMEOUT)
+    _planned_case(seeded)
+
+    service.run_pending(seeded)
+
+    assert spy.calls == 1 and _daily_used(seeded) == 1
+    (row,) = _rows(seeded)
+    assert (row.status, row.failure_reason, row.attempts) == (
+        ExplanationStatus.SKIPPED,
+        "QUOTA_EXHAUSTED",
+        1,
+    )
+    assert [log.status for log in _logs(seeded)] == [LlmCallStatus.TIMEOUT]
+
+
+def test_a_payload_over_the_input_cap_is_skipped_without_a_call(
+    seeded: Session, llm_on, gateway, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "llm_max_input_tokens", 10)
+    spy = gateway()
+    _planned_case(seeded)
+
+    service.run_pending(seeded)
+
+    assert spy.calls == 0 and _logs(seeded) == [] and _daily_used(seeded) == 0
+    (row,) = _rows(seeded)
+    assert (row.status, row.failure_reason) == (ExplanationStatus.SKIPPED, "INPUT_TOO_LARGE")
+
+
+def test_a_sentence_with_a_number_not_in_the_payload_is_not_shown(
+    client: TestClient, seeded: Session, llm_on, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = fake.generate
+
+    def invented(request: LlmRequest) -> LlmAttempt:
+        return replace(real(request), text="อันดับ 1 รวมได้ 12345 คะแนน")
+
+    monkeypatch.setattr(fake, "generate", invented)
+    case = _planned_case(seeded)
+
+    service.run_pending(seeded)
+
+    (row,) = _rows(seeded)
+    assert (row.status, row.failure_reason, row.text) == (
+        ExplanationStatus.FAILED,
+        "INVALID_OUTPUT",
+        None,
+    )
+    (log,) = _logs(seeded)
+    assert log.error_type == llm_service.UNVERIFIED_NUMBER
+    assert _explanation(client, case)["text"] is None
+
+
+def test_the_row_lifetime_bound_caps_the_attempts(
+    seeded: Session, llm_on, gateway, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "llm_max_attempts_per_row", 1)
+    spy = gateway(LlmCallStatus.TIMEOUT)
+    _planned_case(seeded)
+
+    service.run_pending(seeded)
+
+    assert spy.calls == 1
+    (row,) = _rows(seeded)
+    assert row.status == ExplanationStatus.FAILED and row.attempts == 1
