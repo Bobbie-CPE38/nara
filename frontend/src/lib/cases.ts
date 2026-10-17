@@ -1,5 +1,5 @@
 import { ApiError, apiRequest } from "@/lib/api";
-import { EXPLANATION_BLOCKED, EXPLANATION_REQUEST_FAILED } from "@/lib/constants";
+import { EXPLANATION_BLOCKED, EXPLANATION_REFUSED, EXPLANATION_REQUEST_FAILED } from "@/lib/constants";
 import type { AuditEntry, CaseDetail } from "@/lib/types/case";
 
 export type SkipRecord = { key: string; origin: string; staffId: number; reason: string };
@@ -59,7 +59,7 @@ export function explanationRequestMessage(error: unknown): string {
     switch (detail?.code) {
       case "LLM_QUOTA_EXHAUSTED": return EXPLANATION_BLOCKED.QUOTA_EXHAUSTED;
       case "LLM_ATTEMPTS_EXHAUSTED": return EXPLANATION_BLOCKED.ATTEMPTS_EXHAUSTED;
-      case "LLM_UNAVAILABLE": return EXPLANATION_BLOCKED.NOT_CONFIGURED;
+      case "LLM_UNAVAILABLE": return EXPLANATION_REFUSED;
       case "CASE_NOT_FOUND": return "ไม่พบเคสนี้แล้ว";
     }
   }

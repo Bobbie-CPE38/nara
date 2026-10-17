@@ -23,7 +23,13 @@ let backend: { detail: Reply; audit: Reply; post?: Reply };
 const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   // Like the real fetch, it sends nothing for a request that is already aborted.
   if (init?.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-  if (init?.method === "POST") return (backend.post ?? (() => json({}, 500)))();
+  if (init?.method === "POST") {
+    // Like the real fetch, a request that is given up rejects with an AbortError
+    return new Promise<Response>((resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")));
+      Promise.resolve((backend.post ?? (() => json({}, 500)))()).then(resolve, reject);
+    });
+  }
   return url.endsWith("/audit") ? backend.audit() : backend.detail();
 });
 
@@ -812,23 +818,96 @@ describe("CaseView", () => {
         expect(button()?.disabled).toBe(false);
       });
 
+      const attemptsMessage = "ขอคำอธิบายจาก AI ของแผนนี้ครบจำนวนครั้งที่กำหนดแล้ว";
+      const notConfiguredMessage = "ยังไม่เปิดใช้คำอธิบายจาก AI";
+      const invalidMessage = "สร้างคำอธิบายจาก AI ของแผนนี้ไม่ได้";
+      const neutral = "ตอนนี้ขอคำอธิบายจาก AI ไม่ได้";
       it.each([
-        [429, "LLM_QUOTA_EXHAUSTED", quotaMessage],
-        [409, "LLM_ATTEMPTS_EXHAUSTED", "ขอคำอธิบายจาก AI ของแผนนี้ครบจำนวนครั้งที่กำหนดแล้ว"],
-        [409, "LLM_UNAVAILABLE", "ยังไม่เปิดใช้คำอธิบายจาก AI"],
-        [404, "CASE_NOT_FOUND", "ไม่พบเคสนี้แล้ว"],
-      ])("shows our own text for a refused request (%s %s), not the server message", async (status, code, text) => {
+        // status, code, what the case says when read again, texts shown, texts not shown
+        [429, "LLM_QUOTA_EXHAUSTED", "QUOTA_EXHAUSTED", [quotaMessage], [neutral]],
+        [409, "LLM_ATTEMPTS_EXHAUSTED", "ATTEMPTS_EXHAUSTED", [attemptsMessage], [neutral]],
+        // One code for two causes: the page says the cause the case reports, never the other one
+        [409, "LLM_UNAVAILABLE", "INVALID_INPUT", [invalidMessage], [notConfiguredMessage, neutral]],
+        [409, "LLM_UNAVAILABLE", "NOT_CONFIGURED", [notConfiguredMessage], [invalidMessage, neutral]],
+      ])("after a refusal (%s %s, case now %s) says the cause once, from the case, not the server", async (status, code, now, shown, hidden) => {
         serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
         render(<CaseView caseId="1" />);
         await tick();
-        // The refusal changes what the case says: it is read again after the answer
-        serve(withExplanation(view("NOT_REQUESTED", { request_blocked_reason: "QUOTA_EXHAUSTED" })), waitingResponseAudit());
+        serve(withExplanation(view("NOT_REQUESTED", { request_blocked_reason: now })), waitingResponseAudit());
         backend.post = () => json({ detail: { code, message: "SERVER WORDS" } }, status);
         await click();
 
-        expect(within(section()).getAllByText(new RegExp(`^${text}`)).length).toBeGreaterThan(0);
+        for (const text of shown as string[]) {
+          expect(within(section()).getAllByText(new RegExp(`^${text}`))).toHaveLength(1);
+        }
+        for (const text of hidden as string[]) expect(screen.queryByText(new RegExp(`^${text}`))).toBeNull();
         expect(screen.queryByText(/SERVER WORDS/)).toBeNull();
+        expect(within(section()).queryByRole("alert")).toBeNull();
         expect(button()?.disabled).toBe(true);
+      });
+
+      it.each([
+        [409, "LLM_UNAVAILABLE", neutral],
+        [404, "CASE_NOT_FOUND", "ไม่พบเคสนี้แล้ว"],
+      ])("shows a message of its own for a refusal (%s %s) the case does not explain", async (status, code, text) => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+        backend.post = () => json({ detail: { code, message: "SERVER WORDS" } }, status);
+        await click();
+
+        expect(within(section()).getByRole("alert").textContent).toBe(text);
+        expect(screen.queryByText(/SERVER WORDS/)).toBeNull();
+        expect(button()?.disabled).toBe(false);
+      });
+
+      it("gives up a request that never answers, frees the button and says to try again", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        backend.post = () => new Promise<Response>(() => {});
+        render(<CaseView caseId="1" />);
+        await tick();
+
+        await act(async () => { button()?.click(); });
+        await tick(9000);
+        expect(button()?.disabled).toBe(true);
+
+        await tick(1500);
+        expect(within(section()).getByRole("alert").textContent).toBe("ส่งคำขอไม่สำเร็จ กรุณาลองใหม่");
+        expect(button()?.disabled).toBe(false);
+        expect(vi.getTimerCount()).toBeGreaterThan(0);
+        // The case is read again after giving up: a request that timed out may still have been accepted
+        serve(withExplanation(view("PENDING", { request_blocked_reason: "PENDING" })), waitingResponseAudit());
+        await tick(2000);
+        expect(within(section()).getByText("กำลังสร้างคำอธิบายจาก AI")).toBeTruthy();
+        expect(within(section()).queryByRole("alert")).toBeNull();
+      });
+
+      it("drops an old message when the explanation changes", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+        backend.post = () => { throw new TypeError("Failed to fetch"); };
+        await click();
+        expect(within(section()).getByRole("alert")).toBeTruthy();
+
+        serve(withExplanation(view("UNAVAILABLE", { can_request: true })), waitingResponseAudit());
+        await tick(2000);
+        expect(within(section()).getByText("สร้างคำอธิบายจาก AI ไม่สำเร็จ")).toBeTruthy();
+        expect(within(section()).queryByRole("alert")).toBeNull();
+      });
+
+      it("cancels the request and does not read the case again when the page is left", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        backend.post = () => new Promise<Response>(() => {});
+        const { unmount } = render(<CaseView caseId="1" />);
+        await tick();
+        await act(async () => { button()?.click(); });
+        const calls = fetchMock.mock.calls.length;
+
+        unmount();
+        await tick(20000);
+        expect(fetchMock).toHaveBeenCalledTimes(calls);
+        expect(vi.getTimerCount()).toBe(0);
       });
 
       it("says the request failed when the server cannot be reached, and lets the user try again", async () => {

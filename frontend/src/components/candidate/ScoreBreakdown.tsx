@@ -87,7 +87,10 @@ function Explanation({ explanation, request }: { explanation: RankExplanation | 
           </button>
         )}
         {reason && !explanation?.can_request && <p className="mt-2 text-sm text-gray-600">{reason}</p>}
-        {request.message && <p className="mt-2 text-sm text-red-700" role="alert">{request.message}</p>}
+        {/* The reason above is the case as read again after a refusal; saying it twice adds nothing */}
+        {request.message && !(reason && !explanation?.can_request) && (
+          <p className="mt-2 text-sm text-red-700" role="alert">{request.message}</p>
+        )}
       </>
     );
   }

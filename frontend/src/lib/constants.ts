@@ -73,6 +73,10 @@ export const EXPLANATION_NOT_REQUESTED = "ยังไม่ได้ขอค�
 export const EXPLANATION_PENDING = "กำลังสร้างคำอธิบายจาก AI";
 export const EXPLANATION_FAILED = "สร้างคำอธิบายจาก AI ไม่สำเร็จ";
 export const EXPLANATION_REQUEST_FAILED = "ส่งคำขอไม่สำเร็จ กรุณาลองใหม่";
+/** The API answers 409 LLM_UNAVAILABLE for several causes (not configured, plan cannot be explained); the cause comes from the case read again after the answer */
+export const EXPLANATION_REFUSED = "ตอนนี้ขอคำอธิบายจาก AI ไม่ได้";
+/** A request that has not answered by then is given up, like a polling read (usePolling timeoutMs) */
+export const EXPLANATION_REQUEST_TIMEOUT_MS = 10_000;
 /** Why the button is closed. PENDING and ALREADY_READY have no text: the status already says it. */
 export const EXPLANATION_BLOCKED = {
   QUOTA_EXHAUSTED: "ใช้โควตาคำอธิบายจาก AI ครบแล้วในวันนี้ กรุณาลองใหม่ในวันถัดไป คุณยังดูอันดับและดำเนินการจัดเวรต่อได้ตามปกติ",

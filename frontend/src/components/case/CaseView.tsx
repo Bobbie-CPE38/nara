@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
 import { type ExplanationRequest, ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
@@ -12,6 +12,7 @@ import { ApiError, apiRequest } from "@/lib/api";
 import { type CaseSnapshot, collectSkips, explanationRequestMessage, isCaseId, loadCase } from "@/lib/cases";
 import {
   CASE_STATUS_INFO,
+  EXPLANATION_REQUEST_TIMEOUT_MS,
   POLL_INTERVAL_MS,
   TERMINAL_CASE_STATUSES,
   TONE_CLASS,
@@ -135,6 +136,19 @@ export function CaseView({ caseId }: { caseId: string }) {
   const [requestMessage, setRequestMessage] = useState<string | null>(null);
   // A ref as well: two clicks before the next render must make one request
   const requestingRef = useRef(false);
+  const controllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      controllerRef.current?.abort();
+    };
+  }, []);
+  // An old message must not outlive the state it was about: clear it when the explanation changes
+  const explanation = data?.detail.explanation;
+  const explanationState = `${explanation?.status}/${explanation?.can_request}/${explanation?.request_blocked_reason}`;
+  useEffect(() => { setRequestMessage(null); }, [explanationState]);
   // Asks for the AI explanation of the latest plan (docs/workflow.md 9.8). The Job writes the
   // sentence later, so the answer is read again and polling goes on while it is PENDING.
   // Every refusal is read again too: can_request tells the truth about what is allowed now.
@@ -143,15 +157,22 @@ export function CaseView({ caseId }: { caseId: string }) {
     requestingRef.current = true;
     setRequesting(true);
     setRequestMessage(null);
+    // A request that never answers is given up, so the button comes back with a retry message
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const timer = setTimeout(() => controller.abort(), EXPLANATION_REQUEST_TIMEOUT_MS);
     try {
-      await apiRequest(`/cases/${caseId}/explanation`, { method: "POST" });
+      await apiRequest(`/cases/${caseId}/explanation`, { method: "POST", signal: controller.signal });
     } catch (cause) {
-      setRequestMessage(explanationRequestMessage(cause));
+      if (mountedRef.current) setRequestMessage(explanationRequestMessage(cause));
     } finally {
+      clearTimeout(timer);
+      controllerRef.current = null;
       requestingRef.current = false;
-      setRequesting(false);
+      if (mountedRef.current) setRequesting(false);
     }
-    await refresh();
+    // Read again either way: a request that timed out may still have been accepted
+    if (mountedRef.current) await refresh();
   }, [caseId, refresh]);
   const httpStatus = error instanceof ApiError ? error.status : undefined;
 

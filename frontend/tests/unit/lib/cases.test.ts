@@ -208,7 +208,7 @@ describe("explanationRequestMessage", () => {
   it.each([
     [429, "LLM_QUOTA_EXHAUSTED", "ใช้โควตาคำอธิบายจาก AI ครบแล้วในวันนี้"],
     [409, "LLM_ATTEMPTS_EXHAUSTED", "ขอคำอธิบายจาก AI ของแผนนี้ครบจำนวนครั้งที่กำหนดแล้ว"],
-    [409, "LLM_UNAVAILABLE", "ยังไม่เปิดใช้คำอธิบายจาก AI"],
+    [409, "LLM_UNAVAILABLE", "ตอนนี้ขอคำอธิบายจาก AI ไม่ได้"],
     [404, "CASE_NOT_FOUND", "ไม่พบเคสนี้แล้ว"],
   ])("explains %s %s in its own words", (status, code, start) => {
     const message = explanationRequestMessage(refused(status, code));
