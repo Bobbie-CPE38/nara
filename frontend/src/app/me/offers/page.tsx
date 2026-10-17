@@ -1,9 +1,10 @@
 "use client";
 
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { HandoverList, isHandover } from "@/components/handover/HandoverList";
 import { type OfferApi, OfferList } from "@/components/outreach/OfferList";
-import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "@/hooks/usePolling";
+import { useHandoverHistory } from "@/hooks/useHandoverHistory";
+import { DEFAULT_POLL_INTERVAL_MS } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
 import {
   DEMO_APPROVERS,
@@ -186,12 +187,10 @@ function DemoSignIn({ onSignIn }: { onSignIn: (staffId: number) => void }) {
 function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => void }) {
   const [responding, setResponding] = useState(false);
   const api = useMemo(() => myOffersApi(staffId), [staffId]);
-  const loadHandovers = useCallback(
-    (signal: AbortSignal) => createDemoApi(staffId)<HandoverView[]>("/me/handovers", { signal }),
-    [staffId],
-  );
-  const handovers = usePolling(loadHandovers);
-  const handoverRows = Array.isArray(handovers.data) ? handovers.data.filter(isHandover) : [];
+  const handovers = useHandoverHistory(staffId);
+  const handoverRows = handovers.data
+    ? [...handovers.data.active, ...handovers.data.history].filter(isHandover)
+    : [];
   return (
     <>
       <div
@@ -232,11 +231,26 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => vo
           <>
             {handovers.error && (
               <p role="alert" className="mt-2 text-sm text-amber-700">
-                Could not refresh your handovers. Showing the last loaded list, which may be
-                outdated. Retrying…
+                {handovers.loadMoreError
+                  ? "Could not load more history. Showing the last loaded list. Click Load more history to try again."
+                  : "Could not refresh your handovers. Showing the last loaded list, which may be outdated. Retrying…"}
               </p>
             )}
-            <HandoverList handovers={handoverRows} emptyText="You have no handovers." />
+            {handovers.isLoading ? (
+              <p className="mt-2">Loading your handovers…</p>
+            ) : (
+              <HandoverList handovers={handoverRows} emptyText="You have no handovers." />
+            )}
+            {handovers.data?.next_cursor && (
+              <button
+                type="button"
+                disabled={handovers.loadingMore}
+                onClick={() => void handovers.loadMore()}
+                className="mt-3 rounded border border-slate-400 px-3 py-2 disabled:opacity-40"
+              >
+                {handovers.loadingMore ? "Loading history…" : "Load more history"}
+              </button>
+            )}
           </>
         )}
       </section>

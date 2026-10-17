@@ -14,3 +14,9 @@ class HandoverView(BaseModel):
     generated_at: AppDatetime
     # Keep unknown keys/versions intact for future readers (workflow.md 6.25).
     content: dict[str, Any]
+
+
+class HandoverPage(BaseModel):
+    active: list[HandoverView]
+    history: list[HandoverView]
+    next_cursor: str | None = None
