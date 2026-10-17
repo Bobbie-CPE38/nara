@@ -10,6 +10,8 @@ from app.domain.enums import (
     CandidateSource,
     CaseStatus,
     EntityType,
+    ExplanationBlock,
+    ExplanationViewStatus,
     OutreachStatus,
 )
 from app.schemas.handover import HandoverView
@@ -133,13 +135,18 @@ class CandidateView(BaseModel):
 
 
 class RankExplanationView(BaseModel):
-    """The one-sentence LLM explanation of the rank. Never carries a failure reason."""
+    """The LLM explanation of the rank, made only when a user asks (round 6 PR E1).
+    Never carries a failure reason, tokens or the payload."""
 
-    status: Literal["PENDING", "READY", "UNAVAILABLE"]
+    status: ExplanationViewStatus
     # The next three are set only when READY (model_id is null for the fake provider)
     text: str | None
     provider: Literal["fake", "bedrock"] | None
     model_id: str | None
+    # True when POST /cases/{id}/explanation would queue the explanation now
+    can_request: bool
+    # null exactly when can_request is true
+    request_blocked_reason: ExplanationBlock | None
 
 
 class CaseDetail(BaseModel):
@@ -160,7 +167,7 @@ class CaseDetail(BaseModel):
     assigned_count: int
     # Empty until the solver stored a plan. Ordered by rank
     candidates: list[CandidateView]
-    # null when the latest plan has no explanation row
+    # null when there is no plan or the latest plan has no candidates
     explanation: RankExplanationView | None
     # True when the latest plan's first wave comes from the max-coverage stages: no
     # group could cover every target (round 4 PR T4). False without a plan

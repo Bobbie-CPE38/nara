@@ -1,5 +1,6 @@
 """Case status and timeline (docs/workflow.md, section 9.3), read without X-Demo-User,
-and the manual exits of MANUAL_HANDOFF (sections 6.12 and 9.4), which need a head nurse."""
+the request for the ranking explanation (section 9.8), and the manual exits of
+MANUAL_HANDOFF (sections 6.12 and 9.4), which need a head nurse."""
 
 from typing import Annotated
 
@@ -7,9 +8,9 @@ from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BeforeValidator
 
 from app.api.dependencies import DbSession, DemoUser
-from app.domain.enums import CaseStatus
+from app.domain.enums import CaseStatus, ExplanationBlock
 from app.domain.errors import CaseNotFoundError
-from app.schemas.case import AuditEntry, CaseDetail
+from app.schemas.case import AuditEntry, CaseDetail, RankExplanationView
 from app.schemas.handoff import (
     CloseCaseRequest,
     CloseCaseResult,
@@ -19,7 +20,7 @@ from app.schemas.handoff import (
     ManualAssignmentResult,
 )
 from app.schemas.types import MAX_BIGINT
-from app.services import case_service, handoff_service, handover_service
+from app.services import case_service, explanation_service, handoff_service, handover_service
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 
@@ -62,6 +63,42 @@ def list_cases(db: DbSession, user: DemoUser, statuses: StatusFilter) -> list[Ha
 def get_case(case_id: CaseId, db: DbSession) -> CaseDetail:
     """Status of the case with its latest gap and candidates. 404 for an unknown case."""
     return case_service.get_case_detail(db, case_id)
+
+
+# Round 6 PR E1 (docs/workflow.md 9.8): how a refused explanation request answers
+_EXPLANATION_REFUSALS: dict[ExplanationBlock, tuple[int, str]] = {
+    ExplanationBlock.NOT_CONFIGURED: (status.HTTP_409_CONFLICT, "LLM_UNAVAILABLE"),
+    ExplanationBlock.INVALID_INPUT: (status.HTTP_409_CONFLICT, "LLM_UNAVAILABLE"),
+    ExplanationBlock.ATTEMPTS_EXHAUSTED: (status.HTTP_409_CONFLICT, "LLM_ATTEMPTS_EXHAUSTED"),
+    ExplanationBlock.QUOTA_EXHAUSTED: (
+        status.HTTP_429_TOO_MANY_REQUESTS,
+        "LLM_QUOTA_EXHAUSTED",
+    ),
+}
+_EXPLANATION_MESSAGES: dict[ExplanationBlock, str] = {
+    ExplanationBlock.NOT_CONFIGURED: "The LLM is switched off or not configured",
+    ExplanationBlock.INVALID_INPUT: "This plan cannot be explained",
+    ExplanationBlock.ATTEMPTS_EXHAUSTED: "This plan's explanation has used all its attempts",
+    ExplanationBlock.QUOTA_EXHAUSTED: "Today's AI explanation quota is used up",
+}
+
+
+@router.post("/{case_id}/explanation")
+def request_explanation(case_id: CaseId, db: DbSession) -> RankExplanationView:
+    """Ask for the LLM explanation of the latest plan. Never calls the LLM itself: the Job
+    makes the sentence later. An answered request returns the row unchanged; a refused
+    one changes nothing and uses no quota (section 9.8)."""
+    try:
+        return explanation_service.request(db, case_id)
+    except CaseNotFoundError as error:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail={"code": "CASE_NOT_FOUND", "message": str(error)}
+        ) from error
+    except explanation_service.ExplanationRequestError as error:
+        code, name = _EXPLANATION_REFUSALS[error.block]
+        raise HTTPException(
+            code, detail={"code": name, "message": _EXPLANATION_MESSAGES[error.block]}
+        ) from error
 
 
 @router.get("/{case_id}/audit")

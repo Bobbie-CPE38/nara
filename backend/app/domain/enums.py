@@ -427,6 +427,29 @@ class LlmRefusal(StrEnum):
     NOT_CONFIGURED = "NOT_CONFIGURED"
 
 
+# Round 6 PR E1 (9.8): `explanation.status` of GET /cases/{id}. FAILED and SKIPPED rows
+# read as UNAVAILABLE, except a row SKIPPED because the day's quota was used up
+class ExplanationViewStatus(StrEnum):
+    NOT_REQUESTED = "NOT_REQUESTED"
+    PENDING = "PENDING"
+    READY = "READY"
+    UNAVAILABLE = "UNAVAILABLE"
+    QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
+
+
+# Round 6 PR E1 (9.8): why a user cannot ask for the explanation now. Permanent reasons
+# are checked before the daily quota, so nobody is told to try tomorrow in vain
+class ExplanationBlock(StrEnum):
+    ALREADY_READY = "ALREADY_READY"
+    PENDING = "PENDING"
+    # LLM_ENABLED off, the provider not configured, or a call ended in CONFIG_ERROR
+    NOT_CONFIGURED = "NOT_CONFIGURED"
+    # The plan cannot be explained, or a call ended in an error asking again cannot fix
+    INVALID_INPUT = "INVALID_INPUT"
+    ATTEMPTS_EXHAUSTED = "ATTEMPTS_EXHAUSTED"
+    QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
+
+
 # Exact non-transition audit sequence expected by the Golden Case E2E test.
 # Its one-person gap has ceil(1.1 * 1) = 2 candidates: wave 1 sends to
 # both 201 and 202, hence two consecutive OFFER_SENT rows.

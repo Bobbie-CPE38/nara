@@ -1,12 +1,15 @@
-"""One LLM sentence per plan (round 3 PR X): enqueue in the workflow, generate in the Job.
+"""One LLM sentence per plan (round 3 PR X), made only when a user asks (round 6 PR E1).
 
-The workflow only inserts a small PENDING row. A background sweep of the Job tick claims
-rows with a lease, builds a numbers-only payload, and sends every attempt through
-llm_gateway (round 6 PR B1), which reserves the daily quota and logs the attempt before
-the network and calls with no transaction or lock open. Attempts are counted durably, so
-the bound of max_attempts() holds across crashes. When the daily quota is used up, the
-due row ends SKIPPED with QUOTA_EXHAUSTED without a call. An LLM failure never touches a
-case. No prompt, response or SDK message is logged; only exception type names.
+POST /cases/{id}/explanation runs request(): it checks why the plan cannot be explained
+now, permanent reasons before the daily quota, and only then sets a PENDING row with the
+attempts this request may use. It never calls the LLM. A background sweep of the Job tick
+claims requested rows with a lease, builds a numbers-only payload, and sends every attempt
+through llm_gateway (round 6 PR B1), which reserves the daily quota and logs the attempt
+before the network and calls with no transaction or lock open. Attempts are counted
+durably and never reset, so the row's attempt_limit and LLM_MAX_ATTEMPTS_PER_ROW hold
+across crashes and repeated requests. When the daily quota is used up, the due row ends
+SKIPPED with QUOTA_EXHAUSTED without a call. An LLM failure never touches a case. No
+prompt, response or SDK message is logged; only exception type names.
 """
 
 import hashlib
@@ -18,12 +21,13 @@ from datetime import timedelta
 from fractions import Fraction
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import exists, func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.core.config import settings
-from app.db.models import CandidatePlan, RankExplanation
+from app.db.models import CandidateItem, CandidatePlan, RankExplanation, StaffingCase
 from app.db.session import SessionLocal
 from app.domain.constraints.score_breakdown import (
     ScoreMismatchError,
@@ -33,7 +37,16 @@ from app.domain.constraints.score_breakdown import (
     weights_from_snapshot,
 )
 from app.domain.constraints.soft_metrics import source_priority
-from app.domain.enums import CandidateSource, ExplanationStatus, LlmCallStatus, LlmRefusal
+from app.domain.enums import (
+    CandidateSource,
+    ExplanationBlock,
+    ExplanationStatus,
+    ExplanationViewStatus,
+    LlmCallStatus,
+    LlmRefusal,
+)
+from app.domain.errors import CaseNotFoundError
+from app.schemas.case import RankExplanationView
 from app.services import llm_gateway, llm_service
 from app.services.llm_service import LlmAttempt, LlmRequest
 
@@ -81,6 +94,14 @@ class InvalidExplanationInput(Exception):
         self.reason = reason
 
 
+class ExplanationRequestError(Exception):
+    """POST /cases/{id}/explanation refused: nothing was changed and no quota was used."""
+
+    def __init__(self, block: ExplanationBlock) -> None:
+        super().__init__(block.value)
+        self.block = block
+
+
 @dataclass(frozen=True)
 class Claim:
     explanation_id: int
@@ -90,8 +111,16 @@ class Claim:
 
 
 def max_attempts() -> int:
-    # row.attempts is never reset, so LLM_MAX_ATTEMPTS_PER_ROW bounds the row's lifetime
+    """Attempts one request may use: the first call and its retries."""
     return min(1 + settings.llm_max_retries, settings.llm_max_attempts_per_row)
+
+
+def _limit(row: RankExplanation) -> int:
+    """Attempts the row may reach in its current request. row.attempts is never reset, so
+    LLM_MAX_ATTEMPTS_PER_ROW also bounds the row's lifetime across every request."""
+    if row.attempt_limit is None:
+        return 0
+    return min(row.attempt_limit, settings.llm_max_attempts_per_row)
 
 
 def _db_now() -> Any:
@@ -108,24 +137,6 @@ def _db_now() -> Any:
 def lease_duration() -> timedelta:
     seconds = settings.llm_request_timeout_seconds * max_attempts() + 30
     return timedelta(seconds=max(_MIN_LEASE_SECONDS, seconds))
-
-
-# --------------------------------------------------------------------------- #
-# Workflow side
-# --------------------------------------------------------------------------- #
-def enqueue(db: Session, plan: CandidatePlan, *, candidate_count: int) -> None:
-    """Insert a PENDING row inside the plan's transaction. No payload, no network."""
-    if candidate_count <= 0:
-        return
-    db.add(
-        RankExplanation(
-            case_id=plan.case_id,
-            plan_id=plan.id,
-            prompt_version=PROMPT_VERSION,
-            status=ExplanationStatus.PENDING,
-        )
-    )
-    db.flush()
 
 
 # --------------------------------------------------------------------------- #
@@ -209,6 +220,201 @@ def render_prompt(payload: dict[str, Any]) -> str:
     return f"Explain this ranking.\nData (JSON):\n{canonical_json(payload)}"
 
 
+def llm_request(payload: dict[str, Any]) -> LlmRequest:
+    return LlmRequest(
+        system=SYSTEM_PROMPT,
+        prompt=render_prompt(payload),
+        payload=payload,
+        max_output_tokens=settings.llm_max_output_tokens,
+        timeout_seconds=settings.llm_request_timeout_seconds,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# User side (round 6 PR E1, docs/workflow.md 6.27 and 9.8)
+# --------------------------------------------------------------------------- #
+# A failed or skipped row may be asked for again only after these: a passing fault, a
+# request cut short by a crash, or the day's quota. Every other reason (CONFIG_ERROR,
+# TRUNCATED, INVALID_OUTPUT, the invalid inputs) would fail the same way again
+_ASK_AGAIN_REASONS = frozenset(
+    {
+        LlmCallStatus.TIMEOUT.value,
+        LlmCallStatus.THROTTLED.value,
+        LlmCallStatus.SERVICE_ERROR.value,
+        "ATTEMPTS_EXHAUSTED",
+        LlmRefusal.QUOTA_EXHAUSTED.value,
+    }
+)
+_ANSWERED = (ExplanationBlock.ALREADY_READY, ExplanationBlock.PENDING)
+
+
+def _requested(row: RankExplanation) -> bool:
+    return row.status == ExplanationStatus.PENDING and row.attempt_limit is not None
+
+
+def _view_status(row: RankExplanation | None) -> ExplanationViewStatus:
+    if row is None:
+        return ExplanationViewStatus.NOT_REQUESTED
+    if row.status == ExplanationStatus.READY:
+        return ExplanationViewStatus.READY
+    if row.status == ExplanationStatus.PENDING:
+        # A row queued by the workflow before E1 waits for a user like no row at all
+        if _requested(row):
+            return ExplanationViewStatus.PENDING
+        return ExplanationViewStatus.NOT_REQUESTED
+    if (
+        row.status == ExplanationStatus.SKIPPED
+        and row.failure_reason == LlmRefusal.QUOTA_EXHAUSTED.value
+    ):
+        return ExplanationViewStatus.QUOTA_EXHAUSTED
+    return ExplanationViewStatus.UNAVAILABLE
+
+
+def _cannot_explain(plan: CandidatePlan) -> bool:
+    """The plan's payload cannot be built, or is too large to be sent."""
+    try:
+        payload = build_payload(plan)
+    except InvalidExplanationInput:
+        return True
+    return llm_gateway.estimate_input_tokens(llm_request(payload)) > settings.llm_max_input_tokens
+
+
+def _blocked(
+    db: Session, plan: CandidatePlan, row: RankExplanation | None
+) -> ExplanationBlock | None:
+    """Why the plan's explanation cannot be asked for now, or None. Order matters (9.8):
+    an answered row first, then permanent reasons, then the daily quota."""
+    if row is not None:
+        if row.status == ExplanationStatus.READY:
+            return ExplanationBlock.ALREADY_READY
+        if _requested(row):
+            return ExplanationBlock.PENDING
+    if not settings.llm_ready:
+        return ExplanationBlock.NOT_CONFIGURED
+    if row is not None and row.status in (ExplanationStatus.FAILED, ExplanationStatus.SKIPPED):
+        if row.failure_reason == LlmCallStatus.CONFIG_ERROR.value:
+            return ExplanationBlock.NOT_CONFIGURED
+        if row.failure_reason not in _ASK_AGAIN_REASONS:
+            return ExplanationBlock.INVALID_INPUT
+    if _cannot_explain(plan):
+        return ExplanationBlock.INVALID_INPUT
+    if row is not None and row.attempts >= settings.llm_max_attempts_per_row:
+        return ExplanationBlock.ATTEMPTS_EXHAUSTED
+    if llm_gateway.demo_quota_left(db) <= 0:
+        return ExplanationBlock.QUOTA_EXHAUSTED
+    return None
+
+
+def _view(db: Session, plan: CandidatePlan, row: RankExplanation | None) -> RankExplanationView:
+    blocked = _blocked(db, plan, row)
+    if row is not None and row.status == ExplanationStatus.READY:
+        text, provider, model_id = row.text, row.provider, row.model_id
+    else:
+        text = provider = model_id = None
+    return RankExplanationView(
+        status=_view_status(row),
+        text=text,
+        provider=provider,
+        model_id=model_id,
+        can_request=blocked is None,
+        request_blocked_reason=blocked,
+    )
+
+
+def _latest_plan(db: Session, case_id: int) -> CandidatePlan | None:
+    return db.scalar(
+        select(CandidatePlan)
+        .where(CandidatePlan.case_id == case_id)
+        .order_by(CandidatePlan.id.desc())
+        .limit(1)
+    )
+
+
+def _has_candidates(db: Session, plan: CandidatePlan) -> bool:
+    return bool(db.scalar(select(exists().where(CandidateItem.plan_id == plan.id))))
+
+
+def _latest_row(db: Session, plan: CandidatePlan, *, lock: bool = False) -> RankExplanation | None:
+    """The plan's newest row, whatever its prompt version: a plan explained under an older
+    prompt keeps its sentence (6.27)."""
+    statement = (
+        select(RankExplanation)
+        .where(RankExplanation.plan_id == plan.id)
+        .order_by(RankExplanation.id.desc())
+        .limit(1)
+    )
+    if lock:
+        statement = statement.with_for_update().execution_options(populate_existing=True)
+    return db.scalar(statement)
+
+
+def view(db: Session, plan: CandidatePlan | None) -> RankExplanationView | None:
+    """`explanation` of GET /cases/{id} for the latest plan. Reads only and never calls the
+    LLM. null without a plan or without candidates."""
+    if plan is None or not _has_candidates(db, plan):
+        return None
+    return _view(db, plan, _latest_row(db, plan))
+
+
+def request(db: Session, case_id: int) -> RankExplanationView:
+    """Ask for the explanation of the case's latest plan (POST /cases/{id}/explanation).
+
+    An answered row (PENDING or READY) comes back unchanged. Otherwise the row is created,
+    or set PENDING again with room for one more request's attempts, and committed; the
+    sweep calls the LLM later. A refusal rolls back and raises ExplanationRequestError: no
+    row, attempt or quota changes. The plan's row is locked first, and two first requests
+    at once meet the UNIQUE (plan_id, prompt_version), so pressing twice makes one row.
+    """
+    if db.get(StaffingCase, case_id) is None:
+        raise CaseNotFoundError(f"Case {case_id} not found")
+    plan = _latest_plan(db, case_id)
+    if plan is None:
+        raise CaseNotFoundError(f"Case {case_id} has no plan")
+    if not _has_candidates(db, plan):
+        db.rollback()
+        raise ExplanationRequestError(ExplanationBlock.INVALID_INPUT)
+    row = _latest_row(db, plan, lock=True)
+    if row is None:
+        blocked = _blocked(db, plan, None)
+        if blocked is not None:
+            db.rollback()
+            raise ExplanationRequestError(blocked)
+        created = db.execute(
+            insert(RankExplanation)
+            .values(
+                case_id=plan.case_id,
+                plan_id=plan.id,
+                prompt_version=PROMPT_VERSION,
+                status=ExplanationStatus.PENDING,
+                attempt_limit=max_attempts(),
+            )
+            .on_conflict_do_nothing(index_elements=["plan_id", "prompt_version"])
+            .returning(RankExplanation.id)
+        ).scalar_one_or_none()
+        if created is not None:
+            db.commit()
+            return _view(db, plan, _latest_row(db, plan))
+        # A concurrent request made the row first and has committed it: decide on that row
+        row = _latest_row(db, plan, lock=True)
+        if row is None:  # pragma: no cover - the conflicting row cannot vanish
+            db.rollback()
+            raise ExplanationRequestError(ExplanationBlock.INVALID_INPUT)
+    blocked = _blocked(db, plan, row)
+    if blocked in _ANSWERED:
+        db.rollback()
+        return _view(db, plan, row)
+    if blocked is not None:
+        db.rollback()
+        raise ExplanationRequestError(blocked)
+    row.status = ExplanationStatus.PENDING
+    row.failure_reason = None
+    row.claim = None
+    row.lease_until = None
+    row.attempt_limit = min(row.attempts + max_attempts(), settings.llm_max_attempts_per_row)
+    db.commit()
+    return _view(db, plan, row)
+
+
 # --------------------------------------------------------------------------- #
 # Job side
 # --------------------------------------------------------------------------- #
@@ -226,6 +432,8 @@ def _claim(db: Session) -> Claim | None:
             select(RankExplanation)
             .where(
                 RankExplanation.status == ExplanationStatus.PENDING,
+                # Only rows a user asked for (round 6 PR E1)
+                RankExplanation.attempt_limit.is_not(None),
                 or_(
                     RankExplanation.lease_until.is_(None), RankExplanation.lease_until <= _db_now()
                 ),
@@ -237,7 +445,7 @@ def _claim(db: Session) -> Claim | None:
         if row is None:
             db.rollback()
             return None
-        if row.attempts >= max_attempts():
+        if row.attempts >= _limit(row):
             # An earlier lease expired after a crash. Leftover IN_FLIGHT log rows stay as
             # they are: they mean "usage unknown".
             _fail(row, "ATTEMPTS_EXHAUSTED", ExplanationStatus.FAILED)
@@ -279,7 +487,7 @@ def _start_attempt(
     row = _lock(db, claim)
     if row is None:
         return None
-    if row.attempts >= max_attempts():
+    if row.attempts >= _limit(row):
         _fail(row, "ATTEMPTS_EXHAUSTED", ExplanationStatus.FAILED)
         db.commit()
         return None
@@ -324,7 +532,7 @@ def _record(db: Session, claim: Claim, result: LlmAttempt) -> bool:
         row.failure_reason = None
         row.claim = None
         row.lease_until = None
-    elif llm_service.is_retryable(result.status) and row.attempts < max_attempts():
+    elif llm_service.is_retryable(result.status) and row.attempts < _limit(row):
         retry = True
     else:
         _fail(row, result.status.value, ExplanationStatus.FAILED)
@@ -348,15 +556,9 @@ def _process_one(db: Session) -> bool:
         return True
     db.rollback()  # end the read transaction before anything else
     digest = input_hash(payload)
-    request = LlmRequest(
-        system=SYSTEM_PROMPT,
-        prompt=render_prompt(payload),
-        payload=payload,
-        max_output_tokens=settings.llm_max_output_tokens,
-        timeout_seconds=settings.llm_request_timeout_seconds,
-    )
+    prepared = llm_request(payload)
     while True:
-        ticket = _start_attempt(db, claim, payload, digest, request)
+        ticket = _start_attempt(db, claim, payload, digest, prepared)
         if ticket is None:
             return True
         # _start_attempt committed: no transaction or lock is open during the call
