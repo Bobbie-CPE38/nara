@@ -1,4 +1,5 @@
-"""LLM ranking explanation (round 3 PR X): enqueue in the plan, generate in the Job sweep.
+"""LLM ranking explanation (round 3 PR X): a user asks (round 6 PR E1), the Job sweep
+generates. The request side has its own tests in test_explanation_request.py.
 
 Everything is offline: the gateway or the adapter functions are replaced, and the fake
 adapter is the only one that really runs.
@@ -118,6 +119,13 @@ def _planned_case(db: Session) -> StaffingCase:
     return case
 
 
+def _requested_case(db: Session) -> StaffingCase:
+    """A planned case whose explanation a user asked for: one requested PENDING row."""
+    case = _planned_case(db)
+    service.request(db, case.id)
+    return case
+
+
 def _rows(db: Session) -> list[RankExplanation]:
     db.expire_all()
     return list(db.scalars(select(RankExplanation).order_by(RankExplanation.id)))
@@ -148,31 +156,30 @@ def test_disabled_writes_no_row_and_never_calls(seeded: Session, gateway) -> Non
     assert spy.calls == 0
 
 
-# 2
-def test_enabled_enqueues_one_pending_row_in_the_plan_transaction(
+# 2 (round 6 PR E1)
+def test_a_new_plan_gets_no_row_and_no_call_until_a_user_asks(
     seeded: Session, llm_on, gateway
 ) -> None:
     spy = gateway()
-    leave(seeded, 105)
-    case = make_case(seeded, CaseStatus.OPTIMIZING)
-    record_gap(seeded, case)
 
-    savepoint = seeded.begin_nested()
-    optimize.handle(seeded, case)
-    rows = _rows(seeded)
-    assert [(r.status, r.prompt_version) for r in rows] == [
-        (ExplanationStatus.PENDING, service.PROMPT_VERSION)
-    ]
-    assert rows[0].case_id == case.id and rows[0].input_payload is None
-    savepoint.rollback()
+    case = _planned_case(seeded)
+    seeded.commit()  # an idle sweep rolls the session back
 
     assert _rows(seeded) == []
+    assert service.run_pending(seeded) == 0
+    assert spy.calls == 0
+
+    service.request(seeded, case.id)
+
+    (row,) = _rows(seeded)
+    assert (row.status, row.prompt_version) == (ExplanationStatus.PENDING, service.PROMPT_VERSION)
+    assert row.case_id == case.id and row.input_payload is None and row.attempts == 0
     assert spy.calls == 0
 
 
 # 3
 def test_sweep_makes_the_sentence_and_logs_the_call(seeded: Session, llm_on) -> None:
-    _planned_case(seeded)
+    _requested_case(seeded)
 
     assert service.run_pending(seeded) == 1
 
@@ -194,7 +201,7 @@ def test_sweep_makes_the_sentence_and_logs_the_call(seeded: Session, llm_on) -> 
 
 # 4
 def test_payload_has_no_personal_data(seeded: Session, llm_on) -> None:
-    _planned_case(seeded)
+    _requested_case(seeded)
     service.run_pending(seeded)
     (row,) = _rows(seeded)
     assert row.input_payload is not None
@@ -294,7 +301,7 @@ def test_a_partial_plan_says_coverage_comes_first_without_new_keys(seeded: Sessi
 def test_the_prompt_version_is_v2_and_the_prompt_defers_to_the_meaning(
     seeded: Session, llm_on
 ) -> None:
-    _planned_case(seeded)
+    _requested_case(seeded)
 
     (row,) = _rows(seeded)
 
@@ -306,7 +313,7 @@ def test_the_prompt_version_is_v2_and_the_prompt_defers_to_the_meaning(
 
 # 6
 def test_polling_never_calls_the_llm(client: TestClient, seeded: Session, llm_on, gateway) -> None:
-    case = _planned_case(seeded)
+    case = _requested_case(seeded)
     spy = gateway()
 
     for _ in range(5):
@@ -315,6 +322,8 @@ def test_polling_never_calls_the_llm(client: TestClient, seeded: Session, llm_on
             "text": None,
             "provider": None,
             "model_id": None,
+            "can_request": False,
+            "request_blocked_reason": "PENDING",
         }
 
     assert spy.calls == 0
@@ -322,7 +331,7 @@ def test_polling_never_calls_the_llm(client: TestClient, seeded: Session, llm_on
 
 # 7
 def test_a_second_sweep_after_ready_makes_no_call(seeded: Session, llm_on, gateway) -> None:
-    _planned_case(seeded)
+    _requested_case(seeded)
     spy = gateway()
 
     assert service.run_pending(seeded) == 1
@@ -334,7 +343,7 @@ def test_a_second_sweep_after_ready_makes_no_call(seeded: Session, llm_on, gatew
 
 # 8
 def test_a_timeout_is_retried_once_then_gives_up(seeded: Session, llm_on, gateway) -> None:
-    _planned_case(seeded)
+    _requested_case(seeded)
     spy = gateway(LlmCallStatus.TIMEOUT)
     service.run_pending(seeded)
     assert spy.calls == 2
@@ -346,7 +355,7 @@ def test_a_timeout_is_retried_once_then_gives_up(seeded: Session, llm_on, gatewa
 
 
 def test_two_timeouts_end_failed_without_a_third_call(seeded: Session, llm_on, gateway) -> None:
-    _planned_case(seeded)
+    _requested_case(seeded)
     spy = gateway(LlmCallStatus.TIMEOUT, LlmCallStatus.THROTTLED)
 
     service.run_pending(seeded)
@@ -365,7 +374,7 @@ def test_two_timeouts_end_failed_without_a_third_call(seeded: Session, llm_on, g
     [LlmCallStatus.CONFIG_ERROR, LlmCallStatus.TRUNCATED, LlmCallStatus.INVALID_OUTPUT],
 )
 def test_permanent_errors_are_not_retried(seeded: Session, llm_on, gateway, status) -> None:
-    _planned_case(seeded)
+    _requested_case(seeded)
     spy = gateway(status)
 
     service.run_pending(seeded)
@@ -380,7 +389,7 @@ def test_permanent_errors_are_not_retried(seeded: Session, llm_on, gateway, stat
 
 # 10
 def test_llm_failure_does_not_touch_the_case(seeded: Session, llm_on, gateway) -> None:
-    case = _planned_case(seeded)
+    case = _requested_case(seeded)
     before = case.status
     gateway(LlmCallStatus.CONFIG_ERROR)
 
@@ -417,7 +426,7 @@ def test_bedrock_failure_never_falls_back_to_fake(
 
     monkeypatch.setattr(bedrock, "generate", failing)
     monkeypatch.setattr(fake, "generate", forbidden)
-    case = _planned_case(seeded)
+    case = _requested_case(seeded)
 
     service.run_pending(seeded)
 
@@ -427,12 +436,17 @@ def test_bedrock_failure_never_falls_back_to_fake(
         "text": None,
         "provider": None,
         "model_id": None,
+        # A configuration error can be repaired outside the row: the user may ask again
+        "can_request": True,
+        "request_blocked_reason": None,
     }
 
 
 # 12
-def test_a_crash_cannot_exceed_the_attempt_bound(seeded: Session, llm_on, gateway) -> None:
-    _planned_case(seeded)
+def test_a_crash_cannot_exceed_the_attempts_of_the_request(
+    seeded: Session, llm_on, gateway
+) -> None:
+    _requested_case(seeded)
     spy = gateway()
     (row,) = _rows(seeded)
     row.attempts = 2
@@ -464,7 +478,7 @@ def test_a_crash_cannot_exceed_the_attempt_bound(seeded: Session, llm_on, gatewa
 
 
 def test_a_live_lease_blocks_the_sweep(seeded: Session, llm_on, gateway) -> None:
-    _planned_case(seeded)
+    _requested_case(seeded)
     spy = gateway()
     (row,) = _rows(seeded)
     row.claim = service.uuid.uuid4()
@@ -477,7 +491,7 @@ def test_a_live_lease_blocks_the_sweep(seeded: Session, llm_on, gateway) -> None
 
 # 13
 def test_a_plan_without_weights_is_skipped_without_a_call(seeded: Session, llm_on, gateway) -> None:
-    case = _planned_case(seeded)
+    case = _requested_case(seeded)
     spy = gateway()
     plan = seeded.scalars(
         select(service.CandidatePlan).where(service.CandidatePlan.case_id == case.id)
@@ -496,7 +510,7 @@ def test_a_plan_without_weights_is_skipped_without_a_call(seeded: Session, llm_o
 
 
 def test_a_score_mismatch_is_skipped_without_a_call(seeded: Session, llm_on, gateway) -> None:
-    case = _planned_case(seeded)
+    case = _requested_case(seeded)
     spy = gateway()
     plan = seeded.scalars(
         select(service.CandidatePlan).where(service.CandidatePlan.case_id == case.id)
@@ -516,11 +530,11 @@ def test_a_score_mismatch_is_skipped_without_a_call(seeded: Session, llm_on, gat
 def test_misconfigured_bedrock_makes_no_call_and_logs_no_values(
     seeded: Session, llm_on, gateway, monkeypatch: pytest.MonkeyPatch, caplog
 ) -> None:
+    spy = gateway()
+    _requested_case(seeded)
     monkeypatch.setattr(settings, "llm_provider", "bedrock")
     monkeypatch.setattr(settings, "llm_model_id", None)
     monkeypatch.setattr(settings, "aws_region", "region-value-xyz")
-    spy = gateway()
-    _planned_case(seeded)
 
     with caplog.at_level(logging.ERROR):
         assert service.run_pending(seeded) == 0
@@ -547,7 +561,7 @@ def test_two_concurrent_sweeps_make_one_call(
     monkeypatch.setattr(llm_service, "generate_explanation", slow)
     with SessionLocal() as db:
         load(db)
-        _planned_case(db)
+        _requested_case(db)
         db.commit()
 
     def sweep() -> None:
@@ -592,7 +606,7 @@ def test_the_lease_follows_real_time_not_the_demo_clock(
     monkeypatch.setattr(llm_service, "generate_explanation", slow)
     with SessionLocal() as db:
         load(db)
-        _planned_case(db)
+        _requested_case(db)
         db.commit()
 
     def sweep() -> None:
@@ -632,7 +646,7 @@ def test_logs_hold_no_message_prompt_or_text(
         raise RuntimeError(SECRET_MESSAGE)
 
     monkeypatch.setattr(bedrock, "_client", broken_client)
-    _planned_case(seeded)
+    _requested_case(seeded)
 
     with caplog.at_level(logging.DEBUG):
         service.run_pending(seeded)
@@ -653,7 +667,7 @@ def test_a_raising_gateway_is_logged_by_type_only(
         raise RuntimeError(SECRET_MESSAGE)
 
     monkeypatch.setattr(llm_service, "generate_explanation", boom)
-    _planned_case(seeded)
+    _requested_case(seeded)
 
     with caplog.at_level(logging.DEBUG):
         service.run_pending(seeded)
@@ -694,7 +708,7 @@ def test_a_rejected_tick_queues_nothing(
 def test_demo_clock_advance_does_not_call_the_gateway(
     client: TestClient, seeded: Session, llm_on, gateway
 ) -> None:
-    _planned_case(seeded)
+    _requested_case(seeded)
     spy = gateway()
 
     response = client.post("/demo/clock/advance", json={"seconds": 60})
@@ -730,7 +744,7 @@ def test_the_sweep_reaches_the_provider_only_through_the_gateway(
         return _failure(LlmCallStatus.TIMEOUT) if len(calls) == 1 else fake.generate(request)
 
     monkeypatch.setattr(llm_service, "generate_explanation", provider)
-    _planned_case(seeded)
+    _requested_case(seeded)
 
     service.run_pending(seeded)
 
@@ -743,9 +757,9 @@ def test_the_sweep_reaches_the_provider_only_through_the_gateway(
 def test_a_used_up_day_skips_the_row_without_a_call(
     seeded: Session, llm_on, gateway, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings, "llm_daily_call_cap", 0)
     spy = gateway()
-    _planned_case(seeded)
+    _requested_case(seeded)
+    monkeypatch.setattr(settings, "llm_daily_call_cap", 0)
 
     service.run_pending(seeded)
 
@@ -760,7 +774,7 @@ def test_the_cap_also_stops_a_retry(
 ) -> None:
     monkeypatch.setattr(settings, "llm_daily_call_cap", 1)
     spy = gateway(LlmCallStatus.TIMEOUT)
-    _planned_case(seeded)
+    _requested_case(seeded)
 
     service.run_pending(seeded)
 
@@ -777,9 +791,9 @@ def test_the_cap_also_stops_a_retry(
 def test_a_payload_over_the_input_cap_is_skipped_without_a_call(
     seeded: Session, llm_on, gateway, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(settings, "llm_max_input_tokens", 10)
     spy = gateway()
-    _planned_case(seeded)
+    _requested_case(seeded)
+    monkeypatch.setattr(settings, "llm_max_input_tokens", 10)
 
     service.run_pending(seeded)
 
@@ -797,7 +811,7 @@ def test_a_sentence_with_a_number_not_in_the_payload_is_not_shown(
         return replace(real(request), text="อันดับ 1 รวมได้ 12345 คะแนน")
 
     monkeypatch.setattr(fake, "generate", invented)
-    case = _planned_case(seeded)
+    case = _requested_case(seeded)
 
     service.run_pending(seeded)
 
@@ -817,7 +831,7 @@ def test_the_row_lifetime_bound_caps_the_attempts(
 ) -> None:
     monkeypatch.setattr(settings, "llm_max_attempts_per_row", 1)
     spy = gateway(LlmCallStatus.TIMEOUT)
-    _planned_case(seeded)
+    _requested_case(seeded)
 
     service.run_pending(seeded)
 

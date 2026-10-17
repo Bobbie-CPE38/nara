@@ -48,6 +48,9 @@ class RankExplanation(Base):
     model_id: Mapped[str | None] = mapped_column(Text)
     # Durable attempt counter; bounds LLM calls across crashes.
     attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=sql_text("0"))
+    # Round 6 PR E1: the attempts the row may reach in the current user request. NULL = no
+    # user asked (queued by the workflow before E1); the sweep never takes such a row
+    attempt_limit: Mapped[int | None] = mapped_column(Integer)
     claim: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # An LlmCallStatus value or INVALID_INPUT, NO_CANDIDATES, ATTEMPTS_EXHAUSTED; no SDK text.

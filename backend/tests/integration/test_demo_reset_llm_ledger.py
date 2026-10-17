@@ -28,7 +28,7 @@ from app.integrations.llm import LlmAttempt, LlmRequest, fake
 from app.seed import reset as reset_module
 from app.seed.reset import reset_demo
 from app.services import explanation_service, llm_gateway, llm_service
-from tests.integration.test_rank_explanation import _planned_case
+from tests.integration.test_rank_explanation import _requested_case
 
 pytestmark = pytest.mark.usefixtures("restore_empty_database")
 
@@ -74,8 +74,7 @@ def spent(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     monkeypatch.setattr(llm_service, "generate_explanation", _priced)
     reset_demo()
     with SessionLocal() as db:
-        _planned_case(db)
-        db.commit()
+        _requested_case(db)  # commits
         assert explanation_service.run_pending(db) == 1
         summary = llm_gateway.case_summary(
             summary_id=1, case_id=1, prompt_version="v", attempt=1, input_hash="h"
@@ -159,8 +158,7 @@ def test_new_attempts_after_a_reset_follow_the_kept_ids(
     monkeypatch.setattr(settings, "llm_daily_call_cap", 10)
 
     with SessionLocal() as db:
-        _planned_case(db)
-        db.commit()
+        _requested_case(db)  # commits
         assert explanation_service.run_pending(db) == 1
         logs = _logs(db)
         assert len(logs) == 4 and logs[-1].id > max(spent["ids"])
@@ -400,8 +398,7 @@ def test_reset_from_the_previous_migration_head_keeps_the_history(
     monkeypatch.setattr(llm_service, "generate_explanation", _priced)
     reset_demo()
     with SessionLocal() as db:
-        _planned_case(db)
-        db.commit()
+        _requested_case(db)  # commits
         assert explanation_service.run_pending(db) == 1
         (before,) = _logs(db)
         cost, started_at = before.estimated_cost_usd, before.started_at

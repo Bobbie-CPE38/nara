@@ -32,11 +32,14 @@ function isScore(value: unknown): boolean {
   );
 }
 
+/** Statuses that carry no text (round 6 PR E1 added NOT_REQUESTED and QUOTA_EXHAUSTED). */
+const TEXTLESS_EXPLANATION_STATUSES: unknown[] = ["NOT_REQUESTED", "PENDING", "UNAVAILABLE", "QUOTA_EXHAUSTED"];
+
 /** null, or a known status; READY needs a non-empty text and a known provider. */
 function isExplanation(value: unknown): boolean {
   if (value === null) return true;
   if (!isRecord(value)) return false;
-  if (value.status === "PENDING" || value.status === "UNAVAILABLE") return true;
+  if (TEXTLESS_EXPLANATION_STATUSES.includes(value.status)) return true;
   return value.status === "READY" && typeof value.text === "string" && value.text !== ""
     && (value.provider === "fake" || value.provider === "bedrock");
 }

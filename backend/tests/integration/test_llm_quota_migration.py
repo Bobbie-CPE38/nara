@@ -15,9 +15,9 @@ from tests.integration.case_rows import short_case
 REVISION = "d2a6f9c1e4b7"
 
 
-def test_the_migration_is_the_single_head_after_reserve_notifications():
+def test_the_migration_follows_reserve_notifications_on_a_single_head():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
-    assert script.get_heads() == [REVISION]
+    assert len(script.get_heads()) == 1
     assert script.get_revision(REVISION).down_revision == "c5f8b0d3e7a1"
 
 

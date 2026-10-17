@@ -1,7 +1,9 @@
-"""`explanation` of GET /cases/{id} (round 3 PR X), on a real plan of the Solver.
+"""`explanation` of GET /cases/{id} (round 3 PR X, round 6 PR E1), on a real plan of the
+Solver.
 
-Only the latest plan's newest row is read. FAILED and SKIPPED both read as
-UNAVAILABLE, and nothing but a READY row exposes text, provider or model.
+Only the latest plan's newest row is read. FAILED and SKIPPED read as UNAVAILABLE, except a
+row SKIPPED because the day's quota was used up. Nothing but a READY row exposes text,
+provider or model. can_request and request_blocked_reason come with every answer.
 """
 
 from collections.abc import Iterator
@@ -13,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
+from app.core.config import settings
 from app.db.models import CandidatePlan, RankExplanation, StaffingCase
 from app.domain.enums import CaseStatus, ExplanationStatus
 from app.main import app
@@ -31,6 +34,12 @@ def client(seeded: Session) -> Iterator[TestClient]:
         app.dependency_overrides.clear()
 
 
+@pytest.fixture
+def llm_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "llm_enabled", True)
+    monkeypatch.setattr(settings, "llm_provider", "fake")
+
+
 def _planned_case(db: Session) -> StaffingCase:
     leave(db, 105)
     case = make_case(db, CaseStatus.OPTIMIZING)
@@ -39,8 +48,17 @@ def _planned_case(db: Session) -> StaffingCase:
     return case
 
 
+def _plans(db: Session, case: StaffingCase) -> list[CandidatePlan]:
+    return list(
+        db.scalars(
+            select(CandidatePlan).where(CandidatePlan.case_id == case.id).order_by(CandidatePlan.id)
+        )
+    )
+
+
 def _plan(db: Session, case: StaffingCase) -> CandidatePlan:
-    return db.scalars(select(CandidatePlan).where(CandidatePlan.case_id == case.id)).one()
+    (plan,) = _plans(db, case)
+    return plan
 
 
 def _row(
@@ -50,14 +68,11 @@ def _row(
     status: ExplanationStatus,
     **fields: Any,
 ) -> None:
+    fields.setdefault("failure_reason", "TIMEOUT" if status == ExplanationStatus.FAILED else None)
+    fields.setdefault("attempt_limit", 2)
     db.add(
         RankExplanation(
-            case_id=case.id,
-            plan_id=plan.id,
-            prompt_version="v1",
-            status=status,
-            failure_reason="BOOM" if status == ExplanationStatus.FAILED else None,
-            **fields,
+            case_id=case.id, plan_id=plan.id, prompt_version="v1", status=status, **fields
         )
     )
     db.flush()
@@ -72,10 +87,26 @@ def _explanation(client: TestClient, case: StaffingCase) -> dict[str, Any] | Non
     return explanation
 
 
-def test_no_row_answers_null(client: TestClient, seeded: Session) -> None:
+def _answer(status: str, blocked: str | None, **fields: Any) -> dict[str, Any]:
+    return {
+        "status": status,
+        **NULL_FIELDS,
+        **fields,
+        "can_request": blocked is None,
+        "request_blocked_reason": blocked,
+    }
+
+
+def test_no_row_is_not_requested(client: TestClient, seeded: Session, llm_on) -> None:
     case = _planned_case(seeded)
 
-    assert _explanation(client, case) is None
+    assert _explanation(client, case) == _answer("NOT_REQUESTED", None)
+
+
+def test_llm_off_cannot_be_asked_for(client: TestClient, seeded: Session) -> None:
+    case = _planned_case(seeded)
+
+    assert _explanation(client, case) == _answer("NOT_REQUESTED", "NOT_CONFIGURED")
 
 
 def test_a_case_without_a_plan_answers_null(client: TestClient, seeded: Session) -> None:
@@ -84,11 +115,20 @@ def test_a_case_without_a_plan_answers_null(client: TestClient, seeded: Session)
     assert _explanation(client, case) is None
 
 
-def test_pending_has_no_text(client: TestClient, seeded: Session) -> None:
+def test_pending_has_no_text(client: TestClient, seeded: Session, llm_on) -> None:
     case = _planned_case(seeded)
     _row(seeded, case, _plan(seeded, case), ExplanationStatus.PENDING)
 
-    assert _explanation(client, case) == {"status": "PENDING", **NULL_FIELDS}
+    assert _explanation(client, case) == _answer("PENDING", "PENDING")
+
+
+def test_a_row_queued_before_e1_waits_for_a_user(
+    client: TestClient, seeded: Session, llm_on
+) -> None:
+    case = _planned_case(seeded)
+    _row(seeded, case, _plan(seeded, case), ExplanationStatus.PENDING, attempt_limit=None)
+
+    assert _explanation(client, case) == _answer("NOT_REQUESTED", None)
 
 
 def test_ready_exposes_text_provider_and_model(client: TestClient, seeded: Session) -> None:
@@ -103,51 +143,72 @@ def test_ready_exposes_text_provider_and_model(client: TestClient, seeded: Sessi
         model_id="some-model",
     )
 
-    assert _explanation(client, case) == {
-        "status": "READY",
-        "text": "Staff 201 ranks first.",
-        "provider": "bedrock",
-        "model_id": "some-model",
-    }
+    # Readable with the LLM off: reading never calls it
+    assert _explanation(client, case) == _answer(
+        "READY",
+        "ALREADY_READY",
+        text="Staff 201 ranks first.",
+        provider="bedrock",
+        model_id="some-model",
+    )
 
 
-@pytest.mark.parametrize("status", [ExplanationStatus.FAILED, ExplanationStatus.SKIPPED])
+@pytest.mark.parametrize(
+    ("status", "reason", "blocked"),
+    [
+        (ExplanationStatus.FAILED, "TIMEOUT", None),
+        (ExplanationStatus.FAILED, "INVALID_OUTPUT", "INVALID_INPUT"),
+        (ExplanationStatus.FAILED, "CONFIG_ERROR", None),
+        (ExplanationStatus.SKIPPED, "INVALID_INPUT", "INVALID_INPUT"),
+    ],
+)
 def test_failed_and_skipped_are_unavailable(
-    client: TestClient, seeded: Session, status: ExplanationStatus
+    client: TestClient,
+    seeded: Session,
+    llm_on,
+    status: ExplanationStatus,
+    reason: str,
+    blocked: str | None,
 ) -> None:
     case = _planned_case(seeded)
-    _row(seeded, case, _plan(seeded, case), status, provider="bedrock", model_id="m")
-
-    assert _explanation(client, case) == {"status": "UNAVAILABLE", **NULL_FIELDS}
-
-
-def test_the_latest_plans_row_is_used(client: TestClient, seeded: Session) -> None:
-    case = _planned_case(seeded)
-    first = _plan(seeded, case)
-    second = CandidatePlan(
-        case_id=case.id,
-        solver_status=first.solver_status,
-        generated_at=first.generated_at,
-        execution_time_ms=first.execution_time_ms,
-        objective_score=first.objective_score,
-        solver_version=first.solver_version,
-        hard_constraint_policy_id=first.hard_constraint_policy_id,
-        soft_constraint_policy_id=first.soft_constraint_policy_id,
-        input_snapshot=first.input_snapshot,
-    )
-    seeded.add(second)
-    seeded.flush()
     _row(
         seeded,
         case,
-        first,
-        ExplanationStatus.READY,
-        text="old",
-        provider="fake",
+        _plan(seeded, case),
+        status,
+        failure_reason=reason,
+        provider="bedrock",
+        model_id="m",
+        text="never shown",
     )
 
-    assert _explanation(client, case) is None
+    assert _explanation(client, case) == _answer("UNAVAILABLE", blocked)
+
+
+def test_a_quota_skip_reads_as_quota_exhausted(client: TestClient, seeded: Session, llm_on) -> None:
+    case = _planned_case(seeded)
+    _row(
+        seeded,
+        case,
+        _plan(seeded, case),
+        ExplanationStatus.SKIPPED,
+        failure_reason="QUOTA_EXHAUSTED",
+    )
+
+    # The quota of today is free again, so the user may ask again
+    assert _explanation(client, case) == _answer("QUOTA_EXHAUSTED", None)
+
+
+def test_the_latest_plans_row_is_used(client: TestClient, seeded: Session, llm_on) -> None:
+    case = _planned_case(seeded)
+    first = _plan(seeded, case)
+    _row(seeded, case, first, ExplanationStatus.READY, text="old", provider="fake")
+    optimize.handle(seeded, case)  # ranked again: a new plan
+    second = _plans(seeded, case)[-1]
+    assert second.id != first.id
+
+    assert _explanation(client, case) == _answer("NOT_REQUESTED", None)
 
     _row(seeded, case, second, ExplanationStatus.PENDING)
 
-    assert _explanation(client, case) == {"status": "PENDING", **NULL_FIELDS}
+    assert _explanation(client, case) == _answer("PENDING", "PENDING")

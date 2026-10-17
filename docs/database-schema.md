@@ -749,13 +749,14 @@ CHECK `used_at IS NULL OR revoked_at IS NULL`; รหัสที่ใช้แ
 | `text` | text | NULL | ตั้งเมื่อ `READY` เท่านั้น |
 | `provider`, `model_id` | text | NULL | ตั้งเมื่อ `READY` (`model_id` เป็น NULL ของ `fake`) |
 | `attempts` | integer | NOT NULL | default 0; นับ Attempt ถาวร |
+| `attempt_limit` | integer | NULL | รอบ 6 PR E1: Attempt ที่แถวไปถึงได้ในคำขอปัจจุบันของผู้ใช้ (`min(attempts + 1 + LLM_MAX_RETRIES, LLM_MAX_ATTEMPTS_PER_ROW)`) NULL = ยังไม่มีผู้ใช้ขอ (แถวที่เข้าคิวก่อน E1) Sweep ไม่รับแถวนั้น |
 | `claim` | uuid | NULL | ผู้ถือ Claim ของ Sweep |
 | `lease_until` | timestamptz | NULL | Claim หมดอายุหลังเวลานี้ |
 | `failure_reason` | text | NULL | ค่าของ `LlmCallStatus` หรือ `INVALID_INPUT`, `NO_CANDIDATES`, `ATTEMPTS_EXHAUSTED` และ `QUOTA_EXHAUSTED`, `INPUT_TOO_LARGE` (`SKIPPED`, รอบ 6 PR B1); ไม่เก็บข้อความ Error ของ SDK |
 | `created_at`, `updated_at` | timestamptz | NOT NULL | Backend Clock |
 | `ready_at` | timestamptz | NULL | |
 
-UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending` บน `id` เมื่อ `status = 'PENDING'` แถวเกิดใน Transaction ของ Plan (เมื่อ `LLM_ENABLED`) และ Job เป็นผู้เติมผล
+UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending` บน `id` เมื่อ `status = 'PENDING'` แถวเกิดเมื่อผู้ใช้ขอผ่าน `POST /cases/{id}/explanation` (รอบ 6 PR E1 ก่อนหน้านี้เกิดใน Transaction ของ Plan เมื่อ `LLM_ENABLED`) และ Job เป็นผู้เติมผล
 
 ### 35. LLM_CALL_LOG (รอบ 3 PR X, รอบ 6 PR B1)
 

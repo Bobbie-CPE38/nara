@@ -46,15 +46,23 @@ export type ScoreTerm = { name: string; value: number; weight: number; points: n
 /** Terms are in formula order. first_wave tells a first-wave pick from a reserve */
 export type CandidateScore = { total: number; terms: ScoreTerm[]; first_wave: boolean };
 
-/** The LLM sentence about the plan's ranking. PENDING and UNAVAILABLE carry no text. The numbers stay the source of truth */
+/** Why the explanation cannot be asked for now (docs/workflow.md 9.8) */
+export type ExplanationBlock =
+  | "ALREADY_READY" | "PENDING" | "NOT_CONFIGURED" | "INVALID_INPUT" | "ATTEMPTS_EXHAUSTED" | "QUOTA_EXHAUSTED";
+
+/** The LLM sentence about the plan's ranking, made only when a user asks (round 6 PR E1). Only READY carries text. The numbers stay the source of truth */
 export type RankExplanation = {
-  status: "PENDING" | "READY" | "UNAVAILABLE";
+  status: "NOT_REQUESTED" | "PENDING" | "READY" | "UNAVAILABLE" | "QUOTA_EXHAUSTED";
   /** Only when READY */
   text: string | null;
   /** Only when READY. "fake" is a test adapter, not a real model */
   provider: "fake" | "bedrock" | null;
   /** Only when READY. null for fake */
   model_id: string | null;
+  /** True when POST /cases/{id}/explanation would queue it now. Optional until PR E2 reads it */
+  can_request?: boolean;
+  /** null exactly when can_request is true */
+  request_blocked_reason?: ExplanationBlock | null;
 };
 
 /** The roster row a candidate is moved out of when they take this shift */

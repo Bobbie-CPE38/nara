@@ -137,6 +137,8 @@ describe("loadCase", () => {
     ["null", null],
     ["PENDING", { status: "PENDING", text: null, provider: null, model_id: null }],
     ["UNAVAILABLE", { status: "UNAVAILABLE", text: null, provider: null, model_id: null }],
+    ["NOT_REQUESTED (PR E1)", { status: "NOT_REQUESTED", text: null, provider: null, model_id: null, can_request: true, request_blocked_reason: null }],
+    ["QUOTA_EXHAUSTED (PR E1)", { status: "QUOTA_EXHAUSTED", text: null, provider: null, model_id: null, can_request: false, request_blocked_reason: "QUOTA_EXHAUSTED" }],
     ["READY from fake", { status: "READY", text: "[fake] x", provider: "fake", model_id: null }],
     ["READY from bedrock", { status: "READY", text: "x", provider: "bedrock", model_id: "m-1" }],
   ])("accepts an explanation that is %s", async (_name, explanation) => {
