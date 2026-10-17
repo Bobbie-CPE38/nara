@@ -1,18 +1,19 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
-import { ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
+import { type ExplanationRequest, ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
 import { SkippedTable } from "@/components/candidate/SkippedTable";
 import { CaseSummary } from "@/components/case/CaseSummary";
 import { GapTable } from "@/components/case/GapTable";
 import { HandoverList } from "@/components/handover/HandoverList";
 import { usePolling } from "@/hooks/usePolling";
-import { ApiError } from "@/lib/api";
-import { type CaseSnapshot, collectSkips, isCaseId, loadCase } from "@/lib/cases";
+import { ApiError, apiRequest } from "@/lib/api";
+import { type CaseSnapshot, collectSkips, explanationRequestMessage, isCaseId, loadCase } from "@/lib/cases";
 import {
   CASE_STATUS_INFO,
+  EXPLANATION_REQUEST_TIMEOUT_MS,
   POLL_INTERVAL_MS,
   TERMINAL_CASE_STATUSES,
   TONE_CLASS,
@@ -55,7 +56,7 @@ function describe(error: Error) {
     : error.message;
 }
 
-function CaseSections({ detail, audit, onSummaryRequested }: CaseSnapshot & { onSummaryRequested: () => Promise<void> }) {
+function CaseSections({ detail, audit, request, onSummaryRequested }: CaseSnapshot & { request: ExplanationRequest; onSummaryRequested: () => Promise<void> }) {
   const info = CASE_STATUS_INFO.get(detail.status);
   const skips = collectSkips(audit);
   // FAILED is a normal answer. Its reason is only in the audit, and only as an error type.
@@ -109,7 +110,7 @@ function CaseSections({ detail, audit, onSummaryRequested }: CaseSnapshot & { on
           candidates={detail.candidates}
           stopped={isFinal({ detail, audit }) || detail.status === "MANUAL_HANDOFF"}
         />
-        <ScoreBreakdown candidates={detail.candidates} explanation={detail.explanation} partialPlan={detail.partial_plan} />
+        <ScoreBreakdown candidates={detail.candidates} explanation={detail.explanation} partialPlan={detail.partial_plan} request={request} />
         {skips.length > 0 && (
           <>
             <h3 className="mt-4 font-semibold">Skipped</h3>
@@ -139,6 +140,48 @@ export function CaseView({ caseId }: { caseId: string }) {
     stopOnData: isDone,
     stopOnError: isGone,
   });
+  const [requesting, setRequesting] = useState(false);
+  const [requestMessage, setRequestMessage] = useState<string | null>(null);
+  // A ref as well: two clicks before the next render must make one request
+  const requestingRef = useRef(false);
+  const controllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      controllerRef.current?.abort();
+    };
+  }, []);
+  // An old message must not outlive the state it was about: clear it when the explanation changes
+  const explanation = data?.detail.explanation;
+  const explanationState = `${explanation?.status}/${explanation?.can_request}/${explanation?.request_blocked_reason}`;
+  useEffect(() => { setRequestMessage(null); }, [explanationState]);
+  // Asks for the AI explanation of the latest plan (docs/workflow.md 9.8). The Job writes the
+  // sentence later, so the answer is read again and polling goes on while it is PENDING.
+  // Every refusal is read again too: can_request tells the truth about what is allowed now.
+  const requestExplanation = useCallback(async () => {
+    if (requestingRef.current) return;
+    requestingRef.current = true;
+    setRequesting(true);
+    setRequestMessage(null);
+    // A request that never answers is given up, so the button comes back with a retry message
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const timer = setTimeout(() => controller.abort(), EXPLANATION_REQUEST_TIMEOUT_MS);
+    try {
+      await apiRequest(`/cases/${caseId}/explanation`, { method: "POST", signal: controller.signal });
+    } catch (cause) {
+      if (mountedRef.current) setRequestMessage(explanationRequestMessage(cause));
+    } finally {
+      clearTimeout(timer);
+      controllerRef.current = null;
+      requestingRef.current = false;
+      if (mountedRef.current) setRequesting(false);
+    }
+    // Read again either way: a request that timed out may still have been accepted
+    if (mountedRef.current) await refresh();
+  }, [caseId, refresh]);
   const httpStatus = error instanceof ApiError ? error.status : undefined;
 
   let body;
@@ -159,7 +202,7 @@ export function CaseView({ caseId }: { caseId: string }) {
             Last update failed: {describe(error)} Showing the last known data. Retrying…
           </p>
         )}
-        <CaseSections detail={data.detail} audit={data.audit} onSummaryRequested={refresh} />
+        <CaseSections detail={data.detail} audit={data.audit} request={{ busy: requesting, message: requestMessage, onRequest: requestExplanation }} onSummaryRequested={refresh} />
       </>
     );
   }

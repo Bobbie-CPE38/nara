@@ -22,7 +22,7 @@ Branch: `feat/case-ai-summary`, based on staging after B1, E1, P1 and F1.
 
 ## Integration notes
 
-- E2 also edits CaseView; preserve its ranking-explanation controls and S's summary section and polling condition when merging. F2 can use the existing case page without new summary controls.
+- Staging after E2 (#112) is merged. The case page retains both ranking-explanation controls (including timeout/refusal handling) and the case-summary section. A regression test keeps polling a final case until both requested jobs finish. F2 can use the existing case page without new summary controls.
 - Follow staging's latest migration head if another migration lands first; preserve every workflow changelog row.
 - The fake adapter produces a clearly marked `[fake]` summary; it never falls back from failed Bedrock to fake.
 
@@ -32,4 +32,4 @@ Tests cover snapshot stability across UTC and Asia/Bangkok database sessions, Th
 
 All external adapters in tests are fake or guarded. No live Bedrock/LINE or AWS deployment was performed. Production frontend build is checked in an isolated temporary copy, keeping the developer server's build cache separate.
 
-Verified locally: backend **3,140 passed, 14 skipped** (solver timing harness), with `INTERNAL_JOB_SECRET` absent from the environment; frontend **372 passed**; TypeScript, Ruff check/format, mypy (192 app files), single Alembic head and `git diff --check` passed. The isolated production build passed. The live Demo database was not upgraded or reset.
+Verified locally: backend **3,140 passed, 14 skipped** (solver timing harness), with `INTERNAL_JOB_SECRET` absent from the environment; frontend **404 passed**; TypeScript, Ruff check/format, mypy (192 app files), single Alembic head and `git diff --check` passed. The isolated production build passed. The live Demo database was not upgraded or reset.

@@ -1,6 +1,11 @@
 import {
+  EXPLANATION_BLOCKED,
+  EXPLANATION_BUTTON,
+  EXPLANATION_FAILED,
   EXPLANATION_FAKE_NOTE,
   EXPLANATION_NOT_READY,
+  EXPLANATION_NOT_REQUESTED,
+  EXPLANATION_PENDING,
   EXPLANATION_SOURCE_NOTE,
   FIRST_WAVE_INFO,
   SCORE_TERM_INFO,
@@ -41,9 +46,54 @@ function ScoreTable({ staffId, score }: { staffId: number; score: CandidateScore
   );
 }
 
-/** The LLM sentence when READY, else the not-ready text. It never replaces the numbers below it. */
-function Explanation({ explanation }: { explanation: RankExplanation | null }) {
-  if (explanation?.status !== "READY") return <p>{EXPLANATION_NOT_READY}</p>;
+/** What the user asked for, if anything: set by CaseView around POST /cases/{id}/explanation. */
+export type ExplanationRequest = {
+  busy: boolean;
+  /** Why the last request was refused or failed; null otherwise */
+  message: string | null;
+  onRequest: () => void;
+};
+
+/** The status line of an explanation that is not READY. Never a failure reason. */
+function statusText(explanation: RankExplanation | null): string {
+  if (explanation === null) return EXPLANATION_NOT_READY;
+  if (explanation.status === "PENDING") return EXPLANATION_PENDING;
+  if (explanation.status === "UNAVAILABLE") return EXPLANATION_FAILED;
+  return EXPLANATION_NOT_REQUESTED;
+}
+
+/**
+ * The LLM sentence when READY. Otherwise the status and, when the plan can be explained, the
+ * button that asks for it (round 6 PR E2). The button follows can_request from the API and
+ * nothing else. It never replaces the numbers below it.
+ */
+function Explanation({ explanation, request }: { explanation: RankExplanation | null; request: ExplanationRequest }) {
+  if (explanation?.status !== "READY") {
+    const blocked = explanation?.request_blocked_reason;
+    const reason = blocked && blocked in EXPLANATION_BLOCKED
+      ? EXPLANATION_BLOCKED[blocked as keyof typeof EXPLANATION_BLOCKED]
+      : undefined;
+    return (
+      <>
+        <p>{statusText(explanation)}</p>
+        {explanation && explanation.status !== "PENDING" && (
+          <button
+            type="button"
+            className="mt-2 rounded border px-3 py-1 disabled:opacity-50"
+            disabled={!explanation.can_request || request.busy}
+            onClick={request.onRequest}
+          >
+            {EXPLANATION_BUTTON}
+          </button>
+        )}
+        {reason && !explanation?.can_request && <p className="mt-2 text-sm text-gray-600">{reason}</p>}
+        {/* The reason above is the case as read again after a refusal; saying it twice adds nothing */}
+        {request.message && !(reason && !explanation?.can_request) && (
+          <p className="mt-2 text-sm text-red-700" role="alert">{request.message}</p>
+        )}
+      </>
+    );
+  }
   return (
     <>
       <p style={{ whiteSpace: "pre-line" }}>{explanation.text}</p>
@@ -55,9 +105,10 @@ function Explanation({ explanation }: { explanation: RankExplanation | null }) {
 }
 
 /** Score of each candidate that has one, as the API sent it. Candidates without a score are left out. */
-export function ScoreBreakdown({ candidates, explanation, partialPlan }: {
+export function ScoreBreakdown({ candidates, explanation, partialPlan, request }: {
   candidates: CandidateView[];
   explanation: RankExplanation | null;
+  request: ExplanationRequest;
   /** true when no group could cover every target, so coverage chose the first wave */
   partialPlan: boolean;
 }) {
@@ -73,7 +124,7 @@ export function ScoreBreakdown({ candidates, explanation, partialPlan }: {
         {" "}Inside the first wave and inside the reserve, people are ordered by source, then hours this week, consecutive shifts, overtime and staff ID, so points may not follow rank.
       </p>
       <section aria-label="Ranking explanation" className="mt-2">
-        <Explanation explanation={explanation} />
+        <Explanation explanation={explanation} request={request} />
       </section>
       {scored.map(({ candidate, score }) => (
         <div key={candidate.candidate_item_id}>

@@ -1,4 +1,5 @@
-import { apiRequest } from "@/lib/api";
+import { ApiError, apiRequest } from "@/lib/api";
+import { EXPLANATION_BLOCKED, EXPLANATION_REFUSED, EXPLANATION_REQUEST_FAILED } from "@/lib/constants";
 import type { AuditEntry, CaseDetail, CaseSummaryView } from "@/lib/types/case";
 
 export type SkipRecord = { key: string; origin: string; staffId: number; reason: string };
@@ -35,10 +36,17 @@ function isScore(value: unknown): boolean {
 /** Statuses that carry no text (round 6 PR E1 added NOT_REQUESTED and QUOTA_EXHAUSTED). */
 const TEXTLESS_EXPLANATION_STATUSES: unknown[] = ["NOT_REQUESTED", "PENDING", "UNAVAILABLE", "QUOTA_EXHAUSTED"];
 
-/** null, or a known status; READY needs a non-empty text and a known provider. */
+const EXPLANATION_BLOCKS: unknown[] = [
+  "ALREADY_READY", "PENDING", "NOT_CONFIGURED", "INVALID_INPUT", "ATTEMPTS_EXHAUSTED", "QUOTA_EXHAUSTED",
+];
+
+/** null, or a known status with the request flag (round 6 PR E2); READY needs a non-empty text and a known provider. */
 function isExplanation(value: unknown): boolean {
   if (value === null) return true;
   if (!isRecord(value)) return false;
+  // can_request is the only thing that opens the button, so a missing flag is an unexpected response
+  if (typeof value.can_request !== "boolean") return false;
+  if (value.request_blocked_reason !== null && !EXPLANATION_BLOCKS.includes(value.request_blocked_reason)) return false;
   if (TEXTLESS_EXPLANATION_STATUSES.includes(value.status)) return true;
   return value.status === "READY" && typeof value.text === "string" && value.text !== ""
     && (value.provider === "fake" || value.provider === "bedrock");
@@ -59,6 +67,20 @@ export function isCaseSummary(value: unknown): value is CaseSummaryView | null {
     && (row.status === "READY" ? typeof row.text === "string" && row.text.length > 0 : row.text === null)
     && value.history.every((old) => isRecord(old) && Number.isSafeInteger(old.summary_id)
       && typeof old.text === "string" && old.text.length > 0 && typeof old.generated_at === "string");
+}
+
+/** What to tell the user when POST /cases/{id}/explanation is refused (docs/workflow.md 9.8). */
+export function explanationRequestMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    const detail = isRecord(error.body) && isRecord(error.body.detail) ? error.body.detail : undefined;
+    switch (detail?.code) {
+      case "LLM_QUOTA_EXHAUSTED": return EXPLANATION_BLOCKED.QUOTA_EXHAUSTED;
+      case "LLM_ATTEMPTS_EXHAUSTED": return EXPLANATION_BLOCKED.ATTEMPTS_EXHAUSTED;
+      case "LLM_UNAVAILABLE": return EXPLANATION_REFUSED;
+      case "CASE_NOT_FOUND": return "ไม่พบเคสนี้แล้ว";
+    }
+  }
+  return EXPLANATION_REQUEST_FAILED;
 }
 
 function isCaseDetail(value: unknown): value is CaseDetail {
