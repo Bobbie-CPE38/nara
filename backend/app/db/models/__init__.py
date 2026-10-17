@@ -53,7 +53,6 @@ from app.db.models.structured_handover import StructuredHandover
 from app.db.models.ward import Ward
 
 __all__ = [
-    "CaseSummary",
     "Actor",
     "ApprovalPolicy",
     "ApprovalRequest",
@@ -64,6 +63,7 @@ __all__ = [
     "CandidateItemTarget",
     "CandidateOutreach",
     "CandidatePlan",
+    "CaseSummary",
     "Contact",
     "HardConstraintPolicy",
     "LlmCallLog",

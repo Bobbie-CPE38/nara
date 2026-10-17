@@ -2,7 +2,7 @@
 
 import threading
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import Mock
 
 import pytest
@@ -12,7 +12,7 @@ from sqlalchemy import func, select, text
 from app.api.dependencies import get_db
 from app.core import clock
 from app.core.config import settings
-from app.db.models import AuditLog, CaseSummary, LlmCallLog, LlmDailyUsage, StaffingCase
+from app.db.models import AuditLog, CaseSummary, LlmCallLog, LlmDailyUsage, Shift, StaffingCase
 from app.db.session import SessionLocal
 from app.domain.enums import CaseStatus, ExplanationStatus, LlmCallStatus, LlmWorkType
 from app.integrations.llm import fake
@@ -146,6 +146,41 @@ def test_no_identity_or_free_text_in_payload(client, seeded, case, llm_on):
     assert "assessed_gap" in payload and "roster" in payload
 
 
+def test_bangkok_snapshot_is_stable_across_db_timezones_and_local_times_pass_validation(
+    client, seeded, case, llm_on, monkeypatch
+):
+    shift = seeded.get(Shift, case.shift_id)
+    shift.start_at = datetime.fromisoformat("2026-10-17T16:00:00+00:00")
+    shift.end_at = datetime.fromisoformat("2026-10-18T00:00:00+00:00")
+    seeded.commit()
+    seeded.execute(text("SET LOCAL TIME ZONE 'UTC'"))
+    seeded.expire_all()
+    utc_connection_payload = service.build_payload(seeded, case)
+    seeded.execute(text("SET LOCAL TIME ZONE 'Asia/Bangkok'"))
+    seeded.expire_all()
+    payload = service.build_payload(seeded, case)
+    assert payload == utc_connection_payload
+    assert payload["shift"]["start_at"] == "2026-10-17T23:00:00+07:00"
+    assert payload["shift"]["end_at"] == "2026-10-18T07:00:00+07:00"
+    for window in payload["roster"] + payload["assessed_gap"]["intervals"]:
+        assert window["start_at"].endswith("+07:00")
+        assert window["end_at"].endswith("+07:00")
+
+    original_generate = fake.generate
+    sentence = "เวรเริ่ม 23:00 ถึง 07:00 น. ตามเวลาประเทศไทย"
+
+    def provider(request):
+        assert "Asia/Bangkok (+07:00)" in request.system
+        return replace(original_generate(request), text=sentence)
+
+    monkeypatch.setattr(fake, "generate", provider)
+    assert ask(client, case).status_code == 200
+    assert service.run_pending(seeded) == 1
+    ready = current(client, case)
+    assert ready["status"] == "READY" and ready["text"] == sentence
+    assert seeded.scalars(select(LlmCallLog)).one().status == LlmCallStatus.SUCCEEDED
+
+
 @pytest.mark.parametrize(
     "setting, value, status, code",
     [
@@ -264,11 +299,12 @@ def test_http_job_schedules_summary_worker_after_response(client, case, llm_on, 
     from app.services.job_service import DueWork
 
     worker = Mock()
+    monkeypatch.setattr(settings, "internal_job_secret", "test-summary-job-secret")
     monkeypatch.setattr(job_service, "run_due_work", lambda db: DueWork(closed_windows=[]))
     monkeypatch.setattr(service, "run_pending_in_new_session", worker)
     response = client.post(
         "/internal/merge-windows/close-due",
-        headers={"X-Internal-Secret": settings.internal_job_secret or ""},
+        headers={"X-Internal-Secret": "test-summary-job-secret"},
     )
     assert response.status_code == 200
     worker.assert_called_once_with()

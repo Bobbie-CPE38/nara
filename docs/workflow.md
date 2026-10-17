@@ -1864,7 +1864,7 @@ Tests: `test_offer_outcome_notifications.py` (เหตุผล, ทางอ�
 * เก็บ `PENDING` ใน Transaction ของการขอ ประมวลผลภายหลัง ล้มแล้วเคสไม่ล้ม (ข้อ 6.25 แนวทางของรอบ 6) และบันทึกการเรียกใช้ `LLM_CALL_LOG` ที่ `work_type = CASE_SUMMARY`
 * Migration ของตารางสรุปเคสอยู่ใน PR S ส่วน schema ของ `LLM_CALL_LOG` อยู่ใน B1 (ข้างล่าง)
 
-**ที่ S ทำ:** `case_summary_service` สร้าง Snapshot จากสถานะเคส, เวร/จำนวนผู้ป่วย, Gap และช่วงเวลาที่บันทึกไว้ล่าสุด (ไม่ใช่ Gap คงเหลือ ณ เวลาปัจจุบัน), ผล Solver/จำนวนผู้สมัคร, จำนวน Offer แยกสถานะ, คำขอและผลอนุมัติแยกฝั่ง, ประเภท Event และช่วง Roster ที่ไม่ระบุตัวคน ไม่มี Staff ID/ชื่อบุคคล/LINE ID หรือข้อความอิสระ เวลาใน Snapshot แปลงเป็น UTC ก่อน Canonical JSON จึงไม่เปลี่ยนเพียงเพราะอ่านผ่าน Connection อื่นหรือเลื่อน Clock
+**ที่ S ทำ:** `case_summary_service` สร้าง Snapshot จากสถานะเคส, เวร/จำนวนผู้ป่วย, Gap และช่วงเวลาที่บันทึกไว้ล่าสุด (ไม่ใช่ Gap คงเหลือ ณ เวลาปัจจุบัน), ผล Solver/จำนวนผู้สมัคร, จำนวน Offer แยกสถานะ, คำขอและผลอนุมัติแยกฝั่ง, ประเภท Event และช่วง Roster ที่ไม่ระบุตัวคน ไม่มี Staff ID/ชื่อบุคคล/LINE ID หรือข้อความอิสระ เวลาใน Snapshot แปลงเป็น Asia/Bangkok (+07:00) ก่อน Canonical JSON และ Prompt กำหนดให้เขียนเวลาด้วย Timezone เดียวกัน จึงไม่เปลี่ยนเพียงเพราะอ่านผ่าน Connection อื่นหรือเลื่อน Clock
 
 * `CASE_SUMMARY` Unique (`case_id`, `input_hash`, `prompt_version`) ต่อจาก E1 ด้วย Migration `f9a1c3e5b7d2` Payload ไม่ถูกเขียนทับ Worker ใช้ Snapshot ที่ขอไว้ แม้เคสเปลี่ยนระหว่างรอ Model
 * `POST /cases/{id}/summary` ไม่มี Body/ไม่ต้องมี `X-Demo-User` เหมือนคำอธิบายอันดับ ล็อกเคสเพื่อให้คำขอพร้อมกันได้แถวเดียว ไม่แก้เคสหรือ Audit และไม่เรียก LLM ใน Request สถานะ/โควตา/Attempt/เหตุปฏิเสธใช้กติกา E1 รวมขอใหม่หลัง `CONFIG_ERROR` โดยไม่ล้าง Attempt

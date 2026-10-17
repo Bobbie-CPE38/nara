@@ -9,7 +9,7 @@ changes while the model runs. E1 owns the shared request error codes and lease p
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -59,6 +59,8 @@ SYSTEM_PROMPT = (
     "assessed_gap is the saved assessment, not the remaining shortage: do not subtract "
     "assigned people from it or infer coverage. Counts of stored offers include history. "
     "Describe the current workflow status, saved shortage and recorded response/approval progress. "
+    "All snapshot times are in Asia/Bangkok (+07:00). Write times in that same time zone; "
+    "do not convert them to UTC or another zone. "
     "Return plain text only, no more than 2000 characters."
 )
 _RETRY_REASONS = frozenset(
@@ -74,7 +76,7 @@ _RETRY_REASONS = frozenset(
 
 
 def _stamp(at: datetime) -> str:
-    return at.astimezone(UTC).isoformat()
+    return at.astimezone(clock.APP_TIMEZONE).isoformat()
 
 
 def build_payload(db: Session, case: StaffingCase) -> dict[str, Any]:

@@ -50,7 +50,7 @@ export type CandidateScore = { total: number; terms: ScoreTerm[]; first_wave: bo
 export type ExplanationBlock =
   | "ALREADY_READY" | "PENDING" | "NOT_CONFIGURED" | "INVALID_INPUT" | "ATTEMPTS_EXHAUSTED" | "QUOTA_EXHAUSTED";
 
-/** The LLM sentence about the plan's ranking, made only when a user asks (round 6 PR E1). Only READY carries text. The numbers stay the source of truth */
+/** Requested case summary for the current snapshot, with earlier successful summaries. */
 export type CaseSummaryView = {
   current: {
     summary_id: number | null;
@@ -64,6 +64,7 @@ export type CaseSummaryView = {
   history: { summary_id: number; text: string; generated_at: string }[];
 };
 
+/** The LLM sentence about the plan's ranking, made only when a user asks (round 6 PR E1). Only READY carries text. The numbers stay the source of truth */
 export type RankExplanation = {
   status: "NOT_REQUESTED" | "PENDING" | "READY" | "UNAVAILABLE" | "QUOTA_EXHAUSTED";
   /** Only when READY */
