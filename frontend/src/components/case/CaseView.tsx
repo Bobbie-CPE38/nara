@@ -1,15 +1,15 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
-import { ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
+import { type ExplanationRequest, ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
 import { SkippedTable } from "@/components/candidate/SkippedTable";
 import { GapTable } from "@/components/case/GapTable";
 import { HandoverList } from "@/components/handover/HandoverList";
 import { usePolling } from "@/hooks/usePolling";
-import { ApiError } from "@/lib/api";
-import { type CaseSnapshot, collectSkips, isCaseId, loadCase } from "@/lib/cases";
+import { ApiError, apiRequest } from "@/lib/api";
+import { type CaseSnapshot, collectSkips, explanationRequestMessage, isCaseId, loadCase } from "@/lib/cases";
 import {
   CASE_STATUS_INFO,
   POLL_INTERVAL_MS,
@@ -50,7 +50,7 @@ function describe(error: Error) {
     : error.message;
 }
 
-function CaseSections({ detail, audit }: CaseSnapshot) {
+function CaseSections({ detail, audit, request }: CaseSnapshot & { request: ExplanationRequest }) {
   const info = CASE_STATUS_INFO.get(detail.status);
   const skips = collectSkips(audit);
   // FAILED is a normal answer. Its reason is only in the audit, and only as an error type.
@@ -102,7 +102,7 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
           candidates={detail.candidates}
           stopped={isFinal({ detail, audit }) || detail.status === "MANUAL_HANDOFF"}
         />
-        <ScoreBreakdown candidates={detail.candidates} explanation={detail.explanation} partialPlan={detail.partial_plan} />
+        <ScoreBreakdown candidates={detail.candidates} explanation={detail.explanation} partialPlan={detail.partial_plan} request={request} />
         {skips.length > 0 && (
           <>
             <h3 className="mt-4 font-semibold">Skipped</h3>
@@ -125,12 +125,34 @@ function CaseSections({ detail, audit }: CaseSnapshot) {
 export function CaseView({ caseId }: { caseId: string }) {
   const valid = isCaseId(caseId);
   const load = useCallback((signal: AbortSignal) => loadCase(caseId, signal), [caseId]);
-  const { data, error, isLoading } = usePolling(load, {
+  const { data, error, isLoading, refresh } = usePolling(load, {
     intervalMs: POLL_INTERVAL_MS,
     enabled: valid,
     stopOnData: isDone,
     stopOnError: isGone,
   });
+  const [requesting, setRequesting] = useState(false);
+  const [requestMessage, setRequestMessage] = useState<string | null>(null);
+  // A ref as well: two clicks before the next render must make one request
+  const requestingRef = useRef(false);
+  // Asks for the AI explanation of the latest plan (docs/workflow.md 9.8). The Job writes the
+  // sentence later, so the answer is read again and polling goes on while it is PENDING.
+  // Every refusal is read again too: can_request tells the truth about what is allowed now.
+  const requestExplanation = useCallback(async () => {
+    if (requestingRef.current) return;
+    requestingRef.current = true;
+    setRequesting(true);
+    setRequestMessage(null);
+    try {
+      await apiRequest(`/cases/${caseId}/explanation`, { method: "POST" });
+    } catch (cause) {
+      setRequestMessage(explanationRequestMessage(cause));
+    } finally {
+      requestingRef.current = false;
+      setRequesting(false);
+    }
+    await refresh();
+  }, [caseId, refresh]);
   const httpStatus = error instanceof ApiError ? error.status : undefined;
 
   let body;
@@ -151,7 +173,7 @@ export function CaseView({ caseId }: { caseId: string }) {
             Last update failed: {describe(error)} Showing the last known data. Retrying…
           </p>
         )}
-        <CaseSections detail={data.detail} audit={data.audit} />
+        <CaseSections detail={data.detail} audit={data.audit} request={{ busy: requesting, message: requestMessage, onRequest: requestExplanation }} />
       </>
     );
   }

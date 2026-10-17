@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../src/lib/api";
-import { collectSkips, isCaseId, loadCase } from "../../../src/lib/cases";
+import { collectSkips, explanationRequestMessage, isCaseId, loadCase } from "../../../src/lib/cases";
 import type { CaseDetail } from "../../../src/lib/types/case";
 import { auditEntry, caseDetail, waitingResponseAudit } from "../../fixtures/case";
 
@@ -102,10 +102,14 @@ describe("loadCase", () => {
     ["a score term without points", withScore({ total: 1005, first_wave: true, terms: [{ name: "t", value: 1, weight: 1 }] }), []],
     ["a candidate with a string score total", withScore({ total: "1005", first_wave: true, terms: [] }), []],
     ["a missing explanation key", { ...caseDetail(), explanation: undefined }, []],
-    ["an explanation with an unknown status", { ...caseDetail(), explanation: { status: "DONE", text: null, provider: null, model_id: null } }, []],
-    ["a READY explanation without text", { ...caseDetail(), explanation: { status: "READY", text: null, provider: "fake", model_id: null } }, []],
-    ["a READY explanation with an empty text", { ...caseDetail(), explanation: { status: "READY", text: "", provider: "fake", model_id: null } }, []],
-    ["a READY explanation with an unknown provider", { ...caseDetail(), explanation: { status: "READY", text: "x", provider: "other", model_id: null } }, []],
+    ["an explanation with an unknown status", { ...caseDetail(), explanation: { status: "DONE", text: null, provider: null, model_id: null, can_request: false, request_blocked_reason: null } }, []],
+    ["a READY explanation without text", { ...caseDetail(), explanation: { status: "READY", text: null, provider: "fake", model_id: null, can_request: false, request_blocked_reason: null } }, []],
+    ["a READY explanation with an empty text", { ...caseDetail(), explanation: { status: "READY", text: "", provider: "fake", model_id: null, can_request: false, request_blocked_reason: null } }, []],
+    ["a READY explanation with an unknown provider", { ...caseDetail(), explanation: { status: "READY", text: "x", provider: "other", model_id: null, can_request: false, request_blocked_reason: null } }, []],
+    ["an explanation without can_request", { ...caseDetail(), explanation: { status: "NOT_REQUESTED", text: null, provider: null, model_id: null, request_blocked_reason: null } }, []],
+    ["an explanation with a string can_request", { ...caseDetail(), explanation: { status: "NOT_REQUESTED", text: null, provider: null, model_id: null, can_request: "true", request_blocked_reason: null } }, []],
+    ["an explanation without request_blocked_reason", { ...caseDetail(), explanation: { status: "NOT_REQUESTED", text: null, provider: null, model_id: null, can_request: true } }, []],
+    ["an explanation with an unknown blocked reason", { ...caseDetail(), explanation: { status: "NOT_REQUESTED", text: null, provider: null, model_id: null, can_request: false, request_blocked_reason: "TOMORROW" } }, []],
     ["a string explanation", { ...caseDetail(), explanation: "READY" }, []],
     ["a wrapped audit list", caseDetail(), { items: [] }],
     ["a null audit row", caseDetail(), [null]],
@@ -135,12 +139,12 @@ describe("loadCase", () => {
 
   it.each([
     ["null", null],
-    ["PENDING", { status: "PENDING", text: null, provider: null, model_id: null }],
-    ["UNAVAILABLE", { status: "UNAVAILABLE", text: null, provider: null, model_id: null }],
+    ["PENDING", { status: "PENDING", text: null, provider: null, model_id: null, can_request: false, request_blocked_reason: "PENDING" }],
+    ["UNAVAILABLE", { status: "UNAVAILABLE", text: null, provider: null, model_id: null, can_request: true, request_blocked_reason: null }],
     ["NOT_REQUESTED (PR E1)", { status: "NOT_REQUESTED", text: null, provider: null, model_id: null, can_request: true, request_blocked_reason: null }],
     ["QUOTA_EXHAUSTED (PR E1)", { status: "QUOTA_EXHAUSTED", text: null, provider: null, model_id: null, can_request: false, request_blocked_reason: "QUOTA_EXHAUSTED" }],
-    ["READY from fake", { status: "READY", text: "[fake] x", provider: "fake", model_id: null }],
-    ["READY from bedrock", { status: "READY", text: "x", provider: "bedrock", model_id: "m-1" }],
+    ["READY from fake", { status: "READY", text: "[fake] x", provider: "fake", model_id: null, can_request: false, request_blocked_reason: "ALREADY_READY" }],
+    ["READY from bedrock", { status: "READY", text: "x", provider: "bedrock", model_id: "m-1", can_request: false, request_blocked_reason: "ALREADY_READY" }],
   ])("accepts an explanation that is %s", async (_name, explanation) => {
     const detail = caseDetail({ explanation } as Partial<CaseDetail>);
     vi.stubGlobal("fetch", vi.fn(async (url: string) => json(url.endsWith("/audit") ? [] : detail)));
@@ -194,5 +198,29 @@ describe("collectSkips", () => {
 
   it("returns nothing for an empty audit", () => {
     expect(collectSkips([])).toEqual([]);
+  });
+});
+
+describe("explanationRequestMessage", () => {
+  const refused = (status: number, code: string) =>
+    new ApiError(status, { detail: { code, message: "words from the server" } });
+
+  it.each([
+    [429, "LLM_QUOTA_EXHAUSTED", "ใช้โควตาคำอธิบายจาก AI ครบแล้วในวันนี้"],
+    [409, "LLM_ATTEMPTS_EXHAUSTED", "ขอคำอธิบายจาก AI ของแผนนี้ครบจำนวนครั้งที่กำหนดแล้ว"],
+    [409, "LLM_UNAVAILABLE", "ยังไม่เปิดใช้คำอธิบายจาก AI"],
+    [404, "CASE_NOT_FOUND", "ไม่พบเคสนี้แล้ว"],
+  ])("explains %s %s in its own words", (status, code, start) => {
+    const message = explanationRequestMessage(refused(status, code));
+    expect(message.startsWith(start)).toBe(true);
+    expect(message).not.toContain("words from the server");
+  });
+
+  it.each([
+    ["an unknown code", refused(500, "SOMETHING")],
+    ["an error without a body", new ApiError(502, undefined)],
+    ["a network error", new TypeError("Failed to fetch")],
+  ])("uses the general text for %s", (_name, error) => {
+    expect(explanationRequestMessage(error)).toBe("ส่งคำขอไม่สำเร็จ กรุณาลองใหม่");
   });
 });
