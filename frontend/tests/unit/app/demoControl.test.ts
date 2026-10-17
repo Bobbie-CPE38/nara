@@ -5,6 +5,7 @@ import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClockProvider } from "../../../src/components/ClockProvider";
 import { DemoClock } from "../../../src/components/DemoClock";
+import { LanguageSwitch } from "../../../src/components/layout/LanguageSwitch";
 import { LanguageProvider } from "../../../src/lib/i18n/LanguageProvider";
 import DemoControl from "../../../src/app/demo/control/page";
 
@@ -679,5 +680,28 @@ describe("demo control clock reads", () => {
     render(createElement(LanguageProvider, { initial: "en", children: createElement(DemoControl) }));
     fireEvent.click(screen.getByRole("button", { name: "Reset demo" }));
     expect(await screen.findByText(/API request failed \(500\)/)).toBeTruthy();
+  });
+});
+
+describe("demo control language switch", () => {
+  it("changes an error that stays on the screen from Thai to English without a remount", async () => {
+    vi.stubGlobal("fetch", async (url: string) =>
+      /\/clock$/.test(url)
+        ? new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }))
+        : new Response("{}", { status: 500 }),
+    );
+    render(
+      createElement(LanguageProvider, {
+        initial: "th",
+        children: [createElement(LanguageSwitch, { key: "switch" }), createElement(DemoControl, { key: "page" })],
+      }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "รีเซ็ต Demo" }));
+    expect(await screen.findByText(/คำขอไปยัง API ไม่สำเร็จ \(500\)/)).toBeTruthy();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "EN" })); });
+
+    expect(screen.getByText(/Reset demo: API request failed \(500\)/)).toBeTruthy();
+    expect(screen.queryByText(/คำขอไปยัง API ไม่สำเร็จ/)).toBeNull();
   });
 });
