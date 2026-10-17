@@ -101,21 +101,31 @@ def prepare_audit(db: Session, audit: AuditLog) -> None:
     elif action == AuditAction.WORKFLOW_FAILED and audit.case_id is not None:
         # The D11 savepoint has rolled back execution. Previously committed
         # assignments survive; eligible() suppresses their failure notification.
-        offers = db.scalars(
-            select(CandidateOutreach).where(
-                CandidateOutreach.case_id == audit.case_id,
-                CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
-            )
-        )
-        for offer in offers:
-            approved = db.scalar(
-                select(ApprovalRequest.id).where(
-                    ApprovalRequest.outreach_id == offer.id,
-                    ApprovalRequest.is_approved.is_(True),
-                    ApprovalRequest.is_pending.is_(False),
+        offers = list(
+            db.scalars(
+                select(CandidateOutreach).where(
+                    CandidateOutreach.case_id == audit.case_id,
+                    CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
                 )
             )
-            targets[offer.id] = "EXECUTION_FAILED" if approved is not None else "CANCELLED"
+        )
+        approved_offer_ids = (
+            set(
+                db.scalars(
+                    select(ApprovalRequest.outreach_id).where(
+                        ApprovalRequest.outreach_id.in_([offer.id for offer in offers]),
+                        ApprovalRequest.is_approved.is_(True),
+                        ApprovalRequest.is_pending.is_(False),
+                    )
+                )
+            )
+            if offers
+            else set()
+        )
+        for offer in offers:
+            targets[offer.id] = (
+                "EXECUTION_FAILED" if offer.id in approved_offer_ids else "CANCELLED"
+            )
     for oid, reason in targets.items():
         _prepare(db, audit, oid, reason)
 

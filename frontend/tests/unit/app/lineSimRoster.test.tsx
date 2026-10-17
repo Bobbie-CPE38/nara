@@ -230,11 +230,13 @@ describe("LINE simulator", () => {
       can_accept: false,
       can_reject: false,
       final_outcome: "CANCELLED",
+      cancellation_reason: "NO_LONGER_NEEDED",
       final_message: message,
       final_delivery_status: "FAILED",
     }]);
     render(<LineSimulatorPage />);
     expect(await screen.findByText(message)).toBeTruthy();
+    expect(screen.queryByText("Cancelled: NO_LONGER_NEEDED")).toBeNull();
     expect(screen.getByText(/The LINE notification could not be delivered/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Accept offer 1" }) as HTMLButtonElement).disabled).toBe(true);
   });

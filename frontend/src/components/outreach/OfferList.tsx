@@ -292,7 +292,7 @@ export function OfferList({
                           acceptance. You may still reject this offer.
                         </p>
                       )}
-                      {offer.cancellation_reason && (
+                      {offer.cancellation_reason && !offer.final_message && (
                         <p>Cancelled: {offer.cancellation_reason}</p>
                       )}
                       {!offer.is_assigned && offer.final_message && (
