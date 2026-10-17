@@ -779,6 +779,37 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ไม่เก็บ Prompt หรือข้อความตอบ
 
+**[รอบ 6 · PR B1] ที่จะเปลี่ยน (ข้อ 6.27 ของ `workflow.md` ยังไม่มี Migration):** `explanation_id`, `case_id` และ `plan_id` จะเป็น NULL ได้ เพิ่ม `work_type` (`LlmWorkType`: `RANK_EXPLANATION`, `CASE_SUMMARY`, `MODEL_TRIAL` แถวเดิมทั้งหมดเป็น `RANK_EXPLANATION`), `subject_id` (รหัสแถวสรุปเคส ไม่มี FK), `trial_run_id` และ `trial_case_key` พร้อม CHECK ตามชนิด และ Unique บางส่วนของแต่ละชนิดนอกเหนือ UNIQUE (`explanation_id`, `attempt`) เดิม รูปแน่นอน B1 ยืนยันใน PR ของตัวเอง
+
+### 36. LLM_DAILY_USAGE (รอบ 6 PR B1 ยังไม่มี Migration)
+
+ตัวนับคำขอ LLM ต่อวัน ข้อ 6.27 ของ `workflow.md`
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `usage_date` | date | NOT NULL | วันตามเวลา Asia/Bangkok (`LLM_QUOTA_TIMEZONE`) |
+| `scope` | text | NOT NULL | `LlmQuotaScope`: `DEMO` หรือ `TRIAL` |
+| `trial_run_id` | text | NOT NULL | ค่าว่างเมื่อ `scope = DEMO`; รหัสชุดทดลองเมื่อ `TRIAL` |
+| `used` | integer | NOT NULL | จำนวน Attempt ที่เรียก Bedrock จริงรวม Retry |
+
+PK (`usage_date`, `scope`, `trial_run_id`) จองด้วยคำสั่งเดียวแบบ `INSERT ... ON CONFLICT DO UPDATE SET used = used + 1 WHERE used < :cap RETURNING used` ชื่อและคอลัมน์ที่แน่นอน B1 ยืนยันใน PR ของตัวเอง
+
+### 37. LLM_CASE_SUMMARY (รอบ 6 PR S ยังไม่มี Migration)
+
+สรุปสถานการณ์ของเคสที่ผู้ใช้กดขอ ผูกกับ Snapshot ของข้อมูล ข้อ 6.27 ของ `workflow.md`
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `case_id` | bigint | NOT NULL | FK STAFFING_CASES |
+| `input_hash` | text | NOT NULL | SHA-256 ของ Payload แบบ Canonical = Snapshot |
+| `prompt_version` | text | NOT NULL | |
+| `status` | text | NOT NULL | `ExplanationStatus` |
+| `text` | text | NULL | ตั้งเมื่อ `READY` เท่านั้น |
+| `created_at`, `updated_at` | timestamptz | NOT NULL | Backend Clock |
+
+UNIQUE (`case_id`, `input_hash`, `prompt_version`) ข้อมูลเปลี่ยน = `input_hash` ใหม่ = แถวใหม่ แถวเก่าอยู่เป็นประวัติ ชื่อและคอลัมน์ที่แน่นอน S ยืนยันใน PR ของตัวเอง
+
 ## Enum
 
 
@@ -814,6 +845,8 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `ActorName` | ACTORS.name (ที่ไม่ใช่ user) | `system`, `workflow_orchestrator`, `staffing_gap_assessment_agent`, `constraint_fair_scheduling_agent`, `outreach_agent`, `safety_rule_engine` |
 | `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS`, `ATTENDANCE` |
 | `ExplanationStatus` | RANK_EXPLANATION.status (รอบ 3 PR X) | `PENDING`, `READY`, `FAILED`, `SKIPPED` |
+| `LlmWorkType` | LLM_CALL_LOG.work_type (รอบ 6 PR B1) | `RANK_EXPLANATION`, `CASE_SUMMARY`, `MODEL_TRIAL` |
+| `LlmQuotaScope` | LLM_DAILY_USAGE.scope (รอบ 6 PR B1) | `DEMO`, `TRIAL` |
 | `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
 | `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `ATTENDANCE_CHECKED_IN`, `OFFER_CANCELLED_NOT_NEEDED` **[รอบ 5 · PR N2]**, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
 | `CheckInSource` | AUDIT_LOG.payload.source ของ `ATTENDANCE_CHECKED_IN` | `SELF`, `SIMULATED` |
