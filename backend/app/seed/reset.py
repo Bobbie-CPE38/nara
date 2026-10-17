@@ -6,15 +6,22 @@ The LLM ledger survives a reset (round 6 PR B1): the daily and trial quota count
 every LLM_CALL_LOG row with its cost. Otherwise a reset would renew the paid allowance
 of the same real day and erase what was spent. The rebuild is one transaction, so a
 failed reset leaves the old database as it was.
+
+The ledger tables are locked exclusively before they are copied and until the commit, so
+a gateway write is either in the copy or waits and then lands in the rebuilt tables: none
+is lost. A write that holds another table's lock while it waits can deadlock with the
+DROP; PostgreSQL ends one side, and the reset starts over (a few times).
 """
 
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
+import psycopg
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import Connection, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -24,8 +31,11 @@ from app.seed import load
 
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 _reset_lock = Lock()
+_DEADLOCK_RETRIES = 3
 
-# Kept across a reset. A table missing before the reset (an older schema) is skipped
+# Kept across a reset. A table missing before the reset (an older schema) is skipped.
+# The order is the order the gateway takes its locks (counter, then log), so the reset's
+# LOCK TABLE cannot deadlock with a gateway write on these three
 LLM_LEDGER_TABLES = ("llm_daily_usage", "llm_trial_usage", "llm_call_log")
 # References to demo rows that the reset deletes. The ids restart after a reset, so the
 # kept log rows lose them and record when instead (detached_at). A model trial refers to
@@ -43,7 +53,14 @@ def reset_demo() -> datetime:
     # Schema changes, Alembic's in-process context, and the demo clock must not overlap.
     # A context manager releases the lock even if migration or seeding raises.
     with _reset_lock:
-        return _reset_demo()
+        for attempt in range(_DEADLOCK_RETRIES + 1):
+            try:
+                return _reset_demo()
+            except OperationalError as error:
+                deadlock = isinstance(error.orig, psycopg.errors.DeadlockDetected)
+                if not deadlock or attempt == _DEADLOCK_RETRIES:
+                    raise
+    raise AssertionError("unreachable")
 
 
 def _reset_demo() -> datetime:
@@ -79,15 +96,21 @@ def _held(table: str) -> str:
 
 
 def _hold_llm_ledger(connection: Connection) -> list[str]:
-    """Copy the ledger into temporary tables, which DROP SCHEMA public does not reach."""
-    held = []
-    for table in LLM_LEDGER_TABLES:
-        if connection.scalar(text("SELECT to_regclass(:name)"), {"name": f"public.{table}"}):
-            connection.execute(
-                text(f"CREATE TEMPORARY TABLE {_held(table)} ON COMMIT DROP AS TABLE {table}")
-            )
-            held.append(table)
-    return held
+    """Lock the ledger, then copy it into temporary tables, which DROP SCHEMA public does
+    not reach. The lock lasts until the transaction ends."""
+    existing = [
+        table
+        for table in LLM_LEDGER_TABLES
+        if connection.scalar(text("SELECT to_regclass(:name)"), {"name": f"public.{table}"})
+    ]
+    if existing:
+        # Waits for gateway transactions in progress, so their writes are in the copy
+        connection.execute(text(f"LOCK TABLE {', '.join(existing)} IN ACCESS EXCLUSIVE MODE"))
+    for table in existing:
+        connection.execute(
+            text(f"CREATE TEMPORARY TABLE {_held(table)} ON COMMIT DROP AS TABLE {table}")
+        )
+    return existing
 
 
 def _columns(connection: Connection, relation: str) -> list[str]:
@@ -105,16 +128,16 @@ def _columns(connection: Connection, relation: str) -> list[str]:
 def _restore_llm_ledger(connection: Connection, held: list[str], reset_at: datetime) -> None:
     for table in held:
         kept = set(_columns(connection, _held(table)))
-        columns = [c for c in _columns(connection, f"public.{table}") if c in kept]
-        values = [_restored_value(table, column) for column in columns]
+        current = _columns(connection, f"public.{table}")
+        if table == "llm_call_log":
+            _restore_call_log(connection, kept, current, reset_at)
+            continue
+        columns = [c for c in current if c in kept]
         connection.execute(
             text(
                 f"INSERT INTO {table} ({', '.join(columns)}) "
-                f"SELECT {', '.join(values)} FROM {_held(table)}"
-            ),
-            {"trial": LlmWorkType.MODEL_TRIAL.value, "reset_at": reset_at}
-            if table == "llm_call_log"
-            else {},
+                f"SELECT {', '.join(columns)} FROM {_held(table)}"
+            )
         )
     if "llm_call_log" in held:
         # The ids are kept, so an attempt in flight during the reset still finds its row
@@ -126,11 +149,33 @@ def _restore_llm_ledger(connection: Connection, held: list[str], reset_at: datet
         )
 
 
-def _restored_value(table: str, column: str) -> str:
-    if table != "llm_call_log":
-        return column
-    if column in _DEMO_REFERENCES:
-        return f"CASE WHEN work_type = :trial THEN {column} END"
-    if column == "detached_at":
-        return "CASE WHEN work_type = :trial THEN NULL ELSE coalesce(detached_at, :reset_at) END"
-    return column
+def _restore_call_log(
+    connection: Connection, kept: set[str], current: list[str], reset_at: datetime
+) -> None:
+    """Put the held log rows into the current shape. A log from before PR B1 has no
+    work_type, so every row of it is a ranking explanation."""
+    # A trial refers to no demo row and keeps everything; every other row is detached
+    is_trial = "work_type = :trial" if "work_type" in kept else "false"
+    values: dict[str, str] = {}
+    for column in current:
+        if column == "work_type":
+            values[column] = "work_type" if column in kept else ":rank"
+        elif column == "detached_at":
+            old = "detached_at" if column in kept else "NULL"
+            values[column] = f"CASE WHEN {is_trial} THEN NULL ELSE coalesce({old}, :reset_at) END"
+        elif column in _DEMO_REFERENCES:
+            if column in kept:
+                values[column] = f"CASE WHEN {is_trial} THEN {column} END"
+        elif column in kept:
+            values[column] = column
+    connection.execute(
+        text(
+            f"INSERT INTO llm_call_log ({', '.join(values)}) "
+            f"SELECT {', '.join(values.values())} FROM {_held('llm_call_log')}"
+        ),
+        {
+            "trial": LlmWorkType.MODEL_TRIAL.value,
+            "rank": LlmWorkType.RANK_EXPLANATION.value,
+            "reset_at": reset_at,
+        },
+    )
