@@ -86,12 +86,19 @@ class AwsGate(unittest.TestCase):
         subprocess.run(["docker", "network", "rm", cls.network], capture_output=True)
 
     def seen(self, name):
+        """Every request the upstream has logged so far, in the order they came."""
         logs = subprocess.run(
             ["docker", "logs", self.names[name]], capture_output=True, text=True
         ).stdout
-        return sorted(line.strip() for line in logs.splitlines() if line.startswith(name + " "))
+        return [line.strip() for line in logs.splitlines() if line.startswith(name + " ")]
+
+    def new_requests(self, name, before):
+        """Only the requests that arrived after `before`, so a test does not depend on
+        what the other tests already sent through the shared containers."""
+        return sorted(self.seen(name)[len(before):])
 
     def test_check_gate_script_passes_and_only_allowed_requests_reach_the_upstreams(self):
+        before = {name: self.seen(name) for name in ("backend", "frontend")}
         result = subprocess.run(
             ["bash", "check-gate.sh", self.base, USER, PASSWORD],
             cwd=ROOT,
@@ -102,11 +109,13 @@ class AwsGate(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("All checks passed", result.stdout)
         # A path that got past the gate by mistake would show up here
-        self.assertEqual(self.seen("backend"), EXPECTED_BACKEND)
-        self.assertEqual(self.seen("frontend"), EXPECTED_FRONTEND)
+        self.assertEqual(self.new_requests("backend", before["backend"]), EXPECTED_BACKEND)
+        self.assertEqual(self.new_requests("frontend", before["frontend"]), EXPECTED_FRONTEND)
 
-    def test_the_script_fails_when_the_gate_has_a_hole(self):
-        # Wrong password for the script: the "with the login" checks must fail
+    def test_the_script_fails_with_a_wrong_password(self):
+        # Shows that the script can fail at all: with a wrong password the "with the
+        # login" checks must fail. That the script catches a hole in the Caddyfile is
+        # shown by putting the old `path` matcher back (docs/deploy-aws.md)
         result = subprocess.run(
             ["bash", "check-gate.sh", self.base, USER, "not-the-password"],
             cwd=ROOT,

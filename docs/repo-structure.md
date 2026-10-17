@@ -34,6 +34,7 @@ nara/
 │       ├── iam-parameter-read-policy.json
 │       ├── check-gate.sh       # ลองด่านจากภายนอก
 │       ├── test_gate.py        # รัน Caddyfile จริงกับ Upstream ปลอมบน Docker (CI)
+│       ├── test_region.py      # Region ของ Parameter Store กับ Bedrock ไม่ปนกัน (CI)
 │       └── fake_upstream.py    # Upstream ปลอมของ test_gate.py
 │
 ├── scripts/

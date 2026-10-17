@@ -7,13 +7,23 @@
 # Values are single-quoted, so compose takes them as written: a "$" in the
 # Basic Auth hash is not read as a variable.
 #
-# Settings (environment): AWS_REGION (required), NARA_PARAMETER_PATH
-# (default /nara/test), NARA_ENV_FILE (default /etc/nara/nara.env).
+# Settings (environment): NARA_PARAMETER_REGION (required: the Region of Parameter Store),
+# NARA_PARAMETER_PATH (default /nara/test), NARA_ENV_FILE (default /etc/nara/nara.env).
+# AWS_REGION is not read here. It is the Region the app calls Bedrock in and comes from
+# the Parameter of that name. Compose takes a variable of the process environment over
+# --env-file, so one name for both would replace the Bedrock Region silently.
 # Credentials come from the instance's IAM Role.
 
 set -euo pipefail
 
-region="${AWS_REGION:?Set AWS_REGION, e.g. in /etc/nara/aws.conf}"
+region="${NARA_PARAMETER_REGION:-}"
+if [ -z "$region" ]; then
+  if [ -n "${AWS_REGION:-}" ]; then
+    echo "AWS_REGION is the Bedrock Region of the app. Name the Parameter Store Region NARA_PARAMETER_REGION in /etc/nara/aws.conf." >&2
+  fi
+  echo "Set NARA_PARAMETER_REGION, e.g. in /etc/nara/aws.conf" >&2
+  exit 1
+fi
 parameter_path="${NARA_PARAMETER_PATH:-/nara/test}"
 env_file="${NARA_ENV_FILE:-/etc/nara/nara.env}"
 required=(SITE_DOMAIN ACME_EMAIL BASIC_AUTH_USER BASIC_AUTH_HASH POSTGRES_PASSWORD INTERNAL_JOB_SECRET)

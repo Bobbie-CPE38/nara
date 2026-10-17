@@ -57,7 +57,7 @@
 * หกค่าแรกต้องมี ถ้าขาด `load-env.sh` หยุดและ Stack ไม่เริ่ม
 * ค่าห้ามมี `'` หรือขึ้นบรรทัดใหม่ เพราะไฟล์ env เก็บค่าในเครื่องหมาย `'` ซึ่งทำให้ `$` ใน Hash ไม่ถูกอ่านเป็นตัวแปร
 * ตัวแปรใหม่ต้องมีทั้ง Parameter และชื่อในส่วน `environment` ของ Service ใน `docker-compose.yml` เพราะไฟล์ env ใช้แทนค่าใน compose เท่านั้น ไม่ได้ส่งเข้า Container เอง ตัวแปร `LLM_*` กับ `AWS_REGION` มีใน `docker-compose.yml` แล้ว
-* **`AWS_REGION` มีสองความหมาย:** `/etc/nara/aws.conf` (ไฟล์ของ systemd) เก็บ Region ที่ `load-env.sh` ใช้อ่าน Parameter Store ส่วน Parameter `AWS_REGION` ที่ลงในไฟล์ env คือ Region ที่แอปเรียก Bedrock สองค่านี้ต่างกันได้
+* **สอง Region แยกกันด้วยสองชื่อ (รีวิว PR #107):** `NARA_PARAMETER_REGION` ใน `/etc/nara/aws.conf` (ไฟล์ของ systemd) คือ Region ที่ `load-env.sh` อ่าน Parameter Store ส่วน `AWS_REGION` ที่เป็น Parameter ลงในไฟล์ env คือ Region ที่แอปเรียก Bedrock สองค่านี้ต่างกันได้ **อย่าใส่ `AWS_REGION` ใน `aws.conf`** เพราะ systemd ส่งทุกอย่างในไฟล์นั้นเข้า `docker compose` และ Compose เลือกตัวแปรของ Process ก่อน `--env-file` ทำให้ Region ของ Parameter Store ทับ Region ของ Bedrock เงียบๆ (และผลจะขึ้นกับว่าใครรัน `up` ล่าสุด เพราะ `dc` ที่รันด้วย `sudo` ไม่ส่ง Environment ต่อ) จึงมีสามชั้น: `load-env.sh` ไม่อ่าน `AWS_REGION` และปฏิเสธพร้อมบอกให้เปลี่ยนชื่อถ้าเจอชื่อเก่า, `nara.service` เรียก `docker compose` ผ่าน `env -u AWS_REGION` และ `deploy/aws/test_region.py` (ใน CI) ตรวจด้วยค่าสองค่าที่ต่างกัน
 * **`LLM_ENABLED` ถูกตรึงเป็น `false`** ใน `docker-compose.aws.yml` จนกว่า PR E1 merge (ข้อ 6.27) แม้ใส่ Parameter `LLM_ENABLED=true` ก็ไม่มีผล PR E1 ลบบรรทัดนี้ ชุดทดลองเลือกโมเดล (B2) ไม่ต้องใช้ค่านี้
 * เปลี่ยนค่าแล้วให้ `sudo systemctl restart nara` ค่าใหม่ถูกอ่านทุกครั้งที่เริ่ม
 
@@ -85,7 +85,7 @@
    ```bash
    sudo git clone --branch staging https://github.com/Bobbie-CPE38/nara.git /opt/nara
    sudo mkdir -p /etc/nara
-   echo 'AWS_REGION=<region ของเครื่อง>' | sudo tee /etc/nara/aws.conf
+   echo 'NARA_PARAMETER_REGION=<region ของ Parameter Store>' | sudo tee /etc/nara/aws.conf
    sudo cp /opt/nara/deploy/aws/nara.service /etc/systemd/system/nara.service
    sudo systemctl daemon-reload
    sudo systemctl enable --now nara
@@ -112,7 +112,7 @@ dc exec -T backend python -m app.seed    # ลบ Schema, Migrate ถึง head
 
 1. Container ของ Frontend รัน production mode จริง: `dc ps` แล้ว `sudo docker inspect nara-staffing-frontend --format '{{.Config.Cmd}}'` ต้องไม่มี `npm run dev` (ข้อนี้ไม่ผ่านจนกว่า F3 merge)
 2. `bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password>` ผ่านทุกข้อจากเครื่องของตัวเอง ไม่ใช่จากตัวเครื่อง
-3. เปิด `/`, `/gap`, หน้าเคส และ `/demo/control` ผ่าน Caddy ด้วยรหัส เรียก API ผ่าน `/api` ได้ ไม่มี Error ใน Console และ Bundle ที่เครื่องส่งให้ไม่มี `localhost:8000` (`/gap` มีเมื่อ F2 merge)
+3. เปิด `/`, `/gap`, หน้าเคส และ `/demo/control` ผ่าน Caddy ด้วยรหัส เรียก API ผ่าน `/api` ได้ ไม่มี Error ใน Console และ Bundle ที่เครื่องส่งให้ไม่มี `localhost:8000` (`/gap` มีเมื่อ F2 merge) และดูว่าเบราว์เซอร์ไม่ถามรหัสซ้ำ: Backend ตอบ `401` ด้วย Header `WWW-Authenticate: X-Demo-User` (`app/api/dependencies.py`) ซึ่งเป็นคนละ Scheme กับ Basic ของด่าน เบราว์เซอร์บางตัวอาจทิ้งรหัสที่จำไว้เมื่อ Origin เดียวกันตอบ `401` ด้วย Scheme อื่น ถ้าเจอ ให้ตัด Header นั้นที่ Caddy (`header_down -WWW-Authenticate` ใน `handle_path /api/*`) ใน PR แยก ยังไม่ได้ทำเพราะยังไม่ทราบว่าเกิดจริงไหม
 4. ถ้าผ่านทั้งหมด จึงเปิด Security Group ให้ภายนอกเข้า แล้วคน 3 เปลี่ยน Webhook (W)
 
 ## Deploy โค้ดใหม่

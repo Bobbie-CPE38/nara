@@ -15,11 +15,14 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=/opt/nara
-# AWS_REGION and, if not the default, NARA_PARAMETER_PATH
+# NARA_PARAMETER_REGION (the Region of Parameter Store) and, if not the default,
+# NARA_PARAMETER_PATH. Do not put AWS_REGION here: it is the Bedrock Region of the app.
+# `env -u AWS_REGION` below makes sure a leftover one cannot reach docker compose, which
+# would take it over the AWS_REGION Parameter in /etc/nara/nara.env
 EnvironmentFile=/etc/nara/aws.conf
 ExecStartPre=/bin/bash /opt/nara/deploy/aws/load-env.sh
-ExecStart=/usr/bin/docker compose --env-file /etc/nara/nara.env -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml up -d --remove-orphans
-ExecStop=/usr/bin/docker compose --env-file /etc/nara/nara.env -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml down
+ExecStart=/usr/bin/env -u AWS_REGION /usr/bin/docker compose --env-file /etc/nara/nara.env -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml up -d --remove-orphans
+ExecStop=/usr/bin/env -u AWS_REGION /usr/bin/docker compose --env-file /etc/nara/nara.env -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml down
 # The first start installs the Python and npm packages
 TimeoutStartSec=900
 
