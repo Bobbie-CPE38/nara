@@ -60,12 +60,10 @@ function detailText(cause: ApiError, t: Translate): string {
 }
 
 /** A text of the page (a key and its values, in the language of the user) or the words of the API. */
-type Message = { key: MessageKey; params?: Params } | { text: string };
+type Message = { key: MessageKey; params?: Params } | { failure: unknown };
 
-function errorOf(cause: unknown, t: Translate): Message {
-  return cause instanceof ApiError
-    ? { text: `${detailText(cause, t)} (HTTP ${cause.status})` }
-    : { key: "common.apiUnreachable" };
+function errorText(cause: unknown, t: Translate): string {
+  return cause instanceof ApiError ? `${detailText(cause, t)} (HTTP ${cause.status})` : describeError(cause, t);
 }
 
 type Outcome = { kind: "ok" | "error" | "info"; message: Message };
@@ -97,7 +95,7 @@ function HandoffPage() {
   // The case whose staff list may still be shown. A late answer for another case is dropped
   const listedFor = useRef<number | null>(null);
 
-  const text = (message: Message) => ("text" in message ? message.text : t(message.key, message.params));
+  const text = (message: Message) => ("failure" in message ? errorText(message.failure, t) : t(message.key, message.params));
   const ruleText = (code: string) => {
     const key = SKIP_REASON_KEYS.get(code);
     return key ? t(key) : code;
@@ -110,7 +108,7 @@ function HandoffPage() {
       const rows = await api<HandoffCandidate[]>(`/cases/${caseId}/handoff/candidates`);
       if (listedFor.current === caseId) setCandidates(rows);
     } catch (cause) {
-      if (listedFor.current === caseId) setOutcome({ kind: "error", message: errorOf(cause, t) });
+      if (listedFor.current === caseId) setOutcome({ kind: "error", message: { failure: cause } });
     }
   }, [api]);
 
@@ -212,7 +210,7 @@ function HandoffPage() {
           },
         });
       } else {
-        setOutcome({ kind: "error", message: errorOf(cause, t) });
+        setOutcome({ kind: "error", message: { failure: cause } });
       }
     } finally {
       setBusy(false);
@@ -239,7 +237,7 @@ function HandoffPage() {
       setCandidates(null);
       await refresh();
     } catch (cause) {
-      setOutcome({ kind: "error", message: errorOf(cause, t) });
+      setOutcome({ kind: "error", message: { failure: cause } });
     } finally {
       setBusy(false);
     }

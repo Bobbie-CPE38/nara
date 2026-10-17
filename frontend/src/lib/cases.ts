@@ -1,4 +1,5 @@
 import { ApiError, apiRequest } from "@/lib/api";
+import { UnexpectedResponseError } from "@/lib/errors";
 import type { MessageKey } from "@/lib/i18n";
 import type { AuditEntry, CaseDetail, CaseSummaryView } from "@/lib/types/case";
 
@@ -108,7 +109,7 @@ export async function loadCase(caseId: string, signal: AbortSignal): Promise<Cas
   // this read holds every row of the status above, including a final one.
   const audit = await apiRequest<unknown>(`/cases/${caseId}/audit`, { signal });
   if (!isCaseDetail(detail) || !isAuditList(audit)) {
-    throw new Error("Unexpected response from the API");
+    throw new UnexpectedResponseError();
   }
   return { detail, audit };
 }

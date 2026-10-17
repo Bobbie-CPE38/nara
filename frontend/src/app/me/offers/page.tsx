@@ -74,13 +74,12 @@ function shiftsOf(staffId: number, handovers: readonly HandoverView[]): number[]
 }
 
 /** Our text (a key, in the language of the user) or the words the API sent. */
-type Failure = { key: MessageKey } | { text: string };
+type Failure = { key: MessageKey } | { failure: unknown };
 
-function checkInError(cause: unknown, t: Translate): Failure {
-  if (!(cause instanceof ApiError)) return { key: "common.apiUnreachable" };
-  if (cause.status === 404) return { key: "me.noRosterRow" };
-  if (cause.status === 409) return { key: "me.shiftBusy" };
-  return { text: describeError(cause, t) };
+function checkInError(cause: unknown): Failure {
+  if (cause instanceof ApiError && cause.status === 404) return { key: "me.noRosterRow" };
+  if (cause instanceof ApiError && cause.status === 409) return { key: "me.shiftBusy" };
+  return { failure: cause };
 }
 
 /** Check in for yourself (section 6.24). The backend clock decides the time, not this browser. */
@@ -106,7 +105,7 @@ function CheckIn({ staffId, handovers }: { staffId: number; handovers: readonly 
         }),
       );
     } catch (cause) {
-      setError(checkInError(cause, t));
+      setError(checkInError(cause));
     } finally {
       setBusy(false);
     }
@@ -148,7 +147,7 @@ function CheckIn({ staffId, handovers }: { staffId: number; handovers: readonly 
       )}
       {error && (
         <p role="alert" className="mt-2 text-red-700">
-          {t("me.checkInFailed", { error: "text" in error ? error.text : t(error.key) })}
+          {t("me.checkInFailed", { error: "failure" in error ? describeError(error.failure, t) : t(error.key) })}
         </p>
       )}
     </Card>

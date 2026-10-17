@@ -5,6 +5,7 @@ import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useBackendClock } from "@/components/ClockProvider";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, apiRequest, createDemoApi } from "@/lib/api";
 import { TERMINAL_CASE_STATUSES } from "@/lib/constants";
@@ -61,7 +62,7 @@ const EVENTS: readonly { label: MessageKey; staffId: number; json: Record<string
 const ADVANCE_SECONDS = 600;
 
 /** A text of the page (a key and its values, in the language of the user) or the words of the API. */
-type Message = { key: MessageKey; params?: Params } | { text: string };
+type Message = { key: MessageKey; params?: Params } | { failure: unknown };
 
 type Outcome =
   | { kind: "reset"; clock: string }
@@ -71,10 +72,9 @@ type Outcome =
   | { kind: "checkIn"; label: Message; result: CheckInResult }
   | { kind: "error"; label: Message; message: Message };
 
-function errorMessage(cause: unknown, t: Translate): Message {
-  return cause instanceof ApiError
-    ? { text: `${describeError(cause, t)} (HTTP ${cause.status})` }
-    : { key: "common.apiUnreachable" };
+/** An error as the user reads it; called when the page renders, so a switch of language also reaches it. */
+function errorText(cause: unknown, t: Translate): string {
+  return cause instanceof ApiError ? `${describeError(cause, t)} (HTTP ${cause.status})` : describeError(cause, t);
 }
 
 function CaseLink({ id, status }: { id: number; status: string | null }) {
@@ -109,7 +109,7 @@ function CaseLink({ id, status }: { id: number; status: string | null }) {
       ) : error ? (
         <span role="status">
           {t("ctl.statusOutdated", {
-            error: error instanceof ApiError ? `${describeError(error, t)} (HTTP ${error.status})` : t("common.apiUnreachable"),
+            error: errorText(error, t),
           })}
         </span>
       ) : (
@@ -133,9 +133,8 @@ function CaseLink({ id, status }: { id: number; status: string | null }) {
 export default function DemoControl() {
   const t = useT();
   const [busy, setBusy] = useState(false);
-  // Which of the two clock buttons makes sense; unknown until the first read
-  const readClock = useCallback((signal: AbortSignal) => apiRequest<ClockView>("/clock", { signal }), []);
-  const clockFrozen = usePolling(readClock, { intervalMs: 1000 }).data?.frozen;
+  // The buttons that need a frozen clock, or a running one, follow the one shared read of /clock
+  const clockFrozen = useBackendClock().data?.frozen;
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // A leave on any seeded ward and shift (docs/workflow.md 9.6, round 4 PR U)
   const [wardId, setWardId] = useState<number>(DEMO_WARDS[0].id);
@@ -145,7 +144,7 @@ export default function DemoControl() {
   const [staffId, setStaffId] = useState<number>(shift.staffIds[0]);
   const leaveStaffId = shift.staffIds.includes(staffId) ? staffId : shift.staffIds[0];
 
-  const text = (message: Message) => ("text" in message ? message.text : t(message.key, message.params));
+  const text = (message: Message) => ("failure" in message ? errorText(message.failure, t) : t(message.key, message.params));
 
   function pickWard(id: number) {
     const next = DEMO_WARDS.find((item) => item.id === id) ?? DEMO_WARDS[0];
@@ -166,7 +165,7 @@ export default function DemoControl() {
     try {
       setOutcome(await action());
     } catch (cause) {
-      setOutcome({ kind: "error", label, message: errorMessage(cause, t) });
+      setOutcome({ kind: "error", label, message: { failure: cause } });
     } finally {
       setBusy(false);
     }
@@ -246,7 +245,7 @@ export default function DemoControl() {
           <Button className="text-left" disabled={busy} onClick={reset}>
             {t("ctl.reset")}
           </Button>
-          <Button className="text-left" disabled={busy} onClick={advanceClock}>
+          <Button className="text-left" disabled={busy || clockFrozen === false} onClick={advanceClock}>
             {t("ctl.advance")}
           </Button>
           <Button className="text-left" disabled={busy || clockFrozen === true} onClick={() => setClockMode(true)}>

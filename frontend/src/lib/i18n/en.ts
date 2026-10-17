@@ -506,6 +506,27 @@ export const en = {
   "ctl.unfreezeClock": "Unfreeze clock (real time)",
   "ctl.frozenAt": "Clock frozen at {clock}",
   "ctl.unfrozen": "Clock follows real time again. Now: {clock}",
+
+  // ---- status words inside sentences ----
+  "offerStatus.PENDING": "PENDING",
+  "offerStatus.SENT": "SENT",
+  "offerStatus.ACCEPTED": "ACCEPTED",
+  "offerStatus.REJECTED": "REJECTED",
+  "offerStatus.TIMEOUT": "TIMEOUT",
+  "offerStatus.FAILED": "FAILED",
+  "offerStatus.CANCELLED": "CANCELLED",
+  "caseStatusShort.OPEN": "OPEN",
+  "caseStatusShort.ASSESSING": "ASSESSING",
+  "caseStatusShort.OPTIMIZING": "OPTIMIZING",
+  "caseStatusShort.OUTREACH": "OUTREACH",
+  "caseStatusShort.WAITING_RESPONSE": "WAITING_RESPONSE",
+  "caseStatusShort.SAFETY_VALIDATION": "SAFETY_VALIDATION",
+  "caseStatusShort.WAITING_APPROVAL": "WAITING_APPROVAL",
+  "caseStatusShort.EXECUTING": "EXECUTING",
+  "caseStatusShort.RESOLVED": "RESOLVED",
+  "caseStatusShort.MANUAL_HANDOFF": "MANUAL_HANDOFF",
+  "caseStatusShort.UNRESOLVED": "UNRESOLVED",
+  "caseStatusShort.FAILED": "FAILED",
 } as const;
 
 export type MessageKey = keyof typeof en;

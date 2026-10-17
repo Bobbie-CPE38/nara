@@ -87,7 +87,10 @@ function shortByText(shortBy: number | null, t: Translate): string {
 }
 
 /** A text of the page (a key and its values, in the language of the user) or the words of the API. */
-type Message = { key: MessageKey; params?: Params } | { text: string };
+type Message =
+  | { key: MessageKey; params?: Params }
+  | { failure: unknown }
+  | { apiFailure: ApiError; id: number };
 
 type Outcome =
   | { kind: "ok" | "error"; message: Message }
@@ -263,10 +266,7 @@ function ApprovalsPage() {
     } catch (cause) {
       setOutcome({
         kind: "error",
-        message:
-          cause instanceof ApiError
-            ? { key: "appr.msg.apiError", params: { id: approvalId, message: describeError(cause, t), status: cause.status } }
-            : { key: "common.apiUnreachable" },
+        message: cause instanceof ApiError ? { apiFailure: cause, id: approvalId } : { failure: cause },
       });
     } finally {
       setBusy(false);
@@ -313,7 +313,14 @@ function ApprovalsPage() {
     setOutcome(null);
   }
 
-  const text = (message: Message) => ("text" in message ? message.text : t(message.key, message.params));
+  const text = (message: Message) => {
+    if ("failure" in message) return describeError(message.failure, t);
+    if ("apiFailure" in message) {
+      const { apiFailure, id } = message;
+      return t("appr.msg.apiError", { id, message: describeError(apiFailure, t), status: apiFailure.status });
+    }
+    return t(message.key, message.params);
+  };
   const pending = (data ?? []).filter((row) => !decidedIds.includes(row.id));
   // By key, not by ID: the form never shows for a different request
   const rejecting = draft ? pending.find((row) => requestKey(row) === draft.key) : undefined;

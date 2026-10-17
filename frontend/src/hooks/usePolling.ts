@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { PollTimeoutError } from "@/lib/errors";
 
 /** Default time between reads; pages that say how often they update use this. */
 export const DEFAULT_POLL_INTERVAL_MS = 2000;
@@ -74,9 +75,7 @@ export function usePolling<T>(
         const deadline = new Promise<T>((_, reject) => {
           timeout = setTimeout(() => {
             request.abort();
-            reject(
-              new Error(`Polling request timed out after ${timeoutMs} ms`),
-            );
+            reject(new PollTimeoutError(timeoutMs));
           }, timeoutMs);
           deadlineTimer = timeout;
         });

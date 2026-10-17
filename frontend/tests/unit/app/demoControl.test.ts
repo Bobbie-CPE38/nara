@@ -3,6 +3,9 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ClockProvider } from "../../../src/components/ClockProvider";
+import { DemoClock } from "../../../src/components/DemoClock";
+import { LanguageProvider } from "../../../src/lib/i18n/LanguageProvider";
 import DemoControl from "../../../src/app/demo/control/page";
 
 afterEach(() => {
@@ -604,7 +607,7 @@ describe("demo control clock buttons", () => {
 
   it("unfreezes a frozen clock, and the freeze button waits for it", async () => {
     const calls = serveClock(true);
-    render(createElement(DemoControl));
+    render(createElement(ClockProvider, null, createElement(DemoControl)));
 
     const freeze = await screen.findByRole("button", { name: "Freeze clock" });
     const unfreeze = screen.getByRole("button", { name: "Unfreeze clock (real time)" });
@@ -618,7 +621,7 @@ describe("demo control clock buttons", () => {
 
   it("freezes a clock that follows real time", async () => {
     const calls = serveClock(false);
-    render(createElement(DemoControl));
+    render(createElement(ClockProvider, null, createElement(DemoControl)));
 
     const freeze = screen.getByRole("button", { name: "Freeze clock" });
     await vi.waitFor(() =>
@@ -627,5 +630,54 @@ describe("demo control clock buttons", () => {
     fireEvent.click(freeze);
     expect(await screen.findByText(/Clock frozen at/)).toBeTruthy();
     expect(calls).toEqual(["/demo/clock/freeze"]);
+  });
+});
+
+describe("demo control clock reads", () => {
+  it("makes one read of /clock a second for the top bar and the buttons together", async () => {
+    vi.useFakeTimers();
+    let reads = 0;
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (/\/clock$/.test(url)) reads += 1;
+      return new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }));
+    });
+    render(
+      createElement(
+        ClockProvider,
+        null,
+        createElement(DemoClock),
+        createElement(DemoControl),
+      ),
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(3500); });
+    // one at the start, then one at 1, 2 and 3 seconds
+    expect(reads).toBe(4);
+  });
+
+  it("disables Advance clock while the clock follows real time", async () => {
+    vi.stubGlobal("fetch", async () =>
+      new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: false })),
+    );
+    render(createElement(ClockProvider, null, createElement(DemoControl)));
+    const advance = screen.getByRole("button", { name: "Advance clock 10 minutes" }) as HTMLButtonElement;
+    await vi.waitFor(() => expect(advance.disabled).toBe(true));
+  });
+
+  it("gives the words of an error in the language of the page", async () => {
+    vi.stubGlobal("fetch", async (url: string) =>
+      /\/clock$/.test(url)
+        ? new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }))
+        : new Response("{}", { status: 500 }),
+    );
+    const view = render(
+      createElement(LanguageProvider, { initial: "th", children: createElement(DemoControl) }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "รีเซ็ต Demo" }));
+    expect(await screen.findByText(/คำขอไปยัง API ไม่สำเร็จ \(500\)/)).toBeTruthy();
+    view.unmount();
+    // the same failure shown in English: the sentence is ours, so it follows the language
+    render(createElement(LanguageProvider, { initial: "en", children: createElement(DemoControl) }));
+    fireEvent.click(screen.getByRole("button", { name: "Reset demo" }));
+    expect(await screen.findByText(/API request failed \(500\)/)).toBeTruthy();
   });
 });

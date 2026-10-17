@@ -5,7 +5,9 @@ Rules:
   * Every timestamp in the application comes from `now()`.
     Never call `datetime.now()` directly.
   * By default the clock follows real time. `set_time()` freezes it, so the demo
-    and the tests produce the same timestamps on every run.
+    and the tests produce the same timestamps on every run. The demo routes freeze it too:
+    `POST /demo/reset` (at D 21:00) and `POST /demo/clock/freeze` (at the time it shows now,
+    `freeze_now()`); `POST /demo/clock/unfreeze` follows real time again (`reset()`).
   * A frozen clock does not move by itself. Use `advance()` to move it.
   * The frozen time lives in process memory. It is lost when the backend
     restarts, and `POST /demo/reset` sets it again.

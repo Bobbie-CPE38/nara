@@ -1,17 +1,13 @@
 "use client";
 
-import { useCallback } from "react";
-import { usePolling } from "@/hooks/usePolling";
-import { apiRequest } from "@/lib/api";
+import { useBackendClock } from "@/components/ClockProvider";
 import { formatDateTime } from "@/lib/format";
 import { useT } from "@/lib/i18n/LanguageProvider";
-import type { ClockView } from "@/lib/types/attendance";
 
 /** The backend clock in the menu bar (R5-Q18): check-in and NO_SHOW use this time, not the browser's. */
 export function DemoClock() {
   const t = useT();
-  const load = useCallback((signal: AbortSignal) => apiRequest<ClockView>("/clock", { signal }), []);
-  const { data, error } = usePolling(load, { intervalMs: 1000 });
+  const { data, error } = useBackendClock();
   if (data === undefined) {
     return <span className="text-slate-500">{error ? t("clock.unavailable") : t("clock.loading")}</span>;
   }

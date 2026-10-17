@@ -9,9 +9,9 @@ import { usePolling } from "@/hooks/usePolling";
 import { ApiError } from "@/lib/api";
 import { formatDemoTime } from "@/lib/demo";
 import { describeError } from "@/lib/errors";
-import type { MessageKey, Params } from "@/lib/i18n";
+import type { MessageKey, Params, Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
-import type { Offer, OfferResponse } from "@/lib/types/outreach";
+import type { CaseStatus, Offer, OfferResponse, OutreachStatus } from "@/lib/types/outreach";
 
 function offerSnapshot(offer: Offer) {
   return JSON.stringify([
@@ -43,8 +43,17 @@ const STOPPED_CASE_STATUSES = new Set([
   "MANUAL_HANDOFF",
 ]);
 
+/** The status codes among the values of a message become words of the language of the page. */
+function statusWords(params: Params | undefined, t: Translate): Params | undefined {
+  if (!params) return params;
+  const words = { ...params };
+  if (typeof words.status === "string") words.status = t(`offerStatus.${words.status as OutreachStatus}`);
+  if (typeof words.caseStatus === "string") words.caseStatus = t(`caseStatusShort.${words.caseStatus as CaseStatus}`);
+  return words;
+}
+
 /** A text of the page (a key and its values, shown in the language of the user) or the words of the server. */
-type FeedbackMessage = { key: MessageKey; params?: Params } | { text: string };
+type FeedbackMessage = { key: MessageKey; params?: Params } | { failure: unknown };
 
 type Feedback = {
   message: FeedbackMessage;
@@ -212,7 +221,7 @@ export function OfferList({
               : offerSnapshot(offer) === offerSnapshot(selected),
           ),
         // The words of the server stay as they are; our own text is in the user's language
-        message: cause instanceof Error ? { text: describeError(cause, t) } : { key: "offers.sendFailed" },
+        message: cause instanceof Error ? { failure: cause } : { key: "offers.sendFailed" },
       });
       if (cause instanceof ApiError && cause.status === 409) {
         setAnsweredSnapshot(offerSnapshot(selected));
@@ -227,10 +236,11 @@ export function OfferList({
     }
   }
 
+  // The statuses are kept as the API sent them and given their words here, in the language of now
   const feedbackText = feedback
-    ? "text" in feedback.message
-      ? feedback.message.text
-      : t(feedback.message.key, feedback.message.params)
+    ? "failure" in feedback.message
+      ? describeError(feedback.message.failure, t)
+      : t(feedback.message.key, statusWords(feedback.message.params, t))
     : null;
 
   return (

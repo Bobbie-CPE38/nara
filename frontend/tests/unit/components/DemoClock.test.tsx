@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ClockProvider } from "@/components/ClockProvider";
 import { DemoClock } from "@/components/DemoClock";
 
 afterEach(() => {
@@ -14,7 +15,7 @@ describe("DemoClock", () => {
       new Response(JSON.stringify({ now: "2026-10-09T23:16:00+07:00", frozen: true })),
     );
     vi.stubGlobal("fetch", fetchMock);
-    render(<DemoClock />);
+    render(<ClockProvider><DemoClock /></ClockProvider>);
     const clock = await screen.findByRole("status", { name: "Backend clock" });
     expect(clock.textContent).toContain("2026-10-09 23:16:00");
     expect(clock.textContent).toContain("(demo, frozen)");
@@ -23,7 +24,7 @@ describe("DemoClock", () => {
 
   it("says so when the clock cannot be read", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
-    render(<DemoClock />);
+    render(<ClockProvider><DemoClock /></ClockProvider>);
     expect(await screen.findByText("Clock unavailable")).toBeTruthy();
   });
 
@@ -40,7 +41,7 @@ describe("DemoClock", () => {
       }),
     );
     try {
-      render(<DemoClock />);
+      render(<ClockProvider><DemoClock /></ClockProvider>);
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
       expect(screen.getByRole("status", { name: "Backend clock" }).textContent).not.toContain("outdated");
       await act(async () => { await vi.advanceTimersByTimeAsync(1000); });

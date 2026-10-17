@@ -346,16 +346,19 @@ def test_due_work_routes_sort_auto_approval_result_ids(client, job_secret, monke
 # --------------------------------------------------------------------------- #
 def test_the_clock_can_be_unfrozen_and_frozen_again(client: TestClient) -> None:
     assert clock.is_frozen()
+    try:
+        unfrozen = client.post("/demo/clock/unfreeze")
+        assert unfrozen.status_code == 200
+        assert unfrozen.json()["frozen"] is False
+        assert client.get("/clock").json()["frozen"] is False
 
-    unfrozen = client.post("/demo/clock/unfreeze")
-    assert unfrozen.status_code == 200
-    assert unfrozen.json()["frozen"] is False
-    assert client.get("/clock").json()["frozen"] is False
+        frozen = client.post("/demo/clock/freeze")
+        assert frozen.status_code == 200
+        assert frozen.json()["frozen"] is True
+        assert client.get("/clock").json()["now"] == frozen.json()["now"]
 
-    frozen = client.post("/demo/clock/freeze")
-    assert frozen.status_code == 200
-    assert frozen.json()["frozen"] is True
-    assert client.get("/clock").json()["now"] == frozen.json()["now"]
-
-    # a second freeze keeps the time it froze at
-    assert client.post("/demo/clock/freeze").json()["now"] == frozen.json()["now"]
+        # a second freeze keeps the time it froze at
+        assert client.post("/demo/clock/freeze").json()["now"] == frozen.json()["now"]
+    finally:
+        # a failure above must not leave a running clock for the tests after this one
+        clock.set_time(DEMO_NOW)
