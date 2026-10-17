@@ -7,8 +7,13 @@ STAFFING_GAP, event, audit row or case. The clock is the Backend Clock, the same
 point the case page measures from, so a shift whose case was just assessed shows
 the same slices as `GET /cases/{id}`.
 
-Who sees what (R6-Q16 ก): a Supervisor sees every ward, anyone else only their
-home ward. The dashboard uses the same rule.
+Who sees what (R6-Q16 ก): a Supervisor sees every active ward, anyone else only their
+home ward. `WardScope` is the one rule for the dashboard and both gap routes: a ward
+outside `ward_ids` is hidden everywhere, whichever route asks.
+
+A shift with no staffing requirement cannot be measured (`assess_shift()` raises
+RequirementNotFoundError). A list skips such a shift, so one badly set up shift cannot
+take down a whole page; the detail of that shift is a 409, like POST /events.
 """
 
 from collections.abc import Mapping
@@ -16,7 +21,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import exists, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.core import clock
 from app.core.constants import SUPERVISOR_ROLE
@@ -36,6 +41,7 @@ from app.domain.staffing.gap_calculator import CountGap, GapInterval
 from app.schemas.case import GapCount, GapIntervalView, HeadcountCount
 from app.schemas.gap_check import GapRosterEntry, GapShiftDetail, GapShiftSummary
 from app.services import gap_service, roster_time_service
+from app.services.requirement_service import RequirementNotFoundError
 
 
 class WardNotVisibleError(PermissionError):
@@ -48,13 +54,12 @@ class ShiftNotFoundError(LookupError):
 
 @dataclass(frozen=True)
 class WardScope:
-    """The wards one demo user may see. `all_wards` is True for a Supervisor."""
+    """The wards one demo user may see: `sees()` and the dashboard both read `ward_ids`."""
 
-    all_wards: bool
     ward_ids: tuple[int, ...]
 
     def sees(self, ward_id: int) -> bool:
-        return self.all_wards or ward_id in self.ward_ids
+        return ward_id in self.ward_ids
 
 
 def ward_scope(db: Session, staff: Staff) -> WardScope:
@@ -64,8 +69,8 @@ def ward_scope(db: Session, staff: Staff) -> WardScope:
         ward_ids = db.scalars(
             select(Ward.id).where(Ward.is_active.is_(True)).order_by(Ward.id)
         ).all()
-        return WardScope(all_wards=True, ward_ids=tuple(ward_ids))
-    return WardScope(all_wards=False, ward_ids=(staff.home_ward_id,))
+        return WardScope(ward_ids=tuple(ward_ids))
+    return WardScope(ward_ids=(staff.home_ward_id,))
 
 
 def running_case_ids(db: Session, shift_ids: list[int]) -> dict[int, int]:
@@ -103,7 +108,9 @@ def list_shifts(db: Session, scope: WardScope, *, ward_id: int, day: date) -> li
         rostered = _rostered_counts(db, [shift.id for shift in shifts])
         result = []
         for shift in shifts:
-            assessment = gap_service.assess_shift(db, shift)
+            assessment = assess_or_none(db, shift)
+            if assessment is None:
+                continue
             result.append(
                 GapShiftSummary(
                     shift_id=shift.id,
@@ -117,6 +124,14 @@ def list_shifts(db: Session, scope: WardScope, *, ward_id: int, day: date) -> li
                 )
             )
         return result
+
+
+def assess_or_none(db: Session, shift: Shift) -> gap_service.ShiftAssessment | None:
+    """The gap of a shift now, or None for a shift that has no staffing requirement."""
+    try:
+        return gap_service.assess_shift(db, shift)
+    except RequirementNotFoundError:
+        return None
 
 
 def _rostered_counts(db: Session, shift_ids: list[int]) -> dict[int, int]:
@@ -218,17 +233,17 @@ def _roster(db: Session, shift: Shift) -> list[GapRosterEntry]:
     """Every roster row of the shift, cancelled ones too, with leave and check-in flags.
 
     on_leave: an unavailability period of the person overlaps the shift. checked_in: the
-    person has a check-in for this shift.
+    person has a check-in, on time or late, for this row or any row before it in its move
+    chain (workflow.md 6.24): a person who checked in at the source shift is present at
+    the destination without a second check-in. It does not mean "on time"; that is the
+    NO_SHOW rule's question, and the roster shows the plain fact.
     """
     on_leave = exists().where(
         StaffUnavailability.staff_id == RosterAssignment.staff_id,
         StaffUnavailability.start_at < Shift.end_at,
         (StaffUnavailability.end_at.is_(None)) | (StaffUnavailability.end_at > Shift.start_at),
     )
-    checked_in = exists().where(
-        Attendance.staff_id == RosterAssignment.staff_id,
-        Attendance.shift_id == RosterAssignment.shift_id,
-    )
+    checked_in_rows = _checked_in_row_ids(db, shift.id)
     rows = db.execute(
         select(
             RosterAssignment.id,
@@ -239,7 +254,6 @@ def _roster(db: Session, shift: Shift) -> list[GapRosterEntry]:
             roster_time_service.start_at(),
             roster_time_service.end_at(),
             on_leave,
-            checked_in,
         )
         .join(Staff, Staff.id == RosterAssignment.staff_id)
         .join(Shift, Shift.id == RosterAssignment.shift_id)
@@ -255,7 +269,7 @@ def _roster(db: Session, shift: Shift) -> list[GapRosterEntry]:
             effective_start_at=start_at,
             effective_end_at=end_at,
             on_leave=leave,
-            checked_in=checked,
+            checked_in=row_id in checked_in_rows,
         )
         for (
             row_id,
@@ -266,6 +280,44 @@ def _roster(db: Session, shift: Shift) -> list[GapRosterEntry]:
             start_at,
             end_at,
             leave,
-            checked,
         ) in rows
     ]
+
+
+def _checked_in_row_ids(db: Session, shift_id: int) -> set[int]:
+    """Roster rows of the shift whose person checked in on the row or on a row before it.
+
+    Follows transferred_from_assignment_id back to the first row in one recursive query.
+    A move keeps the person, so each row of a chain is matched on its own (staff, shift).
+    UNION, not UNION ALL, so a damaged chain that loops back stops instead of running on.
+    """
+    chain = (
+        select(
+            RosterAssignment.id.label("origin_id"),
+            RosterAssignment.staff_id.label("staff_id"),
+            RosterAssignment.shift_id.label("shift_id"),
+            RosterAssignment.transferred_from_assignment_id.label("source_id"),
+        )
+        .where(RosterAssignment.shift_id == shift_id)
+        .cte("chain", recursive=True)
+    )
+    parent = aliased(RosterAssignment)
+    chain = chain.union(
+        select(
+            chain.c.origin_id,
+            parent.staff_id,
+            parent.shift_id,
+            parent.transferred_from_assignment_id,
+        ).where(parent.id == chain.c.source_id)
+    )
+    return set(
+        db.scalars(
+            select(chain.c.origin_id)
+            .join(
+                Attendance,
+                (Attendance.staff_id == chain.c.staff_id)
+                & (Attendance.shift_id == chain.c.shift_id),
+            )
+            .distinct()
+        )
+    )

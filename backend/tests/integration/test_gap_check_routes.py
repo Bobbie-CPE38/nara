@@ -15,8 +15,15 @@ from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
 from app.core import clock
-from app.db.models import Attendance, RosterAssignment, StaffingGap
-from app.domain.enums import CaseStatus
+from app.db.models import (
+    Attendance,
+    RosterAssignment,
+    Shift,
+    StaffingGap,
+    StaffingRequirement,
+    Ward,
+)
+from app.domain.enums import AssignmentType, CaseStatus, RosterStatus, ShiftType
 from app.main import app
 from tests.integration import case_rows
 from tests.integration.conftest import DEMO_NOW
@@ -212,3 +219,183 @@ def test_the_gap_routes_write_nothing(client: TestClient, seeded: Session) -> No
     ]
     assert writes == []
     assert seeded.scalars(select(StaffingGap.id)).all() == gaps_before
+
+
+def _row(db: Session, staff_id: int, shift_id: int) -> RosterAssignment:
+    return db.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id == staff_id, RosterAssignment.shift_id == shift_id
+        )
+    ).one()
+
+
+def _transfer(db: Session, staff_id: int, source_shift: int, to_shift: int) -> RosterAssignment:
+    """A mid-shift move: the person's row on `to_shift` continues their row on the source."""
+    source = _row(db, staff_id, source_shift)
+    moved = RosterAssignment(
+        staff_id=staff_id,
+        shift_id=to_shift,
+        status=RosterStatus.ASSIGNED,
+        assignment_type=AssignmentType.REPLACEMENT,
+        transferred_from_assignment_id=source.id,
+    )
+    db.add(moved)
+    db.flush()
+    return moved
+
+
+def _checked_in(client: TestClient, shift_id: int, staff_id: int, user: int = SUPERVISOR) -> bool:
+    roster = _get(client, f"/gap/shifts/{shift_id}", user).json()["roster"]
+    (entry,) = [row for row in roster if row["staff_id"] == staff_id]
+    return entry["checked_in"]
+
+
+@pytest.mark.parametrize("minutes_after_start", [0, 90])
+def test_a_check_in_at_the_source_carries_through_a_transfer(
+    client: TestClient, seeded: Session, minutes_after_start: int
+) -> None:
+    """Review finding 1: the person checked in at the source shift, on time or late.
+
+    The destination row has no Attendance of its own, but a move creates no second
+    check-in (workflow 6.24), so the roster must show the person as checked in.
+    """
+    start = seeded.get(Shift, NIGHT_SHIFT).start_at
+    seeded.add(
+        Attendance(
+            staff_id=101,
+            shift_id=NIGHT_SHIFT,
+            check_in_at=start + timedelta(minutes=minutes_after_start),
+            synced_at=DEMO_NOW,
+        )
+    )
+    _transfer(seeded, 101, NIGHT_SHIFT, MEDICINE_NIGHT)
+
+    assert _checked_in(client, MEDICINE_NIGHT, 101) is True
+
+
+def test_a_chain_of_two_moves_still_finds_the_first_check_in(
+    client: TestClient, seeded: Session
+) -> None:
+    seeded.add(
+        Attendance(staff_id=101, shift_id=NIGHT_SHIFT, check_in_at=DEMO_NOW, synced_at=DEMO_NOW)
+    )
+    first = _transfer(seeded, 101, NIGHT_SHIFT, MEDICINE_NIGHT)
+    seeded.add(
+        Shift(
+            id=9100,
+            ward_id=1,
+            patient_count=2,
+            start_at=DEMO_NOW,
+            end_at=DEMO_NOW + timedelta(hours=8),
+            shift_type=ShiftType.NIGHT,
+            is_active=True,
+            merge_window_seconds=0,
+        )
+    )
+    seeded.flush()
+    seeded.add(
+        RosterAssignment(
+            staff_id=101,
+            shift_id=9100,
+            status=RosterStatus.ASSIGNED,
+            assignment_type=AssignmentType.REPLACEMENT,
+            transferred_from_assignment_id=first.id,
+        )
+    )
+    seeded.flush()
+    seeded.add(
+        StaffingRequirement(shift_id=9100, required_staff=1, minimum_staff=1, created_at=DEMO_NOW)
+    )
+    seeded.flush()
+
+    assert _checked_in(client, 9100, 101) is True
+
+
+def test_a_moved_person_who_never_checked_in_is_not_checked_in(
+    client: TestClient, seeded: Session
+) -> None:
+    _transfer(seeded, 102, NIGHT_SHIFT, MEDICINE_NIGHT)
+
+    assert _checked_in(client, MEDICINE_NIGHT, 102) is False
+    assert _checked_in(client, NIGHT_SHIFT, 102) is False
+
+
+def test_a_check_in_does_not_leak_to_another_person_or_an_unlinked_row(
+    client: TestClient, seeded: Session
+) -> None:
+    """Only the chain counts: 101 checked in at the source, 301 is a different person."""
+    seeded.add(
+        Attendance(staff_id=101, shift_id=NIGHT_SHIFT, check_in_at=DEMO_NOW, synced_at=DEMO_NOW)
+    )
+    seeded.flush()
+
+    assert _checked_in(client, MEDICINE_NIGHT, 301) is False
+    assert _checked_in(client, NIGHT_SHIFT, 101) is True
+
+
+def test_an_inactive_ward_is_hidden_from_a_supervisor_on_every_route(
+    client: TestClient, seeded: Session
+) -> None:
+    """Review finding 2: the dashboard lists the active wards, and the gap routes agree."""
+    seeded.get(Ward, 2).is_active = False
+    seeded.flush()
+
+    dashboard = client.get("/dashboard", headers={"X-Demo-User": str(SUPERVISOR)}).json()
+
+    assert dashboard["wards"] == [1, 3]
+    assert (
+        _get(client, "/gap/shifts", SUPERVISOR, ward_id=2, date=DAY.isoformat()).status_code == 403
+    )
+    assert _get(client, f"/gap/shifts/{MEDICINE_NIGHT}", SUPERVISOR).status_code == 403
+    assert _get(client, f"/gap/shifts/{NIGHT_SHIFT}", SUPERVISOR).status_code == 200
+
+
+@pytest.mark.parametrize("day", ["9999-12-31", "3000-01-01", "1999-12-31", "0001-01-01"])
+def test_dates_outside_the_supported_range_are_422(client: TestClient, day: str) -> None:
+    assert _get(client, "/gap/shifts", ward_id=1, date=day).status_code == 422
+
+
+@pytest.mark.parametrize("day", ["2000-01-01", "2999-12-31"])
+def test_the_edges_of_the_supported_range_work(client: TestClient, day: str) -> None:
+    response = _get(client, "/gap/shifts", ward_id=1, date=day)
+
+    assert response.status_code == 200 and response.json() == []
+
+
+def _shift_without_requirement(db: Session) -> int:
+    """An active ICU shift later the same day that nobody gave a staffing requirement."""
+    db.add(
+        Shift(
+            id=9001,
+            ward_id=1,
+            patient_count=2,
+            start_at=DEMO_NOW + timedelta(hours=1),
+            end_at=DEMO_NOW + timedelta(hours=9),
+            shift_type=ShiftType.DAY,
+            is_active=True,
+            merge_window_seconds=0,
+        )
+    )
+    db.flush()
+    return 9001
+
+
+def test_a_shift_without_a_requirement_is_skipped_by_the_day_list(
+    client: TestClient, seeded: Session
+) -> None:
+    """Review finding: one badly set up shift must not turn the whole list into a 500."""
+    bad = _shift_without_requirement(seeded)
+
+    response = _get(client, "/gap/shifts", ward_id=1, date=DAY.isoformat())
+
+    assert response.status_code == 200
+    assert [row["shift_id"] for row in response.json()] == [NIGHT_SHIFT]
+    assert bad not in [row["shift_id"] for row in response.json()]
+
+
+def test_the_detail_of_a_shift_without_a_requirement_is_409(
+    client: TestClient, seeded: Session
+) -> None:
+    bad = _shift_without_requirement(seeded)
+
+    assert _get(client, f"/gap/shifts/{bad}").status_code == 409

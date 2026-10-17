@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_db
 from app.core import clock
 from app.core.config import settings
-from app.db.models import LlmCallLog, LlmDailyUsage, StaffingEvent
+from app.db.models import LlmCallLog, LlmDailyUsage, Shift, StaffingEvent
 from app.domain.enums import (
     CaseStatus,
     EventStatus,
@@ -25,6 +25,7 @@ from app.domain.enums import (
     LlmCallStatus,
     LlmWorkType,
     OutreachStatus,
+    ShiftType,
 )
 from app.main import app
 from app.services import llm_gateway
@@ -307,3 +308,30 @@ def test_the_dashboard_writes_nothing(
         or "FOR NO KEY UPDATE" in sql.upper()
     ]
     assert statements and writes == []
+
+
+def test_a_shift_without_a_requirement_does_not_break_the_dashboard(
+    client: TestClient, seeded: Session
+) -> None:
+    """Review finding: one active shift with no STAFFING_REQUIREMENTS row used to be a 500.
+
+    It cannot be measured, so it is skipped; the shifts that can be measured still show.
+    """
+    case_rows.leave(seeded, 105)
+    seeded.add(
+        Shift(
+            id=9001,
+            ward_id=1,
+            patient_count=2,
+            start_at=DEMO_NOW + timedelta(hours=1),
+            end_at=DEMO_NOW + timedelta(hours=9),
+            shift_type=ShiftType.DAY,
+            is_active=True,
+            merge_window_seconds=0,
+        )
+    )
+    seeded.flush()
+
+    body = _dashboard(client)
+
+    assert [row["shift_id"] for row in body["shortages"]] == [NIGHT_SHIFT]

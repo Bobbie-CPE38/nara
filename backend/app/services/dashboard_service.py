@@ -41,7 +41,7 @@ from app.schemas.dashboard import (
     Shortage,
     WardCount,
 )
-from app.services import approval_service, gap_check_service, gap_service, llm_gateway
+from app.services import approval_service, gap_check_service, llm_gateway
 from app.services.gap_check_service import WardScope
 from app.services.merge_window_service import NO_SHOW_REASON
 
@@ -94,7 +94,10 @@ def _shortages(db: Session, scope: WardScope, now: datetime) -> list[Shortage]:
     ).all()
     short = []
     for shift in shifts:
-        result = gap_service.assess_shift(db, shift).result
+        assessment = gap_check_service.assess_or_none(db, shift)
+        if assessment is None:  # no requirement: cannot be measured, so skipped (6.31)
+            continue
+        result = assessment.result
         if result.has_gap:
             short.append((shift, result))
         if len(short) == DASHBOARD_MAX_SHORTAGES:
