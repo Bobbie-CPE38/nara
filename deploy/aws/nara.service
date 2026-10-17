@@ -21,9 +21,10 @@ WorkingDirectory=/opt/nara
 # would take it over the AWS_REGION Parameter in /etc/nara/nara.env
 EnvironmentFile=/etc/nara/aws.conf
 ExecStartPre=/bin/bash /opt/nara/deploy/aws/load-env.sh
-ExecStart=/usr/bin/env -u AWS_REGION /usr/bin/docker compose --env-file /etc/nara/nara.env -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml up -d --remove-orphans
+ExecStart=/usr/bin/env -u AWS_REGION /usr/bin/docker compose --env-file /etc/nara/nara.env -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml up -d --build --remove-orphans
 ExecStop=/usr/bin/env -u AWS_REGION /usr/bin/docker compose --env-file /etc/nara/nara.env -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml down
-# The first start installs the Python and npm packages
+# The first start installs the Python packages and builds the frontend image
+# (--build: a later start builds again only what changed)
 TimeoutStartSec=900
 
 [Install]

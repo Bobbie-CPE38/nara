@@ -10,6 +10,7 @@ import {
   FIRST_WAVE_INFO,
   SCORE_TERM_INFO,
 } from "@/lib/constants";
+import { ScrollX } from "@/components/ScrollX";
 import { formatScore } from "@/lib/format";
 import type { CandidateScore, CandidateView, RankExplanation } from "@/lib/types/case";
 
@@ -17,32 +18,34 @@ function ScoreTable({ staffId, score }: { staffId: number; score: CandidateScore
   // A copy, so the API array is not changed. The sort is stable, so equal points keep the API order.
   const terms = [...score.terms].sort((a, b) => b.points - a.points);
   return (
-    <table aria-label={`Score of staff ${staffId}`} className="mt-2 w-full text-left">
-      <thead>
-        <tr>
-          <th className="py-1 pr-4">Term</th>
-          <th className="py-1 pr-4">Value</th>
-          <th className="py-1 pr-4">Weight</th>
-          <th className="py-1 pr-4">Points</th>
-        </tr>
-      </thead>
-      <tbody>
-        {terms.map(term => {
-          const reason = SCORE_TERM_INFO.get(term.name);
-          return (
-            <tr key={term.name}>
-              <td className="py-1 pr-4">
-                {term.name}
-                {reason && <span className="ml-2 text-sm text-gray-500">{reason}</span>}
-              </td>
-              <td className="py-1 pr-4">{formatScore(term.value)}</td>
-              <td className="py-1 pr-4">{formatScore(term.weight)}</td>
-              <td className="py-1 pr-4">{formatScore(term.points)}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <ScrollX>
+      <table aria-label={`Score of staff ${staffId}`} className="mt-2 w-full text-left">
+        <thead>
+          <tr>
+            <th className="py-1 pr-4">Term</th>
+            <th className="py-1 pr-4">Value</th>
+            <th className="py-1 pr-4">Weight</th>
+            <th className="py-1 pr-4">Points</th>
+          </tr>
+        </thead>
+        <tbody>
+          {terms.map(term => {
+            const reason = SCORE_TERM_INFO.get(term.name);
+            return (
+              <tr key={term.name}>
+                <td className="py-1 pr-4">
+                  {term.name}
+                  {reason && <span className="ml-2 text-sm text-gray-500">{reason}</span>}
+                </td>
+                <td className="py-1 pr-4">{formatScore(term.value)}</td>
+                <td className="py-1 pr-4">{formatScore(term.weight)}</td>
+                <td className="py-1 pr-4">{formatScore(term.points)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </ScrollX>
   );
 }
 

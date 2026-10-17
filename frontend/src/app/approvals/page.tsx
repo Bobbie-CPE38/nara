@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { ScrollX } from "@/components/ScrollX";
 import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
@@ -145,40 +146,42 @@ function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
       {error && <p className="mt-2 text-red-700">{error.message}</p>}
       {data && data.length === 0 && <p className="mt-2">None for staff {actorId}.</p>}
       {data && data.length > 0 && (
-        <table aria-label="Approved by the system" className="mt-2 w-full text-left">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Case</th>
-              <th>Staff</th>
-              <th>Wards</th>
-              <th>Decided at</th>
-              <th>Case status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row) => (
-              <tr key={row.id}>
-                <td>{row.id}</td>
-                <td>
-                  <Link className="underline" href={`/cases/${row.case_id}`}>
-                    {row.case_id}
-                  </Link>
-                </td>
-                <td>{row.staff_id}</td>
-                <td>{wardsText(row) || "—"}</td>
-                <td>{formatDateTime(row.decided_at)}</td>
-                <td className={row.caseStatus === "FAILED" ? "text-red-700" : undefined}>
-                  {row.caseStatus === null
-                    ? "—"
-                    : row.caseStatus === "FAILED"
-                      ? "FAILED: case workflow failed; check assignment outcome"
-                      : row.caseStatus}
-                </td>
+        <ScrollX>
+          <table aria-label="Approved by the system" className="mt-2 w-full text-left">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Case</th>
+                <th>Staff</th>
+                <th>Wards</th>
+                <th>Decided at</th>
+                <th>Case status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.id}</td>
+                  <td>
+                    <Link className="underline" href={`/cases/${row.case_id}`}>
+                      {row.case_id}
+                    </Link>
+                  </td>
+                  <td>{row.staff_id}</td>
+                  <td>{wardsText(row) || "—"}</td>
+                  <td>{formatDateTime(row.decided_at)}</td>
+                  <td className={row.caseStatus === "FAILED" ? "text-red-700" : undefined}>
+                    {row.caseStatus === null
+                      ? "—"
+                      : row.caseStatus === "FAILED"
+                        ? "FAILED: case workflow failed; check assignment outcome"
+                        : row.caseStatus}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollX>
       )}
     </section>
   );
@@ -344,84 +347,86 @@ function ApprovalsPage() {
       {isLoading && <p className="mt-4">Loading…</p>}
       {data && pending.length === 0 && <p className="mt-4">No pending approvals.</p>}
       {pending.length > 0 && (
-        <table className="mt-4 w-full text-left">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Case</th>
-              <th>Case still needs</th>
-              <th>Staff</th>
-              <th>Shift</th>
-              <th>Home ward</th>
-              <th>Moved from</th>
-              <th>Wards</th>
-              <th>Requested at</th>
-              <th>Decide by</th>
-              <th>Supervisor from</th>
-              <th>Decision</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pending.map((row) => (
-              <tr key={row.id}>
-                <td>{row.id}</td>
-                <td>
-                  <Link className="underline" href={`/cases/${row.case_id}`}>
-                    {row.case_id}
-                  </Link>
-                </td>
-                <td>{shortByText(row.shortBy)}</td>
-                <td>{row.staff_id}</td>
-                <td>{row.proposed_shift_id}</td>
-                <td>{row.home_ward_id == null ? "—" : wardName(row.home_ward_id)}</td>
-                <td>{row.source_ward_id == null ? "—" : wardName(row.source_ward_id)}</td>
-                <td>{wardsText(row) || "—"}</td>
-                <td>{formatDateTime(row.requested_at)}</td>
-                <td>{formatDateTime(row.expires_at)}</td>
-                <td>{row.supervisor_from ? formatDateTime(row.supervisor_from) : "—"}</td>
-                <td className="flex gap-2">
-                  {sideFor(row) && (
-                    <select
-                      aria-label={`Side for approval ${row.id}`}
-                      className="rounded border px-1"
-                      disabled={busy}
-                      value={sideFor(row)}
-                      onChange={(event) =>
-                        setSides((current) => ({
-                          ...current,
-                          [requestKey(row)]: event.target.value as ApprovalSide,
-                        }))
-                      }
-                    >
-                      {pendingSides(row).map((side) => (
-                        <option key={side} value={side}>
-                          {side === "SOURCE" ? "Source ward" : "Destination ward"}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  <button
-                    type="button"
-                    className={button}
-                    disabled={busy || !canDecide(row)}
-                    onClick={() => decide(row.id, true, undefined, sideFor(row))}
-                  >
-                    Approve
-                  </button>
-                  <button
-                    type="button"
-                    className={button}
-                    // One reason at a time: Cancel first, so a typed reason is never lost
-                    disabled={busy || rejecting !== undefined || !canDecide(row)}
-                    onClick={() => setDraft({ key: requestKey(row), reason: "" })}
-                  >
-                    Reject
-                  </button>
-                </td>
+        <ScrollX>
+          <table className="mt-4 w-full text-left">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Case</th>
+                <th>Case still needs</th>
+                <th>Staff</th>
+                <th>Shift</th>
+                <th>Home ward</th>
+                <th>Moved from</th>
+                <th>Wards</th>
+                <th>Requested at</th>
+                <th>Decide by</th>
+                <th>Supervisor from</th>
+                <th>Decision</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {pending.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.id}</td>
+                  <td>
+                    <Link className="underline" href={`/cases/${row.case_id}`}>
+                      {row.case_id}
+                    </Link>
+                  </td>
+                  <td>{shortByText(row.shortBy)}</td>
+                  <td>{row.staff_id}</td>
+                  <td>{row.proposed_shift_id}</td>
+                  <td>{row.home_ward_id == null ? "—" : wardName(row.home_ward_id)}</td>
+                  <td>{row.source_ward_id == null ? "—" : wardName(row.source_ward_id)}</td>
+                  <td>{wardsText(row) || "—"}</td>
+                  <td>{formatDateTime(row.requested_at)}</td>
+                  <td>{formatDateTime(row.expires_at)}</td>
+                  <td>{row.supervisor_from ? formatDateTime(row.supervisor_from) : "—"}</td>
+                  <td className="flex gap-2">
+                    {sideFor(row) && (
+                      <select
+                        aria-label={`Side for approval ${row.id}`}
+                        className="rounded border px-1"
+                        disabled={busy}
+                        value={sideFor(row)}
+                        onChange={(event) =>
+                          setSides((current) => ({
+                            ...current,
+                            [requestKey(row)]: event.target.value as ApprovalSide,
+                          }))
+                        }
+                      >
+                        {pendingSides(row).map((side) => (
+                          <option key={side} value={side}>
+                            {side === "SOURCE" ? "Source ward" : "Destination ward"}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      className={button}
+                      disabled={busy || !canDecide(row)}
+                      onClick={() => decide(row.id, true, undefined, sideFor(row))}
+                    >
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      className={button}
+                      // One reason at a time: Cancel first, so a typed reason is never lost
+                      disabled={busy || rejecting !== undefined || !canDecide(row)}
+                      onClick={() => setDraft({ key: requestKey(row), reason: "" })}
+                    >
+                      Reject
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollX>
       )}
       {rejecting && (
         <form className="mt-4 max-w-xl" onSubmit={submitRejection}>

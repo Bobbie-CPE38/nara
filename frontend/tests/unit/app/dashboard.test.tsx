@@ -36,6 +36,10 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
+const inScrollBox = (table: HTMLElement) =>
+  // A table wider than a phone scrolls inside its box, not the whole page (round 6 PR F3)
+  expect(table.parentElement?.className, table.getAttribute("aria-label") ?? "table").toContain("overflow-x-auto");
+
 describe("Dashboard page", () => {
   it("shows the clock, modes and the wards the numbers cover", async () => {
     replies(() => dashboard({ wards: [1, 2, 3] }));
@@ -64,6 +68,29 @@ describe("Dashboard page", () => {
     // A status that needs a person stands out only while it has cases
     expect(list.getByText(/MANUAL_HANDOFF/).closest("li")?.className).toContain("font-semibold");
     expect(list.getByText("RESOLVED: 0").closest("li")?.className ?? "").not.toContain("font-semibold");
+  });
+
+  it("keeps the short shifts and the no-shows in boxes that scroll sideways on a phone", async () => {
+    replies(() =>
+      dashboard({
+        shortages: [
+          {
+            shift_id: 1,
+            ward_id: 1,
+            start_at: "2026-10-17T23:00:00+07:00",
+            end_at: "2026-10-18T07:00:00+07:00",
+            headcount_gap: 1,
+            role_gaps: [{ name: "RN", gap_count: 1 }],
+            skill_gaps: [{ name: "ICU", gap_count: 1 }],
+            case_id: 7,
+          },
+        ],
+        recent_no_show: [{ event_id: 9, shift_id: 1, staff_id: 104, created_at: "2026-10-18T00:00:00+07:00" }],
+      }),
+    );
+    render(<Home />);
+    const tables = [await screen.findByRole("table", { name: "Short shifts" }), screen.getByRole("table", { name: "Recent no-shows" })];
+    tables.forEach(inScrollBox);
   });
 
   it("lists a short shift with its roles, skills and case", async () => {

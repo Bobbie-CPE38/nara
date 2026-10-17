@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ScrollX } from "@/components/ScrollX";
 import { CASE_STATUS_INFO, TONE_CLASS } from "@/lib/constants";
 import { wardName, withActor } from "@/lib/demo";
 import { formatDateTime } from "@/lib/format";
@@ -65,36 +66,38 @@ function Shortages({ data, actorId }: { data: Dashboard; actorId: number }) {
       {data.shortages.length === 0 ? (
         <p className="mt-2 text-green-700">No shift is short.</p>
       ) : (
-        <table aria-label="Short shifts" className="mt-2 w-full text-left">
-          <thead>
-            <tr>
-              <th className="py-1 pr-4">Shift</th>
-              <th className="py-1 pr-4">Ward</th>
-              <th className="py-1 pr-4">From</th>
-              <th className="py-1 pr-4">Until</th>
-              <th className="py-1 pr-4">Short by</th>
-              <th className="py-1 pr-4">Roles</th>
-              <th className="py-1 pr-4">Skills</th>
-              <th className="py-1 pr-4">Case</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.shortages.map((row) => (
-              <tr key={row.shift_id}>
-                <td className="py-1 pr-4">{row.shift_id}</td>
-                <td className="py-1 pr-4">{wardName(row.ward_id)}</td>
-                <td className="py-1 pr-4">{formatDateTime(row.start_at)}</td>
-                <td className="py-1 pr-4">{formatDateTime(row.end_at)}</td>
-                <td className="py-1 pr-4 text-red-700">{row.headcount_gap}</td>
-                <td className="py-1 pr-4">{gapsText(row.role_gaps)}</td>
-                <td className="py-1 pr-4">{gapsText(row.skill_gaps)}</td>
-                <td className="py-1 pr-4">
-                  <CaseLink caseId={row.case_id} />
-                </td>
+        <ScrollX>
+          <table aria-label="Short shifts" className="mt-2 w-full text-left">
+            <thead>
+              <tr>
+                <th className="py-1 pr-4">Shift</th>
+                <th className="py-1 pr-4">Ward</th>
+                <th className="py-1 pr-4">From</th>
+                <th className="py-1 pr-4">Until</th>
+                <th className="py-1 pr-4">Short by</th>
+                <th className="py-1 pr-4">Roles</th>
+                <th className="py-1 pr-4">Skills</th>
+                <th className="py-1 pr-4">Case</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.shortages.map((row) => (
+                <tr key={row.shift_id}>
+                  <td className="py-1 pr-4">{row.shift_id}</td>
+                  <td className="py-1 pr-4">{wardName(row.ward_id)}</td>
+                  <td className="py-1 pr-4">{formatDateTime(row.start_at)}</td>
+                  <td className="py-1 pr-4">{formatDateTime(row.end_at)}</td>
+                  <td className="py-1 pr-4 text-red-700">{row.headcount_gap}</td>
+                  <td className="py-1 pr-4">{gapsText(row.role_gaps)}</td>
+                  <td className="py-1 pr-4">{gapsText(row.skill_gaps)}</td>
+                  <td className="py-1 pr-4">
+                    <CaseLink caseId={row.case_id} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollX>
       )}
     </section>
   );
@@ -133,24 +136,26 @@ function NoShows({ data }: { data: Dashboard }) {
       {data.recent_no_show.length === 0 ? (
         <p className="mt-2">None.</p>
       ) : (
-        <table aria-label="Recent no-shows" className="mt-2 w-full text-left">
-          <thead>
-            <tr>
-              <th className="py-1 pr-4">Recorded at</th>
-              <th className="py-1 pr-4">Staff</th>
-              <th className="py-1 pr-4">Shift</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.recent_no_show.map((row) => (
-              <tr key={row.event_id}>
-                <td className="py-1 pr-4">{formatDateTime(row.created_at)}</td>
-                <td className="py-1 pr-4">{row.staff_id}</td>
-                <td className="py-1 pr-4">{row.shift_id}</td>
+        <ScrollX>
+          <table aria-label="Recent no-shows" className="mt-2 w-full text-left">
+            <thead>
+              <tr>
+                <th className="py-1 pr-4">Recorded at</th>
+                <th className="py-1 pr-4">Staff</th>
+                <th className="py-1 pr-4">Shift</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.recent_no_show.map((row) => (
+                <tr key={row.event_id}>
+                  <td className="py-1 pr-4">{formatDateTime(row.created_at)}</td>
+                  <td className="py-1 pr-4">{row.staff_id}</td>
+                  <td className="py-1 pr-4">{row.shift_id}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollX>
       )}
     </section>
   );

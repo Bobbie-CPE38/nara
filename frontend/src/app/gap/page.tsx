@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
+import { ScrollX } from "@/components/ScrollX";
 import { ActingAs } from "@/components/ActingAs";
 import { GapIntervals } from "@/components/case/GapTable";
 import { useActor } from "@/hooks/useActor";
@@ -43,36 +44,38 @@ function ShiftDetail({ detail }: { detail: GapShiftDetail }) {
       {detail.roster.length === 0 ? (
         <p className="mt-1">Nobody is on this shift&apos;s roster.</p>
       ) : (
-        <table aria-label="Roster" className="mt-2 w-full text-left">
-          <thead>
-            <tr>
-              <th className="py-1 pr-4">Staff</th>
-              <th className="py-1 pr-4">Name</th>
-              <th className="py-1 pr-4">Status</th>
-              <th className="py-1 pr-4">From</th>
-              <th className="py-1 pr-4">Until</th>
-              <th className="py-1 pr-4">On leave</th>
-              <th className="py-1 pr-4">Checked in</th>
-            </tr>
-          </thead>
-          <tbody>
-            {detail.roster.map((row) => (
-              <tr key={row.roster_assignment_id}>
-                <td className="py-1 pr-4">{row.staff_id}</td>
-                <td className="py-1 pr-4">{row.name}</td>
-                <td className={`py-1 pr-4 ${row.status === "CANCELLED" ? "text-gray-500" : ""}`}>
-                  {row.status}
-                </td>
-                <td className="py-1 pr-4">{formatDateTime(row.effective_start_at)}</td>
-                <td className="py-1 pr-4">{formatDateTime(row.effective_end_at)}</td>
-                <td className={`py-1 pr-4 ${row.on_leave ? "text-amber-700" : ""}`}>
-                  {row.on_leave ? "Yes" : "No"}
-                </td>
-                <td className="py-1 pr-4">{row.checked_in ? "Yes" : "No"}</td>
+        <ScrollX>
+          <table aria-label="Roster" className="mt-2 w-full text-left">
+            <thead>
+              <tr>
+                <th className="py-1 pr-4">Staff</th>
+                <th className="py-1 pr-4">Name</th>
+                <th className="py-1 pr-4">Status</th>
+                <th className="py-1 pr-4">From</th>
+                <th className="py-1 pr-4">Until</th>
+                <th className="py-1 pr-4">On leave</th>
+                <th className="py-1 pr-4">Checked in</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {detail.roster.map((row) => (
+                <tr key={row.roster_assignment_id}>
+                  <td className="py-1 pr-4">{row.staff_id}</td>
+                  <td className="py-1 pr-4">{row.name}</td>
+                  <td className={`py-1 pr-4 ${row.status === "CANCELLED" ? "text-gray-500" : ""}`}>
+                    {row.status}
+                  </td>
+                  <td className="py-1 pr-4">{formatDateTime(row.effective_start_at)}</td>
+                  <td className="py-1 pr-4">{formatDateTime(row.effective_end_at)}</td>
+                  <td className={`py-1 pr-4 ${row.on_leave ? "text-amber-700" : ""}`}>
+                    {row.on_leave ? "Yes" : "No"}
+                  </td>
+                  <td className="py-1 pr-4">{row.checked_in ? "Yes" : "No"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollX>
       )}
     </section>
   );
@@ -172,53 +175,55 @@ function GapCheckPage() {
       {canList && !shifts && !shiftsError && <p className="mt-4">Loading shifts…</p>}
       {shifts && shifts.length === 0 && <p className="mt-4">No shift starts on this day in this ward.</p>}
       {shifts && shifts.length > 0 && (
-        <table aria-label="Shifts of the day" className="mt-4 w-full text-left">
-          <thead>
-            <tr>
-              <th className="py-1 pr-4">Shift</th>
-              <th className="py-1 pr-4">From</th>
-              <th className="py-1 pr-4">Until</th>
-              <th className="py-1 pr-4">Required</th>
-              <th className="py-1 pr-4">On roster</th>
-              <th className="py-1 pr-4">Short by</th>
-              <th className="py-1 pr-4">Case</th>
-              <th className="py-1 pr-4" />
-            </tr>
-          </thead>
-          <tbody>
-            {shifts.map((row) => (
-              <tr key={row.shift_id}>
-                <td className="py-1 pr-4">{row.shift_id}</td>
-                <td className="py-1 pr-4">{formatDateTime(row.start_at)}</td>
-                <td className="py-1 pr-4">{formatDateTime(row.end_at)}</td>
-                <td className="py-1 pr-4">{row.required_staff}</td>
-                <td className="py-1 pr-4">{row.rostered_count}</td>
-                <td className={`py-1 pr-4 ${row.headcount_gap > 0 ? "text-red-700" : "text-green-700"}`}>
-                  {row.headcount_gap > 0 ? row.headcount_gap : "OK"}
-                </td>
-                <td className="py-1 pr-4">
-                  {row.case_id === null ? (
-                    "—"
-                  ) : (
-                    <Link className="underline" href={`/cases/${row.case_id}`}>
-                      {row.case_id}
-                    </Link>
-                  )}
-                </td>
-                <td className="py-1 pr-4">
-                  <button
-                    type="button"
-                    className="rounded border px-2 py-1"
-                    aria-pressed={shiftId === row.shift_id}
-                    onClick={() => setShiftId(row.shift_id)}
-                  >
-                    Check shift {row.shift_id}
-                  </button>
-                </td>
+        <ScrollX>
+          <table aria-label="Shifts of the day" className="mt-4 w-full text-left">
+            <thead>
+              <tr>
+                <th className="py-1 pr-4">Shift</th>
+                <th className="py-1 pr-4">From</th>
+                <th className="py-1 pr-4">Until</th>
+                <th className="py-1 pr-4">Required</th>
+                <th className="py-1 pr-4">On roster</th>
+                <th className="py-1 pr-4">Short by</th>
+                <th className="py-1 pr-4">Case</th>
+                <th className="py-1 pr-4" />
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {shifts.map((row) => (
+                <tr key={row.shift_id}>
+                  <td className="py-1 pr-4">{row.shift_id}</td>
+                  <td className="py-1 pr-4">{formatDateTime(row.start_at)}</td>
+                  <td className="py-1 pr-4">{formatDateTime(row.end_at)}</td>
+                  <td className="py-1 pr-4">{row.required_staff}</td>
+                  <td className="py-1 pr-4">{row.rostered_count}</td>
+                  <td className={`py-1 pr-4 ${row.headcount_gap > 0 ? "text-red-700" : "text-green-700"}`}>
+                    {row.headcount_gap > 0 ? row.headcount_gap : "OK"}
+                  </td>
+                  <td className="py-1 pr-4">
+                    {row.case_id === null ? (
+                      "—"
+                    ) : (
+                      <Link className="underline" href={`/cases/${row.case_id}`}>
+                        {row.case_id}
+                      </Link>
+                    )}
+                  </td>
+                  <td className="py-1 pr-4">
+                    <button
+                      type="button"
+                      className="rounded border px-2 py-1"
+                      aria-pressed={shiftId === row.shift_id}
+                      onClick={() => setShiftId(row.shift_id)}
+                    >
+                      Check shift {row.shift_id}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollX>
       )}
 
       {detailError && <p role="alert" className="mt-4 text-red-700">{errorText(detailError)}</p>}

@@ -74,7 +74,20 @@ function actions() {
   return rows("Timeline").map(cells => cells[2]);
 }
 
+const inScrollBox = (table: HTMLElement) =>
+  // A table wider than a phone scrolls inside its box, not the whole page (round 6 PR F3)
+  expect(table.parentElement?.className, table.getAttribute("aria-label") ?? "table").toContain("overflow-x-auto");
+
 describe("CaseView", () => {
+  it("keeps every table in a box that scrolls sideways, so a phone does not scroll the whole page", async () => {
+    render(<CaseView caseId="1" />);
+    await tick();
+    const tables = screen.getAllByRole("table");
+    // Gap, candidates, score tables and the timeline
+    expect(tables.length).toBeGreaterThanOrEqual(5);
+    tables.forEach(inScrollBox);
+  });
+
   it("loads the case, then its audit, and shows status, gap, ranked candidates and timeline", async () => {
     render(<CaseView caseId="1" />);
     expect(screen.getByRole("status").textContent).toBe("Loading…");

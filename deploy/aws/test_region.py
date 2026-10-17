@@ -9,7 +9,7 @@ systemd puts everything in aws.conf into the environment of `docker compose`, an
 takes a variable from the process environment over --env-file. So a Parameter Store Region
 named AWS_REGION in aws.conf would silently replace the Bedrock Region. These tests keep
 the two names apart with different values on purpose.
-Needs Docker (Compose 2.24 or later) and, for the loader test, a python:3.11-slim image.
+Needs Docker (Compose 2.24.4 or later) and, for the loader test, a python:3.11-slim image.
 """
 
 import os
