@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { ActingAs } from "@/components/ActingAs";
 import { GapIntervals } from "@/components/case/GapTable";
+import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
-import { DEMO_APPROVER_ID, wardName } from "@/lib/demo";
+import { wardName } from "@/lib/demo";
 import { formatDateTime } from "@/lib/format";
 import type { Dashboard, GapShiftDetail, GapShiftSummary } from "@/lib/types/dashboard";
 
@@ -77,8 +78,8 @@ function ShiftDetail({ detail }: { detail: GapShiftDetail }) {
   );
 }
 
-export default function GapCheck() {
-  const [actorId, setActorId] = useState<number>(DEMO_APPROVER_ID);
+function GapCheckPage() {
+  const [actorId, setActorId] = useActor();
   const api = useMemo(() => createDemoApi(actorId), [actorId]);
 
   // One read tells which wards this user sees and what day the Backend Clock is on
@@ -224,5 +225,13 @@ export default function GapCheck() {
       {shiftId !== null && !detail && !detailError && <p className="mt-4">Loading shift…</p>}
       {detail && <ShiftDetail detail={detail} />}
     </main>
+  );
+}
+
+export default function GapCheck() {
+  return (
+    <Suspense>
+      <GapCheckPage />
+    </Suspense>
   );
 }

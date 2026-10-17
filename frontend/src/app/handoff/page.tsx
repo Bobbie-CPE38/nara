@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ActingAs } from "@/components/ActingAs";
+import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
 import { SKIP_REASON_INFO } from "@/lib/constants";
-import { DEMO_APPROVER_ID } from "@/lib/demo";
 import { formatDateTime } from "@/lib/format";
 import type {
   CloseCaseResult,
@@ -15,14 +16,8 @@ import type {
   ManualAssignmentResult,
 } from "@/lib/types/handoff";
 
-// The head nurse of the Golden Case ward (docs/workflow.md, section 10)
-const api = createDemoApi(DEMO_APPROVER_ID);
-
 // Same limit as the API (R2-Q20)
 const MAX_REASON_LENGTH = 500;
-
-const loadCases = (signal: AbortSignal) =>
-  api<HandoffCase[]>("/cases?status=MANUAL_HANDOFF,FAILED", { signal });
 
 function shortByText(row: HandoffCase): string {
   if (row.headcount_gap === null) return "—";
@@ -68,7 +63,15 @@ function errorText(cause: unknown): string {
 
 type Outcome = { kind: "ok" | "error" | "info"; message: string };
 
-export default function Handoff() {
+function HandoffPage() {
+  // Who acts: the user a link carried here (the Dashboard counts), else the Golden Case head
+  // nurse (docs/workflow.md, section 10). The API shows each one their own ward
+  const [actorId, setActorId] = useActor();
+  const api = useMemo(() => createDemoApi(actorId), [actorId]);
+  const loadCases = useCallback(
+    (signal: AbortSignal) => api<HandoffCase[]>("/cases?status=MANUAL_HANDOFF,FAILED", { signal }),
+    [api],
+  );
   const { data: cases, error, isLoading, refresh } = usePolling(loadCases);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [candidates, setCandidates] = useState<HandoffCandidate[] | null>(null);
@@ -95,7 +98,7 @@ export default function Handoff() {
     } catch (cause) {
       if (listedFor.current === caseId) setOutcome({ kind: "error", message: errorText(cause) });
     }
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     if (selectedId === null || !cases) return;
@@ -117,6 +120,18 @@ export default function Handoff() {
   useEffect(() => {
     if (selectedId !== null) void loadCandidates(selectedId);
   }, [selectedId, loadCandidates]);
+
+  function changeActor(id: number) {
+    // Nothing of the previous user's case may stay open: it belongs to another ward's list
+    listedFor.current = null;
+    setActorId(id);
+    setSelectedId(null);
+    setCandidates(null);
+    setOutcome(null);
+    setNote("");
+    setPendingConfirm(null);
+    setCloseReason("");
+  }
 
   function open(caseId: number) {
     // Nothing of the previous case may show while the new list loads
@@ -209,9 +224,10 @@ export default function Handoff() {
   return (
     <main className="mx-auto max-w-4xl p-8">
       <h1 className="text-2xl font-semibold">Handed-off cases</h1>
-      <p className="mt-1 text-sm">
-        Acting as head nurse {DEMO_APPROVER_ID}. Cases the system could not staff, from your ward.
-      </p>
+      <p className="mt-1 text-sm">Cases the system could not staff, from the ward of the user below.</p>
+      <div className="mt-1">
+        <ActingAs id="handoff-acting-as" value={actorId} onChange={changeActor} />
+      </div>
 
       {error && <p className="mt-4 text-red-700">{error.message}</p>}
       {outcome?.kind === "ok" && <p className="mt-4 text-green-700">{outcome.message}</p>}
@@ -389,5 +405,13 @@ export default function Handoff() {
         </section>
       )}
     </main>
+  );
+}
+
+export default function Handoff() {
+  return (
+    <Suspense>
+      <HandoffPage />
+    </Suspense>
   );
 }

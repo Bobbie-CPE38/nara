@@ -1,16 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useMemo } from "react";
 import { ActingAs } from "@/components/ActingAs";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 import { SystemStatus } from "@/components/dashboard/SystemStatus";
+import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
 import { createDemoApi } from "@/lib/api";
-import { DEMO_APPROVER_ID } from "@/lib/demo";
 import type { Dashboard } from "@/lib/types/dashboard";
 
-export default function Home() {
-  const [actorId, setActorId] = useState<number>(DEMO_APPROVER_ID);
+function Dashboard() {
+  const [actorId, setActorId] = useActor();
   const api = useMemo(() => createDemoApi(actorId), [actorId]);
   const load = useCallback((signal: AbortSignal) => api<Dashboard>("/dashboard", { signal }), [api]);
   // Read again every 2 seconds like the approvals page; the read writes nothing
@@ -29,8 +29,16 @@ export default function Home() {
         </p>
       )}
       {isLoading && !data && <p className="mt-4">Loading…</p>}
-      {data && <DashboardView data={data} />}
+      {data && <DashboardView data={data} actorId={actorId} />}
       <SystemStatus />
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense>
+      <Dashboard />
+    </Suspense>
   );
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CASE_STATUS_INFO, TONE_CLASS } from "@/lib/constants";
-import { wardName } from "@/lib/demo";
+import { wardName, withActor } from "@/lib/demo";
 import { formatDateTime } from "@/lib/format";
 import type { Dashboard, NamedGap } from "@/lib/types/dashboard";
 
@@ -27,7 +27,7 @@ function CaseLink({ caseId }: { caseId: number | null }) {
   );
 }
 
-function Counts({ data }: { data: Dashboard }) {
+function Counts({ data, actorId }: { data: Dashboard; actorId: number }) {
   return (
     <section aria-label="Cases by status" className="mt-6">
       <h2 className="text-xl font-semibold">Cases by status</h2>
@@ -37,7 +37,7 @@ function Counts({ data }: { data: Dashboard }) {
           const attention = ATTENTION_STATUSES.has(status) && count > 0;
           const page = STATUS_PAGES.get(status);
           const label = page ? (
-            <Link className="underline" href={page}>
+            <Link className="underline" href={withActor(page, actorId)}>
               {status}
             </Link>
           ) : (
@@ -54,13 +54,13 @@ function Counts({ data }: { data: Dashboard }) {
   );
 }
 
-function Shortages({ data }: { data: Dashboard }) {
+function Shortages({ data, actorId }: { data: Dashboard; actorId: number }) {
   return (
     <section aria-label="Short shifts" className="mt-6">
       <h2 className="text-xl font-semibold">Short shifts</h2>
       <p className="mt-1 text-sm">
         Shifts in progress or starting within 24 hours that need people now. To check any other
-        shift, use <Link className="underline" href="/gap">Gap check</Link>.
+        shift, use <Link className="underline" href={withActor("/gap", actorId)}>Gap check</Link>.
       </p>
       {data.shortages.length === 0 ? (
         <p className="mt-2 text-green-700">No shift is short.</p>
@@ -100,7 +100,7 @@ function Shortages({ data }: { data: Dashboard }) {
   );
 }
 
-function Waiting({ data }: { data: Dashboard }) {
+function Waiting({ data, actorId }: { data: Dashboard; actorId: number }) {
   return (
     <section aria-label="Waiting for people" className="mt-6">
       <h2 className="text-xl font-semibold">Waiting for people</h2>
@@ -115,7 +115,7 @@ function Waiting({ data }: { data: Dashboard }) {
           {data.pending_approvals.map((row) => (
             <li key={row.ward_id}>
               {wardName(row.ward_id)}:{" "}
-              <Link className="underline" href="/approvals">
+              <Link className="underline" href={withActor("/approvals", actorId)}>
                 {row.count}
               </Link>
             </li>
@@ -182,7 +182,8 @@ function LlmUsageSection({ data }: { data: Dashboard }) {
   );
 }
 
-export function DashboardView({ data }: { data: Dashboard }) {
+/** `actorId` is the user the numbers are for: the links open the next page for the same user. */
+export function DashboardView({ data, actorId }: { data: Dashboard; actorId: number }) {
   return (
     <>
       <p className="mt-2 text-sm">
@@ -190,9 +191,9 @@ export function DashboardView({ data }: { data: Dashboard }) {
         {data.modes.llm_enabled ? data.modes.llm_provider : "off"} · Wards:{" "}
         {data.wards.map(wardName).join(", ")}
       </p>
-      <Counts data={data} />
-      <Shortages data={data} />
-      <Waiting data={data} />
+      <Counts data={data} actorId={actorId} />
+      <Shortages data={data} actorId={actorId} />
+      <Waiting data={data} actorId={actorId} />
       <NoShows data={data} />
       <LlmUsageSection data={data} />
     </>

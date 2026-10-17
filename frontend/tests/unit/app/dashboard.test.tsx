@@ -55,9 +55,9 @@ describe("Dashboard page", () => {
     render(<Home />);
     const list = within(await screen.findByRole("region", { name: "Cases by status" }));
     expect(list.getAllByRole("listitem")).toHaveLength(12);
-    expect(list.getByRole("link", { name: "MANUAL_HANDOFF" }).getAttribute("href")).toBe("/handoff");
-    expect(list.getByRole("link", { name: "FAILED" }).getAttribute("href")).toBe("/handoff");
-    expect(list.getByRole("link", { name: "WAITING_APPROVAL" }).getAttribute("href")).toBe("/approvals");
+    expect(list.getByRole("link", { name: "MANUAL_HANDOFF" }).getAttribute("href")).toBe("/handoff?as=900");
+    expect(list.getByRole("link", { name: "FAILED" }).getAttribute("href")).toBe("/handoff?as=900");
+    expect(list.getByRole("link", { name: "WAITING_APPROVAL" }).getAttribute("href")).toBe("/approvals?as=900");
     // OUTREACH has no list page, so it is a count only
     expect(list.queryByRole("link", { name: "OUTREACH" })).toBeNull();
     expect(list.getByText("OUTREACH: 4")).toBeTruthy();
@@ -124,7 +124,7 @@ describe("Dashboard page", () => {
     render(<Home />);
     const waiting = within(await screen.findByRole("region", { name: "Waiting for people" }));
     expect(waiting.getByText(/Offers sent and waiting for a reply: 2/)).toBeTruthy();
-    expect(waiting.getByRole("link", { name: "3" }).getAttribute("href")).toBe("/approvals");
+    expect(waiting.getByRole("link", { name: "3" }).getAttribute("href")).toBe("/approvals?as=900");
     const noShows = within(screen.getByRole("table", { name: "Recent no-shows" }));
     expect(noShows.getByText("104")).toBeTruthy();
     expect(noShows.getByText("2026-10-18 00:00:00")).toBeTruthy();

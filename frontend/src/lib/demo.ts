@@ -58,6 +58,23 @@ export const DEMO_APPROVERS: readonly {
   { id: 902, label: "902 — Head Nurse, Medicine", wardId: 2 },
   { id: 950, label: "950 — Supervisor, every ward", wardId: null },
 ];
+/**
+ * The demo user travels from one page to the next in this query parameter, so a link of the
+ * Dashboard opens the destination for the same user (round 6 PR F2 review). Not a real login.
+ */
+export const ACTOR_QUERY = "as";
+
+/** The user a page opens for: the one in the query, or the Golden Case head nurse. */
+export function actorFromQuery(value: string | null | undefined): number {
+  const id = Number(value);
+  return DEMO_APPROVERS.some((approver) => approver.id === id) ? id : DEMO_APPROVER_ID;
+}
+
+/** A link to `path` that opens for `actorId`. */
+export function withActor(path: string, actorId: number): string {
+  return `${path}?${ACTOR_QUERY}=${actorId}`;
+}
+
 /** Where the nurse page keeps its demo sign-in (docs/workflow.md, section 6.17). Not a real login. */
 export const DEMO_SIGNED_IN_STORAGE_KEY = "nara.demo.signedInStaffId";
 

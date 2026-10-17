@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
-import { DEMO_APPROVER_ID, DEMO_APPROVERS, wardName } from "@/lib/demo";
+import { DEMO_APPROVERS, wardName } from "@/lib/demo";
 import { formatDateTime } from "@/lib/format";
 import type {
   ApprovalDecisionResult,
@@ -183,8 +184,8 @@ function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
   );
 }
 
-export default function Approvals() {
-  const [actorId, setActorId] = useState<number>(DEMO_APPROVER_ID);
+function ApprovalsPage() {
+  const [actorId, setActorId] = useActor();
   const api = useMemo(() => createDemoApi(actorId), [actorId]);
   const load = useCallback((signal: AbortSignal) => loadRows(api, signal), [api]);
   const { data, error, isLoading } = usePolling(load);
@@ -454,5 +455,13 @@ export default function Approvals() {
       )}
       <AutoHistory key={actorId} api={api} actorId={actorId} />
     </main>
+  );
+}
+
+export default function Approvals() {
+  return (
+    <Suspense>
+      <ApprovalsPage />
+    </Suspense>
   );
 }
