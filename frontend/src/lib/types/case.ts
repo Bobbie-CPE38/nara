@@ -59,10 +59,10 @@ export type RankExplanation = {
   provider: "fake" | "bedrock" | null;
   /** Only when READY. null for fake */
   model_id: string | null;
-  /** True when POST /cases/{id}/explanation would queue it now. Optional until PR E2 reads it */
-  can_request?: boolean;
+  /** True when POST /cases/{id}/explanation would queue it now */
+  can_request: boolean;
   /** null exactly when can_request is true */
-  request_blocked_reason?: ExplanationBlock | null;
+  request_blocked_reason: ExplanationBlock | null;
 };
 
 /** The roster row a candidate is moved out of when they take this shift */
