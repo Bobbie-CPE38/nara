@@ -25,7 +25,8 @@ def test_upgrade_preserves_existing_snapshot_without_sending_it(production_seede
     row_id, content = row.id, row.content
     attendance_ids = list(db.scalars(select(Attendance.id).order_by(Attendance.id)))
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
-    assert script.get_heads() == [REVISION]
+    assert len(script.get_heads()) == 1
+    assert script.get_revision("b4e7a9c2d6f0").down_revision == REVISION
     revision = script.get_revision(REVISION)
     assert revision.down_revision == "e8c4b2a6f0d9"
     with Operations.context(MigrationContext.configure(db.connection())):

@@ -222,6 +222,35 @@ describe("LINE simulator", () => {
       expect(screen.queryByText(/Wait for head-nurse approval/)).toBeNull();
     },
   );
+  it("keeps the final outcome visible when LINE is unavailable", async () => {
+    const message = "ข้อเสนอเข้าเวร #1 ถูกยกเลิกแล้ว คุณไม่ได้รับมอบหมายให้เข้าเวรจากข้อเสนอนี้";
+    replies(() => [{
+      ...offer,
+      status: "CANCELLED",
+      can_accept: false,
+      can_reject: false,
+      final_outcome: "CANCELLED",
+      final_message: message,
+      final_delivery_status: "FAILED",
+    }]);
+    render(<LineSimulatorPage />);
+    expect(await screen.findByText(message)).toBeTruthy();
+    expect(screen.getByText(/The LINE notification could not be delivered/)).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Accept offer 1" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("does not show an old failure message for a confirmed assignment", async () => {
+    replies(() => [{
+      ...offer,
+      status: "ACCEPTED",
+      is_assigned: true,
+      final_message: "stale failure message",
+    }]);
+    render(<LineSimulatorPage />);
+    expect(await screen.findByText("Assignment confirmed for this shift.")).toBeTruthy();
+    expect(screen.queryByText("stale failure message")).toBeNull();
+  });
+
   it("explains a TIMEOUT offer after the job runs", async () => {
     replies(() => [
       {

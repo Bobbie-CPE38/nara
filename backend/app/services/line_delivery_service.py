@@ -1,4 +1,4 @@
-"""Offer and Handover outbox: claim under workflow locks, release, send, lock and recheck.
+"""Offer, Handover and final-outcome outboxes: lock, release, send, recheck.
 
 Claims survive restarts. A 60-second lease exceeds the five-second HTTP timeout.
 Retries use the same recipient, body and UUID, including after a crash. No HTTP
@@ -19,6 +19,7 @@ from app.core.config import settings
 from app.db.models import (
     CandidateItem,
     CandidateOutreach,
+    OfferOutcomeNotification,
     RosterAssignment,
     Shift,
     StructuredHandover,
@@ -202,7 +203,9 @@ def _finish(db: Session, claim: Claim, result: str) -> bool:
     return False
 
 
-def _record_result(row: CandidateOutreach | StructuredHandover, result: str) -> bool:
+def _record_result(
+    row: CandidateOutreach | StructuredHandover | OfferOutcomeNotification, result: str
+) -> bool:
     """Shared retry policy. Return True only for terminal delivery failure."""
     if result.startswith("2") or result == "409":
         row.delivery_status = "ACCEPTED"
@@ -385,10 +388,91 @@ def _finish_handover(db: Session, claim: HandoverClaim, result: str) -> bool:
     return result in {"401", "403"}
 
 
+@dataclass(frozen=True)
+class OutcomeClaim:
+    notification_id: int
+    token: str
+    payload: dict[str, Any]
+    retry_key: str
+    exhausted: bool
+
+
+def _lock_outcome(db: Session, notification_id: int) -> OfferOutcomeNotification | None:
+    row = db.get(OfferOutcomeNotification, notification_id)
+    if row is None:
+        return None
+    outreach_service.lock_case_for_outreach(db, row.case_id)
+    return db.scalar(
+        select(OfferOutcomeNotification)
+        .where(OfferOutcomeNotification.id == notification_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def _claim_outcome(db: Session, notification_id: int) -> OutcomeClaim | None:
+    from app.services import offer_outcome_service
+
+    row = _lock_outcome(db, notification_id)
+    if row is None or row.delivery_status != "PENDING":
+        db.rollback()
+        return None
+    if not offer_outcome_service.eligible(db, row):
+        row.delivery_status = "CANCELLED"
+        row.delivery_claim = row.delivery_lease_until = None
+        db.commit()
+        return None
+    now = clock.now()
+    if (row.delivery_lease_until is not None and row.delivery_lease_until > now) or (
+        row.delivery_next_attempt_at is not None and row.delivery_next_attempt_at > now
+    ):
+        db.rollback()
+        return None
+    if row.delivery_payload is None or not row.delivery_retry_key:
+        raise RuntimeError("Outcome intent has no retry key or payload")
+    if line_contact_service.line_uid_for_staff(db, row.staff_id) != row.delivery_payload.get("to"):
+        row.delivery_status = "NO_CONTACT"
+        row.delivery_claim = row.delivery_lease_until = None
+        db.commit()
+        return None
+    exhausted = row.delivery_attempts >= 3
+    if not exhausted:
+        row.delivery_attempts += 1
+    token = str(uuid4())
+    row.delivery_claim = token
+    row.delivery_lease_until = now + timedelta(seconds=60)
+    claim = OutcomeClaim(row.id, token, row.delivery_payload, row.delivery_retry_key, exhausted)
+    db.commit()
+    return claim
+
+
+def _finish_outcome(db: Session, claim: OutcomeClaim, result: str) -> bool:
+    from app.services import offer_outcome_service
+
+    row = _lock_outcome(db, claim.notification_id)
+    if row is None or row.delivery_status != "PENDING" or row.delivery_claim != claim.token:
+        db.rollback()
+        return False
+    row.delivery_claim = row.delivery_lease_until = None
+    row.delivery_last_result = result
+    if not offer_outcome_service.eligible(db, row):
+        row.delivery_status = "CANCELLED"
+    elif _record_result(row, result):
+        logger.error(
+            "LINE notification %s failed after %s attempts (%s)",
+            row.id,
+            row.delivery_attempts,
+            result,
+        )
+    # An unsuccessful notification is never an unsuccessful offer delivery.
+    db.commit()
+    return result in {"401", "403"}
+
+
 def dispatch_pending(db: Session, *, case_id: int | None = None) -> None:
     """Best-effort post-commit work and job recovery; errors never escape to callers.
 
-    At most 20 offers and 20 Handovers per sweep, oldest first, including new waves created by
+    At most 20 rows of each kind per sweep, oldest first, including new waves created by
     delivery failure. HTTP requests enqueue background work with a fresh session.
     The session guard prevents recursion while this sweep reloads due offers.
     """
@@ -402,7 +486,7 @@ def dispatch_pending(db: Session, *, case_id: int | None = None) -> None:
         return
     db.info["line_dispatching"] = True
     try:
-        for model in (CandidateOutreach, StructuredHandover):
+        for model in (CandidateOutreach, StructuredHandover, OfferOutcomeNotification):
             if _dispatch_model(db, model, case_id=case_id):
                 break
     except Exception as error:
@@ -413,7 +497,10 @@ def dispatch_pending(db: Session, *, case_id: int | None = None) -> None:
 
 
 def _dispatch_model(
-    db: Session, model: type[CandidateOutreach] | type[StructuredHandover], *, case_id: int | None
+    db: Session,
+    model: type[CandidateOutreach] | type[StructuredHandover] | type[OfferOutcomeNotification],
+    *,
+    case_id: int | None,
 ) -> bool:
     visited: set[int] = set()
     for _ in range(20):
@@ -443,19 +530,21 @@ def _dispatch_model(
             break
         visited.add(outreach_id)
         try:
-            claim = (
-                _claim(db, outreach_id)
-                if model is CandidateOutreach
-                else _claim_handover(db, outreach_id)
-            )
+            if model is CandidateOutreach:
+                claim: Claim | HandoverClaim | OutcomeClaim | None = _claim(db, outreach_id)
+            elif model is StructuredHandover:
+                claim = _claim_handover(db, outreach_id)
+            else:
+                claim = _claim_outcome(db, outreach_id)
             if claim is None:
                 continue
             result = "TIMEOUT" if claim.exhausted else client.push(claim.payload, claim.retry_key)
-            stop = (
-                _finish(db, claim, result)
-                if isinstance(claim, Claim)
-                else _finish_handover(db, claim, result)
-            )
+            if isinstance(claim, Claim):
+                stop = _finish(db, claim, result)
+            elif isinstance(claim, HandoverClaim):
+                stop = _finish_handover(db, claim, result)
+            else:
+                stop = _finish_outcome(db, claim, result)
             if stop:
                 return True
         except Exception as error:

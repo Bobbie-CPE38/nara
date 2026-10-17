@@ -517,7 +517,9 @@ def test_simultaneous_per_candidate_approvals_create_two_assignments_once(commit
     assert not errors, errors
     with SessionLocal() as db:
         assert db.get(StaffingCase, case_id).status == CaseStatus.RESOLVED
-        assert [r.staff_id for r in replacements(db)] == [201, 202]
+        # Concurrent approvals may allocate roster IDs in either order. Still
+        # require exactly these two assignments; missing/duplicate rows fail.
+        assert sorted(r.staff_id for r in replacements(db)) == [201, 202]
         assert (
             db.scalar(
                 select(func.count())

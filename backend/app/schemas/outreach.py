@@ -28,5 +28,8 @@ class OfferView(BaseModel):
     can_reject: bool
     blocked_reason: Literal["CASE_STOPPED", "OFFER_EXPIRED", "AWAITING_OTHER_CASE"] | None
     cancellation_reason: str | None
+    final_outcome: str | None = None
+    final_message: str | None = None
+    final_delivery_status: str | None = None
     is_assigned: bool
     is_reserve: bool

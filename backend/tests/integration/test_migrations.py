@@ -13,7 +13,7 @@ from app.db.base import Base
 from app.db.session import engine
 
 # docs/database-schema.md (OUTREACH_POLICY and CANDIDATE_ITEM_TARGET added in round 1)
-EXPECTED_TABLE_COUNT = 41
+EXPECTED_TABLE_COUNT = 42  # Issue 98 adds OFFER_OUTCOME_NOTIFICATION
 
 
 def test_models_cover_every_table_in_the_schema_document() -> None:

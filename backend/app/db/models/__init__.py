@@ -21,6 +21,7 @@ from app.db.models.line_account_link_code import LineAccountLinkCode
 from app.db.models.line_webhook_event import LineWebhookEvent
 from app.db.models.llm_call_log import LlmCallLog
 from app.db.models.manual_assignment import ManualAssignment
+from app.db.models.offer_outcome_notification import OfferOutcomeNotification
 from app.db.models.outreach_policy import OutreachPolicy
 from app.db.models.rank_explanation import RankExplanation
 from app.db.models.role import Role
@@ -67,6 +68,7 @@ __all__ = [
     "LineWebhookEvent",
     "LineAccountLinkCode",
     "OutreachPolicy",
+    "OfferOutcomeNotification",
     "RankExplanation",
     "Role",
     "RosterAssignment",

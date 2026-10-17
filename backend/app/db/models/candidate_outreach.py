@@ -1,7 +1,17 @@
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +46,9 @@ class CandidateOutreach(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     response_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[OutreachStatus] = mapped_column(StrEnumText(OutreachStatus))
+    accepted_as_reserve: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=text("false")
+    )
     # NULL for simulation and historical offers; never backfill live delivery.
     delivery_status: Mapped[str | None] = mapped_column(Text)
     delivery_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))

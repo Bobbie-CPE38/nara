@@ -1709,6 +1709,41 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 
 ---
 
+
+### 6.26 ผลสุดท้ายของข้อเสนอทาง LINE (Issue #98, หลังปิดรอบ 5)
+
+หนึ่ง Offer (`outreach_id`) มีผลสุดท้ายได้หนึ่งรายการใน `OFFER_OUTCOME_NOTIFICATION` แยกจากการส่ง Offer เดิมและ Handover ยืนยันการได้เวร รอบ retry ของผู้สมัครเป็น Offer ใหม่จึงมีผลของตัวเอง ไม่ย้อนส่งผลของข้อมูลเก่าตอนอัปเกรด
+
+| Audit ที่เป็นต้นเหตุ | ผลที่แจ้ง |
+|---|---|
+| `APPROVAL_REJECTED` | ไม่ได้รับอนุมัติ ไม่ใช้เหตุผลอิสระของหัวหน้าในข้อความ LINE |
+| `APPROVAL_TIMEOUT` | หมดเวลารออนุมัติ แยกจากการปฏิเสธ |
+| `OFFER_TIMEOUT` | หมดเวลาตอบรับ ทั้งผู้ตอบรับและ Job ใช้เส้นตายเดิม |
+| `CASE_RESOLVED` ที่มี `cancelled_outreach_ids` | จัดคนครบ ยกเลิกเฉพาะ Offer ที่ระบุ รวมตัวสำรอง |
+| `OFFER_CANCELLED_NOT_NEEDED` | ไม่ต้องการคนแทนเพิ่มเติมในช่วงนั้นแล้ว |
+| `OFFER_CANCELLED_BY_ASSIGNMENT` หรือรายการยกเลิกของ Audit การจัด/ย้ายเวร | มีเวรอื่นขัดกัน |
+| `TRANSFER_CHECK_FAILED` / `SAFETY_FAILED` | ย้ายไม่ได้ / ไม่ผ่านเงื่อนไขการจัดเวร |
+| `MANUAL_HANDOFF` ที่มีรายการยกเลิก | หัวหน้าจะจัดคนต่อ |
+| `WORKFLOW_FAILED` | คำขอที่อนุมัติครบแล้วแต่ไม่มีเวรได้ `EXECUTION_FAILED`: ยังยืนยันการจัดเวรไม่ได้; Offer อื่นที่ยังค้างได้ข้อความยกเลิกกลาง ไม่ใช่หัวหน้าปฏิเสธ |
+| `CASE_CLOSED_UNRESOLVED` ที่มีรายการยกเลิก หรือเหตุผล `CANCELLED` | ข้อเสนอถูกยกเลิก ให้ติดต่อหัวหน้าหอ ไม่เดาสาเหตุ |
+
+`audit_service.log()` เรียกตัวฉายผล `offer_outcome_service.prepare_audit()` หลัง flush Audit ใน Transaction เดียวกัน เขียนเฉพาะ Snapshot/Intent ไม่มี Network หรือ Commit ไม่เพิ่ม Workflow Lock ผู้เรียกถือ Lock ของ Offer ตามทางเดิมอยู่แล้ว Audit ที่ไม่ใช่ผลสุดท้ายไม่ทำอะไร จึงไม่ส่งเมื่ออนุมัติเพียงฝั่งเดียว และไม่ส่งซ้ำเมื่อพยาบาลปฏิเสธเอง (มี Reply เดิมแล้ว) Unique `(outreach_id, kind)` กันหลาย Audit สร้างหลายข้อความชนิดเดียวกัน การ Rollback รวม Savepoint ของ D11 ลบ Intent ในรอบที่ล้มด้วย ส่วนผลของผู้เรียกที่อยู่นอก Savepoint ยังคงอยู่
+
+ข้อความระบุเลข Offer หอ วันและเวลาครอบคลุมจริงที่เสนอ (รวมวันที่ปลายทางข้ามคืน) และย้ำว่าไม่ได้รับมอบหมายจากข้อเสนอนี้ ไม่กล่าวว่าเวรอื่นถูกยกเลิก `CANCELLED` ใช้ข้อความกลาง ไม่เปิดเผย Error ภายในหรือเหตุผลอิสระ `EXECUTION_FAILED` ไม่กล่าวว่าหัวหน้าไม่อนุมัติ
+
+ส่งหลัง Commit ผ่าน Background ของ Request หรือ Job เดิม แต่ละ sweep ส่งผลสุดท้ายได้สูงสุด 20 รายการ ใช้ Retry/Lease/Key เดิมของข้อ 6.16 Worker ล็อก Offer → Case → Staff ตาม helper เดิม แล้วล็อกแถว Notification; ไม่มี Lock/Transaction ค้างระหว่าง HTTP ตรวจความเหมาะสมก่อนส่ง ก่อน retry และหลังส่ง: ถ้ามี Handover ยืนยันการได้เวรของคนเดียวกันในเคสเดียวกันและช่วงทับกัน ให้หยุดข้อความล้มเหลวเป็น `CANCELLED` ไม่ใช้เกณฑ์ Handover ที่ต้อง `ASSIGNED` กับข้อความเหล่านี้ เพราะเป้าหมายคือ Offer ที่ถูกยกเลิก/หมดเวลา ไม่มี Binding ได้ `NO_CONTACT` โดยไม่มี Payload/Key/Attempt; unlink/rebind ไม่เปลี่ยนผู้รับของ Payload เดิม ไม่ Backfill เมื่อผูกบัญชีภายหลัง ส่งล้มเปลี่ยนเฉพาะ Notification ไม่เปลี่ยนเคส เวร หรือเขียน `OFFER_DELIVERY_FAILED`
+
+`GET /me/offers` และ `/demo/line-sim/offers` เพิ่ม `final_outcome`, `final_message`, `final_delivery_status` (nullable) หน้าเว็บใช้แสดงผลได้แม้ไม่มี LINE และไม่แสดงข้อความล้มเหลวคู่กับการยืนยันได้เวร
+
+**หมดเวลาทั้งสองทาง:** Job บันทึก `OFFER_TIMEOUT` แล้วส่งข้อความอัตโนมัติ (อาจช้าตามรอบ Job) ส่วนกด Accept หลังเส้นตายตอบทันทีว่า “ข้อเสนอนี้หมดเวลาตอบรับแล้ว จึงไม่สามารถรับข้อเสนอได้” ทั้งก่อนและหลัง Job บันทึก `TIMEOUT` โดยไม่เปลี่ยน DB ของ Offer ทางอ่าน/ตอบกลับยังไม่เขียนผลหมดเวลาเอง Dedup ของ Webhook คงเดิม
+
+**สถานะตัวสำรอง:** เมื่อ Accept ให้บันทึก `accepted_as_reserve` จาก Gap และคำขอที่ค้างจริงใน Transaction ของคำตอบ ไม่ใช่ Target PRIMARY/RESERVE ของ Solver คำตอบทาง LINE อ่านสถานะหลัง Commit: ถ้าเป็นสำรองให้บอก “บันทึกการตอบรับแล้ว ขณะนี้คุณเป็นตัวสำรอง กรุณารอการยืนยันก่อนเข้าเวร” ถ้าเลื่อนขึ้นแล้ว Safety ผ่าน Audit `APPROVAL_REQUESTED` สร้าง Intent ชนิด `RESERVE_PROMOTED` พร้อมคำขอใน Transaction เดียวกัน ข้อความบอกกำลังรอหัวหน้าอนุมัติ ยังไม่ได้เวร Unique เปลี่ยนเป็น `(outreach_id, kind)` จึงมี Promotion หนึ่งครั้งและผล `FINAL` หนึ่งครั้งแยกกันได้ ก่อนส่ง/retry ต้องยังเป็น ACCEPTED มีคำขอ pending ที่ไม่หมดเวลา และเคสยังเดินอยู่ ได้เวรแล้ว/คำขอจบแล้ว/หมดเวลาแล้วหยุดข้อความ Promotion ไม่ส่งย้อนหลังตอน upgrade และ API ของผลสุดท้าย join เฉพาะ `kind = FINAL` เพื่อไม่ให้แถว Offer ซ้ำหรือแสดง Promotion เป็นผลล้มเหลว
+
+**เมื่อ LINE ส่งล้ม:** บันทึกรหัสผลส่งแบบไม่เปิดเผย Payload/UID และ log เมื่อส่งจนจบเป็น FAILED หน้า Offer แสดงคำเตือนจาก `final_delivery_status` ว่า LINE ส่งไม่สำเร็จ พร้อมผลล่าสุด ไม่ปลอมว่าส่งสำเร็จ การส่งเป็น best effort ผ่าน retry เดิม 3 ครั้ง; เส้นตายใช้ Backend Clock เสมอ Demo หลัง reset เป็น frozen ต้องเลื่อนเวลา Demo การรอเวลาจริงไม่ทำให้เวลา Demo เดิน และการ retry ที่กำหนดเวลาใน Backend Clock ก็ต้องให้เวลานั้นเดินด้วย โหมดเวลาจริง Job ตรวจทุก 30 วินาที การแจ้งอัตโนมัติไม่ต้องรอผู้สมัครกดปุ่ม
+
+Tests: `test_offer_outcome_notifications.py` (เหตุผล, ทางอนุมัติ/หมดเวลา, สองหอ, D11, Rollback, Retry, Binding, ข้อมูลเก่า, สอง Worker), `test_offer_outcome_migration.py`; `test_line_reserve_notifications.py` ทดสอบ Reply สำรอง, Promotion และเส้น HTTP Job/Demo ส่งหมดเวลาเอง (รวมส่งครั้งแรก TIMEOUT แล้ว Job retry โดยไม่มีการกดปุ่ม); frontend `lineSimRoster.test.tsx` ทดสอบผลสุดท้ายและการซ่อนข้อความเก่าเมื่อได้เวรแล้ว ต้องลอง LINE จริงแยกก่อนปิด Issue โดยใช้ด่าน Tunnel เดิม ไม่เปิด Route ใหม่
+
+
 ## 7. Audit
 
 PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้ามี Offer ใหม่ Commit ระหว่างรอ Lock ให้ Rollback ก่อนเขียนคำตัดสิน แล้วเริ่มล็อกใหม่ตามลำดับเดิม (สูงสุด 5 ครั้ง ถ้ายังเปลี่ยนตอบ 409 ให้ลองใหม่) ไม่ล็อก Offer เพิ่มภายหลังเคส/Staff เพื่อกัน Deadlock
@@ -2617,3 +2652,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-16 | รอบ 5 PR N2: `NO_SHOW` สองขั้นและมาสาย ไม่มี Migration; ขั้นที่ 1 `no_show_service.detect_due_no_shows()` (Job เรียกก่อนปิด Window, ต่อเวร ล็อก `SHIFT` แล้วแถวใน Query เดียว, ตรวจซ้ำด้วย `is_no_show()` และ `has_on_time_check_in()` ที่เดินโซ่การย้าย) เขียน Event `STAFF_UNAVAILABLE` ที่ `payload` = `{reason: NO_SHOW, roster_assignment_id}` ผ่าน `event_service.record_no_shows()` Actor `SYSTEM`; ยกเว้นคนที่มีการลาหรือการยกเลิกเวรรอ Window ทุกชนิดใน `STAFF_EVENT_TYPES` (กว้างกว่า Contract ที่ระบุแค่ `STAFF_UNAVAILABLE`); ขั้นที่ 2 `merge_window_service._apply_no_show()` (`_apply()` คืน `bool` ว่านับเข้า Threshold) บันทึก `STAFF_UNAVAILABILITY(NO_SHOW)` ยกเลิกแถว เขียน `UNAVAILABILITY_CREATED` และเดินทางมาสายต่อถ้ามี check-in; `EventIgnoredReason.SHIFT_ENDED` ของ `NO_SHOW` ที่เป็นประวัติอย่างเดียว; `late_arrival_service` (`restore()`, `arrive_after_no_show()`, `trim()`, `credited_case()`) และ `case_status.interval_shortage()`, `choose_kept()` เก็บความครอบคลุมก่อน; Audit `UNAVAILABILITY_UPDATED` ของทางมาสายที่ `case_facts_service._returned_spans()` ใช้นับคนที่มาสาย (ไม่อยู่ใน `assigned_staff_ids()`); `OFFER_CANCELLED_NOT_NEEDED` และ `cancellation_reason` = `NO_LONGER_NEEDED`; `attendance_service.check_in()` ล็อกแถวที่ `NO_SHOW` ยกเลิกรวมด้วย ลำดับล็อกของทางมาสายและ Retry สูงสุด `CHECK_IN_LOCK_TRIES` = 5 แล้ว `CheckInLockRetryError` ตอบ `409` ทั้งสอง Route; `no_show_event_ids` ในคำตอบของ `close-due` และ `clock/advance`; แก้ข้อ 3.7, 6.11, 6.24, 7.1, 9.3, 9.7 และ `database-schema.md`; Test: `test_no_show_detection.py`, `test_no_show_window.py`, `test_late_arrival.py`, `test_late_arrival_races.py`, `tests/unit/domain/test_case_status_trim.py` | คน 1 |
 | 2026-10-16 | รอบ 5 PR U5: `GET /clock` คืน `{now, frozen}` ไม่มี Migration; แถบเมนูแสดง Clock ของ Backend; หน้า `/me/offers` มีปุ่ม check-in และรายการ Handover ของตัวเอง; หน้า `demo/control` มีปุ่มจำลองการ check-in และแสดง `no_show_event_ids`; หน้าเคสมีส่วน Handover; ตัวแสดง Handover อ่านเฉพาะ Key ของ `version` 1 และข้ามรายการที่ไม่ใช่ Handover | คน 1 |
 | 2026-10-16 | ปิดรอบ 5: PR ทุกตัวของรอบ 5 เข้า `staging` ครบ (#91 ถึง #97, #99, #100); ส่วน "สถานะของรอบ 5" บอกว่าเสร็จแล้ว ใส่ #93 และ #99 ในแถว N1 และ N2 บันทึก Migration head `f6b2d8a4c0e1` และจำนวน Test ตอนปิดรอบ; ตาราง Test ของข้อกำหนดที่พังเงียบได้มีคอลัมน์ "Test อยู่ที่" ที่ตรวจแล้วว่ามีอยู่จริงทุกแถว; รวบรวมเรื่องที่เปิดไว้ (ข้อยกเว้นของการยกเลิกที่ค้าง, Pagination, Bedrock, Test ลำดับการอนุมัติ) ไม่เปลี่ยนพฤติกรรมของระบบ | คน 1 |
+| 2026-10-17 | Issue #98 หลังปิดรอบ 5: ผลสุดท้ายของข้อเสนอและ LINE outbox แยกต่อ outreach_id, ส่งหลัง Commit ด้วย retry เดิม, ปุ่มหมดเวลาได้คำตอบทั้งก่อน/หลัง Job, หน้า Offer อ่าน final_outcome/final_message ได้แม้ไม่มี LINE; Migration b4e7a9c2d6f0 ต่อ f6b2d8a4c0e1 และ c5f8b0d3e7a1 แยก Promotion/FINAL กับธงรับเป็นสำรอง ไม่มี backfill ข้อความ; แก้ assertion ของ test อนุมัติพร้อมกันให้ตรวจคนครบ/ไม่ซ้ำโดยไม่บังคับลำดับ ID ของสอง Thread | คน 3 |
