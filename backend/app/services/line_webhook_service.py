@@ -15,7 +15,12 @@ from app.core import clock
 from app.core.config import settings
 from app.core.constants import MAX_BIGINT
 from app.db.models import LineWebhookEvent
-from app.domain.enums import CandidateResponse, CheckInSource
+from app.domain.enums import (
+    AUTOMATION_STOPPED_STATUSES,
+    CandidateResponse,
+    CheckInSource,
+    OutreachStatus,
+)
 from app.domain.errors import ShiftNotFoundError
 from app.integrations.line import client
 from app.services import (
@@ -28,6 +33,39 @@ from app.services import (
 
 logger = logging.getLogger(__name__)
 _LINK_COMMAND = re.compile(r"LINK(?:\s+|$)", re.IGNORECASE | re.ASCII)
+_OFFER_BUTTON_GUIDANCE = (
+    "หากต้องการตอบข้อเสนอเข้าเวร กรุณากดปุ่มในข้อความข้อเสนอที่ยังตอบได้ เพื่อบันทึกคำตอบ "
+    "การพิมพ์แชตยังไม่ถือเป็นการตอบข้อเสนอค่ะ"
+)
+_LINK_GUIDANCE = (
+    "สวัสดีค่ะ กรุณาผูกบัญชี LINE กับ Nara ก่อนใช้งาน โดยขอรหัสผูกบัญชีจากผู้ดูแล "
+    "แล้วส่งข้อความ LINK <รหัสที่ได้รับ> มาที่แชตนี้ค่ะ"
+)
+_WAITING_GUIDANCE = "ระบบบันทึกการตอบรับของคุณแล้ว ขณะนี้อยู่ระหว่างรอผล กรุณารอการแจ้งยืนยันก่อนเข้าเวรค่ะ"
+_IDLE_GUIDANCE = (
+    "สวัสดีค่ะ นี่คือระบบแจ้งเตือนเวรของ Nara "
+    "ขณะนี้คุณไม่มีข้อเสนอเข้าเวรที่รอดำเนินการ "
+    "หากต้องการความช่วยเหลือ กรุณาติดต่อหัวหน้าหอค่ะ"
+)
+
+
+def _message_guidance(db: Session, uid: str) -> str:
+    """Read the sender's current offers; never infer a response from their text."""
+    staff = line_contact_service.staff_for_line_uid(db, uid)
+    if staff is None:
+        return _LINK_GUIDANCE
+    offers = outreach_service.list_offers(db, staff_id=staff[0])
+    if any(offer.can_accept or offer.can_reject for offer in offers):
+        return _OFFER_BUTTON_GUIDANCE
+    if any(
+        offer.status == OutreachStatus.ACCEPTED
+        and offer.case_status not in AUTOMATION_STOPPED_STATUSES
+        and not offer.is_assigned
+        and offer.final_outcome is None
+        for offer in offers
+    ):
+        return _WAITING_GUIDANCE
+    return _IDLE_GUIDANCE
 
 
 def valid_signature(body: bytes, signature: str | None) -> bool:
@@ -206,8 +244,22 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             _reply(db, event, "ผูกบัญชี LINE สำเร็จแล้ว")
             return
         if event.get("type") != "postback":
+            # Read status before dedup commits, then use the existing post-commit
+            # reply path. Incoming text is never persisted, interpreted or echoed.
+            source = event.get("source")
+            guidance = None
+            if (
+                event.get("type") == "message"
+                and isinstance(source, dict)
+                and source.get("type") == "user"
+                and isinstance(source.get("userId"), str)
+                and source["userId"]
+            ):
+                guidance = _message_guidance(db, source["userId"])
             _remember(db, event_id)
             db.commit()
+            if guidance is not None:
+                _reply(db, event, guidance)
             return
         source = event.get("source", {})
         uid = source.get("userId") if isinstance(source, dict) else None
