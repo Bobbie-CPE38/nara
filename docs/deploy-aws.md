@@ -16,7 +16,7 @@
 * หน้าเว็บและ API อยู่ใน Domain เดียวกัน API อยู่ใต้ `/api` เบราว์เซอร์จึงส่งรหัส Basic Auth ที่กรอกตอนเปิดหน้าเว็บไปกับคำขอ API เองโดยไม่ต้องแก้โค้ด Frontend และไม่ติด CORS
 * Caddy ขอใบรับรอง HTTPS จาก Let's Encrypt เอง Domain จึงต้องชี้มาที่เครื่องก่อนเริ่มครั้งแรก ใบรับรองเก็บใน Volume `caddy_data` เปิดปิดเครื่องแล้วไม่ต้องขอใหม่
 * `/api/internal/*` ตอบ `404` จากภายนอกเสมอ ทั้งมีและไม่มีรหัส เพราะมีแค่ Job ที่เรียก และเรียกผ่าน Network ภายในของ compose
-* Frontend ยังรัน Dev server เหมือนเครื่องพัฒนา PR F3 เปลี่ยนเป็น production build (ข้อ 6.30 ช่วง ก) **ห้ามเปิดให้ภายนอกเข้าก่อน F3 merge และผ่านช่วง ข**
+* Frontend เป็น production image (`deploy/aws/frontend.Dockerfile`, PR F3): `next build` ทำตอนสร้าง image และ `next start` ให้บริการ ไม่มี bind mount โค้ดเข้า Container ที่อยู่นอก image ใช้ RAM ตอนว่างราว 45 ถึง 120 MiB (Dev server เคยวัดได้ 424 MiB) Backend ยังเป็น Dev server เหมือนเครื่องพัฒนา **ห้ามเปิดให้ภายนอกเข้าก่อนผ่านช่วง ข**
 
 ## ด่าน Basic Auth
 
@@ -63,7 +63,7 @@
 
 ## ตั้งเครื่องครั้งแรก (คน 1)
 
-1. **EC2:** Amazon Linux 2023 ซึ่งมี AWS CLI v2 และ `python3` มาให้ ซึ่ง `load-env.sh` ใช้ RAM อย่างน้อย 4 GB เพราะ `npm ci` และ `next dev` ตอน Compile ใช้มากกว่าตอนรันปกติ (บนเครื่องพัฒนาทุก Service รวมกันใช้ราว 1 GB ตอนว่าง) Disk 30 GB
+1. **EC2:** Amazon Linux 2023 ซึ่งมี AWS CLI v2 และ `python3` มาให้ ซึ่ง `load-env.sh` ใช้ RAM อย่างน้อย 4 GB เพราะ `pip install` ของ Backend และ `npm ci` กับ `next build` ตอนสร้าง image ของ Frontend ใช้มากกว่าตอนรันปกติ (บนเครื่องพัฒนาทุก Service รวมกันใช้ราว 1 GB ตอนว่าง) Disk 30 GB
 2. **Security Group:** SSH 22 เปิดเฉพาะ IP ของทีม ส่วน 80 และ 443 ในช่วงตรวจช่วง ข (ข้อ 6.30 ข้อเสนอที่ยังไม่ตกลง) จำกัดให้ IP ของทีมได้ แต่การออกใบรับรองครั้งแรกต้องให้ Let's Encrypt เข้า Port 80 หรือ 443 ได้ (ตรวจจาก IP ที่เปลี่ยนไปมา) จึงเปิดสองพอร์ตนี้ให้ทุกที่ชั่วคราวตอนออกใบรับรอง โดยยังมีด่าน Basic Auth ครอบทุก Path ยกเว้น Webhook หรือออกใบรับรองก่อนแล้วค่อยจำกัด IP หลังผ่านช่วง ข ทีมตกลงแล้วจึงเปิด 80 และ 443 ให้ทุกที่ (LINE ต้องเข้า Webhook ได้)
 3. **Elastic IP และ DNS:** ผูก Elastic IP กับเครื่อง แล้วตั้ง Record `A` ของ `SITE_DOMAIN` ให้ชี้ไปที่ IP นั้นก่อนเริ่ม Stack ครั้งแรก เมื่อใช้ Elastic IP การหยุดแล้วเริ่มเครื่องใหม่ (R6-Q5 เปิดเฉพาะช่วงทดสอบและ Demo) ไม่เปลี่ยน IP จึงไม่ต้องแก้ URL ของ Webhook ใน LINE Developers
 4. **IAM Role ของเครื่อง:** สร้าง Role ให้ EC2 แนบ Policy จาก `deploy/aws/iam-parameter-read-policy.json` (แทน `REGION` และ `ACCOUNT_ID`) Policy นี้อ่านได้แค่ Path `/nara/test` ใช้ Key `aws/ssm` ที่ AWS สร้างให้ ถ้าเปลี่ยนเป็น Key ของทีมเองต้องเพิ่ม `kms:Decrypt` ของ Key นั้น สิทธิ์ Bedrock เพิ่มทีหลังโดยคน 2 (หัวข้อข้างล่าง) ไม่ใส่ในไฟล์นี้
@@ -110,9 +110,9 @@ dc exec -T backend python -m app.seed    # ลบ Schema, Migrate ถึง head
 
 ช่วง ก (ตรวจในเครื่องผู้พัฒนา) เป็นของ PR F3 ช่วงนี้ตรวจบนเครื่องจริง ผลบันทึกในตาราง "อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง" ของ `workflow.md` และใน Description ของ PR แรกที่ใช้เครื่อง (B2 หรือ W)
 
-1. Container ของ Frontend รัน production mode จริง: `dc ps` แล้ว `sudo docker inspect nara-staffing-frontend --format '{{.Config.Cmd}}'` ต้องไม่มี `npm run dev` (ข้อนี้ไม่ผ่านจนกว่า F3 merge)
+1. Container ของ Frontend รัน production mode จริง: `dc ps` แล้ว `sudo docker inspect nara-staffing-frontend --format '{{.Config.Cmd}}'` ต้องเป็น `next start` ไม่มี `npm run dev` และ `sudo docker inspect nara-staffing-frontend --format '{{len .Mounts}}'` ต้องเป็น `0` (F3 ตรวจเรื่องนี้กับ Compose ในเครื่องแล้วด้วย `deploy/aws/test_frontend.py` ข้อนี้ตรวจซ้ำบนเครื่องจริง)
 2. `bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password>` ผ่านทุกข้อจากเครื่องของตัวเอง ไม่ใช่จากตัวเครื่อง
-3. เปิด `/`, `/gap`, หน้าเคส และ `/demo/control` ผ่าน Caddy ด้วยรหัส เรียก API ผ่าน `/api` ได้ ไม่มี Error ใน Console และ Bundle ที่เครื่องส่งให้ไม่มี `localhost:8000` (`/gap` มีเมื่อ F2 merge) และดูว่าเบราว์เซอร์ไม่ถามรหัสซ้ำ: Backend ตอบ `401` ด้วย Header `WWW-Authenticate: X-Demo-User` (`app/api/dependencies.py`) ซึ่งเป็นคนละ Scheme กับ Basic ของด่าน เบราว์เซอร์บางตัวอาจทิ้งรหัสที่จำไว้เมื่อ Origin เดียวกันตอบ `401` ด้วย Scheme อื่น ถ้าเจอ ให้ตัด Header นั้นที่ Caddy (`header_down -WWW-Authenticate` ใน `handle_path /api/*`) ใน PR แยก ยังไม่ได้ทำเพราะยังไม่ทราบว่าเกิดจริงไหม
+3. เปิด `/`, `/gap`, หน้าเคส และ `/demo/control` ผ่าน Caddy ด้วยรหัส เรียก API ผ่าน `/api` ได้ ไม่มี Error ใน Console และ Bundle ที่เครื่องส่งให้ไม่มี `localhost:8000` และดูว่าเบราว์เซอร์ไม่ถามรหัสซ้ำ: Backend ตอบ `401` ด้วย Header `WWW-Authenticate: X-Demo-User` (`app/api/dependencies.py`) ซึ่งเป็นคนละ Scheme กับ Basic ของด่าน เบราว์เซอร์บางตัวอาจทิ้งรหัสที่จำไว้เมื่อ Origin เดียวกันตอบ `401` ด้วย Scheme อื่น ถ้าเจอ ให้ตัด Header นั้นที่ Caddy (`header_down -WWW-Authenticate` ใน `handle_path /api/*`) ใน PR แยก ยังไม่ได้ทำเพราะยังไม่ทราบว่าเกิดจริงไหม
 4. ถ้าผ่านทั้งหมด จึงเปิด Security Group ให้ภายนอกเข้า แล้วคน 3 เปลี่ยน Webhook (W)
 
 ## Deploy โค้ดใหม่
@@ -123,7 +123,7 @@ sudo git pull
 sudo systemctl restart nara
 ```
 
-Backend (และ Frontend จนกว่า F3 merge) เป็น Dev server ที่อ่านโค้ดจาก Volume เหมือนเครื่องพัฒนา (R3-Q20 ใช้ `docker compose` ชุดเดิม) Restart ทำให้อ่าน Parameter Store ใหม่ด้วย ถ้า PR ที่เข้ามามี Migration ให้รัน `seed` ใหม่ ซึ่งล้างข้อมูลบนเครื่อง ใครเป็นคน Deploy และ Deploy เมื่อไรให้ตกลงในทีม
+Backend เป็น Dev server ที่อ่านโค้ดจาก Volume เหมือนเครื่องพัฒนา (R3-Q20 ใช้ `docker compose` ชุดเดิม) ส่วน Frontend เป็น image ที่ build ไว้แล้ว `nara.service` สั่ง `up -d --build` ดังนั้น Restart จะสร้าง image ของ Frontend ใหม่เมื่อโค้ดของ Frontend เปลี่ยน (ใช้เวลาตามความแรงของเครื่อง ยังไม่ได้วัดบนเครื่อง AWS ถ้าไม่เปลี่ยนใช้ Cache) และ `NEXT_PUBLIC_API_BASE_URL` ถูกเขียนลง Bundle ตอน build จึงเปลี่ยนโดเมนแล้วต้อง build ใหม่ Restart ทำให้อ่าน Parameter Store ใหม่ด้วย ถ้า PR ที่เข้ามามี Migration ให้รัน `seed` ใหม่ ซึ่งล้างข้อมูลบนเครื่อง ใครเป็นคน Deploy และ Deploy เมื่อไรให้ตกลงในทีม
 
 ## เปิดและปิดเครื่อง (R6-Q5)
 

@@ -36,6 +36,10 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
+const inScrollBox = (table: HTMLElement) =>
+  // A table wider than a phone scrolls inside its box, not the whole page (round 6 PR F3)
+  expect(table.parentElement?.className, table.getAttribute("aria-label") ?? "table").toContain("overflow-x-auto");
+
 describe("Gap check page", () => {
   it("starts on the Backend Clock day in the user's own ward", async () => {
     replies((path) => (path === "/dashboard" ? dashboard() : path === DAY_LIST ? [SHIFT_ROW] : new Error(`unexpected ${path}`)));
@@ -76,6 +80,16 @@ describe("Gap check page", () => {
     const present = within(roster.getByText("Thanaphon Demo").closest("tr") as HTMLElement);
     expect(present.getAllByRole("cell").slice(-2).map((cell) => cell.textContent)).toEqual(["No", "Yes"]);
     expect(screen.getByRole("link", { name: "Open case 7" }).getAttribute("href")).toBe("/cases/7");
+  });
+
+  it("keeps the shift list, the slices and the roster in boxes that scroll sideways on a phone", async () => {
+    replies((path) => (path === "/dashboard" ? dashboard() : path === DAY_LIST ? [SHIFT_ROW] : SHIFT_DETAIL));
+    render(<GapCheck />);
+    fireEvent.click(await screen.findByRole("button", { name: "Check shift 1" }));
+    await screen.findByRole("table", { name: "Roster" });
+    const tables = screen.getAllByRole("table");
+    expect(tables.map((table) => table.getAttribute("aria-label"))).toEqual(["Shifts of the day", "Gap by time", "Roster"]);
+    tables.forEach(inScrollBox);
   });
 
   it("has no button that creates an event or a case, and only reads", async () => {

@@ -7,9 +7,9 @@
 # Only Caddy publishes ports. Every other service is reachable inside the
 # compose network only. `!reset` needs Docker Compose 2.24 or later.
 #
-# The frontend still runs the development server here. Round 6 PR F3 adds the
-# production build (docs/workflow.md 6.30); the machine is not opened to the
-# outside before that.
+# The frontend is a production image (round 6 PR F3, docs/workflow.md 6.30): `next build`
+# runs while the image is built and `next start` serves it, with no code mounted in.
+# Add --build to `up` after the code changes (nara.service does).
 
 services:
   postgres:
@@ -33,9 +33,23 @@ services:
       INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must come from Parameter Store}
 
   frontend:
+    image: nara-staffing-frontend:aws
+    build:
+      context: ./frontend
+      dockerfile: ../deploy/aws/frontend.Dockerfile
+      args:
+        # Written into the browser bundle by `next build`. The only value that gets there
+        NEXT_PUBLIC_API_BASE_URL: https://${SITE_DOMAIN:?SITE_DOMAIN must come from Parameter Store}/api
     ports: !reset []
-    environment:
-      NEXT_PUBLIC_API_BASE_URL: https://${SITE_DOMAIN:?SITE_DOMAIN must come from Parameter Store}/api
+    # No bind mount: the code and node_modules are in the image
+    volumes: !reset []
+    # The image starts `next start`; the main file's command runs the dev server
+    command: !reset []
+    # Nothing is read from the environment when the server runs
+    environment: !override {}
+    healthcheck:
+      # No dev compile to wait for
+      start_period: 30s
 
   caddy:
     image: caddy:2.10-alpine

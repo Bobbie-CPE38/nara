@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ScrollX } from "@/components/ScrollX";
 import { ActingAs } from "@/components/ActingAs";
 import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
@@ -244,48 +245,50 @@ function HandoffPage() {
       {isLoading && <p className="mt-4">Loading…</p>}
       {cases && cases.length === 0 && <p className="mt-4">No handed-off cases.</p>}
       {cases && cases.length > 0 && (
-        <table className="mt-4 w-full text-left">
-          <thead>
-            <tr>
-              <th>Case</th>
-              <th>Status</th>
-              <th>Shift</th>
-              <th>Still short</th>
-              <th>Opened at</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {cases.map((row) => (
-              <tr key={row.id}>
-                <td>
-                  <Link className="underline" href={`/cases/${row.id}`}>
-                    {row.id}
-                  </Link>
-                </td>
-                <td>{row.status}</td>
-                <td>{row.shift_id}</td>
-                <td>{shortByText(row)}</td>
-                <td>{formatDateTime(row.created_at)}</td>
-                <td>
-                  {row.can_manage ? (
-                    <button
-                      type="button"
-                      className={button}
-                      disabled={busy}
-                      onClick={() => open(row.id)}
-                    >
-                      Manage
-                    </button>
-                  ) : (
-                    // FAILED stays an end point (R2-Q22)
-                    <span className="text-sm">Cannot be managed</span>
-                  )}
-                </td>
+        <ScrollX>
+          <table className="mt-4 w-full text-left">
+            <thead>
+              <tr>
+                <th>Case</th>
+                <th>Status</th>
+                <th>Shift</th>
+                <th>Still short</th>
+                <th>Opened at</th>
+                <th>Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {cases.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <Link className="underline" href={`/cases/${row.id}`}>
+                      {row.id}
+                    </Link>
+                  </td>
+                  <td>{row.status}</td>
+                  <td>{row.shift_id}</td>
+                  <td>{shortByText(row)}</td>
+                  <td>{formatDateTime(row.created_at)}</td>
+                  <td>
+                    {row.can_manage ? (
+                      <button
+                        type="button"
+                        className={button}
+                        disabled={busy}
+                        onClick={() => open(row.id)}
+                      >
+                        Manage
+                      </button>
+                    ) : (
+                      // FAILED stays an end point (R2-Q22)
+                      <span className="text-sm">Cannot be managed</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </ScrollX>
       )}
 
       {selected && (
@@ -336,46 +339,48 @@ function HandoffPage() {
 
           {candidates === null && <p className="mt-4">Loading staff…</p>}
           {candidates && (
-            <table className="mt-4 w-full text-left">
-              <thead>
-                <tr>
-                  <th>Staff</th>
-                  <th>Name</th>
-                  <th>Role</th>
-                  <th>Can take the shift</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {candidates.map((person) => (
-                  <tr key={person.staff_id}>
-                    <td>{person.staff_id}</td>
-                    <td>
-                      {person.first_name} {person.last_name}
-                    </td>
-                    <td>{person.role_name}</td>
-                    <td>
-                      {person.blocking_rules.length === 0
-                        ? "Yes"
-                        : person.blocking_rules.map(ruleText).join("; ")}
-                      {person.other_case_ids.length > 0 &&
-                        ` (offer on case ${person.other_case_ids.join(", ")})`}
-                    </td>
-                    <td>
-                      <button
-                        type="button"
-                        className={button}
-                        // No override: a blocked person cannot be assigned (R2-Q14)
-                        disabled={busy || pendingConfirm !== null || person.blocking_rules.length > 0}
-                        onClick={() => assign(person.staff_id)}
-                      >
-                        Assign
-                      </button>
-                    </td>
+            <ScrollX>
+              <table className="mt-4 w-full text-left">
+                <thead>
+                  <tr>
+                    <th>Staff</th>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Can take the shift</th>
+                    <th>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {candidates.map((person) => (
+                    <tr key={person.staff_id}>
+                      <td>{person.staff_id}</td>
+                      <td>
+                        {person.first_name} {person.last_name}
+                      </td>
+                      <td>{person.role_name}</td>
+                      <td>
+                        {person.blocking_rules.length === 0
+                          ? "Yes"
+                          : person.blocking_rules.map(ruleText).join("; ")}
+                        {person.other_case_ids.length > 0 &&
+                          ` (offer on case ${person.other_case_ids.join(", ")})`}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className={button}
+                          // No override: a blocked person cannot be assigned (R2-Q14)
+                          disabled={busy || pendingConfirm !== null || person.blocking_rules.length > 0}
+                          onClick={() => assign(person.staff_id)}
+                        >
+                          Assign
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </ScrollX>
           )}
 
           <form className="mt-6 max-w-xl" onSubmit={close}>

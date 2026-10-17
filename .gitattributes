@@ -3,3 +3,5 @@
 *.sh text eol=lf
 deploy/aws/Caddyfile text eol=lf
 deploy/aws/nara.service text eol=lf
+deploy/aws/frontend.Dockerfile text eol=lf
+deploy/aws/docker-compose.aws.yml text eol=lf
