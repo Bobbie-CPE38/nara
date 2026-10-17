@@ -235,7 +235,7 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             if _business_refusal(db, event_id):
                 _reply(db, event, "ข้อมูลข้อเสนอไม่ถูกต้อง กรุณาดูข้อเสนอล่าสุด")
             return
-        outreach_service.record_response(
+        outreach, _ = outreach_service.record_response(
             db,
             staff_id=staff[0],
             actor_id=staff[1],
@@ -243,6 +243,13 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             response=response,
             after_lock=lambda session: _remember(session, event_id),
         )
+        # Report the current response order, not the Solver's provisional rank.
+        accepted_as_reserve = False
+        if response == CandidateResponse.ACCEPT:
+            accepted_as_reserve = any(
+                view.id == outreach.id and view.is_reserve
+                for view in outreach_service.list_offers(db, staff_id=staff[0])
+            )
     except IntegrityError as error:
         db.rollback()
         if _duplicate(error):
@@ -263,7 +270,7 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             _reply(
                 db,
                 event,
-                "ข้อเสนอนี้หมดเวลาแล้ว"
+                "ข้อเสนอนี้หมดเวลาตอบรับแล้ว จึงไม่สามารถรับข้อเสนอได้"
                 if isinstance(error, outreach_service.OfferExpiredError)
                 else "ข้อเสนอนี้ตอบไม่ได้แล้ว หรือกำลังรอผลอนุมัติจากเคสอื่น",
             )
@@ -283,5 +290,7 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
         event,
         "บันทึกการปฏิเสธข้อเสนอแล้ว"
         if response == CandidateResponse.REJECT
+        else "บันทึกการตอบรับแล้ว ขณะนี้คุณเป็นตัวสำรอง กรุณารอการยืนยันก่อนเข้าเวร"
+        if accepted_as_reserve
         else "บันทึกคำตอบแล้ว โปรดตรวจสถานะล่าสุด การตอบรับยังไม่ยืนยันให้เข้าเวร",
     )

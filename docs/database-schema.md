@@ -34,7 +34,14 @@
 >
 > * `f2a7c9d4e6b8` (รอบ 4 PR S) `APPROVAL_WARD_DECISION` และ `APPROVAL_POLICY.supervisor_after_seconds`
 >
-> **Migration head ปัจจุบัน: `f2a7c9d4e6b8`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `a4d8e1b7c3f5` (รอบ 5 N1) ผูก ATTENDANCE กับ SHIFT
+> * `e8c4b2a6f0d9` (รอบ 5 H1) ผูก STRUCTURED_HANDOVER กับ ROSTER_ASSIGNMENT
+> * `f6b2d8a4c0e1` (รอบ 5 H2) สถานะส่ง Handover ทาง LINE
+> * `b4e7a9c2d6f0` (Issue #98) ผลสุดท้ายของ Offer และ outbox แยก ไม่มี Backfill
+>
+> * `c5f8b0d3e7a1` (Issue #98 ต่อ) accepted_as_reserve และชนิดข้อความ FINAL/RESERVE_PROMOTED
+>
+> **Migration head ปัจจุบัน: `c5f8b0d3e7a1`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -42,7 +49,7 @@
 
 | เรื่อง | ตัดสินว่า |
 |---|---|
-| จำนวนตาราง | 32 ตาราง (29 เดิม + `ACTORS` + `OUTREACH_POLICY` + `CANDIDATE_ITEM_TARGET`) |
+| จำนวนตาราง | 42 ตาราง รวม `OFFER_OUTCOME_NOTIFICATION` ของ Issue #98 |
 | ชนิด ID | `bigint` ทุกตาราง (รวม FK ทุกตัว) |
 | เก็บ Enum | Python `StrEnum` → คอลัมน์ `text` ยังไม่ใส่ DB ENUM / CHECK |
 | `created_at` / `updated_at` | `timestamptz` ตั้งค่าจาก `core/clock.py` ไม่พึ่ง Default ของ DB |
@@ -366,6 +373,7 @@ PR K เพิ่ม `uq_contacts_line_uid` UNIQUE ทุก line_uid ที่�
 | `response_at` | timestamptz | NULL |  |  |
 | `expires_at` | timestamptz | NULL |  | เวลาหมดอายุของ Offer ตั้งตอนส่ง = `sent_at` + `OUTREACH_POLICY.offer_timeout_seconds` เมื่อ `clock.now() >= expires_at` แล้วยัง `SENT` จะเป็น `TIMEOUT` โดย Job; CHECK `status != SENT OR expires_at IS NOT NULL` |
 | `status` | text | NOT NULL |  | `OutreachStatus` |
+| `accepted_as_reserve` | boolean | NOT NULL | | default false; True เมื่อรับเป็นสำรองจริง ไม่ใช่อันดับใน Plan; c5f8b0d3e7a1 ทำเครื่องหมายสำรองที่ยังรออยู่จากข้อมูลเดิมโดยไม่ส่งข้อความ |
 
 
 **งานส่ง LINE (รอบ 3 PR L, Migration `c6e9a2b4d8f1`)**
@@ -1008,3 +1016,30 @@ Previously contacted candidates may also explain why no candidate remains, but t
 `b7d2f8a1c6e4` ต่อจาก `a4b8c2d6e9f1`: เติมเส้นตายทุกคำขอเดิมเป็น requested_at + 900 วินาที และจับคู่ Safety/Approval กับ Offer ของ case/item เดียวกัน ถ้าจับคู่ไม่ได้หรือพบหลาย Offer ให้หยุดก่อน DDL เพื่อให้ซ่อมข้อมูล ไม่เลือกแถวเอง ไม่มีการ Reset ข้อมูล Job ข้ามคำขอประวัติที่ Offer ไม่ ACCEPTED และเคสที่หยุดแล้ว
 
 มี partial index `ix_approval_request_pending_expiry` บน expires_at ของแถว is_pending=true; ค่า policy ต้อง > 0 และไม่มี server default ของระยะเวลา
+
+
+### OFFER_OUTCOME_NOTIFICATION (Issue #98, หลังปิดรอบ 5)
+
+Migration `b4e7a9c2d6f0` ต่อ `f6b2d8a4c0e1` เพิ่มตารางว่าง ไม่ backfill Offer/Audit เก่า
+
+| Field | Type | Null | Key / หมายเหตุ |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `outreach_id` | bigint | NOT NULL | FK CANDIDATE_OUTREACH.id, UNIQUE ร่วมกับ kind |
+| `kind` | text | NOT NULL | default FINAL; CHECK FINAL หรือ RESERVE_PROMOTED; หนึ่งข้อความต่อชนิดต่อ Offer attempt |
+| `case_id` | bigint | NOT NULL | FK STAFFING_CASES.id |
+| `staff_id` | bigint | NOT NULL | FK STAFF.id |
+| `audit_id` | bigint | NOT NULL | FK AUDIT_LOG.id หลักฐานต้นเหตุ |
+| `reason` | text | NOT NULL | รหัสผลสุดท้ายที่กำหนดใน workflow.md 6.26 |
+| `message` | text | NOT NULL | ข้อความ Snapshot สำหรับ LINE และหน้า Offer |
+| `created_at` | timestamptz | NOT NULL | Backend Clock |
+| `delivery_status` | text | NULL | NULL = simulation; CHECK PENDING, ACCEPTED, FAILED, CANCELLED, NO_CONTACT |
+| `delivery_payload` | jsonb | NULL | ผู้รับ/ข้อความคงที่ |
+| `delivery_retry_key` | text | NULL | UUID คงที่ทุก retry |
+| `delivery_attempts` | integer | NOT NULL | default 0, CHECK 0 ถึง 3 |
+| `delivery_next_attempt_at` | timestamptz | NULL | Partial Index เมื่อ PENDING |
+| `delivery_lease_until` | timestamptz | NULL | Lease 60 วินาที |
+| `delivery_claim` | text | NULL | Token ของ worker |
+| `delivery_last_result` | text | NULL | รหัส HTTP หรือ TIMEOUT ไม่มี remote body |
+
+เขียนพร้อมผลสุดท้าย/Audit ส่งหลัง Commit; การส่งล้มไม่เปลี่ยนผลของ Offer หรือการจัดเวร ไม่มีข้อมูลผู้ป่วยรายบุคคลหรือ LINE credentials ในข้อความ

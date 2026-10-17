@@ -19,6 +19,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    OfferOutcomeNotification,
     RosterAssignment,
     SafetyValidation,
     Shift,
@@ -94,6 +95,9 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                     CandidateOutreach.expires_at,
                     Shift.ward_id,
                     Ward.name.label("ward_name"),
+                    OfferOutcomeNotification.reason.label("final_outcome"),
+                    OfferOutcomeNotification.message.label("final_message"),
+                    OfferOutcomeNotification.delivery_status.label("final_delivery_status"),
                     Shift.start_at.label("shift_start_at"),
                     Shift.end_at.label("shift_end_at"),
                 )
@@ -101,6 +105,11 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                 .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
                 .join(Shift, Shift.id == CandidateItem.proposed_shift_id)
                 .join(Ward, Ward.id == Shift.ward_id)
+                .outerjoin(
+                    OfferOutcomeNotification,
+                    (OfferOutcomeNotification.outreach_id == CandidateOutreach.id)
+                    & (OfferOutcomeNotification.kind == "FINAL"),
+                )
                 .where(CandidateItem.staff_id == staff_id)
                 .order_by(CandidateOutreach.id)
             )
@@ -162,6 +171,11 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                         "can_reject": live,
                         "blocked_reason": blocked,
                         "cancellation_reason": reason,
+                        "final_outcome": row["final_outcome"] if not row["is_assigned"] else None,
+                        "final_message": row["final_message"] if not row["is_assigned"] else None,
+                        "final_delivery_status": row["final_delivery_status"]
+                        if not row["is_assigned"]
+                        else None,
                         "is_reserve": reserve,
                     }
                 )
@@ -423,12 +437,21 @@ def record_response(
     # outside D11's savepoint, alongside the response, never a separate commit.
     if after_lock is not None:
         after_lock(db)
+    # Keep the same explicit deadline reply before and after the expiry job,
+    # including when expiry has already stopped the case. Never reclassify an
+    # accepted/cancelled offer as an unanswered timeout just because time passed.
+    if outreach.status == OutreachStatus.TIMEOUT or (
+        outreach.status == OutreachStatus.SENT
+        and outreach.expires_at is not None
+        and clock.now() >= outreach.expires_at
+    ):
+        raise OfferExpiredError("The selected offer has expired; refresh offers")
     if case.status in AUTOMATION_STOPPED_STATUSES:
         raise OpenOfferConflictError("This case has stopped; the offer cannot be answered")
     if outreach.status is not OutreachStatus.SENT:
         raise OpenOfferConflictError("The selected offer is no longer SENT; refresh offers")
     now = clock.now()
-    if outreach.expires_at is None or outreach.expires_at <= now:
+    if outreach.expires_at is None:
         raise OfferExpiredError("The selected offer has expired; refresh offers")
     if response is CandidateResponse.ACCEPT and case_facts_service.staff_waiting_on_another_case(
         db, case.id, {staff_id}
@@ -440,6 +463,12 @@ def record_response(
         OutreachStatus.ACCEPTED if response is CandidateResponse.ACCEPT else OutreachStatus.REJECTED
     )
     outreach.response_at = now
+    if response == CandidateResponse.ACCEPT:
+        # Snapshot the actual response order, not the Solver's PRIMARY/RESERVE
+        # credits. The later APPROVAL_REQUESTED audit can identify a promotion.
+        outreach.accepted_as_reserve = case_facts_service.load_case_facts(
+            db, case
+        ).gap_closed_with_pending
     audit_service.log(
         db,
         case_id=case.id,

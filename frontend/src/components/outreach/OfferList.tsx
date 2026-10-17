@@ -21,6 +21,9 @@ function offerSnapshot(offer: Offer) {
     offer.can_accept,
     offer.can_reject,
     offer.blocked_reason,
+    offer.final_outcome,
+    offer.final_message,
+    offer.final_delivery_status,
     offer.is_reserve,
     offer.is_assigned,
   ]);
@@ -289,8 +292,16 @@ export function OfferList({
                           acceptance. You may still reject this offer.
                         </p>
                       )}
-                      {offer.cancellation_reason && (
+                      {offer.cancellation_reason && !offer.final_message && (
                         <p>Cancelled: {offer.cancellation_reason}</p>
+                      )}
+                      {!offer.is_assigned && offer.final_message && (
+                        <p className="whitespace-pre-line">{offer.final_message}</p>
+                      )}
+                      {!offer.is_assigned && offer.final_delivery_status === "FAILED" && (
+                        <p className="text-amber-800">
+                          The LINE notification could not be delivered. Your latest result is shown here.
+                        </p>
                       )}
                       {offer.is_assigned ? (
                         <p>Assignment confirmed for this shift.</p>
