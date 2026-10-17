@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Home from "@/app/page";
 import { ApiError, apiRequest } from "@/lib/api";
+import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { dashboard, withCounts } from "../../fixtures/dashboard";
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -91,6 +92,39 @@ describe("Dashboard page", () => {
     render(<Home />);
     const tables = [await screen.findByRole("table", { name: "Short shifts" }), screen.getByRole("table", { name: "Recent no-shows" })];
     tables.forEach(inScrollBox);
+  });
+
+  it("speaks Thai when the language is Thai, and keeps the codes and names as the API sent them", async () => {
+    replies(() =>
+      dashboard({
+        wards: [1, 2],
+        cases_by_status: withCounts({ MANUAL_HANDOFF: 2, OUTREACH: 4 }),
+        shortages: [
+          {
+            shift_id: 1, ward_id: 1, start_at: "2026-10-17T23:00:00+07:00", end_at: "2026-10-18T07:00:00+07:00",
+            headcount_gap: 1, role_gaps: [{ name: "RN", gap_count: 1 }], skill_gaps: [], case_id: 7,
+          },
+        ],
+      }),
+    );
+    render(<LanguageProvider initial="th"><Home /></LanguageProvider>);
+
+    expect((await screen.findByRole("heading", { level: 1 })).textContent).toBe("แดชบอร์ด");
+    expect(screen.getByLabelText("ดูในฐานะ")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "902 — หัวหน้าหอ, Medicine" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "950 — ผู้ควบคุมดูแล, ทุกหอ" })).toBeTruthy();
+    const counts = within(screen.getByRole("region", { name: "เคสตามสถานะ" }));
+    // The status codes are the Backend's words
+    expect(counts.getByRole("link", { name: "MANUAL_HANDOFF" })).toBeTruthy();
+    expect(counts.getByText("OUTREACH: 4")).toBeTruthy();
+    const shifts = within(screen.getByRole("region", { name: "เวรที่ขาดคน" }));
+    expect(shifts.getByRole("link", { name: "เคส 7" }).getAttribute("href")).toBe("/cases/7");
+    expect(shifts.getByText("1 RN")).toBeTruthy();
+    expect(screen.getByText(/นาฬิกา Backend 2026-10-17 21:00:00/)).toBeTruthy();
+    expect(screen.getByRole("region", { name: "ตรวจระบบ" })).toBeTruthy();
+    // Nothing of the English page is left
+    expect(screen.queryByText("Short shifts")).toBeNull();
+    expect(screen.queryByText("Cases by status")).toBeNull();
   });
 
   it("lists a short shift with its roles, skills and case", async () => {

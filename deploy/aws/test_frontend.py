@@ -50,7 +50,10 @@ SERVER_ONLY_NAMES = [
 
 
 def run(command, **kwargs):
-    return subprocess.run(command, capture_output=True, text=True, check=True, **kwargs).stdout
+    # UTF-8 on every machine: the pages hold Thai, and Windows would read them as cp1252
+    return subprocess.run(
+        command, capture_output=True, text=True, encoding="utf-8", check=True, **kwargs
+    ).stdout
 
 
 def sh(image, script):
@@ -117,6 +120,12 @@ class ProductionFrontend(unittest.TestCase):
         lines = [line.strip() for line in probe.stderr.splitlines() if line.strip().startswith("HTTP/")]
         return int(lines[0].split()[1])
 
+    def body(self, path, cookie=None):
+        header = ["--header", f"Cookie: {cookie}"] if cookie else []
+        return run(
+            ["docker", "exec", self.container, "wget", "-qO-", *header, f"http://127.0.0.1:3000{path}"]
+        )
+
     # --- the Compose layer ---------------------------------------------------
     def test_the_compose_layer_mounts_no_code_and_reads_nothing_from_the_environment(self):
         service = self.service
@@ -177,6 +186,19 @@ class ProductionFrontend(unittest.TestCase):
         for path in PAGES:
             self.assertEqual(self.status(path), 200, path)
         self.assertEqual(self.status("/no-such-page"), 404)
+
+    def test_the_logo_and_the_icon_of_the_team_are_served(self):
+        # The image has only .next, node_modules and public: a file left out of it is a 404
+        for path in ["/nara-logo.svg", "/icon.svg"]:
+            self.assertEqual(self.status(path), 200, path)
+
+    def test_the_pages_are_in_thai_unless_the_cookie_says_english(self):
+        thai = self.body("/")
+        self.assertIn('<html lang="th">', thai)
+        self.assertIn("เมนูหลัก", thai)
+        english = self.body("/", cookie="nara-lang=en")
+        self.assertIn('<html lang="en">', english)
+        self.assertIn("Main navigation", english)
 
     # --- the browser bundle --------------------------------------------------
     def files_with(self, text, folder=".next"):

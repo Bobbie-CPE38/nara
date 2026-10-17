@@ -2,13 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { ApiError, apiRequest } from "@/lib/api";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 type Health = { status: string; database: string; detail?: string };
 
+/** The API did not answer at all: the text is in the language of the page when it is shown */
+const UNREACHABLE = Symbol("unreachable");
+
 /** The small API and database check the home page showed before the Dashboard (GET /health). */
 export function SystemStatus() {
+  const t = useT();
   const [health, setHealth] = useState<Health | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | typeof UNREACHABLE | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -29,24 +34,22 @@ export function SystemStatus() {
         ) {
           setHealth({ status: cause.body.status, database: cause.body.database });
         } else {
-          setError(cause instanceof ApiError
-            ? cause.message
-            : "Cannot reach the API. Check that the backend is running.");
+          setError(cause instanceof ApiError ? cause.message : UNREACHABLE);
         }
       });
     return () => controller.abort();
   }, []);
 
   return (
-    <section aria-label="System check" className="mt-8 border-t border-slate-300 pt-3 text-sm">
-      <h2 className="font-semibold">System check</h2>
-      {error && <p className="mt-1 text-red-700">{error}</p>}
-      {!error && !health && <p className="mt-1">Checking…</p>}
+    <section aria-label={t("sys.title")} className="mt-8 border-t border-slate-300 pt-3 text-sm">
+      <h2 className="text-sm font-semibold">{t("sys.title")}</h2>
+      {error && <p className="mt-1 text-red-700">{error === UNREACHABLE ? t("common.apiUnreachable") : error}</p>}
+      {!error && !health && <p className="mt-1">{t("sys.checking")}</p>}
       {health && (
         <dl className="mt-1 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1">
-          <dt>API</dt>
+          <dt>{t("sys.api")}</dt>
           <dd className={health.status === "ok" ? "text-green-700" : "text-red-700"}>{health.status}</dd>
-          <dt>Database</dt>
+          <dt>{t("sys.database")}</dt>
           <dd className={health.database === "ok" ? "text-green-700" : "text-red-700"}>{health.database}</dd>
         </dl>
       )}

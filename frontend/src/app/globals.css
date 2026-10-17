@@ -1,1 +1,104 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/noto-sans-thai";
+
+/*
+ * Theme of the NARA web app (round 6 PR UI1, docs/workflow.md 6.32).
+ *
+ * The colours come from the logo (public/nara-logo.svg): royal blue #134CDA (brand-600),
+ * light blue #569EFA (brand-400) and navy #162551 (ink / brand-900). The rest of the scale is
+ * mixed from them. Contrast against white, measured with the WCAG formula:
+ *   ink 14.8, brand-700 8.8, brand-600 6.8 (white text on it 6.8), slate-600 7.6,
+ *   brand-400 2.7. Light blue is a fill or an accent, never the colour of text, and nothing
+ *   white sits on it. Components use these tokens, not hex values.
+ */
+@theme {
+  --font-sans: "Inter Variable", "Noto Sans Thai Variable", ui-sans-serif, system-ui, sans-serif;
+
+  --color-brand-50: #f1f7ff;
+  --color-brand-100: #e1eefe;
+  --color-brand-200: #c2dcfd;
+  --color-brand-300: #8fbffc;
+  --color-brand-400: #569efa;
+  --color-brand-500: #3475ea;
+  --color-brand-600: #134cda;
+  --color-brand-700: #1440b1;
+  --color-brand-800: #153485;
+  --color-brand-900: #162551;
+  --color-brand-950: #0e1835;
+
+  --color-ink: #162551;
+  --color-surface: #f4f7fe;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-surface font-sans text-ink antialiased;
+  }
+
+  h1 {
+    @apply text-2xl font-bold tracking-tight text-ink;
+  }
+
+  h2 {
+    @apply text-xl font-semibold text-ink;
+  }
+
+  h3 {
+    @apply font-semibold text-ink;
+  }
+
+  a {
+    @apply text-brand-700 hover:text-brand-900;
+  }
+
+  /* The keyboard focus ring is the same everywhere */
+  :where(a, button, select, input, textarea, summary):focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+
+  button {
+    @apply cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-ink shadow-sm transition-colors;
+  }
+
+  button:hover:not(:disabled) {
+    @apply border-brand-400 bg-brand-50;
+  }
+
+  button:disabled {
+    @apply cursor-not-allowed opacity-50;
+  }
+
+  select,
+  input,
+  textarea {
+    @apply rounded-md border border-slate-300 bg-white px-2 py-1 text-ink;
+  }
+
+  /* Tables of every page: a tinted header row and fine lines between rows */
+  table {
+    @apply w-full border-collapse text-left text-[0.9375rem];
+  }
+
+  th {
+    @apply bg-brand-50 font-semibold text-ink;
+  }
+
+  th,
+  td {
+    @apply px-3 py-2 align-top;
+  }
+
+  tbody tr {
+    @apply border-t border-slate-200;
+  }
+
+  details > summary {
+    @apply cursor-pointer font-medium text-brand-700;
+  }
+}

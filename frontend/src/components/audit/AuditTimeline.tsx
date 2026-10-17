@@ -1,24 +1,29 @@
+"use client";
+
 import { ScrollX } from "@/components/ScrollX";
 import { formatDateTime, formatValue } from "@/lib/format";
+import { useT } from "@/lib/i18n/LanguageProvider";
 import type { AuditEntry } from "@/lib/types/case";
 
 /**
  * Audit rows in the order the API sends them, which is by id. Never sort by
  * created_at: the demo clock is frozen, so every row can carry the same time.
+ * The action codes and the details are the audit trail as the Backend wrote it.
  */
 export function AuditTimeline({ entries }: { entries: AuditEntry[] }) {
-  if (entries.length === 0) return <p className="mt-2">No audit entries yet.</p>;
+  const t = useT();
+  if (entries.length === 0) return <p className="mt-2">{t("audit.none")}</p>;
   return (
     <ScrollX>
-      <table aria-label="Timeline" className="mt-2 w-full text-left">
+      <table aria-label={t("case.timeline")} className="mt-2">
         <thead>
           <tr>
-            <th className="py-1 pr-4">#</th>
-            <th className="py-1 pr-4">Time</th>
-            <th className="py-1 pr-4">Action</th>
-            <th className="py-1 pr-4">Actor</th>
-            <th className="py-1 pr-4">Entity</th>
-            <th className="py-1 pr-4">Details</th>
+            <th>#</th>
+            <th>{t("audit.time")}</th>
+            <th>{t("audit.action")}</th>
+            <th>{t("audit.actor")}</th>
+            <th>{t("audit.entity")}</th>
+            <th>{t("audit.details")}</th>
           </tr>
         </thead>
         <tbody>
@@ -26,17 +31,17 @@ export function AuditTimeline({ entries }: { entries: AuditEntry[] }) {
             // One per transition, so they outnumber the real steps: keep them, but lighter.
             const isStatusChange = entry.action === "CASE_STATUS_CHANGED";
             return (
-              <tr key={entry.id} className={isStatusChange ? "text-sm text-gray-500" : undefined}>
-                <td className="py-1 pr-4 align-top">{entry.id}</td>
-                <td className="py-1 pr-4 align-top whitespace-nowrap">{formatDateTime(entry.created_at)}</td>
-                <td className="py-1 pr-4 align-top">{entry.action}</td>
-                <td className="py-1 pr-4 align-top">
-                  {entry.actor_type === "user" ? `Staff ${entry.actor_name}` : entry.actor_name}
+              <tr key={entry.id} className={isStatusChange ? "text-sm text-slate-500" : undefined}>
+                <td>{entry.id}</td>
+                <td className="whitespace-nowrap">{formatDateTime(entry.created_at)}</td>
+                <td>{entry.action}</td>
+                <td>
+                  {entry.actor_type === "user" ? t("audit.staff", { name: entry.actor_name }) : entry.actor_name}
                 </td>
-                <td className="py-1 pr-4 align-top">
+                <td>
                   {entry.entity_type}{entry.entity_id === null ? "" : ` #${entry.entity_id}`}
                 </td>
-                <td className="py-1 pr-4 align-top break-all">
+                <td className="break-all">
                   {isStatusChange ? (
                     `${formatValue(entry.payload.from)} → ${formatValue(entry.payload.to)}`
                   ) : (

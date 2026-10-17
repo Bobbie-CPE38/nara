@@ -1,19 +1,30 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { apiRequest } from "@/lib/api";
 import { isCaseSummary } from "@/lib/cases";
 import { formatDateTime } from "@/lib/format";
+import type { MessageKey } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/LanguageProvider";
 import type { CaseSummaryView } from "@/lib/types/case";
 
-const QUOTA_MESSAGE = "ใช้โควตาคำอธิบายจาก AI ครบแล้วในวันนี้ กรุณาลองใหม่ในวันถัดไป คุณยังดูอันดับและดำเนินการจัดเวรต่อได้ตามปกติ";
+/** Why a summary cannot be asked for now, by request_blocked_reason. */
+const BLOCKED_KEYS: Record<string, MessageKey> = {
+  QUOTA_EXHAUSTED: "ai.blockedQuota",
+  NOT_CONFIGURED: "sum.notConfigured",
+  ATTEMPTS_EXHAUSTED: "sum.attempts",
+  INVALID_INPUT: "sum.invalidInput",
+};
 
 export function CaseSummary({ caseId, summary, onRequested }: {
   caseId: number; summary: CaseSummaryView | null; onRequested: () => Promise<void>;
 }) {
+  const t = useT();
   const request = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => () => { request.current?.abort(); }, [caseId]);
   const current = summary?.current;
   async function ask() {
@@ -21,7 +32,7 @@ export function CaseSummary({ caseId, summary, onRequested }: {
     const controller = new AbortController();
     request.current = controller;
     setBusy(true);
-    setError(null);
+    setFailed(false);
     try {
       const result = await apiRequest<unknown>(`/cases/${caseId}/summary`, {
         method: "POST", signal: controller.signal,
@@ -30,7 +41,7 @@ export function CaseSummary({ caseId, summary, onRequested }: {
       if (!controller.signal.aborted) await onRequested();
     } catch {
       if (!controller.signal.aborted) {
-        setError("ขอสรุปไม่สำเร็จ กรุณาตรวจสถานะล่าสุดแล้วลองใหม่");
+        setFailed(true);
         await onRequested();
       }
     } finally {
@@ -38,31 +49,34 @@ export function CaseSummary({ caseId, summary, onRequested }: {
       if (request.current === controller) request.current = null;
     }
   }
+  const blockedKey = current?.request_blocked_reason ? BLOCKED_KEYS[current.request_blocked_reason] : undefined;
   return (
-    <section className="mt-6">
-      <h2 className="text-xl font-semibold">สรุปสถานการณ์ด้วย AI</h2>
-      <p className="mt-1 text-sm text-gray-500">สรุปจากข้อมูลที่บันทึกไว้ โปรดใช้ข้อมูลในตารางประกอบการตัดสินใจ</p>
-      {current?.stale && <p className="mt-2 text-amber-700">ข้อมูลเคสเปลี่ยนแล้ว สรุปฉบับนี้ล้าสมัย</p>}
+    <Card title={t("sum.title")} className="mt-4">
+      <p className="mt-1 text-sm text-slate-600">{t("sum.note")}</p>
+      {current?.stale && <p className="mt-2 font-medium text-amber-700">{t("sum.stale")}</p>}
       {current?.text && <p className="mt-2 whitespace-pre-wrap">{current.text}</p>}
-      {current?.generated_at && <p className="text-sm text-gray-500">สร้างเมื่อ {formatDateTime(current.generated_at)}</p>}
-      {current?.status === "PENDING" && <p role="status">กำลังสร้างสรุป กรุณารอสักครู่</p>}
-      {current?.status === "UNAVAILABLE" && <p className="mt-2">ยังสร้างสรุปไม่สำเร็จ</p>}
-      {current?.request_blocked_reason === "QUOTA_EXHAUSTED" && <p className="mt-2">{QUOTA_MESSAGE}</p>}
-      {current?.request_blocked_reason === "NOT_CONFIGURED" && <p className="mt-2">ยังไม่ได้เปิดใช้งาน AI</p>}
-      {current?.request_blocked_reason === "ATTEMPTS_EXHAUSTED" && <p className="mt-2">ใช้จำนวนครั้งที่ขอได้สำหรับข้อมูลฉบับนี้ครบแล้ว</p>}
-      {current?.request_blocked_reason === "INVALID_INPUT" && <p className="mt-2">ข้อมูลฉบับนี้ยังไม่พร้อมสำหรับสร้างสรุป</p>}
-      <button className="mt-2 rounded border border-slate-400 px-3 py-2 disabled:opacity-40"
-        type="button" disabled={busy || !current?.can_request} onClick={() => void ask()}>
-        {busy ? "กำลังขอสรุป…" : current?.stale ? "สร้างสรุปฉบับใหม่" : "ขอสรุปสถานการณ์ด้วย AI"}
-      </button>
-      {error && <p role="alert" className="mt-2 text-red-700">{error}</p>}
+      {current?.generated_at && (
+        <p className="text-sm text-slate-500">{t("sum.created", { time: formatDateTime(current.generated_at) })}</p>
+      )}
+      {current?.status === "PENDING" && <p role="status">{t("sum.pending")}</p>}
+      {current?.status === "UNAVAILABLE" && <p className="mt-2">{t("sum.unavailable")}</p>}
+      {blockedKey && <p className="mt-2">{t(blockedKey)}</p>}
+      <Button
+        variant="primary"
+        className="mt-3"
+        disabled={busy || !current?.can_request}
+        onClick={() => void ask()}
+      >
+        {busy ? t("sum.buttonBusy") : current?.stale ? t("sum.buttonNew") : t("sum.button")}
+      </Button>
+      {failed && <p role="alert" className="mt-2 text-red-700">{t("sum.failed")}</p>}
       {!!summary?.history.length && <details className="mt-3">
-        <summary>สรุปฉบับก่อนหน้า</summary>
+        <summary>{t("sum.history")}</summary>
         <ul>{summary.history.map((row) => <li key={row.summary_id} className="mt-2 border-t pt-2">
-          <p className="text-sm text-gray-500">{formatDateTime(row.generated_at)}</p>
+          <p className="text-sm text-slate-500">{formatDateTime(row.generated_at)}</p>
           <p className="whitespace-pre-wrap">{row.text}</p>
         </li>)}</ul>
       </details>}
-    </section>
+    </Card>
   );
 }

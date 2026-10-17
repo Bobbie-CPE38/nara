@@ -19,7 +19,7 @@ it("does not request AI on render and only queues when clicked", async () => {
   api.mockResolvedValue(summary({ summary_id: 1, status: "PENDING", can_request: false, request_blocked_reason: "PENDING" }));
   render(<CaseSummary caseId={7} summary={summary()} onRequested={refresh} />);
   expect(api).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "ขอสรุปสถานการณ์ด้วย AI" }));
+  fireEvent.click(screen.getByRole("button", { name: "Summarise with AI" }));
   await act(async () => {});
   expect(api).toHaveBeenCalledTimes(1);
   expect(api).toHaveBeenCalledWith("/cases/7/summary", expect.objectContaining({ method: "POST" }));
@@ -30,7 +30,7 @@ it("retains cached text and disables a request when quota is exhausted", () => {
   render(<CaseSummary caseId={7} summary={summary({ summary_id: 1, status: "READY", text: "สรุปเดิม",
     stale: true, can_request: false, request_blocked_reason: "QUOTA_EXHAUSTED" })} onRequested={vi.fn()} />);
   expect(screen.getByText("สรุปเดิม")).toBeTruthy();
-  expect(screen.getByText(/ใช้โควตาคำอธิบายจาก AI ครบแล้ว/)).toBeTruthy();
+  expect(screen.getByText(/Today's AI explanation quota is used up/)).toBeTruthy();
   expect((screen.getByRole("button") as HTMLButtonElement).disabled).toBe(true);
   expect(api).not.toHaveBeenCalled();
 });
@@ -39,9 +39,9 @@ it("shows stale and historical summaries and offers a new snapshot only explicit
   const data = summary({ summary_id: 2, status: "READY", text: "ข้อความที่ล้าสมัย", stale: true });
   data.history = [{ summary_id: 1, text: "ฉบับก่อนหน้า", generated_at: "2026-10-09T21:00:00+07:00" }];
   render(<CaseSummary caseId={7} summary={data} onRequested={vi.fn()} />);
-  expect(screen.getByText(/ข้อมูลเคสเปลี่ยนแล้ว/)).toBeTruthy();
+  expect(screen.getByText(/The case data has changed/)).toBeTruthy();
   expect(screen.getByText("ฉบับก่อนหน้า")).toBeTruthy();
-  expect((screen.getByRole("button", { name: "สร้างสรุปฉบับใหม่" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "Create a new summary" }) as HTMLButtonElement).disabled).toBe(false);
   expect(api).not.toHaveBeenCalled();
 });
 

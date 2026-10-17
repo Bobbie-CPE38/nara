@@ -1,8 +1,12 @@
+"use client";
+
 import Link from "next/link";
 import { ScrollX } from "@/components/ScrollX";
+import { Card } from "@/components/ui/Card";
 import { CASE_STATUS_INFO, TONE_CLASS } from "@/lib/constants";
 import { wardName, withActor } from "@/lib/demo";
 import { formatDateTime } from "@/lib/format";
+import { useT } from "@/lib/i18n/LanguageProvider";
 import type { Dashboard, NamedGap } from "@/lib/types/dashboard";
 
 /** Statuses that need a person, shown first and in red or amber (docs/workflow.md, 6.31). */
@@ -15,24 +19,33 @@ const STATUS_PAGES: ReadonlyMap<string, string> = new Map([
   ["WAITING_APPROVAL", "/approvals"],
 ]);
 
+/** The tile of a status that needs a person while it has cases: the tone of the status */
+const ATTENTION_TILE: Record<string, string> = {
+  bad: "border-red-200 bg-red-50",
+  waiting: "border-amber-200 bg-amber-50",
+  ok: "border-green-200 bg-green-50",
+  neutral: "border-slate-200 bg-white",
+};
+
 function gapsText(gaps: NamedGap[]): string {
   return gaps.length === 0 ? "—" : gaps.map((gap) => `${gap.gap_count} ${gap.name}`).join(", ");
 }
 
 function CaseLink({ caseId }: { caseId: number | null }) {
-  if (caseId === null) return <>No case yet</>;
+  const t = useT();
+  if (caseId === null) return <>{t("dash.noCaseYet")}</>;
   return (
     <Link className="underline" href={`/cases/${caseId}`}>
-      Case {caseId}
+      {t("dash.caseLink", { id: caseId })}
     </Link>
   );
 }
 
 function Counts({ data, actorId }: { data: Dashboard; actorId: number }) {
+  const t = useT();
   return (
-    <section aria-label="Cases by status" className="mt-6">
-      <h2 className="text-xl font-semibold">Cases by status</h2>
-      <ul className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-3">
+    <Card label={t("dash.casesByStatus")} title={t("dash.casesByStatus")}>
+      <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
         {data.cases_by_status.map(({ status, count }) => {
           const tone = CASE_STATUS_INFO.get(status)?.tone ?? "neutral";
           const attention = ATTENTION_STATUSES.has(status) && count > 0;
@@ -45,52 +58,58 @@ function Counts({ data, actorId }: { data: Dashboard; actorId: number }) {
             status
           );
           return (
-            <li key={status} className={attention ? `font-semibold ${TONE_CLASS[tone]}` : undefined}>
+            <li
+              key={status}
+              className={`min-w-0 break-words rounded-lg border px-3 py-2 text-sm ${
+                attention ? `font-semibold ${TONE_CLASS[tone]} ${ATTENTION_TILE[tone]}` : "border-slate-200 bg-white"
+              }`}
+            >
               {label}: {count}
             </li>
           );
         })}
       </ul>
-    </section>
+    </Card>
   );
 }
 
 function Shortages({ data, actorId }: { data: Dashboard; actorId: number }) {
+  const t = useT();
   return (
-    <section aria-label="Short shifts" className="mt-6">
-      <h2 className="text-xl font-semibold">Short shifts</h2>
-      <p className="mt-1 text-sm">
-        Shifts in progress or starting within 24 hours that need people now. To check any other
-        shift, use <Link className="underline" href={withActor("/gap", actorId)}>Gap check</Link>.
+    <Card label={t("dash.shortShifts")} title={t("dash.shortShifts")}>
+      <p className="mt-1 text-sm text-slate-600">
+        {t("dash.shortShiftsHelpBefore")}
+        <Link className="underline" href={withActor("/gap", actorId)}>{t("nav.gap")}</Link>
+        {t("dash.shortShiftsHelpAfter")}
       </p>
       {data.shortages.length === 0 ? (
-        <p className="mt-2 text-green-700">No shift is short.</p>
+        <p className="mt-3 font-medium text-green-700">{t("dash.noShortShift")}</p>
       ) : (
         <ScrollX>
-          <table aria-label="Short shifts" className="mt-2 w-full text-left">
+          <table aria-label={t("dash.shortShifts")} className="mt-3">
             <thead>
               <tr>
-                <th className="py-1 pr-4">Shift</th>
-                <th className="py-1 pr-4">Ward</th>
-                <th className="py-1 pr-4">From</th>
-                <th className="py-1 pr-4">Until</th>
-                <th className="py-1 pr-4">Short by</th>
-                <th className="py-1 pr-4">Roles</th>
-                <th className="py-1 pr-4">Skills</th>
-                <th className="py-1 pr-4">Case</th>
+                <th>{t("common.shift")}</th>
+                <th>{t("common.ward")}</th>
+                <th>{t("common.from")}</th>
+                <th>{t("common.until")}</th>
+                <th>{t("dash.shortBy")}</th>
+                <th>{t("dash.roles")}</th>
+                <th>{t("dash.skills")}</th>
+                <th>{t("common.case")}</th>
               </tr>
             </thead>
             <tbody>
               {data.shortages.map((row) => (
                 <tr key={row.shift_id}>
-                  <td className="py-1 pr-4">{row.shift_id}</td>
-                  <td className="py-1 pr-4">{wardName(row.ward_id)}</td>
-                  <td className="py-1 pr-4">{formatDateTime(row.start_at)}</td>
-                  <td className="py-1 pr-4">{formatDateTime(row.end_at)}</td>
-                  <td className="py-1 pr-4 text-red-700">{row.headcount_gap}</td>
-                  <td className="py-1 pr-4">{gapsText(row.role_gaps)}</td>
-                  <td className="py-1 pr-4">{gapsText(row.skill_gaps)}</td>
-                  <td className="py-1 pr-4">
+                  <td>{row.shift_id}</td>
+                  <td>{wardName(row.ward_id)}</td>
+                  <td>{formatDateTime(row.start_at)}</td>
+                  <td>{formatDateTime(row.end_at)}</td>
+                  <td className="font-semibold text-red-700">{row.headcount_gap}</td>
+                  <td>{gapsText(row.role_gaps)}</td>
+                  <td>{gapsText(row.skill_gaps)}</td>
+                  <td>
                     <CaseLink caseId={row.case_id} />
                   </td>
                 </tr>
@@ -99,20 +118,18 @@ function Shortages({ data, actorId }: { data: Dashboard; actorId: number }) {
           </table>
         </ScrollX>
       )}
-    </section>
+    </Card>
   );
 }
 
 function Waiting({ data, actorId }: { data: Dashboard; actorId: number }) {
+  const t = useT();
   return (
-    <section aria-label="Waiting for people" className="mt-6">
-      <h2 className="text-xl font-semibold">Waiting for people</h2>
-      <p className="mt-2">
-        Offers sent and waiting for a reply: {data.open_offers.count}
-      </p>
-      <h3 className="mt-3 font-semibold">Approvals waiting by ward</h3>
+    <Card label={t("dash.waiting")} title={t("dash.waiting")}>
+      <p className="mt-2">{t("dash.openOffers", { count: data.open_offers.count })}</p>
+      <h3 className="mt-3">{t("dash.approvalsByWard")}</h3>
       {data.pending_approvals.length === 0 ? (
-        <p className="mt-1">None.</p>
+        <p className="mt-1">{t("common.none")}</p>
       ) : (
         <ul className="mt-1">
           {data.pending_approvals.map((row) => (
@@ -125,82 +142,87 @@ function Waiting({ data, actorId }: { data: Dashboard; actorId: number }) {
           ))}
         </ul>
       )}
-    </section>
+    </Card>
   );
 }
 
 function NoShows({ data }: { data: Dashboard }) {
+  const t = useT();
   return (
-    <section aria-label="Recent no-shows" className="mt-6">
-      <h2 className="text-xl font-semibold">Recent no-shows</h2>
+    <Card label={t("dash.noShows")} title={t("dash.noShows")}>
       {data.recent_no_show.length === 0 ? (
-        <p className="mt-2">None.</p>
+        <p className="mt-2">{t("common.none")}</p>
       ) : (
         <ScrollX>
-          <table aria-label="Recent no-shows" className="mt-2 w-full text-left">
+          <table aria-label={t("dash.noShows")} className="mt-3">
             <thead>
               <tr>
-                <th className="py-1 pr-4">Recorded at</th>
-                <th className="py-1 pr-4">Staff</th>
-                <th className="py-1 pr-4">Shift</th>
+                <th>{t("dash.recordedAt")}</th>
+                <th>{t("common.staff")}</th>
+                <th>{t("common.shift")}</th>
               </tr>
             </thead>
             <tbody>
               {data.recent_no_show.map((row) => (
                 <tr key={row.event_id}>
-                  <td className="py-1 pr-4">{formatDateTime(row.created_at)}</td>
-                  <td className="py-1 pr-4">{row.staff_id}</td>
-                  <td className="py-1 pr-4">{row.shift_id}</td>
+                  <td>{formatDateTime(row.created_at)}</td>
+                  <td>{row.staff_id}</td>
+                  <td>{row.shift_id}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </ScrollX>
       )}
-    </section>
+    </Card>
   );
 }
 
 /** Today's DEMO attempts against the cap and this month's cost against the budget (6.27, 6.28). */
 function LlmUsageSection({ data }: { data: Dashboard }) {
+  const t = useT();
   const usage = data.llm_usage;
   if (usage === null) return null;
   const overBudget = Number(usage.month_cost_usd) >= Number(usage.budget_usd);
   return (
-    <section aria-label="LLM usage" className="mt-6">
-      <h2 className="text-xl font-semibold">LLM usage</h2>
+    <Card label={t("llm.title")} title={t("llm.title")}>
       <p className="mt-2">
-        Today ({usage.date}): {usage.used} of {usage.cap} calls
-        {usage.used >= usage.cap && <span className="ml-2 text-red-700">Daily limit reached</span>}
+        {t("llm.today", { date: usage.date, used: usage.used, cap: usage.cap })}
+        {usage.used >= usage.cap && <span className="ml-2 font-semibold text-red-700">{t("llm.dailyLimit")}</span>}
       </p>
       <p className="mt-1">
-        This month: {usage.month_cost_usd} of {usage.budget_usd} USD
-        {overBudget && <span className="ml-2 text-red-700">Budget reached</span>}
+        {t("llm.month", { cost: usage.month_cost_usd, budget: usage.budget_usd })}
+        {overBudget && <span className="ml-2 font-semibold text-red-700">{t("llm.budgetReached")}</span>}
       </p>
       {usage.month_calls_without_cost > 0 && (
         <p className="mt-1 text-sm text-amber-700">
-          {usage.month_calls_without_cost} calls this month have no known cost, so the real cost
-          may be higher.
+          {t("llm.noCost", { count: usage.month_calls_without_cost })}
         </p>
       )}
-    </section>
+    </Card>
   );
 }
 
 /** `actorId` is the user the numbers are for: the links open the next page for the same user. */
 export function DashboardView({ data, actorId }: { data: Dashboard; actorId: number }) {
+  const t = useT();
   return (
-    <>
-      <p className="mt-2 text-sm">
-        Backend Clock {formatDateTime(data.now)} · LINE: {data.modes.line_mode} · LLM:{" "}
-        {data.modes.llm_enabled ? data.modes.llm_provider : "off"} · Wards:{" "}
-        {data.wards.map(wardName).join(", ")}
+    <div className="space-y-4">
+      <p className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-900">
+        {t("dash.header", {
+          time: formatDateTime(data.now),
+          line: data.modes.line_mode,
+          llm: data.modes.llm_enabled ? data.modes.llm_provider : t("dash.llmOff"),
+          wards: data.wards.map(wardName).join(", "),
+        })}
       </p>
       <Counts data={data} actorId={actorId} />
       <Shortages data={data} actorId={actorId} />
-      <Waiting data={data} actorId={actorId} />
-      <NoShows data={data} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Waiting data={data} actorId={actorId} />
+        <NoShows data={data} />
+      </div>
       <LlmUsageSection data={data} />
-    </>
+    </div>
   );
 }
