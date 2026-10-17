@@ -1,0 +1,46 @@
+# Reverse proxy of the AWS test machine (round 6 PR D, docs/deploy-aws.md).
+#
+# One HTTPS site: the web pages at /, the API at /api (the prefix is stripped
+# before the backend sees the path). The browser calls the API on the same
+# origin, so it sends the Basic Auth login it already gave for the pages.
+#
+# The rule (docs/workflow.md 6.30): every path needs the Basic Auth login except
+# the exact request `POST /api/line/webhook`, which the backend guards with the
+# LINE signature (6.16). `/demo/*` pages and `/api/demo/*` are NOT blocked; they
+# work with the login. The webhook exception is matched on the raw request URI,
+# not on Caddy's `path` matcher: `path` ignores case, collapses "//" and decodes
+# "%6C", so `/API/line/webhook`, `/api//line/webhook` and `/api/%6Cine/webhook`
+# would have slipped past the login. deploy/aws/test_gate.py checks each of them.
+{
+	email {$ACME_EMAIL}
+}
+
+{$SITE_DOMAIN} {
+	encode gzip
+
+	# Evaluated top to bottom: the first matching handler answers
+	route {
+		# Only the job service calls these, inside the compose network
+		@internal path /api/internal /api/internal/*
+		respond @internal 404
+
+		@webhook {
+			method POST
+			expression {http.request.orig_uri} == "/api/line/webhook"
+		}
+		handle @webhook {
+			uri strip_prefix /api
+			reverse_proxy backend:8000
+		}
+
+		basic_auth {
+			{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+		}
+
+		handle_path /api/* {
+			reverse_proxy backend:8000
+		}
+
+		reverse_proxy frontend:3000
+	}
+}

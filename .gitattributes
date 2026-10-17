@@ -1,0 +1,5 @@
+# Files that Linux reads on the AWS machine and in CI must keep LF line endings,
+# even when a Windows checkout would turn them into CRLF (round 6 PR D)
+*.sh text eol=lf
+deploy/aws/Caddyfile text eol=lf
+deploy/aws/nara.service text eol=lf

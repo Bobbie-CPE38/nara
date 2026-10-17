@@ -22,7 +22,19 @@ nara/
 │   ├── approval.md
 │   ├── audit.md
 │   ├── api.md
-│   └── demo.md
+│   ├── demo.md
+│   └── deploy-aws.md
+│
+├── deploy/
+│   └── aws/                    # เครื่องทดสอบบน AWS (รอบ 6 PR D)
+│       ├── Caddyfile           # HTTPS และด่าน Basic Auth
+│       ├── docker-compose.aws.yml
+│       ├── load-env.sh         # Parameter Store → env file
+│       ├── nara.service        # systemd
+│       ├── iam-parameter-read-policy.json
+│       ├── check-gate.sh       # ลองด่านจากภายนอก
+│       ├── test_gate.py        # รัน Caddyfile จริงกับ Upstream ปลอมบน Docker (CI)
+│       └── fake_upstream.py    # Upstream ปลอมของ test_gate.py
 │
 ├── scripts/
 │   ├── reset-demo.sh

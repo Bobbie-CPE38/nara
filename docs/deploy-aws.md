@@ -1,0 +1,149 @@
+# เครื่องทดสอบบน AWS (รอบ 6 PR D)
+
+> เครื่องนี้มีไว้ลอง LINE จริงและ Bedrock จริงร่วมกัน ไม่ใช่ระบบใช้งานจริง ข้อตกลงอยู่ใน `docs/workflow.md` ข้อ 6.16, 6.17, 6.27, 6.28 และ 6.30 (R3-Q12, R3-Q19 ถึง R3-Q21, R6-Q3 ถึง R6-Q6, R6-Q13) PR D เขียนไฟล์ชุดนี้และไม่เปิดเครื่อง การเปิดเครื่องและตรวจบนเครื่องจริงเป็น "ขั้นที่ 6" ของรอบ 6 (ข้อ 6.30)
+
+## ภาพรวม
+
+```text
+อินเทอร์เน็ต ── 443 / 80 ──> Caddy (HTTPS, Basic Auth)
+                                ├── POST /api/line/webhook ตรงตัว (ไม่ผ่านด่าน) ──> backend
+                                ├── /api/internal/*        ตอบ 404 เสมอ
+                                ├── /api/*                 ผ่านด่าน ตัด /api ออก ──> backend
+                                └── อื่น ๆ                  ผ่านด่าน ──> frontend
+```
+
+* เครื่อง EC2 หนึ่งเครื่องรัน `docker compose` ชุดเดียวกับเครื่องพัฒนา โดยซ้อนไฟล์ `deploy/aws/docker-compose.aws.yml` ไว้ข้างบน ไฟล์นี้ปิด Port ของทุก Service แล้วเปิดเฉพาะ Caddy ที่ Port 80 และ 443
+* หน้าเว็บและ API อยู่ใน Domain เดียวกัน API อยู่ใต้ `/api` เบราว์เซอร์จึงส่งรหัส Basic Auth ที่กรอกตอนเปิดหน้าเว็บไปกับคำขอ API เองโดยไม่ต้องแก้โค้ด Frontend และไม่ติด CORS
+* Caddy ขอใบรับรอง HTTPS จาก Let's Encrypt เอง Domain จึงต้องชี้มาที่เครื่องก่อนเริ่มครั้งแรก ใบรับรองเก็บใน Volume `caddy_data` เปิดปิดเครื่องแล้วไม่ต้องขอใหม่
+* `/api/internal/*` ตอบ `404` จากภายนอกเสมอ ทั้งมีและไม่มีรหัส เพราะมีแค่ Job ที่เรียก และเรียกผ่าน Network ภายในของ compose
+* Frontend ยังรัน Dev server เหมือนเครื่องพัฒนา PR F3 เปลี่ยนเป็น production build (ข้อ 6.30 ช่วง ก) **ห้ามเปิดให้ภายนอกเข้าก่อน F3 merge และผ่านช่วง ข**
+
+## ด่าน Basic Auth
+
+กฎเดียว (ข้อ 6.30): **ทุก Path ต้องมีรหัสของเครื่อง ยกเว้น `POST /api/line/webhook` ตรงตัว** ไม่มีการกัน `/demo/` แยกต่างหาก ใครใส่รหัสแล้วใช้หน้า Demo และเรียก `/api/demo/*` ได้ เพราะหน้า Demo control เรียก API เหล่านั้นจากเบราว์เซอร์ รหัสตัวเดียวให้ทุกคนที่เข้าได้มีสิทธิ์เท่ากัน (ข้อ 6.17) ใครรู้รหัสก็รีเซ็ตข้อมูล Demo ได้
+
+* ชื่อ Path มีสองชนิด: หน้าเว็บไม่มี `/api` (`/demo/control`, `/demo/line-sim`) ส่วน API มี `/api` นำหน้า (`/api/demo/reset`, `/api/demo/clock/advance`, `/api/demo/attendance/check-in`, `/api/clock`) Caddy ตัด `/api` ออกก่อนส่งให้ Backend ฝั่ง Backend จึงเห็น `/demo/reset`
+* ข้อยกเว้นของ Webhook จับจาก **URI ดิบของคำขอ** (`{http.request.orig_uri}`) ไม่ใช้ตัวจับ `path` ของ Caddy เพราะตัวนั้นไม่สนตัวพิมพ์เล็กใหญ่ รวม `//` และถอดรหัส `%6C` ทำให้ `/API/line/webhook`, `/api//line/webhook` และ `/api/%6Cine/webhook` หลุดด่านได้ (ตรวจแล้วกับ Caddy 2.10.2 ด้วยตัวจับเดิมของ PR D รอบ 3)
+* Method อื่นของ Path นั้น, Path ที่ต่อท้าย (`/api/line/webhook/x`, `/api/line/webhooks`, `/api/line/webhook/`), Query (`?x=1`) และ `/line/webhook` ที่ไม่มี `/api` ต้องผ่านด่านทั้งหมด
+* Tunnel ในเครื่องพัฒนา (`dev/line-webhook-proxy`) เป็นอีกกฎหนึ่ง: เปิดเฉพาะ `POST /line/webhook` Path อื่นรวม `/demo/*` ได้ `404` ไม่มีรหัส ใช้จนกว่าจะย้าย Webhook มาเครื่องนี้ (W)
+* `X-Demo-User` ตั้งเองได้ ใครผ่านด่านได้ก็ทำแทนพยาบาลหรือ Head Nurse คนไหนก็ได้ รหัสจึงต้องเก็บในทีม ห้ามเปิดเครื่องให้เข้าจากภายนอกถ้าด่านยังไม่ผ่าน `check-gate.sh`
+* ลองด่านจากเครื่องไหนก็ได้ที่มี `bash` และ `curl`:
+
+  ```bash
+  bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password>
+  ```
+
+  สคริปต์แยก `401` ของด่านกับ `401` ของ Webhook จาก Header `WWW-Authenticate: Basic` ซึ่งมีเฉพาะของด่าน ไม่มีรหัสต้องได้ `401` ทุก Path ของหน้าเว็บและ API (รวมหน้า `/demo/*` และ `/api/demo/*`) ได้ `404` ที่ `/api/internal/*` และ Path ที่คล้าย Webhook ทุกแบบ (ตัวพิมพ์ใหญ่ `//` `%6C` `%2F` `?x=1` `/../`) ได้ `401` ของด่าน มีรหัสถูกแล้วต้องได้ `200` ที่ `/`, `/demo/control`, `/api/health` และ `/api/clock` รหัสผิดได้ `401` ต้องรันทุกครั้งที่แก้ `Caddyfile` และหลังตั้งเครื่องใหม่
+* ทดสอบอัตโนมัติโดยไม่ต้องมีเครื่อง AWS: `python3 deploy/aws/test_gate.py` เริ่ม Caddy ด้วย `Caddyfile` จริงบน Docker (HTTP ธรรมดา ไม่มีใบรับรอง) กับ Upstream ปลอม สองตัว แล้วรัน `check-gate.sh` ใส่ผลเข้า CI (job "AWS test machine gate (Caddy)") Test ยังตรวจด้วยว่าคำขอที่ติดด่านไม่ไปถึง Upstream เลย: ที่ถึง Backend มีแค่ `POST /line/webhook`, `GET /health` และ `GET /clock` ส่วน Frontend มีแค่ `GET /` กับ `GET /demo/control`
+
+## ความลับและค่าตั้ง (Parameter Store)
+
+ทุกค่าอยู่ใต้ Path `/nara/test` (เปลี่ยนได้ด้วย `NARA_PARAMETER_PATH`) ตอนเครื่องเริ่ม `load-env.sh` อ่านทุกค่าใต้ Path นั้นแล้วเขียนเป็น `/etc/nara/nara.env` (สิทธิ์ `600` อยู่นอก repo) ชื่อสุดท้ายของ Parameter กลายเป็นชื่อตัวแปร แอปอ่านจาก env อย่างเดียว ไม่รู้จัก Parameter Store
+
+| Parameter | ชนิด | ใครใส่ | ค่า |
+| --- | --- | --- | --- |
+| `SITE_DOMAIN` | String | คน 1 | Domain ของเครื่อง เช่น `nara-test.<domain ของทีม>` ไม่มี `https://` |
+| `ACME_EMAIL` | String | คน 1 | อีเมลที่ Let's Encrypt ใช้แจ้งเรื่องใบรับรอง |
+| `BASIC_AUTH_USER` | String | คน 1 | ชื่อผู้ใช้ของด่าน |
+| `BASIC_AUTH_HASH` | SecureString | คน 1 | Hash ของรหัส สร้างด้วย `docker run --rm caddy:2.10-alpine caddy hash-password --plaintext '<รหัส>'` รหัสจริงส่งกันในทีม ไม่เก็บใน repo |
+| `POSTGRES_PASSWORD` | SecureString | คน 1 | สร้างด้วย `openssl rand -hex 24` (ใช้ตัวอักษรฐาน 16 เพราะค่านี้อยู่ใน `DATABASE_URL`) มีผลแค่ตอนสร้าง Volume ของฐานข้อมูลครั้งแรก |
+| `INTERNAL_JOB_SECRET` | SecureString | คน 1 | สร้างด้วย `openssl rand -hex 24` |
+| `LINE_MODE` | String | คน 3 | `real` เมื่อพร้อมลอง LINE จริง ไม่ใส่ = `simulation` |
+| `LINE_CHANNEL_SECRET` | SecureString | คน 3 | จาก LINE Developers Console |
+| `LINE_CHANNEL_ACCESS_TOKEN` | SecureString | คน 3 | จาก LINE Developers Console |
+| `LLM_PROVIDER`, `LLM_MODEL_ID`, `AWS_REGION` | String | คน 2 | ใส่หลังเลือกโมเดล (ข้อ 6.28 ขั้น 8) `AWS_REGION` ตรงนี้คือ Region ที่แอปเรียก Bedrock ไม่ใช่ Region ของ Parameter Store (ดูหมายเหตุข้างล่าง) |
+| `LLM_INPUT_PRICE_PER_MTOK_USD`, `LLM_OUTPUT_PRICE_PER_MTOK_USD` | String | คน 2 | ราคาต่อล้าน token ของโมเดลที่เลือก (Nova 2 Lite ใน Singapore ตรวจแล้ว: 0.41 และ 3.39) |
+
+* หกค่าแรกต้องมี ถ้าขาด `load-env.sh` หยุดและ Stack ไม่เริ่ม
+* ค่าห้ามมี `'` หรือขึ้นบรรทัดใหม่ เพราะไฟล์ env เก็บค่าในเครื่องหมาย `'` ซึ่งทำให้ `$` ใน Hash ไม่ถูกอ่านเป็นตัวแปร
+* ตัวแปรใหม่ต้องมีทั้ง Parameter และชื่อในส่วน `environment` ของ Service ใน `docker-compose.yml` เพราะไฟล์ env ใช้แทนค่าใน compose เท่านั้น ไม่ได้ส่งเข้า Container เอง ตัวแปร `LLM_*` กับ `AWS_REGION` มีใน `docker-compose.yml` แล้ว
+* **`AWS_REGION` มีสองความหมาย:** `/etc/nara/aws.conf` (ไฟล์ของ systemd) เก็บ Region ที่ `load-env.sh` ใช้อ่าน Parameter Store ส่วน Parameter `AWS_REGION` ที่ลงในไฟล์ env คือ Region ที่แอปเรียก Bedrock สองค่านี้ต่างกันได้
+* **`LLM_ENABLED` ถูกตรึงเป็น `false`** ใน `docker-compose.aws.yml` จนกว่า PR E1 merge (ข้อ 6.27) แม้ใส่ Parameter `LLM_ENABLED=true` ก็ไม่มีผล PR E1 ลบบรรทัดนี้ ชุดทดลองเลือกโมเดล (B2) ไม่ต้องใช้ค่านี้
+* เปลี่ยนค่าแล้วให้ `sudo systemctl restart nara` ค่าใหม่ถูกอ่านทุกครั้งที่เริ่ม
+
+## ตั้งเครื่องครั้งแรก (คน 1)
+
+1. **EC2:** Amazon Linux 2023 ซึ่งมี AWS CLI v2 และ `python3` มาให้ ซึ่ง `load-env.sh` ใช้ RAM อย่างน้อย 4 GB เพราะ `npm ci` และ `next dev` ตอน Compile ใช้มากกว่าตอนรันปกติ (บนเครื่องพัฒนาทุก Service รวมกันใช้ราว 1 GB ตอนว่าง) Disk 30 GB
+2. **Security Group:** SSH 22 เปิดเฉพาะ IP ของทีม ส่วน 80 และ 443 ในช่วงตรวจช่วง ข (ข้อ 6.30 ข้อเสนอที่ยังไม่ตกลง) จำกัดให้ IP ของทีมได้ แต่การออกใบรับรองครั้งแรกต้องให้ Let's Encrypt เข้า Port 80 หรือ 443 ได้ (ตรวจจาก IP ที่เปลี่ยนไปมา) จึงเปิดสองพอร์ตนี้ให้ทุกที่ชั่วคราวตอนออกใบรับรอง โดยยังมีด่าน Basic Auth ครอบทุก Path ยกเว้น Webhook หรือออกใบรับรองก่อนแล้วค่อยจำกัด IP หลังผ่านช่วง ข ทีมตกลงแล้วจึงเปิด 80 และ 443 ให้ทุกที่ (LINE ต้องเข้า Webhook ได้)
+3. **Elastic IP และ DNS:** ผูก Elastic IP กับเครื่อง แล้วตั้ง Record `A` ของ `SITE_DOMAIN` ให้ชี้ไปที่ IP นั้นก่อนเริ่ม Stack ครั้งแรก เมื่อใช้ Elastic IP การหยุดแล้วเริ่มเครื่องใหม่ (R6-Q5 เปิดเฉพาะช่วงทดสอบและ Demo) ไม่เปลี่ยน IP จึงไม่ต้องแก้ URL ของ Webhook ใน LINE Developers
+4. **IAM Role ของเครื่อง:** สร้าง Role ให้ EC2 แนบ Policy จาก `deploy/aws/iam-parameter-read-policy.json` (แทน `REGION` และ `ACCOUNT_ID`) Policy นี้อ่านได้แค่ Path `/nara/test` ใช้ Key `aws/ssm` ที่ AWS สร้างให้ ถ้าเปลี่ยนเป็น Key ของทีมเองต้องเพิ่ม `kms:Decrypt` ของ Key นั้น สิทธิ์ Bedrock เพิ่มทีหลังโดยคน 2 (หัวข้อข้างล่าง) ไม่ใส่ในไฟล์นี้
+5. **ใส่ Parameter:** ตามตารางข้างบน ใน Region เดียวกับเครื่อง
+6. **ติดตั้ง Docker และ Compose:**
+
+   ```bash
+   sudo dnf install -y docker git
+   sudo systemctl enable --now docker
+   sudo mkdir -p /usr/local/lib/docker/cli-plugins
+   sudo curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
+     https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)
+   sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+   docker compose version   # ต้องเป็น 2.24 ขึ้นไป เพราะไฟล์ซ้อนใช้ !reset
+   ```
+
+7. **โค้ดและบริการ:**
+
+   ```bash
+   sudo git clone --branch staging https://github.com/Bobbie-CPE38/nara.git /opt/nara
+   sudo mkdir -p /etc/nara
+   echo 'AWS_REGION=<region ของเครื่อง>' | sudo tee /etc/nara/aws.conf
+   sudo cp /opt/nara/deploy/aws/nara.service /etc/systemd/system/nara.service
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now nara
+   ```
+
+   ครั้งแรกใช้เวลาหลายนาทีเพราะต้องติดตั้ง Package ของ Python และ npm ดูความคืบหน้าด้วย `sudo journalctl -u nara -f` และคำสั่ง `ps` ข้างล่าง
+
+8. **ฐานข้อมูลและข้อมูล Demo:** เมื่อทุก Service healthy แล้ว รัน `seed` ตามข้างล่างหนึ่งครั้ง ก่อน `seed` ฐานข้อมูลยังไม่มีตาราง Job จะได้ `500` จาก `/internal/merge-windows/close-due` หนึ่งครั้ง (`relation "roster_assignment" does not exist`) เป็นเรื่องปกติและหายหลัง `seed` (ตรวจแล้วบน Stack จริงในเครื่องผู้พัฒนา)
+9. **ตรวจช่วง ข (ข้อ 6.30):** ทั้งสามคนทำ ต้องผ่านทุกข้อก่อนเปิดให้ภายนอกเข้า ดูหัวข้อถัดไป
+
+คำสั่ง compose บนเครื่องนี้ต้องมีไฟล์ซ้อนและไฟล์ env ทุกครั้ง:
+
+```bash
+cd /opt/nara
+alias dc='sudo docker compose --env-file /etc/nara/nara.env -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml'
+dc ps                                    # สถานะ
+dc logs -f backend                       # Log
+dc exec -T backend python -m app.seed    # ลบ Schema, Migrate ถึง head แล้วโหลด Demo (เหมือน make reset)
+```
+
+## ตรวจช่วง ข ก่อนเปิดให้ภายนอกเข้า (ขั้นที่ 6)
+
+ช่วง ก (ตรวจในเครื่องผู้พัฒนา) เป็นของ PR F3 ช่วงนี้ตรวจบนเครื่องจริง ผลบันทึกในตาราง "อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง" ของ `workflow.md` และใน Description ของ PR แรกที่ใช้เครื่อง (B2 หรือ W)
+
+1. Container ของ Frontend รัน production mode จริง: `dc ps` แล้ว `sudo docker inspect nara-staffing-frontend --format '{{.Config.Cmd}}'` ต้องไม่มี `npm run dev` (ข้อนี้ไม่ผ่านจนกว่า F3 merge)
+2. `bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password>` ผ่านทุกข้อจากเครื่องของตัวเอง ไม่ใช่จากตัวเครื่อง
+3. เปิด `/`, `/gap`, หน้าเคส และ `/demo/control` ผ่าน Caddy ด้วยรหัส เรียก API ผ่าน `/api` ได้ ไม่มี Error ใน Console และ Bundle ที่เครื่องส่งให้ไม่มี `localhost:8000` (`/gap` มีเมื่อ F2 merge)
+4. ถ้าผ่านทั้งหมด จึงเปิด Security Group ให้ภายนอกเข้า แล้วคน 3 เปลี่ยน Webhook (W)
+
+## Deploy โค้ดใหม่
+
+```bash
+cd /opt/nara
+sudo git pull
+sudo systemctl restart nara
+```
+
+Backend (และ Frontend จนกว่า F3 merge) เป็น Dev server ที่อ่านโค้ดจาก Volume เหมือนเครื่องพัฒนา (R3-Q20 ใช้ `docker compose` ชุดเดิม) Restart ทำให้อ่าน Parameter Store ใหม่ด้วย ถ้า PR ที่เข้ามามี Migration ให้รัน `seed` ใหม่ ซึ่งล้างข้อมูลบนเครื่อง ใครเป็นคน Deploy และ Deploy เมื่อไรให้ตกลงในทีม
+
+## เปิดและปิดเครื่อง (R6-Q5)
+
+เปิดเฉพาะช่วงทดสอบและ Demo เพื่อคุมค่าใช้จ่าย (บัญชีเป็นของทีมที่ผู้จัดการแข่งขันให้ วงเงิน 350 USD เป็นเครดิตรวม)
+
+* หยุดเครื่อง (Stop) ไม่ใช่ลบ (Terminate): Volume และ Elastic IP ยังอยู่ ข้อมูลฐานข้อมูลและใบรับรองไม่หาย เมื่อเริ่มใหม่ `nara.service` ยกชุดเดิมขึ้นเอง
+* ตรวจราคาของ Elastic IP (IPv4 สาธารณะ) จากหน้า Pricing ของ AWS ก่อนเปิดครั้งแรก เพราะ IP ที่จองไว้อาจมีค่าใช้จ่ายแม้เครื่องหยุด แล้วตัดสินว่าจะเก็บไว้หรือคืนทุกครั้ง (คืนแล้ว IP เปลี่ยน ต้องแก้ Record `A` และ URL ของ Webhook)
+* ตั้ง AWS Budget Alert ก่อนเปิดครั้งแรก (ข้อ 6.28) ผู้จัดการแข่งขันตั้งให้แล้วถ้าครอบคลุมงบเฉพาะ Bedrock และทีมได้รับแจ้งเตือน
+
+## ส่วนของคน 2 (Bedrock)
+
+* เพิ่มสิทธิ์เรียกเฉพาะโมเดลที่ใช้ลงใน IAM Role ของเครื่อง (Role เดียวกับข้อ 4) **ข้อสังเกตจาก AWS Price List ที่ต้องยืนยันก่อนเขียนนโยบาย (ข้อ 6.28 ขั้น 1):** ใน Singapore SKU ของ Nova 2 (Lite, Omni, Pro) มีคำว่า `cross-region-global` ส่วน Nova Micro, Lite และ Pro รุ่นแรกไม่มี ถ้าเลือก Nova 2 ชื่อโมเดลน่าจะเป็นรหัส inference profile IAM ต้องอนุญาตทั้ง inference profile และโมเดลใน Region ปลายทาง และข้อมูลอาจถูกประมวลผลนอก Singapore ไฟล์ Policy ของ Bedrock จึงยังไม่อยู่ใน PR นี้
+* Backend อยู่ใน Container จึงขอ Credential ของ Role ผ่าน IMDSv2 ข้าม Network ของ Docker หนึ่งชั้น ต้องตั้ง Hop limit ของ Metadata ของเครื่องเป็น 2 ขึ้นไป ถ้าเป็น 1 Container จะได้ Credential ไม่ได้
+* AWS Budget Alert เฉพาะ Bedrock 20 USD ต่อเดือน และตรวจว่าเครดิต AWS ครอบคลุม Bedrock
+* ตัวแปรของ LLM ใส่เป็น Parameter ตามหัวข้อความลับ ห้ามตั้ง `LLM_ENABLED=true` ก่อน E1 merge (ถูกตรึงใน `docker-compose.aws.yml`)
+
+## ส่วนของคน 3 (LINE)
+
+* URL ของ Webhook: `https://<SITE_DOMAIN>/api/line/webhook`
+* ใส่ `LINE_MODE`, `LINE_CHANNEL_SECRET` และ `LINE_CHANNEL_ACCESS_TOKEN` ลง Parameter Store แล้ว `sudo systemctl restart nara`
+* เปิด "Webhook redelivery" ใน LINE Developers Console (ค่าเริ่มต้นปิด `workflow.md` ข้อ 6.16)
+* ย้าย Webhook จาก Tunnel มาเครื่องนี้ (W) หลังเครื่องผ่านช่วง ข และ Offer, ปุ่ม, ผูกบัญชีผ่านเครื่องจริงอย่างน้อยหนึ่งรอบ เก็บ `dev/line-webhook-proxy` ไว้ถอยกลับถ้าเครื่องล่ม
+* ลองรับ Webhook จริงหนึ่งรอบ
