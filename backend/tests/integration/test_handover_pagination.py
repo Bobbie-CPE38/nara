@@ -147,6 +147,8 @@ def test_current_handovers_are_not_truncated_by_the_history_limit(production_see
         {"id": True},
         {"at": "2026-10-09T21:00:00"},
         {"at": []},
+        {"at": "0001-01-01T00:00:00+14:00"},
+        {"at": "9999-12-31T23:59:59-14:00"},
         {"extra": 1},
     ],
 )
@@ -156,5 +158,24 @@ def test_invalid_cursor_fields_are_rejected(production_seeded, changes):
 
     payload = {"v": 1, "staff": 201, "at": "2026-10-09T21:00:00+07:00", "id": 1} | changes
     cursor = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
-    with pytest.raises(ValueError, match="Invalid handover history cursor"):
+    with pytest.raises(
+        handover_service.InvalidCursorError, match="Invalid handover history cursor"
+    ):
         handover_service.page_handovers(production_seeded, staff_id=201, cursor=cursor)
+
+
+def test_stored_row_validation_error_is_not_a_cursor_error(production_seeded, monkeypatch):
+    from app.schemas.handover import HandoverView
+
+    def invalid_view(*args, **kwargs):
+        return HandoverView.model_validate({})
+
+    monkeypatch.setattr(handover_service, "page_handovers", invalid_view)
+    app.dependency_overrides[get_db] = lambda: production_seeded
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/me/handovers", headers={"X-Demo-User": "201"})
+            assert response.status_code == 500
+            assert "Invalid handover history cursor" not in response.text
+    finally:
+        app.dependency_overrides.pop(get_db, None)

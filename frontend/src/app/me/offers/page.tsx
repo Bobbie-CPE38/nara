@@ -3,9 +3,9 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { HandoverList, isHandover } from "@/components/handover/HandoverList";
 import { type OfferApi, OfferList } from "@/components/outreach/OfferList";
+import { useHandoverHistory } from "@/hooks/useHandoverHistory";
 import { DEFAULT_POLL_INTERVAL_MS } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
-import { useHandoverHistory } from "@/hooks/useHandoverHistory";
 import {
   DEMO_APPROVERS,
   DEMO_SIGNED_IN_STORAGE_KEY as SIGNED_IN_STORAGE_KEY,
@@ -237,7 +237,9 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => vo
             )}
             {handovers.isLoading ? (
               <p className="mt-2">Loading your handovers…</p>
-            ) : <HandoverList handovers={handoverRows} emptyText="You have no handovers." />}
+            ) : (
+              <HandoverList handovers={handoverRows} emptyText="You have no handovers." />
+            )}
             {handovers.data?.next_cursor && (
               <button
                 type="button"

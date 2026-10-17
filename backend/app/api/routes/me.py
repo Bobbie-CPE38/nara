@@ -40,7 +40,7 @@ def my_handovers(
         return handover_service.page_handovers(
             db, staff_id=user.staff.id, limit=limit, cursor=cursor
         )
-    except ValueError as error:
+    except handover_service.InvalidCursorError as error:
         raise HTTPException(422, "Invalid handover history cursor") from error
 
 

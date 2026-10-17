@@ -3,7 +3,7 @@
 import base64
 import binascii
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -34,6 +34,10 @@ from app.domain.enums import (
 )
 from app.schemas.handover import HandoverPage, HandoverView
 from app.services import audit_service, requirement_service, roster_time_service
+
+
+class InvalidCursorError(ValueError):
+    """An invalid history cursor supplied by the caller."""
 
 
 class HandoverProvenanceError(ValueError):
@@ -258,9 +262,18 @@ def _read_history_cursor(cursor: str, staff_id: int) -> tuple[datetime, int]:
         at = datetime.fromisoformat(payload["at"])
         if at.utcoffset() is None:
             raise ValueError
+        # Normalize here: extreme offsets can overflow Python/driver UTC conversion.
+        at = at.astimezone(UTC)
         return at, oid
-    except (ValueError, TypeError, KeyError, binascii.Error, UnicodeDecodeError) as error:
-        raise ValueError("Invalid handover history cursor") from error
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        OverflowError,
+        binascii.Error,
+        UnicodeDecodeError,
+    ) as error:
+        raise InvalidCursorError("Invalid handover history cursor") from error
 
 
 def page_handovers(
