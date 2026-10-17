@@ -1,54 +1,36 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ApiError, apiRequest } from "@/lib/api";
-
-type Health = { status: string; database: string; detail?: string };
+import { useCallback, useMemo, useState } from "react";
+import { ActingAs } from "@/components/ActingAs";
+import { DashboardView } from "@/components/dashboard/DashboardView";
+import { SystemStatus } from "@/components/dashboard/SystemStatus";
+import { usePolling } from "@/hooks/usePolling";
+import { createDemoApi } from "@/lib/api";
+import { DEMO_APPROVER_ID } from "@/lib/demo";
+import type { Dashboard } from "@/lib/types/dashboard";
 
 export default function Home() {
-  const [health, setHealth] = useState<Health | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    apiRequest<Health>("/health", { signal: controller.signal })
-      .then((result) => {
-        if (!controller.signal.aborted) setHealth(result);
-      })
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return;
-        // /health returns its system-check details with HTTP 503 when the DB is down.
-        if (
-          cause instanceof ApiError &&
-          cause.status === 503 &&
-          typeof cause.body === "object" &&
-          cause.body !== null &&
-          "status" in cause.body && typeof cause.body.status === "string" &&
-          "database" in cause.body && typeof cause.body.database === "string"
-        ) {
-          setHealth({ status: cause.body.status, database: cause.body.database });
-        } else {
-          setError(cause instanceof ApiError
-            ? cause.message
-            : "Cannot reach the API. Check that the backend is running.");
-        }
-      });
-    return () => controller.abort();
-  }, []);
+  const [actorId, setActorId] = useState<number>(DEMO_APPROVER_ID);
+  const api = useMemo(() => createDemoApi(actorId), [actorId]);
+  const load = useCallback((signal: AbortSignal) => api<Dashboard>("/dashboard", { signal }), [api]);
+  // Read again every 2 seconds like the approvals page; the read writes nothing
+  const { data, error, isLoading } = usePolling(load);
 
   return (
-    <main className="mx-auto max-w-xl p-8">
-      <h1 className="text-2xl font-semibold">System check</h1>
-      {error && <p className="mt-4 text-red-700">{error}</p>}
-      {!error && !health && <p className="mt-4">Checking…</p>}
-      {health && (
-        <dl className="mt-4 grid grid-cols-2 gap-2">
-          <dt>API</dt>
-          <dd className={health.status === "ok" ? "text-green-700" : "text-red-700"}>{health.status}</dd>
-          <dt>Database</dt>
-          <dd className={health.database === "ok" ? "text-green-700" : "text-red-700"}>{health.database}</dd>
-        </dl>
+    <main className="mx-auto max-w-4xl p-8">
+      <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <div className="mt-1">
+        <ActingAs id="viewing-as" value={actorId} onChange={setActorId} />
+      </div>
+      {error && (
+        <p role="alert" className="mt-4 text-red-700">
+          {error.message}
+          {data && " The numbers below are from the last successful read."}
+        </p>
       )}
+      {isLoading && !data && <p className="mt-4">Loading…</p>}
+      {data && <DashboardView data={data} />}
+      <SystemStatus />
     </main>
   );
 }
