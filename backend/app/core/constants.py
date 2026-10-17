@@ -56,3 +56,11 @@ LLM_TRIAL_CASES = 30
 LLM_TRIAL_MODELS = 3
 LLM_TRIAL_MAX_ATTEMPTS = 2
 LLM_TRIAL_CALL_CAP = LLM_TRIAL_CASES * LLM_TRIAL_MODELS * LLM_TRIAL_MAX_ATTEMPTS
+
+# Round 6 PR F1 (docs/workflow.md 6.31, 9.8). GET /dashboard measures the gap only of
+# shifts in progress or starting within this many hours of the Backend Clock, so its
+# cost does not grow with every shift in the system
+DASHBOARD_SHORTAGE_WINDOW_HOURS = 24
+# Most shifts it lists as short, earliest first, and most recent NO_SHOW events
+DASHBOARD_MAX_SHORTAGES = 20
+DASHBOARD_MAX_NO_SHOWS = 10

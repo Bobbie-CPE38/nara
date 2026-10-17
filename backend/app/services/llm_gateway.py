@@ -181,6 +181,11 @@ def demo_used(db: Session, at: datetime | None = None) -> int:
     return used or 0
 
 
+def quota_day(db: Session) -> date:
+    """Today's DEMO quota day, the key demo_used() reads (round 6 PR F1, the dashboard)."""
+    return db.execute(select(_quota_day(None))).scalar_one()
+
+
 def demo_quota_left(db: Session, at: datetime | None = None) -> int:
     """How many more DEMO attempts today allows. A read only: start() reserves."""
     return max(0, settings.llm_daily_call_cap - demo_used(db, at))
