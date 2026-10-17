@@ -23,7 +23,7 @@ describe("the two dictionaries", () => {
   it("have a Thai text that is Thai, except for the words the Thai documents keep in English", () => {
     const ENGLISH_BY_DESIGN = new Set<string>([
       "app.name", "nav.handoff", "lang.en", "common.gap", "sys.api", "case.handovers",
-      "case.events", "handoverReason.NO_SHOW",
+      "case.events", "handoverReason.NO_SHOW", "common.id", "appr.wardLine", "ctl.event",
     ]);
     const NOT_THAI = KEYS.filter(
       (key) => !ENGLISH_BY_DESIGN.has(key) && th[key] !== "" && !THAI_LETTERS.test(th[key]),

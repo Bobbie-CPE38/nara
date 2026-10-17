@@ -8,7 +8,7 @@ export const DEMO_SHIFT_IDS = [1, 2, 21, 22] as const;
 export const DEMO_APPROVER_ID = 900;
 
 /** A shift of the seed and the people on its roster before any event. */
-export type DemoShift = { id: number; label: string; staffIds: readonly number[] };
+export type DemoShift = { id: number; kind: "night" | "day"; staffIds: readonly number[] };
 export type DemoWard = { id: number; name: string; shifts: readonly DemoShift[] };
 
 /**
@@ -22,16 +22,16 @@ export const DEMO_WARDS: readonly DemoWard[] = [
     id: 1,
     name: "ICU",
     shifts: [
-      { id: 1, label: "Shift 1 (night)", staffIds: [101, 102, 103, 104, 105] },
-      { id: 2, label: "Shift 2 (day)", staffIds: [202, 203] },
+      { id: 1, kind: "night", staffIds: [101, 102, 103, 104, 105] },
+      { id: 2, kind: "day", staffIds: [202, 203] },
     ],
   },
   {
     id: 2,
     name: "Medicine",
     shifts: [
-      { id: 21, label: "Shift 21 (night)", staffIds: [301, 302, 401, 902, 950] },
-      { id: 22, label: "Shift 22 (day)", staffIds: [301, 302, 401, 902, 950] },
+      { id: 21, kind: "night", staffIds: [301, 302, 401, 902, 950] },
+      { id: 22, kind: "day", staffIds: [301, 302, 401, 902, 950] },
     ],
   },
 ];
@@ -50,15 +50,13 @@ export function wardName(wardId: number): string {
 /** Who the approvals page can act as (docs/workflow.md, section 6.21). Not a real login. */
 export const DEMO_APPROVERS: readonly {
   id: number;
-  /** English label, for the pages that are not translated yet (see ActingAs for the two languages) */
-  label: string;
   role: "headNurse" | "supervisor";
   /** The ward a head nurse decides for; null for the Supervisor, who may decide any */
   wardId: number | null;
 }[] = [
-  { id: 900, label: "900 — Head Nurse, ICU", role: "headNurse", wardId: 1 },
-  { id: 902, label: "902 — Head Nurse, Medicine", role: "headNurse", wardId: 2 },
-  { id: 950, label: "950 — Supervisor, every ward", role: "supervisor", wardId: null },
+  { id: 900, role: "headNurse", wardId: 1 },
+  { id: 902, role: "headNurse", wardId: 2 },
+  { id: 950, role: "supervisor", wardId: null },
 ];
 /**
  * The demo user travels from one page to the next in this query parameter, so a link of the

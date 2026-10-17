@@ -339,3 +339,23 @@ def test_due_work_routes_sort_auto_approval_result_ids(client, job_secret, monke
     assert response.status_code == 200
     assert response.json()["auto_approved_request_ids"] == [3, 8]
     assert response.json()["failed_auto_approval_ward_ids"] == [2, 9]
+
+
+# --------------------------------------------------------------------------- #
+# POST /demo/clock/freeze and /demo/clock/unfreeze
+# --------------------------------------------------------------------------- #
+def test_the_clock_can_be_unfrozen_and_frozen_again(client: TestClient) -> None:
+    assert clock.is_frozen()
+
+    unfrozen = client.post("/demo/clock/unfreeze")
+    assert unfrozen.status_code == 200
+    assert unfrozen.json()["frozen"] is False
+    assert client.get("/clock").json()["frozen"] is False
+
+    frozen = client.post("/demo/clock/freeze")
+    assert frozen.status_code == 200
+    assert frozen.json()["frozen"] is True
+    assert client.get("/clock").json()["now"] == frozen.json()["now"]
+
+    # a second freeze keeps the time it froze at
+    assert client.post("/demo/clock/freeze").json()["now"] == frozen.json()["now"]

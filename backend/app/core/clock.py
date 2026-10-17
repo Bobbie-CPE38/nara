@@ -48,6 +48,15 @@ def advance(delta: timedelta) -> datetime:
         return _frozen_at
 
 
+def freeze_now() -> datetime:
+    """Freeze the clock at the current time (it keeps the frozen time if already frozen)."""
+    global _frozen_at
+    with _lock:
+        if _frozen_at is None:
+            _frozen_at = datetime.now(APP_TIMEZONE)
+        return _frozen_at
+
+
 def reset() -> None:
     """Unfreeze the clock so that it follows real time again."""
     global _frozen_at

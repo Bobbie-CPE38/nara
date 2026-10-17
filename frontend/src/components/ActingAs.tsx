@@ -1,28 +1,35 @@
 "use client";
 
 import { DEMO_APPROVERS, wardName } from "@/lib/demo";
+import type { MessageKey } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
 
 /**
- * Who the read-only pages look as (docs/workflow.md, sections 6.17 and 6.31). Not a real
+ * Who a page looks or acts as (docs/workflow.md, sections 6.17 and 6.31). Not a real
  * login: the API shows each demo user only their own ward, and a Supervisor every ward.
  */
 export function ActingAs({
   id,
   value,
   onChange,
+  label = "actingAs.label",
+  disabled = false,
 }: {
   id: string;
   value: number;
   onChange: (staffId: number) => void;
+  /** The text before the choice: "Viewing as" for the pages that only read, "Acting as" for the ones that decide */
+  label?: MessageKey;
+  disabled?: boolean;
 }) {
   const t = useT();
   return (
     <label className="flex flex-wrap items-center gap-2 text-sm font-medium" htmlFor={id}>
-      {t("actingAs.label")}
+      {t(label)}
       <select
         id={id}
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
       >
         {DEMO_APPROVERS.map((approver) => (

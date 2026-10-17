@@ -21,6 +21,7 @@ import {
   POLL_INTERVAL_MS,
   TERMINAL_CASE_STATUSES,
 } from "@/lib/constants";
+import { describeError } from "@/lib/errors";
 import { formatDateTime, formatValue } from "@/lib/format";
 import type { MessageKey, Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
@@ -52,11 +53,6 @@ function isDone(snapshot: CaseSnapshot) {
 // 404: no such case. 422: the ID is outside the bigint range. A retry gives the same answer.
 function isGone(error: Error) {
   return error instanceof ApiError && (error.status === 404 || error.status === 422);
-}
-
-function describe(error: Error, t: Translate) {
-  // fetch reports an unreachable server as a TypeError with a browser-specific text.
-  return error instanceof TypeError ? t("common.apiUnreachable") : error.message;
 }
 
 /** Which line says whether the page keeps reading (docs/workflow.md 6.25, 6.27). */
@@ -193,14 +189,14 @@ export function CaseView({ caseId }: { caseId: string }) {
   } else if (!data) {
     body = isLoading || !error
       ? <p className="mt-4" role="status">{t("common.loading")}</p>
-      : <p className="mt-4 text-red-700" role="alert">{t("case.retrying", { error: describe(error, t) })}</p>;
+      : <p className="mt-4 text-red-700" role="alert">{t("case.retrying", { error: describeError(error, t) })}</p>;
   } else {
     body = (
       <>
         {error && (
           <div className="mb-3">
             <Notice kind="warning" role="alert">
-              {t("case.updateFailed", { error: describe(error, t) })}
+              {t("case.updateFailed", { error: describeError(error, t) })}
             </Notice>
           </div>
         )}

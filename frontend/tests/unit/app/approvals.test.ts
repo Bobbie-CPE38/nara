@@ -377,7 +377,7 @@ describe("approvals page", () => {
     expect(alert.textContent).toBe(
       "Approval 4 was saved, but case 7 failed during execution. Check the case timeline.",
     );
-    expect(alert.className).toContain("text-red-700");
+    expect(alert.className).toContain("text-red-800");
     expect(screen.queryByText(/approved\. Case/)).toBeNull();
     const link = screen.getByRole("link", { name: "case timeline" });
     expect(link.getAttribute("href")).toBe("/cases/7");

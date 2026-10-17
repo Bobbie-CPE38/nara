@@ -43,7 +43,7 @@ describe("DemoClock", () => {
       render(<DemoClock />);
       await act(async () => { await vi.advanceTimersByTimeAsync(0); });
       expect(screen.getByRole("status", { name: "Backend clock" }).textContent).not.toContain("outdated");
-      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
       const clock = screen.getByRole("status", { name: "Backend clock" });
       expect(clock.textContent).toContain("2026-10-09 23:16:00");
       expect(clock.textContent).toContain("may be outdated, retrying");

@@ -2,29 +2,35 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { PageHeader } from "@/components/ui/PageHeader";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, apiRequest, createDemoApi } from "@/lib/api";
 import { TERMINAL_CASE_STATUSES } from "@/lib/constants";
 import { DEMO_WARDS } from "@/lib/demo";
+import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
-import type { CheckInResult } from "@/lib/types/attendance";
+import type { MessageKey, Params, Translate } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/LanguageProvider";
+import type { CheckInResult, ClockView } from "@/lib/types/attendance";
 import type { ClockAdvanceResult, EventResult } from "@/lib/types/event";
 
 // Golden Case IDs (docs/workflow.md, section 10). 900 is the head nurse, the
 // only one who may report the last three event types (section 3.4)
-const EVENTS = [
+const EVENTS: readonly { label: MessageKey; staffId: number; json: Record<string, unknown> }[] = [
   {
-    label: "105 reports leave (shift 1)",
+    label: "ctl.ev.leave105",
     staffId: 105,
     json: { event_type: "STAFF_UNAVAILABLE", shift_id: 1 },
   },
   {
-    label: "203 reports leave (shift 2, no gap)",
+    label: "ctl.ev.leave203",
     staffId: 203,
     json: { event_type: "STAFF_UNAVAILABLE", shift_id: 2 },
   },
   {
-    label: "900 cancels the assignment of 104 (shift 1)",
+    label: "ctl.ev.cancel104",
     staffId: 900,
     json: {
       event_type: "ASSIGNMENT_CANCELLED",
@@ -34,12 +40,12 @@ const EVENTS = [
     },
   },
   {
-    label: "900 reports 12 patients (shift 1)",
+    label: "ctl.ev.surge",
     staffId: 900,
     json: { event_type: "PATIENT_SURGE", shift_id: 1, patient_count: 12 },
   },
   {
-    label: "900 requires 3 ICU nurses (shift 1)",
+    label: "ctl.ev.require",
     staffId: 900,
     json: {
       event_type: "REQUIREMENT_CHANGED",
@@ -52,22 +58,27 @@ const EVENTS = [
 // Moving the frozen demo clock also runs what became due, like the job does with
 // real time (section 3.8): offers time out after 300 seconds, waiting cases are
 // rechecked and merge windows close
-const ADVANCE = { label: "Advance clock 10 minutes", seconds: 600 };
+const ADVANCE_SECONDS = 600;
+
+/** A text of the page (a key and its values, in the language of the user) or the words of the API. */
+type Message = { key: MessageKey; params?: Params } | { text: string };
 
 type Outcome =
   | { kind: "reset"; clock: string }
+  | { kind: "clockMode"; frozen: boolean; clock: string }
   | { kind: "clock"; result: ClockAdvanceResult }
-  | { kind: "event"; label: string; result: EventResult }
-  | { kind: "checkIn"; label: string; result: CheckInResult }
-  | { kind: "error"; label: string; message: string };
+  | { kind: "event"; label: Message; result: EventResult }
+  | { kind: "checkIn"; label: Message; result: CheckInResult }
+  | { kind: "error"; label: Message; message: Message };
 
-function errorMessage(cause: unknown) {
+function errorMessage(cause: unknown, t: Translate): Message {
   return cause instanceof ApiError
-    ? `${cause.message} (HTTP ${cause.status})`
-    : "Cannot reach the API. Check that the backend is running.";
+    ? { text: `${describeError(cause, t)} (HTTP ${cause.status})` }
+    : { key: "common.apiUnreachable" };
 }
 
 function CaseLink({ id, status }: { id: number; status: string | null }) {
+  const t = useT();
   const load = useCallback(
     async (signal: AbortSignal) => {
       const result = await apiRequest<{ id: number; status: string }>(
@@ -94,21 +105,25 @@ function CaseLink({ id, status }: { id: number; status: string | null }) {
         {!missing && latest !== null ? ` (${latest})` : ""}
       </Link>
       {missing ? (
-        <span role="status"> — Case no longer exists. It may have been reset.</span>
+        <span role="status">{t("ctl.caseGone")}</span>
       ) : error ? (
-        <span role="status"> — Status may be outdated: {errorMessage(error)}</span>
+        <span role="status">
+          {t("ctl.statusOutdated", {
+            error: error instanceof ApiError ? `${describeError(error, t)} (HTTP ${error.status})` : t("common.apiUnreachable"),
+          })}
+        </span>
       ) : (
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-slate-500">
           {isLoading
-            ? " — Checking current status…"
+            ? t("ctl.checking")
             : latest !== null && TERMINAL_CASE_STATUSES.has(latest)
-              ? " — Final status. Updates stopped."
-              : " — Updating every 2 seconds."}
+              ? t("ctl.final")
+              : t("ctl.updating")}
         </span>
       )}
       {!missing && (
         <button type="button" className="ml-2 underline" onClick={() => void refresh()}>
-          Refresh case {id}
+          {t("ctl.refreshCase", { id })}
         </button>
       )}
     </span>
@@ -116,7 +131,11 @@ function CaseLink({ id, status }: { id: number; status: string | null }) {
 }
 
 export default function DemoControl() {
+  const t = useT();
   const [busy, setBusy] = useState(false);
+  // Which of the two clock buttons makes sense; unknown until the first read
+  const readClock = useCallback((signal: AbortSignal) => apiRequest<ClockView>("/clock", { signal }), []);
+  const clockFrozen = usePolling(readClock, { intervalMs: 1000 }).data?.frozen;
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // A leave on any seeded ward and shift (docs/workflow.md 9.6, round 4 PR U)
   const [wardId, setWardId] = useState<number>(DEMO_WARDS[0].id);
@@ -125,6 +144,8 @@ export default function DemoControl() {
   const shift = ward.shifts.find((item) => item.id === shiftId) ?? ward.shifts[0];
   const [staffId, setStaffId] = useState<number>(shift.staffIds[0]);
   const leaveStaffId = shift.staffIds.includes(staffId) ? staffId : shift.staffIds[0];
+
+  const text = (message: Message) => ("text" in message ? message.text : t(message.key, message.params));
 
   function pickWard(id: number) {
     const next = DEMO_WARDS.find((item) => item.id === id) ?? DEMO_WARDS[0];
@@ -139,20 +160,20 @@ export default function DemoControl() {
     setStaffId(next.staffIds[0]);
   }
 
-  async function run(label: string, action: () => Promise<Outcome>) {
+  async function run(label: Message, action: () => Promise<Outcome>) {
     setBusy(true);
     setOutcome(null);
     try {
       setOutcome(await action());
     } catch (cause) {
-      setOutcome({ kind: "error", label, message: errorMessage(cause) });
+      setOutcome({ kind: "error", label, message: errorMessage(cause, t) });
     } finally {
       setBusy(false);
     }
   }
 
   const reset = () =>
-    run("Reset demo", async () => {
+    run({ key: "ctl.reset" }, async () => {
       const { clock } = await apiRequest<{ status: string; clock: string }>(
         "/demo/reset",
         { method: "POST" },
@@ -160,34 +181,54 @@ export default function DemoControl() {
       return { kind: "reset", clock };
     });
 
+  const setClockMode = (frozen: boolean) =>
+    run({ key: frozen ? "ctl.freezeClock" : "ctl.unfreezeClock" }, async () => {
+      const view = await apiRequest<ClockView>(frozen ? "/demo/clock/freeze" : "/demo/clock/unfreeze", {
+        method: "POST",
+      });
+      return { kind: "clockMode", frozen: view.frozen, clock: formatDateTime(view.now) };
+    });
+
   const advanceClock = () =>
-    run(ADVANCE.label, async () => {
+    run({ key: "ctl.advance" }, async () => {
       const result = await apiRequest<ClockAdvanceResult>("/demo/clock/advance", {
         method: "POST",
-        json: { seconds: ADVANCE.seconds },
+        json: { seconds: ADVANCE_SECONDS },
       });
       return { kind: "clock", result };
     });
 
-  const reportEvent = ({ label, staffId, json }: (typeof EVENTS)[number]) =>
-    run(label, async () => {
+  const reportEvent = ({ label, staffId, json }: (typeof EVENTS)[number]) => {
+    const name: Message = { key: label };
+    return run(name, async () => {
       const result = await createDemoApi(staffId)<EventResult>("/events", {
         method: "POST",
         json,
       });
-      return { kind: "event", label, result };
+      return { kind: "event", label: name, result };
     });
+  };
 
-  const reportLeave = () =>
-    reportEvent({
-      label: `${leaveStaffId} reports leave (${ward.name}, shift ${shift.id})`,
-      staffId: leaveStaffId,
-      json: { event_type: "STAFF_UNAVAILABLE", shift_id: shift.id },
+  const reportLeave = () => {
+    const name: Message = {
+      key: "ctl.leaveLabel",
+      params: { staff: leaveStaffId, ward: ward.name, shift: shift.id },
+    };
+    return run(name, async () => {
+      const result = await createDemoApi(leaveStaffId)<EventResult>("/events", {
+        method: "POST",
+        json: { event_type: "STAFF_UNAVAILABLE", shift_id: shift.id },
+      });
+      return { kind: "event", label: name, result };
     });
+  };
 
   // Not the nurse's own check-in: the demo plays a character arriving (R5-Q23)
   const simulateCheckIn = () => {
-    const label = `Simulated check-in of ${leaveStaffId} (${ward.name}, shift ${shift.id})`;
+    const label: Message = {
+      key: "ctl.checkInLabel",
+      params: { staff: leaveStaffId, ward: ward.name, shift: shift.id },
+    };
     return run(label, async () => {
       const result = await apiRequest<CheckInResult>("/demo/attendance/check-in", {
         method: "POST",
@@ -197,39 +238,42 @@ export default function DemoControl() {
     });
   };
 
-  const button = "rounded border px-3 py-2 text-left disabled:opacity-50";
-  const select = "rounded border px-1";
-
   return (
-    <main className="mx-auto max-w-xl p-8">
-      <h1 className="text-2xl font-semibold">Demo control</h1>
-      <div className="mt-4 flex flex-col gap-2">
-        <button type="button" className={button} disabled={busy} onClick={reset}>
-          Reset demo
-        </button>
-        <button type="button" className={button} disabled={busy} onClick={advanceClock}>
-          {ADVANCE.label}
-        </button>
-        {EVENTS.map((event) => (
-          <button
-            key={event.label}
-            type="button"
-            className={button}
-            disabled={busy}
-            onClick={() => reportEvent(event)}
-          >
-            {event.label}
-          </button>
-        ))}
-      </div>
+    <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+      <PageHeader title={t("ctl.title")} />
+      <Card>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button className="text-left" disabled={busy} onClick={reset}>
+            {t("ctl.reset")}
+          </Button>
+          <Button className="text-left" disabled={busy} onClick={advanceClock}>
+            {t("ctl.advance")}
+          </Button>
+          <Button className="text-left" disabled={busy || clockFrozen === true} onClick={() => setClockMode(true)}>
+            {t("ctl.freezeClock")}
+          </Button>
+          <Button className="text-left" disabled={busy || clockFrozen === false} onClick={() => setClockMode(false)}>
+            {t("ctl.unfreezeClock")}
+          </Button>
+          {EVENTS.map((event) => (
+            <Button
+              key={event.label}
+              className="text-left"
+              disabled={busy}
+              onClick={() => reportEvent(event)}
+            >
+              {t(event.label)}
+            </Button>
+          ))}
+        </div>
+      </Card>
 
-      <fieldset className="mt-6 flex flex-col gap-2 rounded border p-3">
-        <legend className="px-1">Report leave or simulate a check-in on any ward</legend>
+      <fieldset className="mt-4 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-md">
+        <legend className="px-1 font-semibold text-brand-800">{t("ctl.fieldset")}</legend>
         <label htmlFor="leave-ward">
-          Ward{" "}
+          {t("common.ward")}{" "}
           <select
             id="leave-ward"
-            className={select}
             value={ward.id}
             disabled={busy}
             onChange={(event) => pickWard(Number(event.target.value))}
@@ -242,26 +286,24 @@ export default function DemoControl() {
           </select>
         </label>
         <label htmlFor="leave-shift">
-          Shift{" "}
+          {t("common.shift")}{" "}
           <select
             id="leave-shift"
-            className={select}
             value={shift.id}
             disabled={busy}
             onChange={(event) => pickShift(Number(event.target.value))}
           >
             {ward.shifts.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.label}
+                {`${t("roster.shiftOption", { id: item.id })} (${t(item.kind === "night" ? "ctl.night" : "ctl.day")})`}
               </option>
             ))}
           </select>
         </label>
         <label htmlFor="leave-staff">
-          Staff on the shift{" "}
+          {t("ctl.staffOnShift")}{" "}
           <select
             id="leave-staff"
-            className={select}
             value={leaveStaffId}
             disabled={busy}
             onChange={(event) => setStaffId(Number(event.target.value))}
@@ -273,35 +315,42 @@ export default function DemoControl() {
             ))}
           </select>
         </label>
-        <button type="button" className={button} disabled={busy} onClick={reportLeave}>
-          Report leave
-        </button>
-        <button type="button" className={button} disabled={busy} onClick={simulateCheckIn}>
-          Simulate check-in (demo)
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Button disabled={busy} onClick={reportLeave}>
+            {t("ctl.reportLeave")}
+          </Button>
+          <Button disabled={busy} onClick={simulateCheckIn}>
+            {t("ctl.simCheckIn")}
+          </Button>
+        </div>
       </fieldset>
 
-      {busy && <p className="mt-4">Working…</p>}
+      {busy && <p className="mt-4">{t("ctl.working")}</p>}
       {outcome?.kind === "reset" && (
-        <p className="mt-4 text-green-700">Demo reset. Clock: {outcome.clock}</p>
+        <p className="mt-4 font-medium text-green-700">{t("ctl.resetDone", { clock: outcome.clock })}</p>
+      )}
+      {outcome?.kind === "clockMode" && (
+        <p className="mt-4 font-medium text-green-700">
+          {t(outcome.frozen ? "ctl.frozenAt" : "ctl.unfrozen", { clock: outcome.clock })}
+        </p>
       )}
       {outcome?.kind === "error" && (
         <p className="mt-4 text-red-700">
-          {outcome.label}: {outcome.message}
+          {text(outcome.label)}: {text(outcome.message)}
         </p>
       )}
       {outcome?.kind === "clock" && (
-        <div className="mt-4">
-          <p className="text-green-700">Clock: {outcome.result.clock}</p>
+        <Card className="mt-4">
+          <p className="font-medium text-green-700">{t("ctl.clock", { clock: outcome.result.clock })}</p>
           {outcome.result.closed_windows.length === 0 ? (
-            <p>No merge window was due.</p>
+            <p>{t("ctl.noWindow")}</p>
           ) : (
             <ul className="list-disc pl-5">
               {outcome.result.closed_windows.map((window) => (
                 <li key={window.shift_id}>
-                  Shift {window.shift_id}, events {window.event_ids.join(", ")}:{" "}
+                  {t("ctl.window", { shift: window.shift_id, events: window.event_ids.join(", ") })}{" "}
                   {window.case_id === null ? (
-                    "no case opened"
+                    t("ctl.noCaseOpened")
                   ) : (
                     <CaseLink
                       key={window.case_id}
@@ -314,17 +363,17 @@ export default function DemoControl() {
             </ul>
           )}
           {outcome.result.timed_out_approval_request_ids.length > 0 && (
-            <p>Approvals timed out: {outcome.result.timed_out_approval_request_ids.join(", ")}</p>
+            <p>{t("ctl.approvalsTimedOut", { ids: outcome.result.timed_out_approval_request_ids.join(", ") })}</p>
           )}
           {outcome.result.timed_out_outreach_ids.length > 0 && (
-            <p>Offers timed out: {outcome.result.timed_out_outreach_ids.join(", ")}</p>
+            <p>{t("ctl.offersTimedOut", { ids: outcome.result.timed_out_outreach_ids.join(", ") })}</p>
           )}
           {(outcome.result.no_show_event_ids ?? []).length > 0 && (
-            <p>No-show events recorded: {outcome.result.no_show_event_ids.join(", ")}</p>
+            <p>{t("ctl.noShows", { ids: outcome.result.no_show_event_ids.join(", ") })}</p>
           )}
           {outcome.result.recovered_case_ids.length > 0 && (
             <p>
-              Waiting cases rechecked:{" "}
+              {t("ctl.rechecked")}{" "}
               {outcome.result.recovered_case_ids.map((id, index) => (
                 <span key={id}>
                   {index > 0 && ", "}
@@ -333,41 +382,46 @@ export default function DemoControl() {
               ))}
             </p>
           )}
-        </div>
+        </Card>
       )}
       {outcome?.kind === "checkIn" && (
         <p className={outcome.result.on_time ? "mt-4 text-green-700" : "mt-4 text-amber-700"}>
-          {outcome.label}: {outcome.result.on_time ? "on time" : "late"} at{" "}
-          {formatDateTime(outcome.result.check_in_at)} (deadline{" "}
-          {formatDateTime(outcome.result.deadline)})
+          {t("ctl.checkInResult", {
+            label: text(outcome.label),
+            when: t(outcome.result.on_time ? "me.onTime" : "me.late"),
+            time: formatDateTime(outcome.result.check_in_at),
+            deadline: formatDateTime(outcome.result.deadline),
+          })}
         </p>
       )}
       {outcome?.kind === "event" && (
-        <dl className="mt-4 grid grid-cols-2 gap-2">
-          <dt>Action</dt>
-          <dd>{outcome.label}</dd>
-          <dt>Event</dt>
-          <dd>
-            {outcome.result.event_id} ({outcome.result.event_status})
-          </dd>
-          <dt>Case status at event response</dt>
-          <dd>{outcome.result.case_status ?? "No case yet"}</dd>
-          <dt>Case (current status)</dt>
-          <dd>
-            {outcome.result.case_id !== null ? (
-              <CaseLink
-                key={outcome.result.case_id}
-                id={outcome.result.case_id}
-                status={outcome.result.case_status}
-              />
-            ) : outcome.result.event_status === "RECEIVED" ? (
-              // Its shift has an open merge window, or a case that is still running
-              "Not decided yet. The event is waiting."
-            ) : (
-              "No case opened"
-            )}
-          </dd>
-        </dl>
+        <Card className="mt-4">
+          <dl className="grid grid-cols-2 gap-2">
+            <dt className="font-medium">{t("ctl.action")}</dt>
+            <dd>{text(outcome.label)}</dd>
+            <dt className="font-medium">{t("ctl.event")}</dt>
+            <dd>
+              {outcome.result.event_id} ({outcome.result.event_status})
+            </dd>
+            <dt className="font-medium">{t("ctl.caseStatusAtEvent")}</dt>
+            <dd>{outcome.result.case_status ?? t("dash.noCaseYet")}</dd>
+            <dt className="font-medium">{t("ctl.caseCurrent")}</dt>
+            <dd>
+              {outcome.result.case_id !== null ? (
+                <CaseLink
+                  key={outcome.result.case_id}
+                  id={outcome.result.case_id}
+                  status={outcome.result.case_status}
+                />
+              ) : outcome.result.event_status === "RECEIVED" ? (
+                // Its shift has an open merge window, or a case that is still running
+                t("ctl.eventWaiting")
+              ) : (
+                t("ctl.noCaseOpenedCap")
+              )}
+            </dd>
+          </dl>
+        </Card>
       )}
     </main>
   );

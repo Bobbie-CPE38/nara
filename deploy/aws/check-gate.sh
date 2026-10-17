@@ -65,6 +65,8 @@ expect "API docs" GET /api/docs no-login "401 gate"
 expect "API clock" GET /api/clock no-login "401 gate"
 expect "demo reset" POST /api/demo/reset no-login "401 gate"
 expect "demo clock advance" POST /api/demo/clock/advance no-login "401 gate"
+expect "demo clock freeze" POST /api/demo/clock/freeze no-login "401 gate"
+expect "demo clock unfreeze" POST /api/demo/clock/unfreeze no-login "401 gate"
 expect "demo check-in" POST /api/demo/attendance/check-in no-login "401 gate"
 
 echo "Without a login: the webhook is the only exception, and only the exact request"

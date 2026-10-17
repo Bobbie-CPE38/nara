@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ScrollX } from "@/components/ScrollX";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { Notice } from "@/components/ui/Notice";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError } from "@/lib/api";
 import { formatDemoTime } from "@/lib/demo";
+import { describeError } from "@/lib/errors";
+import type { MessageKey, Params } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/LanguageProvider";
 import type { Offer, OfferResponse } from "@/lib/types/outreach";
 
 function offerSnapshot(offer: Offer) {
@@ -36,8 +43,11 @@ const STOPPED_CASE_STATUSES = new Set([
   "MANUAL_HANDOFF",
 ]);
 
+/** A text of the page (a key and its values, shown in the language of the user) or the words of the server. */
+type FeedbackMessage = { key: MessageKey; params?: Params } | { text: string };
+
 type Feedback = {
-  message: string;
+  message: FeedbackMessage;
   kind: "notice" | "error";
   matches: (offers: Offer[]) => boolean;
   // An older in-flight read may still contain the row from before the POST.
@@ -53,6 +63,18 @@ export type OfferApi = {
     signal: AbortSignal,
   ) => Promise<OfferResponse>;
 };
+
+const COLUMNS: readonly MessageKey[] = [
+  "offers.col.offer",
+  "common.case",
+  "offers.col.wardShift",
+  "offers.col.offerStatus",
+  "offers.col.caseStatus",
+  "offers.col.sent",
+  "offers.col.responded",
+  "offers.col.deadline",
+  "offers.col.action",
+];
 
 /**
  * Offer history with Accept and Reject, shared by the LINE simulator and the
@@ -70,6 +92,7 @@ export function OfferList({
   emptyText: string;
   onPendingChange?: (pending: boolean) => void;
 }) {
+  const t = useT();
   const [pending, setPending] = useState(false);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [answeredSnapshot, setAnsweredSnapshot] = useState<string | null>(null);
@@ -133,21 +156,40 @@ export function OfferList({
           kind: "error",
           matches,
           beforeSnapshot: offerSnapshot(selected),
-          message: `The offer changed before your response arrived. You selected offer ${offerId}, but the server recorded ${result.outreach_status} for offer ${result.outreach_id} on case ${result.case_id}. Check the refreshed history.`,
+          message: {
+            key: "offers.changed",
+            params: {
+              selected: offerId,
+              status: result.outreach_status,
+              recorded: result.outreach_id,
+              caseId: result.case_id,
+            },
+          },
         });
       } else if (result.case_status === "FAILED") {
         setFeedback({
           kind: "error",
           matches,
           beforeSnapshot: offerSnapshot(selected),
-          message: `Offer ${result.outreach_id}: ${result.outreach_status}. Case ${result.case_id} failed after this response. Check its timeline.`,
+          message: {
+            key: "offers.caseFailed",
+            params: { offer: result.outreach_id, status: result.outreach_status, caseId: result.case_id },
+          },
         });
       } else {
         setFeedback({
           kind: "notice",
           matches,
           beforeSnapshot: offerSnapshot(selected),
-          message: `Offer ${result.outreach_id}: ${result.outreach_status}. Case ${result.case_id}: ${result.case_status}.`,
+          message: {
+            key: "offers.result",
+            params: {
+              offer: result.outreach_id,
+              status: result.outreach_status,
+              caseId: result.case_id,
+              caseStatus: result.case_status,
+            },
+          },
         });
       }
       await refresh();
@@ -169,10 +211,8 @@ export function OfferList({
                 )
               : offerSnapshot(offer) === offerSnapshot(selected),
           ),
-        message:
-          cause instanceof Error
-            ? cause.message
-            : "Could not send your response.",
+        // The words of the server stay as they are; our own text is in the user's language
+        message: cause instanceof Error ? { text: describeError(cause, t) } : { key: "offers.sendFailed" },
       });
       if (cause instanceof ApiError && cause.status === 409) {
         setAnsweredSnapshot(offerSnapshot(selected));
@@ -187,150 +227,130 @@ export function OfferList({
     }
   }
 
+  const feedbackText = feedback
+    ? "text" in feedback.message
+      ? feedback.message.text
+      : t(feedback.message.key, feedback.message.params)
+    : null;
+
   return (
-    <section aria-label="Offers" className="mt-6 space-y-4">
-      {isLoading && <p role="status">Loading offers…</p>}
+    <section aria-label={t("offers.label")} className="mt-6 space-y-4">
+      {isLoading && <p role="status">{t("offers.loading")}</p>}
       {error && (
-        <p role="alert" className="text-red-700">
-          Could not refresh offers: {error.message}
-        </p>
+        <Notice kind="error" role="alert">
+          {t("offers.refreshFailed", { error: describeError(error, t) })}
+        </Notice>
       )}
       {feedback?.kind === "notice" && (
-        <p role="status" className="text-green-800">
-          {feedback.message}
-        </p>
+        <Notice kind="info" role="status">
+          {feedbackText}
+        </Notice>
       )}
       {feedback?.kind === "error" && (
-        <p role="alert" className="text-red-700">
-          {feedback.message}
-        </p>
+        <Notice kind="error" role="alert">
+          {feedbackText}
+        </Notice>
       )}
       {data?.length === 0 && <p>{emptyText}</p>}
       {data && data.length > 0 && (
-        <div className="overflow-x-auto rounded border border-slate-300">
-          <table className="w-full text-left text-sm">
-            <caption className="sr-only">
-              Offer history for staff {staffId}
-            </caption>
-            <thead className="bg-slate-100">
-              <tr>
-                {[
-                  "Offer",
-                  "Case",
-                  "Ward / Shift",
-                  "Offer status",
-                  "Case status",
-                  "Sent (Bangkok)",
-                  "Responded (Bangkok)",
-                  "Deadline (Bangkok)",
-                  "Action",
-                ].map((label) => (
-                  <th key={label} scope="col" className="p-3">
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((offer) => {
-                const canRespond =
-                  openOffers.some((open) => open.id === offer.id) &&
-                  offerSnapshot(offer) !== answeredSnapshot &&
-                  !pending &&
-                  !error;
-                return (
-                  <tr key={offer.id} className="border-t border-slate-200">
-                    <td className="p-3">{offer.id}</td>
-                    <td className="p-3">{offer.case_id}</td>
-                    <td className="p-3">
-                      {offer.ward_name} · Shift {offer.proposed_shift_id}
-                      <div>
-                        {formatDemoTime(offer.shift_start_at)} –{" "}
-                        {formatDemoTime(offer.shift_end_at)}
-                      </div>
-                    </td>
-                    <td className="p-3">{offer.status}</td>
-                    <td className="p-3">{offer.case_status}</td>
-                    <td className="whitespace-nowrap p-3">
-                      {formatDemoTime(offer.sent_at)}
-                    </td>
-                    <td className="whitespace-nowrap p-3">
-                      {formatDemoTime(offer.response_at)}
-                    </td>
-                    <td className="whitespace-nowrap p-3">
-                      {formatDemoTime(offer.expires_at)}
-                    </td>
-                    <td className="p-3">
-                      <div className="flex gap-2">
-                        <button
-                          aria-label={`Accept offer ${offer.id}`}
-                          disabled={!canRespond || !offer.can_accept}
-                          onClick={() => void respond(offer.id, "ACCEPT")}
-                          className="rounded bg-blue-700 px-3 py-2 text-white disabled:opacity-40"
-                        >
-                          Accept
-                        </button>
-                        <button
-                          aria-label={`Reject offer ${offer.id}`}
-                          disabled={!canRespond}
-                          onClick={() => void respond(offer.id, "REJECT")}
-                          className="rounded border border-slate-400 px-3 py-2 disabled:opacity-40"
-                        >
-                          Reject
-                        </button>
-                      </div>
-                      {(offer.blocked_reason === "OFFER_EXPIRED" ||
-                        offer.status === "TIMEOUT") && (
-                        <p>
-                          This offer has expired. You can no longer accept or
-                          reject it.
-                        </p>
-                      )}
-                      {offer.blocked_reason === "AWAITING_OTHER_CASE" && (
-                        <p>
-                          Accept is paused while another case reviews your
-                          acceptance. You may still reject this offer.
-                        </p>
-                      )}
-                      {offer.cancellation_reason && !offer.final_message && (
-                        <p>Cancelled: {offer.cancellation_reason}</p>
-                      )}
-                      {!offer.is_assigned && offer.final_message && (
-                        <p className="whitespace-pre-line">{offer.final_message}</p>
-                      )}
-                      {!offer.is_assigned && offer.final_delivery_status === "FAILED" && (
-                        <p className="text-amber-800">
-                          The LINE notification could not be delivered. Your latest result is shown here.
-                        </p>
-                      )}
-                      {offer.is_assigned ? (
-                        <p>Assignment confirmed for this shift.</p>
-                      ) : offer.is_reserve ? (
-                        <p>
-                          Accepted as a reserve. Do not come to the shift unless
-                          selected and approved.
-                        </p>
-                      ) : (
-                        offer.status === "ACCEPTED" &&
-                        !STOPPED_CASE_STATUSES.has(offer.case_status) && (
-                          <p>
-                            Acceptance is not a confirmed assignment. Wait for
-                            head-nurse approval.
-                          </p>
-                        )
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Card>
+          <ScrollX>
+            <table className="text-sm">
+              <caption className="sr-only">
+                {t("offers.caption", { id: staffId })}
+              </caption>
+              <thead>
+                <tr>
+                  {COLUMNS.map((label) => (
+                    <th key={label} scope="col">
+                      {t(label)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((offer) => {
+                  const canRespond =
+                    openOffers.some((open) => open.id === offer.id) &&
+                    offerSnapshot(offer) !== answeredSnapshot &&
+                    !pending &&
+                    !error;
+                  return (
+                    <tr key={offer.id}>
+                      <td>{offer.id}</td>
+                      <td>{offer.case_id}</td>
+                      <td>
+                        {t("offers.wardShift", { ward: offer.ward_name, shift: offer.proposed_shift_id })}
+                        <div>
+                          {formatDemoTime(offer.shift_start_at)} –{" "}
+                          {formatDemoTime(offer.shift_end_at)}
+                        </div>
+                      </td>
+                      <td>{offer.status}</td>
+                      <td>{offer.case_status}</td>
+                      <td className="whitespace-nowrap">
+                        {formatDemoTime(offer.sent_at)}
+                      </td>
+                      <td className="whitespace-nowrap">
+                        {formatDemoTime(offer.response_at)}
+                      </td>
+                      <td className="whitespace-nowrap">
+                        {formatDemoTime(offer.expires_at)}
+                      </td>
+                      <td>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="primary"
+                            aria-label={t("offers.acceptLabel", { id: offer.id })}
+                            disabled={!canRespond || !offer.can_accept}
+                            onClick={() => void respond(offer.id, "ACCEPT")}
+                          >
+                            {t("offers.accept")}
+                          </Button>
+                          <Button
+                            aria-label={t("offers.rejectLabel", { id: offer.id })}
+                            disabled={!canRespond}
+                            onClick={() => void respond(offer.id, "REJECT")}
+                          >
+                            {t("offers.reject")}
+                          </Button>
+                        </div>
+                        {(offer.blocked_reason === "OFFER_EXPIRED" ||
+                          offer.status === "TIMEOUT") && (
+                          <p className="mt-1">{t("offers.expired")}</p>
+                        )}
+                        {offer.blocked_reason === "AWAITING_OTHER_CASE" && (
+                          <p className="mt-1">{t("offers.paused")}</p>
+                        )}
+                        {offer.cancellation_reason && !offer.final_message && (
+                          <p className="mt-1">{t("offers.cancelled", { reason: offer.cancellation_reason })}</p>
+                        )}
+                        {!offer.is_assigned && offer.final_message && (
+                          <p className="mt-1 whitespace-pre-line">{offer.final_message}</p>
+                        )}
+                        {!offer.is_assigned && offer.final_delivery_status === "FAILED" && (
+                          <p className="mt-1 text-amber-800">{t("offers.lineFailed")}</p>
+                        )}
+                        {offer.is_assigned ? (
+                          <p className="mt-1">{t("offers.assigned")}</p>
+                        ) : offer.is_reserve ? (
+                          <p className="mt-1">{t("offers.reserve")}</p>
+                        ) : (
+                          offer.status === "ACCEPTED" &&
+                          !STOPPED_CASE_STATUSES.has(offer.case_status) && (
+                            <p className="mt-1">{t("offers.notConfirmed")}</p>
+                          )
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </ScrollX>
+        </Card>
       )}
-      <p className="text-sm text-slate-600">
-        Choose an offer to accept or reject. Accepting pauses acceptance of your
-        other offers until the outcome is known.
-      </p>
+      <p className="text-sm text-slate-600">{t("offers.help")}</p>
     </section>
   );
 }

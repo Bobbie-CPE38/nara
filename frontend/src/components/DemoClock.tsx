@@ -11,7 +11,7 @@ import type { ClockView } from "@/lib/types/attendance";
 export function DemoClock() {
   const t = useT();
   const load = useCallback((signal: AbortSignal) => apiRequest<ClockView>("/clock", { signal }), []);
-  const { data, error } = usePolling(load);
+  const { data, error } = usePolling(load, { intervalMs: 1000 });
   if (data === undefined) {
     return <span className="text-slate-500">{error ? t("clock.unavailable") : t("clock.loading")}</span>;
   }
