@@ -1,5 +1,6 @@
 from decimal import Decimal
 from typing import Any, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -67,6 +68,16 @@ class Settings(BaseSettings):
             if info.field_name is None:
                 return None
             return cls.model_fields[info.field_name].get_default()
+        return value
+
+    @field_validator("llm_quota_timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        # PostgreSQL would reject an unknown zone only at the first quota reservation
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as error:
+            raise ValueError(f"unknown time zone {value!r}") from error
         return value
 
     @property

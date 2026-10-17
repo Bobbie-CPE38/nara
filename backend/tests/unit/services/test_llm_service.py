@@ -160,3 +160,26 @@ def test_numbers_from_the_payload_pass(monkeypatch):
     request = replace(_request(), payload={"candidates": [{"rank": 2, "points": 5}]})
 
     assert llm_service.generate_explanation(request).status == LlmCallStatus.SUCCEEDED
+
+
+@pytest.mark.parametrize(
+    "text,payload",
+    [("คะแนน .5", {"rank": 5}), ("คะแนน 1e3", {"rank": 1, "gap": 3})],
+)
+def test_a_number_read_in_pieces_is_invalid_output(monkeypatch, text, payload):
+    """Review of PR #108: .5 and 1e3 must not pass on the 5, or the 1 and 3, of the payload."""
+    monkeypatch.setattr(settings, "llm_provider", "bedrock")
+    monkeypatch.setattr(bedrock, "generate", lambda request: _attempt(text=text))
+
+    attempt = llm_service.generate_explanation(replace(_request(), payload=payload))
+
+    assert attempt.status == LlmCallStatus.INVALID_OUTPUT
+    assert attempt.error_type == llm_service.UNVERIFIED_NUMBER and attempt.text is None
+
+
+def test_a_rounded_decimal_still_passes(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "bedrock")
+    monkeypatch.setattr(bedrock, "generate", lambda request: _attempt(text="รวม 0.33 คะแนน"))
+    request = replace(_request(), payload={"total": 0.3333333333333333})
+
+    assert llm_service.generate_explanation(request).status == LlmCallStatus.SUCCEEDED

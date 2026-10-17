@@ -42,6 +42,7 @@ PAYLOAD = {
 # A day no other test writes, far from the real date of a run
 OLD_DAY_AT = datetime(2001, 1, 1, 12, 0, tzinfo=UTC)
 TEST_RUN_PREFIX = "b1-test-"
+DETACHED = datetime(2026, 10, 1, tzinfo=UTC)
 
 
 def _request(prompt: str = "Explain.", max_output_tokens: int = 100) -> LlmRequest:
@@ -334,6 +335,16 @@ def _raw_log(db: Session, **columns: Any) -> None:
         {"work_type": "MODEL_TRIAL", "trial_run_id": "r", "trial_case_key": "k", "case_id": 1},
         {"work_type": "RANK_EXPLANATION", "case_id": 1, "plan_id": 1},  # no explanation
         {"work_type": "SOMETHING_ELSE", "trial_run_id": "r", "trial_case_key": "k"},
+        # Detached by a demo reset: no references, and never a trial
+        {"work_type": "CASE_SUMMARY", "subject_id": 1, "case_id": 1, "detached_at": DETACHED},
+        {"work_type": "RANK_EXPLANATION", "plan_id": 1, "detached_at": DETACHED},
+        {
+            "work_type": "MODEL_TRIAL",
+            "trial_run_id": "r",
+            "trial_case_key": "k",
+            "detached_at": DETACHED,
+        },
+        {"work_type": "MODEL_TRIAL", "detached_at": DETACHED},
     ],
 )
 def test_the_check_rejects_a_mixed_or_incomplete_row(db: Session, columns) -> None:
@@ -342,6 +353,13 @@ def test_the_check_rejects_a_mixed_or_incomplete_row(db: Session, columns) -> No
         db.begin_nested(),
     ):
         _raw_log(db, **columns)
+
+
+@pytest.mark.parametrize("work_type", ["RANK_EXPLANATION", "CASE_SUMMARY"])
+def test_a_detached_row_keeps_only_its_type_and_cost(db: Session, work_type: str) -> None:
+    _raw_log(db, work_type=work_type, detached_at=DETACHED, estimated_cost_usd=Decimal(1))
+    _raw_log(db, work_type=work_type, detached_at=DETACHED)  # no unique on NULL references
+    assert db.scalar(text("SELECT count(*) FROM llm_call_log")) == 2
 
 
 def test_one_log_row_per_attempt_of_each_type(db: Session) -> None:

@@ -23,8 +23,11 @@ _RANK = LlmWorkType.RANK_EXPLANATION.value
 _SUMMARY = LlmWorkType.CASE_SUMMARY.value
 _TRIAL = LlmWorkType.MODEL_TRIAL.value
 
-# Round 6 PR B1: each work type fills its own reference columns and leaves the others NULL
+# Round 6 PR B1: each work type fills its own reference columns and leaves the others NULL.
+# A demo reset deletes the rows a ranking explanation or case summary refers to; the log
+# row stays for its cost with no references and detached_at set (app/seed/reset.py)
 WORK_TYPE_SUBJECT_CHECK = (
+    "(detached_at IS NULL AND ("
     f"(work_type = '{_RANK}' AND explanation_id IS NOT NULL AND case_id IS NOT NULL"
     " AND plan_id IS NOT NULL AND subject_id IS NULL AND trial_run_id IS NULL"
     " AND trial_case_key IS NULL)"
@@ -33,7 +36,10 @@ WORK_TYPE_SUBJECT_CHECK = (
     " AND trial_case_key IS NULL)"
     f" OR (work_type = '{_TRIAL}' AND trial_run_id IS NOT NULL AND trial_case_key IS NOT NULL"
     " AND explanation_id IS NULL AND case_id IS NULL AND plan_id IS NULL"
-    " AND subject_id IS NULL)"
+    " AND subject_id IS NULL)))"
+    f" OR (detached_at IS NOT NULL AND work_type IN ('{_RANK}', '{_SUMMARY}')"
+    " AND explanation_id IS NULL AND case_id IS NULL AND plan_id IS NULL"
+    " AND subject_id IS NULL AND trial_run_id IS NULL AND trial_case_key IS NULL)"
 )
 
 
@@ -77,6 +83,8 @@ class LlmCallLog(Base):
     subject_id: Mapped[int | None] = mapped_column(BigInteger)
     trial_run_id: Mapped[str | None] = mapped_column(Text)
     trial_case_key: Mapped[str | None] = mapped_column(Text)
+    # When a demo reset deleted this row's subject; its references are then NULL
+    detached_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     provider: Mapped[str] = mapped_column(Text)
     prompt_version: Mapped[str] = mapped_column(Text)
     model_id: Mapped[str | None] = mapped_column(Text)

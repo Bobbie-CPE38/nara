@@ -50,6 +50,7 @@ def test_round_trip_keeps_explanation_attempts_and_drops_other_types(production_
             LlmCallLog(
                 work_type=LlmWorkType.MODEL_TRIAL, trial_run_id="r", trial_case_key="k", **common
             ),
+            LlmCallLog(work_type=LlmWorkType.RANK_EXPLANATION, detached_at=clock.now(), **common),
         ]
     )
     db.flush()

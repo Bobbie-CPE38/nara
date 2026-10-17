@@ -204,3 +204,20 @@ def test_llm_quota_bounds_are_validated(
 
     with pytest.raises(ValidationError, match=name.lower()):
         Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("zone", ["Asia/Bangkokk", "Not/AZone", "../etc/passwd"])
+def test_an_unknown_quota_timezone_fails_at_startup(monkeypatch: pytest.MonkeyPatch, zone) -> None:
+    """Review of PR #108: PostgreSQL would reject it only at the first reservation."""
+    monkeypatch.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    monkeypatch.setenv("LLM_QUOTA_TIMEZONE", zone)
+
+    with pytest.raises(ValidationError, match="llm_quota_timezone"):
+        Settings(_env_file=None)
+
+
+def test_a_known_quota_timezone_loads(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    monkeypatch.setenv("LLM_QUOTA_TIMEZONE", "UTC")
+
+    assert Settings(_env_file=None).llm_quota_timezone == "UTC"

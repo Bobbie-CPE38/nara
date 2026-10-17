@@ -770,6 +770,7 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `plan_id` | bigint | NULL | ไม่มี FK มี index; มีเฉพาะ `RANK_EXPLANATION` |
 | `subject_id` | bigint | NULL | รหัสแถวสรุปเคส (PR S) ไม่มี FK; มีเฉพาะ `CASE_SUMMARY` |
 | `trial_run_id`, `trial_case_key` | text | NULL | รหัสชุดทดลอง และคู่เคสกับโมเดลในชุด (เช่น `case-07/nova-lite`); มีเฉพาะ `MODEL_TRIAL` |
+| `detached_at` | timestamptz | NULL | เวลาที่ Demo reset ลบแถวที่แถวนี้อ้าง (คำอธิบายอันดับหรือสรุปเคส) ตัวอ้างอิงทั้งหมดเป็น NULL แถวยังอยู่เพื่อเก็บค่าใช้จ่าย (`workflow.md` ข้อ 6.27) |
 | `provider`, `prompt_version` | text | NOT NULL | |
 | `model_id`, `region`, `input_hash` | text | NULL | |
 | `attempt` | integer | NOT NULL | เริ่มที่ 1; Unique ต่อชนิดตามข้างล่าง |
@@ -785,9 +786,10 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ไม่เก็บ Prompt หรือข้อความตอบ
 
-* CHECK `ck_llm_call_log_work_type_subject`: แต่ละชนิดมีคอลัมน์อ้างอิงของตัวเองครบ และคอลัมน์อ้างอิงของชนิดอื่นเป็น NULL (`RANK_EXPLANATION`: `explanation_id`, `case_id`, `plan_id`; `CASE_SUMMARY`: `subject_id`, `case_id`; `MODEL_TRIAL`: `trial_run_id`, `trial_case_key`) ค่า `work_type` อื่นจึงเขียนไม่ได้
+* CHECK `ck_llm_call_log_work_type_subject`: เมื่อ `detached_at` เป็น NULL แต่ละชนิดมีคอลัมน์อ้างอิงของตัวเองครบ และคอลัมน์อ้างอิงของชนิดอื่นเป็น NULL (`RANK_EXPLANATION`: `explanation_id`, `case_id`, `plan_id`; `CASE_SUMMARY`: `subject_id`, `case_id`; `MODEL_TRIAL`: `trial_run_id`, `trial_case_key`) เมื่อ `detached_at` มีค่า ชนิดต้องเป็น `RANK_EXPLANATION` หรือ `CASE_SUMMARY` และตัวอ้างอิงทุกคอลัมน์เป็น NULL ค่า `work_type` อื่นจึงเขียนไม่ได้
 * Unique: (`explanation_id`, `attempt`) เดิม, `uq_llm_call_log_case_summary_attempt` (`subject_id`, `attempt`) เมื่อ `CASE_SUMMARY` และ `uq_llm_call_log_model_trial_attempt` (`trial_run_id`, `trial_case_key`, `attempt`) เมื่อ `MODEL_TRIAL`
-* Downgrade ของ B1 ลบแถวที่ไม่ใช่ `RANK_EXPLANATION` เพราะใส่ในรูปเดิมไม่ได้
+* Demo reset เก็บตารางนี้ไว้ (ไม่ถูกล้าง) และตั้ง `detached_at` ให้แถวที่ไม่ใช่ชุดทดลอง
+* Downgrade ของ B1 ลบแถวที่ไม่ใช่ `RANK_EXPLANATION` และแถวที่มี `detached_at` เพราะใส่ในรูปเดิมไม่ได้
 
 ### 36. LLM_DAILY_USAGE (รอบ 6 PR B1)
 
@@ -798,7 +800,7 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `usage_date` | date | NOT NULL | PK วันตามเวลา Asia/Bangkok (`LLM_QUOTA_TIMEZONE`) |
 | `used` | integer | NOT NULL | จำนวน Attempt ที่ส่งผ่านตัวห่อรวม Retry (รวม `fake`); CHECK `used >= 0` |
 
-จองด้วยคำสั่งเดียวแบบ `INSERT ... ON CONFLICT DO UPDATE SET used = used + 1 WHERE used < :cap RETURNING used` ไม่เก็บเพดาน เพดานมาจาก `settings.llm_daily_call_cap` ตอนจอง (ลดกลางวันมีผลทันที เพดาน 0 ไม่จองเลย) วันคิดจาก `clock_timestamp()` ของฐานข้อมูล ไม่ใช่ Demo Clock (ข้อ 6.27)
+จองด้วยคำสั่งเดียวแบบ `INSERT ... ON CONFLICT DO UPDATE SET used = used + 1 WHERE used < :cap RETURNING used` ไม่เก็บเพดาน เพดานมาจาก `settings.llm_daily_call_cap` ตอนจอง (ลดกลางวันมีผลทันที เพดาน 0 ไม่จองเลย) วันคิดจาก `clock_timestamp()` ของฐานข้อมูล ไม่ใช่ Demo Clock (ข้อ 6.27) Demo reset ไม่ล้างตารางนี้และ `LLM_TRIAL_USAGE`
 
 ### 36b. LLM_TRIAL_USAGE (รอบ 6 PR B1)
 

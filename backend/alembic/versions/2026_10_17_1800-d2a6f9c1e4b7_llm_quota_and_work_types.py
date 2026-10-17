@@ -14,6 +14,7 @@ depends_on = None
 
 # Copied, not imported: a migration must not change when the model does
 WORK_TYPE_SUBJECT_CHECK = (
+    "(detached_at IS NULL AND ("
     "(work_type = 'RANK_EXPLANATION' AND explanation_id IS NOT NULL AND case_id IS NOT NULL"
     " AND plan_id IS NOT NULL AND subject_id IS NULL AND trial_run_id IS NULL"
     " AND trial_case_key IS NULL)"
@@ -22,7 +23,10 @@ WORK_TYPE_SUBJECT_CHECK = (
     " AND trial_case_key IS NULL)"
     " OR (work_type = 'MODEL_TRIAL' AND trial_run_id IS NOT NULL AND trial_case_key IS NOT NULL"
     " AND explanation_id IS NULL AND case_id IS NULL AND plan_id IS NULL"
-    " AND subject_id IS NULL)"
+    " AND subject_id IS NULL)))"
+    " OR (detached_at IS NOT NULL AND work_type IN ('RANK_EXPLANATION', 'CASE_SUMMARY')"
+    " AND explanation_id IS NULL AND case_id IS NULL AND plan_id IS NULL"
+    " AND subject_id IS NULL AND trial_run_id IS NULL AND trial_case_key IS NULL)"
 )
 
 
@@ -36,6 +40,8 @@ def upgrade() -> None:
     op.add_column("llm_call_log", sa.Column("subject_id", sa.BigInteger()))
     op.add_column("llm_call_log", sa.Column("trial_run_id", sa.Text()))
     op.add_column("llm_call_log", sa.Column("trial_case_key", sa.Text()))
+    # Set when a demo reset deletes the row's subject (app/seed/reset.py)
+    op.add_column("llm_call_log", sa.Column("detached_at", sa.DateTime(timezone=True)))
     for column in ("explanation_id", "case_id", "plan_id"):
         op.alter_column("llm_call_log", column, existing_type=sa.BigInteger(), nullable=True)
     op.create_check_constraint(
@@ -79,14 +85,17 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("llm_trial_usage")
     op.drop_table("llm_daily_usage")
-    # Case summary and trial attempts cannot fit the old explanation-only schema. Their
-    # cost history is lost with them
-    op.execute("DELETE FROM llm_call_log WHERE work_type <> 'RANK_EXPLANATION'")
+    # Case summary, trial and detached attempts cannot fit the old explanation-only
+    # schema. Their cost history is lost with them
+    op.execute(
+        "DELETE FROM llm_call_log WHERE work_type <> 'RANK_EXPLANATION' OR detached_at IS NOT NULL"
+    )
     op.drop_index("uq_llm_call_log_model_trial_attempt", table_name="llm_call_log")
     op.drop_index("uq_llm_call_log_case_summary_attempt", table_name="llm_call_log")
     op.drop_constraint(op.f("ck_llm_call_log_work_type_subject"), "llm_call_log", type_="check")
     for column in ("explanation_id", "case_id", "plan_id"):
         op.alter_column("llm_call_log", column, existing_type=sa.BigInteger(), nullable=False)
+    op.drop_column("llm_call_log", "detached_at")
     op.drop_column("llm_call_log", "trial_case_key")
     op.drop_column("llm_call_log", "trial_run_id")
     op.drop_column("llm_call_log", "subject_id")
