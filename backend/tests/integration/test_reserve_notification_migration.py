@@ -21,7 +21,9 @@ def test_reserve_upgrade_and_downgrade_preserve_final_history(production_seeded,
     case, items, row, final = cancelled(db)
     reserve = offer(db, case, items[202], OutreachStatus.ACCEPTED)
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
-    assert script.get_heads() == ["c5f8b0d3e7a1"]
+    assert len(script.get_heads()) == 1
+    # Round 6 PR B1 follows this revision
+    assert script.get_revision("d2a6f9c1e4b7").down_revision == "c5f8b0d3e7a1"
     revision = script.get_revision("c5f8b0d3e7a1")
     assert revision.down_revision == "b4e7a9c2d6f0"
     before = final.message, final.delivery_retry_key, final.delivery_status

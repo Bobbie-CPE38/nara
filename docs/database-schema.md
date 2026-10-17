@@ -751,22 +751,28 @@ CHECK `used_at IS NULL OR revoked_at IS NULL`; รหัสที่ใช้แ
 | `attempts` | integer | NOT NULL | default 0; นับ Attempt ถาวร |
 | `claim` | uuid | NULL | ผู้ถือ Claim ของ Sweep |
 | `lease_until` | timestamptz | NULL | Claim หมดอายุหลังเวลานี้ |
-| `failure_reason` | text | NULL | ค่าของ `LlmCallStatus` หรือ `INVALID_INPUT`, `NO_CANDIDATES`, `ATTEMPTS_EXHAUSTED`; ไม่เก็บข้อความ Error ของ SDK |
+| `failure_reason` | text | NULL | ค่าของ `LlmCallStatus` หรือ `INVALID_INPUT`, `NO_CANDIDATES`, `ATTEMPTS_EXHAUSTED` และ `QUOTA_EXHAUSTED`, `INPUT_TOO_LARGE` (`SKIPPED`, รอบ 6 PR B1); ไม่เก็บข้อความ Error ของ SDK |
 | `created_at`, `updated_at` | timestamptz | NOT NULL | Backend Clock |
 | `ready_at` | timestamptz | NULL | |
 
 UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending` บน `id` เมื่อ `status = 'PENDING'` แถวเกิดใน Transaction ของ Plan (เมื่อ `LLM_ENABLED`) และ Job เป็นผู้เติมผล
 
-### 35. LLM_CALL_LOG (รอบ 3 PR X)
+### 35. LLM_CALL_LOG (รอบ 3 PR X, รอบ 6 PR B1)
+
+หนึ่งแถวต่อ Attempt ของทุกประเภทงาน เขียนโดย `app/services/llm_gateway.py` เท่านั้น
 
 | Field | Type | Null | หมายเหตุ |
 |---|---|---|---|
 | `id` | bigint | NOT NULL | PK |
-| `explanation_id` | bigint | NOT NULL | FK RANK_EXPLANATION |
-| `case_id`, `plan_id` | bigint | NOT NULL | ไม่มี FK; `plan_id` มี index |
+| `work_type` | text | NOT NULL | `LlmWorkType` (รอบ 6 PR B1) แถวก่อน B1 เป็น `RANK_EXPLANATION` ไม่มี server default |
+| `explanation_id` | bigint | NULL | FK RANK_EXPLANATION; มีเฉพาะ `RANK_EXPLANATION` |
+| `case_id` | bigint | NULL | ไม่มี FK; มีใน `RANK_EXPLANATION` และ `CASE_SUMMARY` |
+| `plan_id` | bigint | NULL | ไม่มี FK มี index; มีเฉพาะ `RANK_EXPLANATION` |
+| `subject_id` | bigint | NULL | รหัสแถวสรุปเคส (PR S) ไม่มี FK; มีเฉพาะ `CASE_SUMMARY` |
+| `trial_run_id`, `trial_case_key` | text | NULL | รหัสชุดทดลอง และคู่เคสกับโมเดลในชุด (เช่น `case-07/nova-lite`); มีเฉพาะ `MODEL_TRIAL` |
 | `provider`, `prompt_version` | text | NOT NULL | |
 | `model_id`, `region`, `input_hash` | text | NULL | |
-| `attempt` | integer | NOT NULL | เริ่มที่ 1; UNIQUE (`explanation_id`, `attempt`) |
+| `attempt` | integer | NOT NULL | เริ่มที่ 1; Unique ต่อชนิดตามข้างล่าง |
 | `status` | text | NOT NULL | `LlmCallStatus` เริ่มที่ `IN_FLIGHT` ก่อนเรียก; ถ้าค้าง = เครื่องล่มและไม่ทราบ Token |
 | `error_type` | text | NULL | ชื่อ Exception หรือรหัส Error เท่านั้น |
 | `input_tokens`, `output_tokens`, `total_tokens` | integer | NULL | NULL = ไม่ทราบ ไม่ใช่ 0 |
@@ -779,28 +785,30 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 
 ไม่เก็บ Prompt หรือข้อความตอบ
 
-**[รอบ 6 · PR B1] ที่จะเปลี่ยน (ข้อ 6.27 ของ `workflow.md` ยังไม่มี Migration):** `explanation_id`, `case_id` และ `plan_id` จะเป็น NULL ได้ เพิ่ม `work_type` (`LlmWorkType`: `RANK_EXPLANATION`, `CASE_SUMMARY`, `MODEL_TRIAL` แถวเดิมทั้งหมดเป็น `RANK_EXPLANATION`), `subject_id` (รหัสแถวสรุปเคส ไม่มี FK), `trial_run_id` และ `trial_case_key` พร้อม CHECK ตามชนิด และ Unique บางส่วนของแต่ละชนิดนอกเหนือ UNIQUE (`explanation_id`, `attempt`) เดิม รูปแน่นอน B1 ยืนยันใน PR ของตัวเอง
+* CHECK `ck_llm_call_log_work_type_subject`: แต่ละชนิดมีคอลัมน์อ้างอิงของตัวเองครบ และคอลัมน์อ้างอิงของชนิดอื่นเป็น NULL (`RANK_EXPLANATION`: `explanation_id`, `case_id`, `plan_id`; `CASE_SUMMARY`: `subject_id`, `case_id`; `MODEL_TRIAL`: `trial_run_id`, `trial_case_key`) ค่า `work_type` อื่นจึงเขียนไม่ได้
+* Unique: (`explanation_id`, `attempt`) เดิม, `uq_llm_call_log_case_summary_attempt` (`subject_id`, `attempt`) เมื่อ `CASE_SUMMARY` และ `uq_llm_call_log_model_trial_attempt` (`trial_run_id`, `trial_case_key`, `attempt`) เมื่อ `MODEL_TRIAL`
+* Downgrade ของ B1 ลบแถวที่ไม่ใช่ `RANK_EXPLANATION` เพราะใส่ในรูปเดิมไม่ได้
 
-### 36. LLM_DAILY_USAGE (รอบ 6 PR B1 ยังไม่มี Migration)
+### 36. LLM_DAILY_USAGE (รอบ 6 PR B1)
 
 ตัวนับคำขอ LLM ต่อวัน เฉพาะขอบเขต `DEMO` ข้อ 6.27 ของ `workflow.md`
 
 | Field | Type | Null | หมายเหตุ |
 |---|---|---|---|
 | `usage_date` | date | NOT NULL | PK วันตามเวลา Asia/Bangkok (`LLM_QUOTA_TIMEZONE`) |
-| `used` | integer | NOT NULL | จำนวน Attempt ที่เรียก Bedrock จริงรวม Retry |
+| `used` | integer | NOT NULL | จำนวน Attempt ที่ส่งผ่านตัวห่อรวม Retry (รวม `fake`); CHECK `used >= 0` |
 
-จองด้วยคำสั่งเดียวแบบ `INSERT ... ON CONFLICT DO UPDATE SET used = used + 1 WHERE used < :cap RETURNING used` ชื่อและคอลัมน์ที่แน่นอน B1 ยืนยันใน PR ของตัวเอง
+จองด้วยคำสั่งเดียวแบบ `INSERT ... ON CONFLICT DO UPDATE SET used = used + 1 WHERE used < :cap RETURNING used` ไม่เก็บเพดาน เพดานมาจาก `settings.llm_daily_call_cap` ตอนจอง (ลดกลางวันมีผลทันที เพดาน 0 ไม่จองเลย) วันคิดจาก `clock_timestamp()` ของฐานข้อมูล ไม่ใช่ Demo Clock (ข้อ 6.27)
 
-### 36b. LLM_TRIAL_USAGE (รอบ 6 PR B1 ยังไม่มี Migration)
+### 36b. LLM_TRIAL_USAGE (รอบ 6 PR B1)
 
 ตัวนับสะสมของชุดทดลองเลือกโมเดลหนึ่งชุด ไม่ผูกกับวัน ข้อ 6.27 และ 6.28 ของ `workflow.md`
 
 | Field | Type | Null | หมายเหตุ |
 |---|---|---|---|
 | `trial_run_id` | text | NOT NULL | PK |
-| `cap` | integer | NOT NULL | เพดานของชุดนี้ ตั้งครั้งเดียวตอนสร้างแถวจากสูตร `LLM_TRIAL_CALL_CAP` ไม่แก้ภายหลัง |
-| `used` | integer | NOT NULL | จำนวน Attempt สะสมของชุดนี้ |
+| `cap` | integer | NOT NULL | เพดานของชุดนี้ ตั้งครั้งเดียวตอนสร้างแถว ไม่เกิน `LLM_TRIAL_CALL_CAP` ไม่แก้ภายหลัง; CHECK `cap >= 0` |
+| `used` | integer | NOT NULL | จำนวน Attempt สะสมของชุดนี้; CHECK `used >= 0 AND used <= cap` |
 | `created_at` | timestamptz | NOT NULL | Backend Clock |
 
 จองด้วยคำสั่งเดียวแบบ `UPDATE LLM_TRIAL_USAGE SET used = used + 1 WHERE trial_run_id = :id AND used < cap RETURNING used` ไม่มีวันในคีย์ จึงไม่รีเซ็ตเมื่อข้ามเที่ยงคืนหรือรีสตาร์ต
@@ -857,7 +865,8 @@ UNIQUE (`case_id`, `input_hash`, `prompt_version`) ข้อมูลเปล�
 | `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS`, `ATTENDANCE` |
 | `ExplanationStatus` | RANK_EXPLANATION.status (รอบ 3 PR X) | `PENDING`, `READY`, `FAILED`, `SKIPPED` |
 | `LlmWorkType` | LLM_CALL_LOG.work_type (รอบ 6 PR B1) | `RANK_EXPLANATION`, `CASE_SUMMARY`, `MODEL_TRIAL` |
-| `LlmQuotaScope` | ขอบเขตที่ตัวห่อการเรียกจองโควตา (รอบ 6 PR B1): `DEMO` ใช้ LLM_DAILY_USAGE, `TRIAL` ใช้ LLM_TRIAL_USAGE | `DEMO`, `TRIAL` |
+| `LlmQuotaScope` | ขอบเขตที่ตัวห่อการเรียกจองโควตา (รอบ 6 PR B1): `DEMO` ใช้ LLM_DAILY_USAGE, `TRIAL` ใช้ LLM_TRIAL_USAGE ได้จาก `work_type` (`MODEL_TRIAL` เป็น `TRIAL`) ไม่เก็บเป็นคอลัมน์ | `DEMO`, `TRIAL` |
+| `LlmRefusal` | เหตุที่ตัวห่อไม่ส่งคำขอ (รอบ 6 PR B1) และ RANK_EXPLANATION.failure_reason ของ `SKIPPED` | `QUOTA_EXHAUSTED`, `INPUT_TOO_LARGE`, `DISABLED`, `NOT_CONFIGURED` |
 | `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
 | `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `ATTENDANCE_CHECKED_IN`, `OFFER_CANCELLED_NOT_NEEDED` **[รอบ 5 · PR N2]**, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
 | `CheckInSource` | AUDIT_LOG.payload.source ของ `ATTENDANCE_CHECKED_IN` | `SELF`, `SIMULATED` |

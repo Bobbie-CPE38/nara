@@ -31,9 +31,9 @@ CHECK_IN_EARLIEST_SECONDS = 60 * 60
 # Round 5 (6.25). Version of STRUCTURED_HANDOVER.content
 HANDOVER_CONTENT_VERSION = 1
 
-# Round 6 (docs/workflow.md 6.27, 6.28). Defaults of the LLM allowance. They are
-# the values to start from; PR B1 reads them into settings so they can be changed
-# without a release. The cap counts every attempt that really calls Bedrock, retries
+# Round 6 (docs/workflow.md 6.27, 6.28). Defaults of the LLM allowance. Code reads
+# the matching settings.llm_* value (env LLM_DAILY_CALL_CAP and so on), so they can be
+# changed without a release. The cap counts every attempt the gateway sends, retries
 # included, per calendar day in LLM_QUOTA_TIMEZONE
 LLM_DAILY_CALL_CAP = 100
 LLM_QUOTA_TIMEZONE = "Asia/Bangkok"

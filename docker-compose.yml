@@ -68,6 +68,13 @@ services:
       LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-1}
       LLM_INPUT_PRICE_PER_MTOK_USD: ${LLM_INPUT_PRICE_PER_MTOK_USD:-}
       LLM_OUTPUT_PRICE_PER_MTOK_USD: ${LLM_OUTPUT_PRICE_PER_MTOK_USD:-}
+      # Round 6 PR B1 quota. Blank keeps the default in backend/app/core/constants.py
+      LLM_DAILY_CALL_CAP: ${LLM_DAILY_CALL_CAP:-}
+      LLM_QUOTA_TIMEZONE: ${LLM_QUOTA_TIMEZONE:-}
+      LLM_MONTHLY_BUDGET_USD: ${LLM_MONTHLY_BUDGET_USD:-}
+      LLM_MAX_INPUT_TOKENS: ${LLM_MAX_INPUT_TOKENS:-}
+      LLM_MAX_ATTEMPTS_PER_ROW: ${LLM_MAX_ATTEMPTS_PER_ROW:-}
+      LLM_TRIAL_CALL_CAP: ${LLM_TRIAL_CALL_CAP:-}
     command: >
       sh -c "
       pip install --no-cache-dir -e ".[dev]" &&
