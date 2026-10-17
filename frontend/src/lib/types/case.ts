@@ -50,6 +50,20 @@ export type CandidateScore = { total: number; terms: ScoreTerm[]; first_wave: bo
 export type ExplanationBlock =
   | "ALREADY_READY" | "PENDING" | "NOT_CONFIGURED" | "INVALID_INPUT" | "ATTEMPTS_EXHAUSTED" | "QUOTA_EXHAUSTED";
 
+/** Requested case summary for the current snapshot, with earlier successful summaries. */
+export type CaseSummaryView = {
+  current: {
+    summary_id: number | null;
+    status: "NOT_REQUESTED" | "PENDING" | "READY" | "UNAVAILABLE" | "QUOTA_EXHAUSTED";
+    text: string | null;
+    generated_at: string | null;
+    stale: boolean;
+    can_request: boolean;
+    request_blocked_reason: ExplanationBlock | null;
+  };
+  history: { summary_id: number; text: string; generated_at: string }[];
+};
+
 /** The LLM sentence about the plan's ranking, made only when a user asks (round 6 PR E1). Only READY carries text. The numbers stay the source of truth */
 export type RankExplanation = {
   status: "NOT_REQUESTED" | "PENDING" | "READY" | "UNAVAILABLE" | "QUOTA_EXHAUSTED";
@@ -127,6 +141,7 @@ export type CaseDetail = {
   /** true when no group could cover every target, so the solver used the partial plan */
   partial_plan: boolean;
   handovers: HandoverView[];
+  summary: CaseSummaryView | null;
 };
 
 /** One item of GET /cases/{id}/audit */

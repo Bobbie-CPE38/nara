@@ -10,7 +10,12 @@ from app.core.config import settings
 from app.core.constants import MAX_BIGINT
 from app.schemas.job import DueWorkResult
 from app.schemas.line_account import IssuedLineCode, UnlinkedLineAccount
-from app.services import explanation_service, job_service, line_account_service
+from app.services import (
+    case_summary_service,
+    explanation_service,
+    job_service,
+    line_account_service,
+)
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -43,6 +48,7 @@ def close_due_merge_windows(
     result = DueWorkResult.of(job_service.run_due_work(db))
     # LLM sentences run after the response with their own Session, so the tick never waits
     background_tasks.add_task(explanation_service.run_pending_in_new_session)
+    background_tasks.add_task(case_summary_service.run_pending_in_new_session)
     return result
 
 
