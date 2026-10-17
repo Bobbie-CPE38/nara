@@ -1,4 +1,8 @@
 node_modules
 .next
+# next build bakes every NEXT_PUBLIC_* of an env file into the browser bundle
+.env*
+# Not needed to build or run the app
+tests
 tsconfig.tsbuildinfo
 npm-debug.log*

@@ -77,7 +77,7 @@
    sudo curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-compose \
      https://github.com/docker/compose/releases/latest/download/docker-compose-linux-$(uname -m)
    sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-   docker compose version   # ต้องเป็น 2.24 ขึ้นไป เพราะไฟล์ซ้อนใช้ !reset
+   docker compose version   # ต้องเป็น 2.24.4 ขึ้นไป เพราะไฟล์ซ้อนใช้ !reset และ !override
    ```
 
 7. **โค้ดและบริการ:**

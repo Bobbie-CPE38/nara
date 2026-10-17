@@ -5,7 +5,7 @@
 #     -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml up -d
 #
 # Only Caddy publishes ports. Every other service is reachable inside the
-# compose network only. `!reset` needs Docker Compose 2.24 or later.
+# compose network only. `!reset` and `!override` need Docker Compose 2.24.4 or later.
 #
 # The frontend is a production image (round 6 PR F3, docs/workflow.md 6.30): `next build`
 # runs while the image is built and `next start` serves it, with no code mounted in.

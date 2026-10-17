@@ -1,7 +1,7 @@
 """Check the production frontend image of the AWS test machine (round 6 PR F3).
 
 Run: python3 deploy/aws/test_frontend.py
-Needs Docker (Compose 2.24 or later) and a network to pull node:24-alpine and the npm
+Needs Docker (Compose 2.24.4 or later) and a network to pull node:24-alpine and the npm
 packages. It builds the image with the build arguments that docker-compose.aws.yml
 renders, starts it alone and checks the points of docs/workflow.md 6.30, part A:
 
@@ -18,6 +18,7 @@ import json
 import os
 import subprocess
 import tempfile
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -98,7 +99,7 @@ class ProductionFrontend(unittest.TestCase):
             )
             if probe.returncode == 0:
                 return
-            subprocess.run(["sleep", "1"])
+            time.sleep(1)
         raise RuntimeError(run(["docker", "logs", cls.container]))
 
     @classmethod
@@ -129,6 +130,32 @@ class ProductionFrontend(unittest.TestCase):
 
     def test_the_only_build_argument_is_the_api_address_of_the_machine(self):
         self.assertEqual(self.service["build"]["args"], {"NEXT_PUBLIC_API_BASE_URL": API_URL})
+
+    def test_the_build_context_leaves_out_env_files_node_modules_and_tests(self):
+        # next build bakes every NEXT_PUBLIC_* of an env file into the browser bundle, so an
+        # env file of a developer's frontend folder must never reach the build stage
+        with tempfile.TemporaryDirectory() as context:
+            folder = Path(context)
+            (folder / ".dockerignore").write_text(
+                (REPO / "frontend/.dockerignore").read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            for name in [".env", ".env.local", ".env.production", "node_modules/x", ".next/x", "tests/x"]:
+                path = folder / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("NEXT_PUBLIC_SECRET_THING=1\n", encoding="utf-8")
+            for name in ["package.json", "src/app.ts"]:
+                path = folder / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}", encoding="utf-8")
+            tag = f"nara-f3-context-{uuid.uuid4().hex[:8]}"
+            dockerfile = "FROM node:24-alpine\nCOPY . /context\nRUN cd /context && find . -type f | sort > /listing\n"
+            run(["docker", "build", "-q", "-f", "-", "-t", tag, str(folder)], input=dockerfile)
+            try:
+                listing = run(["docker", "run", "--rm", tag, "cat", "/listing"]).split()
+            finally:
+                subprocess.run(["docker", "rmi", "-f", tag], capture_output=True)
+        # The control: what the build needs is still in the context
+        self.assertEqual(sorted(listing), ["./.dockerignore", "./package.json", "./src/app.ts"])
 
     # --- the running container ----------------------------------------------
     def test_the_container_runs_next_start_in_production_mode_as_a_plain_user(self):

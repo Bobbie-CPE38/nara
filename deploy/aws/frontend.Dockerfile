@@ -13,7 +13,8 @@ COPY . .
 ARG NEXT_PUBLIC_API_BASE_URL
 RUN test -n "$NEXT_PUBLIC_API_BASE_URL" || (echo "NEXT_PUBLIC_API_BASE_URL is required" >&2; exit 1)
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
-RUN npm run build
+# The build cache is not needed to serve the app
+RUN npm run build && rm -rf .next/cache
 
 FROM node:24-alpine
 WORKDIR /app
