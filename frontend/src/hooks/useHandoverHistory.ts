@@ -65,12 +65,11 @@ export function useHandoverHistory(staffId: number) {
       expanded.current = false;
       generation.current += 1;
     }
+    // A missing active row may have been deleted, not completed. Only retain
+    // history explicitly returned by the server; never invent an inactive row.
     const page = expanded.current && previous ? {
       active: first.active,
-      history: mergeHistory(
-        first.active, first.history, previous.history,
-        previous.active.map((row) => ({ ...row, active: false })),
-      ),
+      history: mergeHistory(first.active, first.history, previous.history),
       next_cursor: previous.next_cursor,
     } : first;
     cache.current = page;
@@ -108,10 +107,7 @@ export function useHandoverHistory(staffId: number) {
       const active = revision.current === startedRevision ? next.active : previous.active;
       const page = {
         active,
-        history: mergeHistory(
-          active, next.history, previous.history,
-          previous.active.map((row) => ({ ...row, active: false })),
-        ),
+        history: mergeHistory(active, next.history, previous.history),
         next_cursor: next.next_cursor,
       };
       expanded.current = true;
@@ -129,5 +125,8 @@ export function useHandoverHistory(staffId: number) {
       }
     }
   }
-  return { ...polling, data, error: moreError ?? polling.error, loadingMore, loadMore };
+  return {
+    ...polling, data, error: moreError ?? polling.error,
+    loadMoreError: moreError, loadingMore, loadMore,
+  };
 }

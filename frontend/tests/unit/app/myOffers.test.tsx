@@ -385,7 +385,9 @@ it("keeps loaded handovers visible when the next page fails", async () => {
   await signInAs(201);
   await screen.findByText(/Shift 20 \(ICU\)/);
   fireEvent.click(screen.getByRole("button", { name: "Load more history" }));
-  await screen.findByText(/Could not refresh your handovers/);
+  const warning = await screen.findByText(/Could not load more history/);
+  expect(warning.textContent).toContain("Click Load more history to try again.");
+  expect(warning.textContent).not.toContain("Retrying");
   expect(screen.getByText(/Shift 20 \(ICU\)/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Load more history" })).toBeTruthy();
 });

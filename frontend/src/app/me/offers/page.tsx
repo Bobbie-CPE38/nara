@@ -231,8 +231,9 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => vo
           <>
             {handovers.error && (
               <p role="alert" className="mt-2 text-sm text-amber-700">
-                Could not refresh your handovers. Showing the last loaded list, which may be
-                outdated. Retrying…
+                {handovers.loadMoreError
+                  ? "Could not load more history. Showing the last loaded list. Click Load more history to try again."
+                  : "Could not refresh your handovers. Showing the last loaded list, which may be outdated. Retrying…"}
               </p>
             )}
             {handovers.isLoading ? (

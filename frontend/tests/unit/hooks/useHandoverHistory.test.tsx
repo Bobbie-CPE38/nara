@@ -56,6 +56,8 @@ it("a failed next page leaves the cursor unchanged; polling does not retry it an
   request.mockClear();
   await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
   expect(request.mock.calls.map(([path]) => path)).toEqual(["/me/handovers", "/me/handovers"]);
+  // Successful page-one polls do not claim the failed older page was retried.
+  expect(result.current.loadMoreError?.message).toBe("offline");
   fail = false;
   await act(async () => { await result.current.loadMore(); });
   expect(request.mock.calls.at(-1)?.[0]).toBe("/me/handovers?cursor=second");
@@ -129,4 +131,20 @@ it("discards cached older history when page one becomes complete after a reset",
   reset = true;
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
   expect(result.current.data).toEqual({ active: [], history: [], next_cursor: null });
+});
+
+
+it("does not turn a deleted active row into history while older pages remain cached", async () => {
+  let deleted = false;
+  request.mockImplementation(async (path: string) => path === "/me/handovers"
+    ? page([30], "second", deleted ? [] : [row(40, true)])
+    : page([20], "third"));
+  const { result } = renderHook(() => useHandoverHistory(201));
+  await act(async () => {});
+  await act(async () => { await result.current.loadMore(); });
+  deleted = true;
+  await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+  expect(result.current.data?.active).toEqual([]);
+  expect(result.current.data?.history.map((r) => r.handover_id)).toEqual([30, 20]);
+  expect(result.current.data?.next_cursor).toBe("third");
 });
