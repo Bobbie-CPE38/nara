@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../../src/lib/api";
-import { collectSkips, explanationRequestMessage, isCaseId, loadCase } from "../../../src/lib/cases";
+import { collectSkips, explanationRequestKey, isCaseId, loadCase } from "../../../src/lib/cases";
 import type { CaseDetail } from "../../../src/lib/types/case";
 import { auditEntry, caseDetail, waitingResponseAudit } from "../../fixtures/case";
 
@@ -204,19 +204,17 @@ describe("collectSkips", () => {
   });
 });
 
-describe("explanationRequestMessage", () => {
+describe("explanationRequestKey", () => {
   const refused = (status: number, code: string) =>
     new ApiError(status, { detail: { code, message: "words from the server" } });
 
   it.each([
-    [429, "LLM_QUOTA_EXHAUSTED", "ใช้โควตาคำอธิบายจาก AI ครบแล้วในวันนี้"],
-    [409, "LLM_ATTEMPTS_EXHAUSTED", "ขอคำอธิบายจาก AI ของแผนนี้ครบจำนวนครั้งที่กำหนดแล้ว"],
-    [409, "LLM_UNAVAILABLE", "ตอนนี้ขอคำอธิบายจาก AI ไม่ได้"],
-    [404, "CASE_NOT_FOUND", "ไม่พบเคสนี้แล้ว"],
-  ])("explains %s %s in its own words", (status, code, start) => {
-    const message = explanationRequestMessage(refused(status, code));
-    expect(message.startsWith(start)).toBe(true);
-    expect(message).not.toContain("words from the server");
+    [429, "LLM_QUOTA_EXHAUSTED", "ai.blockedQuota"],
+    [409, "LLM_ATTEMPTS_EXHAUSTED", "ai.blockedAttempts"],
+    [409, "LLM_UNAVAILABLE", "ai.refused"],
+    [404, "CASE_NOT_FOUND", "ai.notFound"],
+  ])("maps %s %s to the text %s, never to the words of the server", (status, code, key) => {
+    expect(explanationRequestKey(refused(status, code))).toBe(key);
   });
 
   it.each([
@@ -224,6 +222,6 @@ describe("explanationRequestMessage", () => {
     ["an error without a body", new ApiError(502, undefined)],
     ["a network error", new TypeError("Failed to fetch")],
   ])("uses the general text for %s", (_name, error) => {
-    expect(explanationRequestMessage(error)).toBe("ส่งคำขอไม่สำเร็จ กรุณาลองใหม่");
+    expect(explanationRequestKey(error)).toBe("ai.requestFailed");
   });
 });

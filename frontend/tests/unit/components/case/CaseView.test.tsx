@@ -411,7 +411,7 @@ describe("CaseView", () => {
 
     // Status changes stay in sequence but lighter than the real steps.
     const tableRows = within(screen.getByRole("table", { name: "Timeline" })).getAllByRole("row").slice(1);
-    expect(tableRows.map(row => row.className.includes("text-gray-500"))).toEqual([
+    expect(tableRows.map(row => row.className.includes("text-slate-500"))).toEqual([
       false, false, false, true, false, false, false,
     ]);
   });
@@ -609,7 +609,7 @@ describe("CaseView", () => {
         explanation: { status: "READY", text: sentence, provider, model_id: modelId, can_request: false, request_blocked_reason: "ALREADY_READY" },
       });
       const section = () => screen.getByRole("region", { name: "Ranking explanation" });
-      const notReady = "คำอธิบายยังไม่พร้อม";
+      const notReady = "The explanation is not ready";
       const unrequested = (status: string, extra: Record<string, unknown> = {}) => ({
         status, text: null, provider: null, model_id: null, can_request: false, request_blocked_reason: null, ...extra,
       });
@@ -636,9 +636,9 @@ describe("CaseView", () => {
       });
 
       it.each([
-        ["PENDING", unrequested("PENDING", { request_blocked_reason: "PENDING" }), "กำลังสร้างคำอธิบายจาก AI"],
-        ["UNAVAILABLE", unrequested("UNAVAILABLE", { can_request: true }), "สร้างคำอธิบายจาก AI ไม่สำเร็จ"],
-        ["NOT_REQUESTED", unrequested("NOT_REQUESTED", { can_request: true }), "ยังไม่ได้ขอคำอธิบายจาก AI"],
+        ["PENDING", unrequested("PENDING", { request_blocked_reason: "PENDING" }), "Creating the AI explanation"],
+        ["UNAVAILABLE", unrequested("UNAVAILABLE", { can_request: true }), "The AI explanation could not be created"],
+        ["NOT_REQUESTED", unrequested("NOT_REQUESTED", { can_request: true }), "No AI explanation requested yet"],
         ["null", null, notReady],
       ])("shows the status text for %s, never a sentence", async (_name, explanation, text) => {
         serve(caseDetail({ explanation } as Parameters<typeof caseDetail>[0]), waitingResponseAudit());
@@ -654,12 +654,12 @@ describe("CaseView", () => {
         serve(caseDetail({ explanation: unrequested("PENDING", { request_blocked_reason: "PENDING" }) } as Parameters<typeof caseDetail>[0]), waitingResponseAudit());
         render(<CaseView caseId="1" />);
         await tick();
-        expect(within(section()).getByText("กำลังสร้างคำอธิบายจาก AI")).toBeTruthy();
+        expect(within(section()).getByText("Creating the AI explanation")).toBeTruthy();
 
         serve(ready("fake", null), waitingResponseAudit());
         await tick(2000);
         expect(within(section()).getByText(sentence)).toBeTruthy();
-        expect(within(section()).queryByText("กำลังสร้างคำอธิบายจาก AI")).toBeNull();
+        expect(within(section()).queryByText("Creating the AI explanation")).toBeNull();
       });
 
       describe("when the case is already final", () => {
@@ -670,7 +670,7 @@ describe("CaseView", () => {
           serve(caseDetail({ status: "RESOLVED", explanation: pending }), resolvedAudit());
           render(<CaseView caseId="1" />);
           await tick();
-          expect(within(section()).getByText("กำลังสร้างคำอธิบายจาก AI")).toBeTruthy();
+          expect(within(section()).getByText("Creating the AI explanation")).toBeTruthy();
           expect(screen.getByText(/^Final status\. Still updating/)).toBeTruthy();
 
           await tick(30000);
@@ -694,7 +694,7 @@ describe("CaseView", () => {
 
           serve(caseDetail({ status: "UNRESOLVED", explanation: unavailable }), []);
           await tick(2000);
-          expect(within(section()).getByText("สร้างคำอธิบายจาก AI ไม่สำเร็จ")).toBeTruthy();
+          expect(within(section()).getByText("The AI explanation could not be created")).toBeTruthy();
           expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
 
           const calls = fetchMock.mock.calls.length;
@@ -718,14 +718,14 @@ describe("CaseView", () => {
 
     describe("asking for the AI explanation (round 6 PR E2)", () => {
       const section = () => screen.getByRole("region", { name: "Ranking explanation" });
-      const button = () => within(section()).queryByRole("button", { name: "หน้าสรุปด้วย AI" }) as HTMLButtonElement | null;
+      const button = () => within(section()).queryByRole("button", { name: "Explain with AI" }) as HTMLButtonElement | null;
       const view = (status: string, extra: Record<string, unknown> = {}) => ({
         status, text: null, provider: null, model_id: null, can_request: false, request_blocked_reason: null, ...extra,
       });
       const withExplanation = (explanation: unknown, status = "WAITING_RESPONSE") =>
         caseDetail({ status, explanation } as Parameters<typeof caseDetail>[0]);
       const ready = () => ({ ...view("READY", { request_blocked_reason: "ALREADY_READY" }), text: "[fake] x", provider: "fake" });
-      const quotaMessage = "ใช้โควตาคำอธิบายจาก AI ครบแล้วในวันนี้ กรุณาลองใหม่ในวันถัดไป คุณยังดูอันดับและดำเนินการจัดเวรต่อได้ตามปกติ";
+      const quotaMessage = "Today's AI explanation quota is used up. Please try again tomorrow. You can still view the ranking and continue staffing as usual.";
       const click = async () => {
         await act(async () => { button()?.click(); });
         await tick();
@@ -754,7 +754,7 @@ describe("CaseView", () => {
         expect(new URL(url).pathname).toBe("/cases/1/explanation");
         expect(new Headers(init?.headers).has("X-Demo-User")).toBe(false);
         expect(fetchMock.mock.calls.length).toBeGreaterThan(before + 1);
-        expect(within(section()).getByText("กำลังสร้างคำอธิบายจาก AI")).toBeTruthy();
+        expect(within(section()).getByText("Creating the AI explanation")).toBeTruthy();
         expect(button()).toBeNull();
       });
 
@@ -809,9 +809,9 @@ describe("CaseView", () => {
       });
 
       it.each([
-        ["NOT_CONFIGURED", "ยังไม่เปิดใช้คำอธิบายจาก AI"],
-        ["INVALID_INPUT", "สร้างคำอธิบายจาก AI ของแผนนี้ไม่ได้"],
-        ["ATTEMPTS_EXHAUSTED", "ขอคำอธิบายจาก AI ของแผนนี้ครบจำนวนครั้งที่กำหนดแล้ว"],
+        ["NOT_CONFIGURED", "AI explanations are not enabled"],
+        ["INVALID_INPUT", "An AI explanation of this plan cannot be created"],
+        ["ATTEMPTS_EXHAUSTED", "This plan's AI explanation has been requested the maximum number of times"],
       ])("closes the button with its own text for %s", async (reason, text) => {
         serve(withExplanation(view("UNAVAILABLE", { request_blocked_reason: reason })), waitingResponseAudit());
         render(<CaseView caseId="1" />);
@@ -827,14 +827,14 @@ describe("CaseView", () => {
         render(<CaseView caseId="1" />);
         await tick();
 
-        expect(within(section()).getByText("สร้างคำอธิบายจาก AI ไม่สำเร็จ")).toBeTruthy();
+        expect(within(section()).getByText("The AI explanation could not be created")).toBeTruthy();
         expect(button()?.disabled).toBe(false);
       });
 
-      const attemptsMessage = "ขอคำอธิบายจาก AI ของแผนนี้ครบจำนวนครั้งที่กำหนดแล้ว";
-      const notConfiguredMessage = "ยังไม่เปิดใช้คำอธิบายจาก AI";
-      const invalidMessage = "สร้างคำอธิบายจาก AI ของแผนนี้ไม่ได้";
-      const neutral = "ตอนนี้ขอคำอธิบายจาก AI ไม่ได้";
+      const attemptsMessage = "This plan's AI explanation has been requested the maximum number of times";
+      const notConfiguredMessage = "AI explanations are not enabled";
+      const invalidMessage = "An AI explanation of this plan cannot be created";
+      const neutral = "An AI explanation cannot be requested right now";
       it.each([
         // status, code, what the case says when read again, texts shown, texts not shown
         [429, "LLM_QUOTA_EXHAUSTED", "QUOTA_EXHAUSTED", [quotaMessage], [neutral]],
@@ -861,7 +861,7 @@ describe("CaseView", () => {
 
       it.each([
         [409, "LLM_UNAVAILABLE", neutral],
-        [404, "CASE_NOT_FOUND", "ไม่พบเคสนี้แล้ว"],
+        [404, "CASE_NOT_FOUND", "This case was not found"],
       ])("shows a message of its own for a refusal (%s %s) the case does not explain", async (status, code, text) => {
         serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
         render(<CaseView caseId="1" />);
@@ -885,13 +885,13 @@ describe("CaseView", () => {
         expect(button()?.disabled).toBe(true);
 
         await tick(1500);
-        expect(within(section()).getByRole("alert").textContent).toBe("ส่งคำขอไม่สำเร็จ กรุณาลองใหม่");
+        expect(within(section()).getByRole("alert").textContent).toBe("The request was not sent. Please try again.");
         expect(button()?.disabled).toBe(false);
         expect(vi.getTimerCount()).toBeGreaterThan(0);
         // The case is read again after giving up: a request that timed out may still have been accepted
         serve(withExplanation(view("PENDING", { request_blocked_reason: "PENDING" })), waitingResponseAudit());
         await tick(2000);
-        expect(within(section()).getByText("กำลังสร้างคำอธิบายจาก AI")).toBeTruthy();
+        expect(within(section()).getByText("Creating the AI explanation")).toBeTruthy();
         expect(within(section()).queryByRole("alert")).toBeNull();
       });
 
@@ -905,7 +905,7 @@ describe("CaseView", () => {
 
         serve(withExplanation(view("UNAVAILABLE", { can_request: true })), waitingResponseAudit());
         await tick(2000);
-        expect(within(section()).getByText("สร้างคำอธิบายจาก AI ไม่สำเร็จ")).toBeTruthy();
+        expect(within(section()).getByText("The AI explanation could not be created")).toBeTruthy();
         expect(within(section()).queryByRole("alert")).toBeNull();
       });
 
@@ -930,7 +930,7 @@ describe("CaseView", () => {
         backend.post = () => { throw new TypeError("Failed to fetch"); };
         await click();
 
-        expect(within(section()).getByRole("alert").textContent).toBe("ส่งคำขอไม่สำเร็จ กรุณาลองใหม่");
+        expect(within(section()).getByRole("alert").textContent).toBe("The request was not sent. Please try again.");
         expect(button()?.disabled).toBe(false);
       });
     });
@@ -943,7 +943,7 @@ describe("CaseView", () => {
 
       expect(screen.queryByRole("heading", { name: "Score breakdown" })).toBeNull();
       expect(screen.queryByRole("region", { name: "Ranking explanation" })).toBeNull();
-      expect(screen.queryByText("คำอธิบายยังไม่พร้อม")).toBeNull();
+      expect(screen.queryByText("The explanation is not ready")).toBeNull();
       expect(screen.queryByRole("table", { name: /^Score of staff/ })).toBeNull();
       expect(rows("Candidates")).toEqual([
         ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—", "ICU", "Whole shift", "—"],
@@ -1201,9 +1201,9 @@ it("restarts final-case polling after a summary request and stops only after REA
   const regular = fetchMock.getMockImplementation()!;
   fetchMock.mockImplementation(async (url, init) => init?.method === "POST" && url.endsWith("/summary")
     ? json(pending) : regular(url, init));
-  fireEvent.click(screen.getByRole("button", { name: "ขอสรุปสถานการณ์ด้วย AI" }));
+  fireEvent.click(screen.getByRole("button", { name: "Summarise with AI" }));
   await tick();
-  expect(screen.getByText("กำลังสร้างสรุป กรุณารอสักครู่")).toBeTruthy();
+  expect(screen.getByText("Creating the summary, please wait")).toBeTruthy();
   const ready = { current: { ...pending.current, status: "READY" as const, text: "สรุปหลังเคสจบแล้ว",
     generated_at: DEMO_TIME, request_blocked_reason: "ALREADY_READY" as const }, history: [] };
   serve(caseDetail({ status: "RESOLVED", summary: ready }), resolvedAudit());
@@ -1223,8 +1223,8 @@ it("keeps polling until both ranking explanation and case summary finish", async
   serve(caseDetail({ status: "RESOLVED", summary, explanation }), resolvedAudit());
   render(<CaseView caseId="1" />);
   await tick();
-  expect(screen.getByText("กำลังสร้างคำอธิบายจาก AI")).toBeTruthy();
-  expect(screen.getByText("กำลังสร้างสรุป กรุณารอสักครู่")).toBeTruthy();
+  expect(screen.getByText("Creating the AI explanation")).toBeTruthy();
+  expect(screen.getByText("Creating the summary, please wait")).toBeTruthy();
 
   const readyExplanation = { ...explanation, status: "READY" as const,
     text: "[fake] ranking complete", provider: "fake" as const,

@@ -1,52 +1,30 @@
 import type { Metadata } from "next";
-import Link from "next/link";
-import { DemoClock } from "@/components/DemoClock";
+import { cookies } from "next/headers";
+import type { ReactNode } from "react";
+import { SiteHeader } from "@/components/layout/SiteHeader";
+import { LANG_COOKIE, parseLang, translate } from "@/lib/i18n";
+import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import "./globals.css";
 
-export const metadata: Metadata = {
-  title: "Staffing",
-  description: "Staffing workflow",
-};
+async function languageOfRequest() {
+  // The choice of the user is in a cookie, so the first paint is already in their language
+  return parseLang((await cookies()).get(LANG_COOKIE)?.value);
+}
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export async function generateMetadata(): Promise<Metadata> {
+  const lang = await languageOfRequest();
+  return { title: translate(lang, "app.name"), description: translate(lang, "app.description") };
+}
+
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const lang = await languageOfRequest();
   return (
-    <html lang="en">
+    <html lang={lang}>
       <body>
-        <nav
-          aria-label="Main navigation"
-          className="flex flex-wrap gap-4 border-b border-slate-300 px-6 py-4"
-        >
-          <Link href="/" className="text-blue-700 underline">
-            Dashboard
-          </Link>
-          <Link href="/gap" className="text-blue-700 underline">
-            Gap check
-          </Link>
-          <Link href="/demo/control" className="text-blue-700 underline">
-            Demo control
-          </Link>
-          <Link href="/approvals" className="text-blue-700 underline">
-            Approvals
-          </Link>
-          <Link href="/handoff" className="text-blue-700 underline">
-            Handoff
-          </Link>
-          <Link href="/demo/line-sim" className="text-blue-700 underline">
-            LINE simulator
-          </Link>
-          <Link href="/roster" className="text-blue-700 underline">
-            Roster
-          </Link>
-          <Link href="/me/offers" className="text-blue-700 underline">
-            My offers
-          </Link>
-          <DemoClock />
-        </nav>
-        {children}
+        <LanguageProvider initial={lang}>
+          <SiteHeader />
+          {children}
+        </LanguageProvider>
       </body>
     </html>
   );

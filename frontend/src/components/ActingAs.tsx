@@ -1,4 +1,7 @@
-import { DEMO_APPROVERS } from "@/lib/demo";
+"use client";
+
+import { DEMO_APPROVERS, wardName } from "@/lib/demo";
+import { useT } from "@/lib/i18n/LanguageProvider";
 
 /**
  * Who the read-only pages look as (docs/workflow.md, sections 6.17 and 6.31). Not a real
@@ -13,18 +16,20 @@ export function ActingAs({
   value: number;
   onChange: (staffId: number) => void;
 }) {
+  const t = useT();
   return (
-    <label className="block text-sm" htmlFor={id}>
-      Viewing as{" "}
+    <label className="flex flex-wrap items-center gap-2 text-sm font-medium" htmlFor={id}>
+      {t("actingAs.label")}
       <select
         id={id}
-        className="rounded border px-1"
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
       >
         {DEMO_APPROVERS.map((approver) => (
           <option key={approver.id} value={approver.id}>
-            {approver.label}
+            {`${approver.id} — ${t(approver.role === "headNurse" ? "role.headNurse" : "role.supervisor")}, ${
+              approver.wardId === null ? t("role.everyWard") : wardName(approver.wardId)
+            }`}
           </option>
         ))}
       </select>

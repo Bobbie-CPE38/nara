@@ -1,3 +1,6 @@
+import { en } from "@/lib/i18n/en";
+import type { MessageKey } from "@/lib/i18n";
+
 export const POLL_INTERVAL_MS = 2000;
 
 /** Same set as TERMINAL_CASE_STATUSES in backend/app/domain/enums.py. */
@@ -9,20 +12,24 @@ export const TERMINAL_CASE_STATUSES: ReadonlySet<string> = new Set([
 
 export type StatusTone = "ok" | "bad" | "waiting" | "neutral";
 
-/** Meaning of each case status (docs/workflow.md, section 4). A Map, so an unknown status is undefined. */
-export const CASE_STATUS_INFO: ReadonlyMap<string, { meaning: string; tone: StatusTone }> = new Map([
-  ["OPEN", { meaning: "Case opened, a gap was found", tone: "neutral" }],
-  ["ASSESSING", { meaning: "Assessing the staffing gap", tone: "neutral" }],
-  ["OPTIMIZING", { meaning: "Building the candidate list", tone: "neutral" }],
-  ["OUTREACH", { meaning: "Sending offers to a wave of candidates", tone: "neutral" }],
-  ["WAITING_RESPONSE", { meaning: "Waiting for candidates to reply", tone: "waiting" }],
-  ["SAFETY_VALIDATION", { meaning: "Rechecking hard constraints", tone: "neutral" }],
-  ["WAITING_APPROVAL", { meaning: "Waiting for the approver", tone: "waiting" }],
-  ["EXECUTING", { meaning: "Closing the case", tone: "neutral" }],
-  ["RESOLVED", { meaning: "Gap closed by the assigned replacements", tone: "ok" }],
-  ["MANUAL_HANDOFF", { meaning: "Handed to a person, automation stopped", tone: "waiting" }],
-  ["UNRESOLVED", { meaning: "Handled by a person but not solved", tone: "bad" }],
-  ["FAILED", { meaning: "System or service error", tone: "bad" }],
+/**
+ * Meaning of each case status (docs/workflow.md, section 4): the key of its text in the
+ * dictionary and its tone. A Map, so an unknown status is undefined. The text itself is in
+ * lib/i18n (round 6 PR UI1), so it follows the language of the page.
+ */
+export const CASE_STATUS_INFO: ReadonlyMap<string, { messageKey: MessageKey; tone: StatusTone }> = new Map([
+  ["OPEN", { messageKey: "caseStatus.OPEN", tone: "neutral" }],
+  ["ASSESSING", { messageKey: "caseStatus.ASSESSING", tone: "neutral" }],
+  ["OPTIMIZING", { messageKey: "caseStatus.OPTIMIZING", tone: "neutral" }],
+  ["OUTREACH", { messageKey: "caseStatus.OUTREACH", tone: "neutral" }],
+  ["WAITING_RESPONSE", { messageKey: "caseStatus.WAITING_RESPONSE", tone: "waiting" }],
+  ["SAFETY_VALIDATION", { messageKey: "caseStatus.SAFETY_VALIDATION", tone: "neutral" }],
+  ["WAITING_APPROVAL", { messageKey: "caseStatus.WAITING_APPROVAL", tone: "waiting" }],
+  ["EXECUTING", { messageKey: "caseStatus.EXECUTING", tone: "neutral" }],
+  ["RESOLVED", { messageKey: "caseStatus.RESOLVED", tone: "ok" }],
+  ["MANUAL_HANDOFF", { messageKey: "caseStatus.MANUAL_HANDOFF", tone: "waiting" }],
+  ["UNRESOLVED", { messageKey: "caseStatus.UNRESOLVED", tone: "bad" }],
+  ["FAILED", { messageKey: "caseStatus.FAILED", tone: "bad" }],
 ]);
 
 export const TONE_CLASS: Record<StatusTone, string> = {
@@ -33,73 +40,55 @@ export const TONE_CLASS: Record<StatusTone, string> = {
 };
 
 /** Where a candidate is in a case (docs/workflow.md, section 4.1). A Map, so an unknown stage is undefined. */
-export const CANDIDATE_STAGE_INFO: ReadonlyMap<string, { label: string; tone: StatusTone }> = new Map([
-  ["NOT_CONTACTED", { label: "Not contacted", tone: "neutral" }],
-  ["OFFER_PENDING", { label: "Offer queued", tone: "neutral" }],
-  ["OFFER_SENT", { label: "Offer sent, waiting for reply", tone: "waiting" }],
-  ["OFFER_REJECTED", { label: "Declined the offer", tone: "neutral" }],
-  ["OFFER_TIMEOUT", { label: "Did not reply in time", tone: "neutral" }],
-  ["OFFER_FAILED", { label: "Offer could not be delivered", tone: "bad" }],
-  ["OFFER_CANCELLED", { label: "Offer cancelled", tone: "neutral" }],
-  ["ACCEPTED", { label: "Accepted, on reserve", tone: "waiting" }],
-  ["SAFETY_FAILED", { label: "Accepted, failed the safety check", tone: "bad" }],
-  ["WAITING_APPROVAL", { label: "Accepted, waiting for approval", tone: "waiting" }],
-  ["APPROVAL_REJECTED", { label: "Not approved", tone: "bad" }],
-  ["APPROVAL_TIMEOUT", { label: "Approval timed out", tone: "neutral" }],
-  ["APPROVED", { label: "Approved, not on the roster", tone: "waiting" }],
-  ["ASSIGNED", { label: "Assigned to the shift", tone: "ok" }],
+export const CANDIDATE_STAGE_INFO: ReadonlyMap<string, { messageKey: MessageKey; tone: StatusTone }> = new Map([
+  ["NOT_CONTACTED", { messageKey: "stage.NOT_CONTACTED", tone: "neutral" }],
+  ["OFFER_PENDING", { messageKey: "stage.OFFER_PENDING", tone: "neutral" }],
+  ["OFFER_SENT", { messageKey: "stage.OFFER_SENT", tone: "waiting" }],
+  ["OFFER_REJECTED", { messageKey: "stage.OFFER_REJECTED", tone: "neutral" }],
+  ["OFFER_TIMEOUT", { messageKey: "stage.OFFER_TIMEOUT", tone: "neutral" }],
+  ["OFFER_FAILED", { messageKey: "stage.OFFER_FAILED", tone: "bad" }],
+  ["OFFER_CANCELLED", { messageKey: "stage.OFFER_CANCELLED", tone: "neutral" }],
+  ["ACCEPTED", { messageKey: "stage.ACCEPTED", tone: "waiting" }],
+  ["SAFETY_FAILED", { messageKey: "stage.SAFETY_FAILED", tone: "bad" }],
+  ["WAITING_APPROVAL", { messageKey: "stage.WAITING_APPROVAL", tone: "waiting" }],
+  ["APPROVAL_REJECTED", { messageKey: "stage.APPROVAL_REJECTED", tone: "bad" }],
+  ["APPROVAL_TIMEOUT", { messageKey: "stage.APPROVAL_TIMEOUT", tone: "neutral" }],
+  ["APPROVED", { messageKey: "stage.APPROVED", tone: "waiting" }],
+  ["ASSIGNED", { messageKey: "stage.ASSIGNED", tone: "ok" }],
 ]);
 
-/** Fixed reason of each score term (docs/workflow.md, section 6.15). A Map, so an unknown term is undefined. */
-export const SCORE_TERM_INFO: ReadonlyMap<string, string> = new Map([
-  ["candidate_count", "Same for everyone: each person called in adds this"],
-  ["consecutive_shift", "Shifts in a row with this shift added"],
-  ["workload_imbalance", "Committed roster hours this week when the plan was created"],
-  ["projected_overtime", "Overtime hours already worked this week"],
-  ["candidate_source", "Position of their source in the source priority, 0 is the closest"],
+/** Fixed reason of each score term (docs/workflow.md, section 6.15), as a dictionary key. */
+export const SCORE_TERM_KEYS: ReadonlyMap<string, MessageKey> = new Map([
+  ["candidate_count", "scoreTerm.candidate_count"],
+  ["consecutive_shift", "scoreTerm.consecutive_shift"],
+  ["workload_imbalance", "scoreTerm.workload_imbalance"],
+  ["projected_overtime", "scoreTerm.projected_overtime"],
+  ["candidate_source", "scoreTerm.candidate_source"],
 ]);
 
-/** Fixed reason for first_wave (docs/workflow.md, section 6.15). */
-export const FIRST_WAVE_INFO = {
-  true: "First wave: chosen to fill the gap",
-  false: "Reserve: ranked after the first wave",
-} as const;
-
-/** Shown while the sentence is not READY, and when there is none. The round 3 contract fixes this Thai text. */
-export const EXPLANATION_NOT_READY = "คำอธิบายยังไม่พร้อม";
 /** Round 6 PR E2 (docs/workflow.md 6.27). The AI explanation is made only when a user asks. */
-export const EXPLANATION_BUTTON = "หน้าสรุปด้วย AI";
-export const EXPLANATION_NOT_REQUESTED = "ยังไม่ได้ขอคำอธิบายจาก AI";
-export const EXPLANATION_PENDING = "กำลังสร้างคำอธิบายจาก AI";
-export const EXPLANATION_FAILED = "สร้างคำอธิบายจาก AI ไม่สำเร็จ";
-export const EXPLANATION_REQUEST_FAILED = "ส่งคำขอไม่สำเร็จ กรุณาลองใหม่";
-/** The API answers 409 LLM_UNAVAILABLE for several causes (not configured, plan cannot be explained); the cause comes from the case read again after the answer */
-export const EXPLANATION_REFUSED = "ตอนนี้ขอคำอธิบายจาก AI ไม่ได้";
 /** A request that has not answered by then is given up, like a polling read (usePolling timeoutMs) */
 export const EXPLANATION_REQUEST_TIMEOUT_MS = 10_000;
-/** Why the button is closed. PENDING and ALREADY_READY have no text: the status already says it. */
-export const EXPLANATION_BLOCKED = {
-  QUOTA_EXHAUSTED: "ใช้โควตาคำอธิบายจาก AI ครบแล้วในวันนี้ กรุณาลองใหม่ในวันถัดไป คุณยังดูอันดับและดำเนินการจัดเวรต่อได้ตามปกติ",
-  NOT_CONFIGURED: "ยังไม่เปิดใช้คำอธิบายจาก AI คุณยังดูอันดับและดำเนินการจัดเวรต่อได้ตามปกติ",
-  INVALID_INPUT: "สร้างคำอธิบายจาก AI ของแผนนี้ไม่ได้ ขอใหม่ก็ได้ผลเดิม คุณยังดูอันดับและดำเนินการจัดเวรต่อได้ตามปกติ",
-  ATTEMPTS_EXHAUSTED: "ขอคำอธิบายจาก AI ของแผนนี้ครบจำนวนครั้งที่กำหนดแล้ว คุณยังดูอันดับและดำเนินการจัดเวรต่อได้ตามปกติ",
-} as const;
-export const EXPLANATION_FAKE_NOTE = "Test text from the fake LLM adapter, not a real model.";
-export const EXPLANATION_SOURCE_NOTE = "Generated by an LLM from the numbers below; the numbers are the source of truth.";
+/** Skip reason codes (docs/database-schema.md, Candidate Skip Reasons), as dictionary keys. */
+export const SKIP_REASON_KEYS: ReadonlyMap<string, MessageKey> = new Map(
+  [
+    "STAFF_NOT_ACTIVE",
+    "ALREADY_ON_SHIFT",
+    "UNAVAILABLE",
+    "SHIFT_CONFLICT",
+    "ROLE_MISMATCH",
+    "SKILL_MISMATCH",
+    "INSUFFICIENT_REST",
+    "DAILY_HOURS_EXCEEDED",
+    "WEEKLY_HOURS_EXCEEDED",
+    "CONSECUTIVE_SHIFTS_EXCEEDED",
+    "SOURCE_WARD_MINIMUM_VIOLATION",
+    "OFFER_LIMIT_REACHED",
+    "SOURCE_SHIFT_TAKEN",
+  ].map((code) => [code, `skip.${code}` as MessageKey]),
+);
 
-/** Skip reason codes (docs/database-schema.md, Candidate Skip Reasons). */
-export const SKIP_REASON_INFO: ReadonlyMap<string, string> = new Map([
-  ["STAFF_NOT_ACTIVE", "Not an active staff member"],
-  ["ALREADY_ON_SHIFT", "Already on this shift"],
-  ["UNAVAILABLE", "Unavailable during this shift"],
-  ["SHIFT_CONFLICT", "Has another shift at the same time"],
-  ["ROLE_MISMATCH", "Does not have the role that is short"],
-  ["SKILL_MISMATCH", "Does not have the skill that is short"],
-  ["INSUFFICIENT_REST", "Not enough rest before or after the shift"],
-  ["DAILY_HOURS_EXCEEDED", "Would exceed the daily hours limit"],
-  ["WEEKLY_HOURS_EXCEEDED", "Would exceed the weekly hours limit"],
-  ["CONSECUTIVE_SHIFTS_EXCEEDED", "Would exceed the consecutive shifts limit"],
-  ["SOURCE_WARD_MINIMUM_VIOLATION", "Their own ward would fall below its minimum"],
-  ["OFFER_LIMIT_REACHED", "Already holds the maximum number of open offers"],
-  ["SOURCE_SHIFT_TAKEN", "Someone from the same source shift is already offered or moved for this case"],
-]);
+/** English reason texts, for a page that is not translated yet (Handoff, until PR UI2). */
+export const SKIP_REASON_INFO: ReadonlyMap<string, string> = new Map(
+  [...SKIP_REASON_KEYS].map(([code, key]) => [code, en[key]]),
+);

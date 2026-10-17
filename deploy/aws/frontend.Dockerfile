@@ -23,6 +23,8 @@ ENV NODE_ENV=production \
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/.next ./.next
+# The files next start serves as they are: the logo of the team
+COPY --from=build /app/public ./public
 COPY next.config.ts ./
 USER node
 EXPOSE 3000

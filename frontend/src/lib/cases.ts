@@ -1,5 +1,5 @@
 import { ApiError, apiRequest } from "@/lib/api";
-import { EXPLANATION_BLOCKED, EXPLANATION_REFUSED, EXPLANATION_REQUEST_FAILED } from "@/lib/constants";
+import type { MessageKey } from "@/lib/i18n";
 import type { AuditEntry, CaseDetail, CaseSummaryView } from "@/lib/types/case";
 
 export type SkipRecord = { key: string; origin: string; staffId: number; reason: string };
@@ -69,18 +69,21 @@ export function isCaseSummary(value: unknown): value is CaseSummaryView | null {
       && typeof old.text === "string" && old.text.length > 0 && typeof old.generated_at === "string");
 }
 
-/** What to tell the user when POST /cases/{id}/explanation is refused (docs/workflow.md 9.8). */
-export function explanationRequestMessage(error: unknown): string {
+/**
+ * What to tell the user when POST /cases/{id}/explanation or /summary is refused (docs/workflow.md 9.8):
+ * the key of the text, which the page shows in the language of the user.
+ */
+export function explanationRequestKey(error: unknown): MessageKey {
   if (error instanceof ApiError) {
     const detail = isRecord(error.body) && isRecord(error.body.detail) ? error.body.detail : undefined;
     switch (detail?.code) {
-      case "LLM_QUOTA_EXHAUSTED": return EXPLANATION_BLOCKED.QUOTA_EXHAUSTED;
-      case "LLM_ATTEMPTS_EXHAUSTED": return EXPLANATION_BLOCKED.ATTEMPTS_EXHAUSTED;
-      case "LLM_UNAVAILABLE": return EXPLANATION_REFUSED;
-      case "CASE_NOT_FOUND": return "ไม่พบเคสนี้แล้ว";
+      case "LLM_QUOTA_EXHAUSTED": return "ai.blockedQuota";
+      case "LLM_ATTEMPTS_EXHAUSTED": return "ai.blockedAttempts";
+      case "LLM_UNAVAILABLE": return "ai.refused";
+      case "CASE_NOT_FOUND": return "ai.notFound";
     }
   }
-  return EXPLANATION_REQUEST_FAILED;
+  return "ai.requestFailed";
 }
 
 function isCaseDetail(value: unknown): value is CaseDetail {

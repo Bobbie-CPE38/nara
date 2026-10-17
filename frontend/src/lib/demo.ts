@@ -50,13 +50,15 @@ export function wardName(wardId: number): string {
 /** Who the approvals page can act as (docs/workflow.md, section 6.21). Not a real login. */
 export const DEMO_APPROVERS: readonly {
   id: number;
+  /** English label, for the pages that are not translated yet (see ActingAs for the two languages) */
   label: string;
+  role: "headNurse" | "supervisor";
   /** The ward a head nurse decides for; null for the Supervisor, who may decide any */
   wardId: number | null;
 }[] = [
-  { id: 900, label: "900 — Head Nurse, ICU", wardId: 1 },
-  { id: 902, label: "902 — Head Nurse, Medicine", wardId: 2 },
-  { id: 950, label: "950 — Supervisor, every ward", wardId: null },
+  { id: 900, label: "900 — Head Nurse, ICU", role: "headNurse", wardId: 1 },
+  { id: 902, label: "902 — Head Nurse, Medicine", role: "headNurse", wardId: 2 },
+  { id: 950, label: "950 — Supervisor, every ward", role: "supervisor", wardId: null },
 ];
 /**
  * The demo user travels from one page to the next in this query parameter, so a link of the
