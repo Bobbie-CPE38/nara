@@ -9,8 +9,10 @@ from app.api.routes import (
     approvals,
     cases,
     clock,
+    dashboard,
     demo,
     events,
+    gap,
     internal,
     line_sim,
     line_webhook,
@@ -36,6 +38,8 @@ for module in (
     internal,
     line_webhook,
     unavailability,
+    dashboard,
+    gap,
 ):
     app.include_router(module.router)
 
