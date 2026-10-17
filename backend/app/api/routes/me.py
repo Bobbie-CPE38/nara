@@ -7,7 +7,7 @@ simulator, so there is no second set of response rules.
 
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict
 
 from app.api.dependencies import DbSession, DemoUser
@@ -16,7 +16,7 @@ from app.core.constants import MAX_BIGINT
 from app.domain.enums import CandidateResponse, CheckInSource
 from app.domain.errors import ShiftNotFoundError
 from app.schemas.attendance import CheckInResponse, MyCheckIn
-from app.schemas.handover import HandoverView
+from app.schemas.handover import HandoverPage
 from app.schemas.outreach import OfferView
 from app.services import (
     attendance_service,
@@ -29,11 +29,19 @@ router = APIRouter(prefix="/me", tags=["me"])
 
 
 @router.get("/handovers")
-def my_handovers(db: DbSession, user: DemoUser) -> list[HandoverView]:
-    """The header user's current handovers and history; ignore staff_id parameters."""
-    # Cursor pagination of the history is deferred to round 6 (docs/workflow.md 9.7):
-    # the API shape needs the team's agreement. The H1 list contract stays until then.
-    return handover_service.list_handovers(db, staff_id=user.staff.id)
+def my_handovers(
+    db: DbSession,
+    user: DemoUser,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    cursor: Annotated[str | None, Query(max_length=512)] = None,
+) -> HandoverPage:
+    """Current handovers plus a bounded page of history for the header user only."""
+    try:
+        return handover_service.page_handovers(
+            db, staff_id=user.staff.id, limit=limit, cursor=cursor
+        )
+    except handover_service.InvalidCursorError as error:
+        raise HTTPException(422, "Invalid handover history cursor") from error
 
 
 @router.get("/offers")
