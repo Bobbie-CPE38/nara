@@ -1,5 +1,5 @@
 # Layer for the AWS test machine (round 6 PR D, docs/deploy-aws.md). Used on top
-# of the main file, with the env file that load-env.sh writes from Parameter Store:
+# of the main file, with /etc/nara/nara.env (Parameter Store or manual setup):
 #
 #   docker compose --env-file /etc/nara/nara.env \
 #     -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml up -d
@@ -15,7 +15,7 @@ services:
   postgres:
     ports: !reset []
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must come from Parameter Store}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the deployment env file}
 
   redis:
     ports: !reset []
@@ -23,14 +23,14 @@ services:
   backend:
     ports: !reset []
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-staffing}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must come from Parameter Store}@postgres:5432/${POSTGRES_DB:-staffing}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-staffing}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the deployment env file}@postgres:5432/${POSTGRES_DB:-staffing}
       # The pages and the API share one origin; this only covers direct calls
-      CORS_ORIGINS: '["https://${SITE_DOMAIN:?SITE_DOMAIN must come from Parameter Store}"]'
-      INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must come from Parameter Store}
+      CORS_ORIGINS: '["https://${SITE_DOMAIN:?SITE_DOMAIN must be set in the deployment env file}"]'
+      INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must be set in the deployment env file}
 
   job:
     environment:
-      INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must come from Parameter Store}
+      INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must be set in the deployment env file}
 
   frontend:
     image: nara-staffing-frontend:aws
@@ -39,7 +39,7 @@ services:
       dockerfile: ../deploy/aws/frontend.Dockerfile
       args:
         # Written into the browser bundle by `next build`. The only value that gets there
-        NEXT_PUBLIC_API_BASE_URL: https://${SITE_DOMAIN:?SITE_DOMAIN must come from Parameter Store}/api
+        NEXT_PUBLIC_API_BASE_URL: https://${SITE_DOMAIN:?SITE_DOMAIN must be set in the deployment env file}/api
     ports: !reset []
     # No bind mount: the code and node_modules are in the image
     volumes: !reset []
@@ -55,10 +55,10 @@ services:
     image: caddy:2.10-alpine
     container_name: nara-staffing-caddy
     environment:
-      SITE_DOMAIN: ${SITE_DOMAIN:?SITE_DOMAIN must come from Parameter Store}
-      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must come from Parameter Store}
-      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?BASIC_AUTH_USER must come from Parameter Store}
-      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?BASIC_AUTH_HASH must come from Parameter Store}
+      SITE_DOMAIN: ${SITE_DOMAIN:?SITE_DOMAIN must be set in the deployment env file}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in the deployment env file}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?BASIC_AUTH_USER must be set in the deployment env file}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?BASIC_AUTH_HASH must be set in the deployment env file}
     ports:
       - "80:80"
       - "443:443"

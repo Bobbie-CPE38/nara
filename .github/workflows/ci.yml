@@ -124,5 +124,7 @@ jobs:
         run: python3 deploy/aws/test_gate.py
       - name: Test that the Parameter Store Region and the Bedrock Region stay apart
         run: python3 deploy/aws/test_region.py
+      - name: Test manual environment-file startup validation
+        run: python3 deploy/aws/test_manual_env.py
       - name: Test the production frontend image of the machine
         run: python3 deploy/aws/test_frontend.py
