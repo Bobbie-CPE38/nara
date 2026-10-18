@@ -90,18 +90,21 @@
    sudo systemctl cat nara --no-pager
    ```
 
-   Drop-in นี้ล้าง `EnvironmentFile` ของ Parameter Store และ `ExecStartPre` เดิม จึงไม่ต้องสร้าง `aws.conf` และไม่เรียก `load-env.sh` ใช้ไฟล์ env เดิมเมื่อ reboot หรือ restart ตรวจท้ายผลว่ามี `manual-env.conf` การติดตั้งนี้ยังไม่เริ่มบริการ
+   Drop-in นี้ล้าง `EnvironmentFile` ของ Parameter Store และ `ExecStartPre` เดิม จึงไม่ต้องสร้าง `aws.conf` และไม่เรียก `load-env.sh` ใช้ไฟล์ env เดิมเมื่อ reboot หรือ restart ตรวจท้ายผลว่ามี `manual-env.conf` การติดตั้งนี้ยังไม่เริ่มบริการ ทุกครั้งก่อนเริ่ม `validate-manual-env.py` จะปฏิเสธ placeholder `REPLACE_WITH_` และหกค่าจำเป็นที่ขาด ว่าง ซ้ำ หรือไม่ได้เขียนเป็นค่า single quote บรรทัดเดียว โดยไม่แสดงค่าความลับและไม่ execute เนื้อหาไฟล์
 5. ตรวจ Compose โดยไม่พิมพ์ความลับ:
 
    ```bash
+   sudo python3 /opt/nara/deploy/aws/validate-manual-env.py /etc/nara/nara.env
    sudo env -u AWS_REGION docker compose --env-file /etc/nara/nara.env -f /opt/nara/docker-compose.yml -f /opt/nara/deploy/aws/docker-compose.aws.yml config --quiet
    ```
 
-   คำสั่งนี้ตรวจโครงสร้าง ไม่ยืนยันว่าค่า placeholder ถูกแทนทั้งหมด หรือ DNS และสิทธิ์บริการจริงใช้ได้ เมื่อกรอกครบ โดเมนและด่าน Basic Auth พร้อม จึงรัน `sudo systemctl enable --now nara` เตรียมฐานข้อมูลและตรวจช่วง ข ตามหัวข้อเดิม
+   ทั้งสองคำสั่งต้องผ่าน ตัวตรวจไฟล์ปฏิเสธ placeholder และค่าจำเป็นที่ไม่ครบ ส่วน Compose ตรวจโครงสร้าง แต่ยังไม่ยืนยันว่า DNS และสิทธิ์บริการจริงใช้ได้ เมื่อกรอกครบ โดเมนและด่าน Basic Auth พร้อม จึงรัน `sudo systemctl enable --now nara` เตรียมฐานข้อมูลและตรวจช่วง ข ตามหัวข้อเดิม
 
 คง `LINE_MODE=simulation` และ `LLM_ENABLED=false` จนพร้อมทดสอบบริการจริง เปลี่ยนไฟล์แล้ว `sudo systemctl restart nara` ห้ามรัน `load-env.sh` ในโหมดนี้เพราะจะเขียนไฟล์ทับ การเปลี่ยน `POSTGRES_PASSWORD` หลังฐานข้อมูลถูกสร้างแล้วไม่ได้เปลี่ยนรหัสของผู้ใช้ในฐานข้อมูลให้อัตโนมัติ ค่า `SITE_DOMAIN` ถูกใช้ตอน build Frontend จึงต้อง build ใหม่เมื่อเปลี่ยน (restart บริการใช้ `--build` อยู่แล้ว) คงข้อกำหนด Basic Auth, การไม่เปิดพอร์ตภายใน และเกณฑ์ตรวจช่วง ข เดิมทั้งหมด
 
-เมื่อต้องการกลับไปใช้ Parameter Store ให้เตรียม IAM/Parameters และ `/etc/nara/aws.conf` ให้ครบก่อน ลบเฉพาะ drop-in `manual-env.conf` แล้ว daemon-reload และ restart บริการ ไฟล์ env จะถูกสร้างใหม่จาก Parameter Store ตามเดิม
+เมื่อต้องการกลับไปใช้ Parameter Store ให้เตรียม IAM/Parameters และตั้ง `NARA_PARAMETER_REGION=ap-southeast-1` (หรือ Region ของ Parameter Store ที่ใช้จริง) ใน `/etc/nara/aws.conf` ให้ครบก่อน **สำรอง `/etc/nara/nara.env` ก่อน restart** เพราะ loader จะเขียนไฟล์ทับจาก Parameter Store เก็บสำเนาไว้นอก repo เจ้าของ `root` สิทธิ์ `600` เช่น `sudo cp -p /etc/nara/nara.env /etc/nara/nara.env.manual-backup` (อย่าเขียนทับสำเนาเก่าที่ยังต้องใช้) แล้วลบเฉพาะ `/etc/systemd/system/nara.service.d/manual-env.conf` ตามด้วย daemon-reload และ restart บริการ
+
+การเปิดระบบครั้งแรกด้วยทางเลือกนี้และการตรวจช่วง ข บนเครื่องจริงยังรอทำเมื่อโดเมนพร้อม ไม่ถือว่าการตรวจ Compose หรือ `systemctl cat` เป็นผลทดสอบเปิดระบบจริง
 
 ## ตั้งเครื่องครั้งแรก (คน 1)
 
