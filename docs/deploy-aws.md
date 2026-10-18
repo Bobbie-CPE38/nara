@@ -79,7 +79,7 @@
 
    กรอกทุกค่า `REPLACE_WITH_...` นอก repo ห้าม commit ไฟล์จริง หากมีไฟล์อยู่แล้ว ตรวจเจ้าของ `root:root` และสิทธิ์ `600` ด้วย `sudo ls -l /etc/nara/nara.env` ห้ามส่งภาพเนื้อหาไฟล์หรือใช้ `compose config` โดยไม่มี `--quiet` เพราะจะแสดงความลับ
 2. `SITE_DOMAIN` ต้องเป็นโดเมนที่ทีมมีสิทธิ์ใช้ ไม่มี scheme หรือ path และ DNS ต้องชี้มายังเครื่องก่อนเปิด HTTPS ใส่ `ACME_EMAIL` ของทีม
-3. สร้างรหัสฐานข้อมูลและ job secret คนละค่าด้วย `openssl rand -hex 24` ส่วน Basic Auth hash ใช้ `sudo docker run --rm -it caddy:2.10-alpine caddy hash-password` แล้วกรอกรหัสผ่านตาม prompt เพื่อไม่ใส่รหัสผ่านใน command history เก็บ hash ในเครื่องหมาย single quote ตามตัวอย่าง
+3. สร้างรหัสฐานข้อมูลและ job secret คนละค่าด้วย `openssl rand -hex 24` ตัวตรวจรับ `POSTGRES_PASSWORD` เฉพาะตัวอักษรอังกฤษ ASCII และตัวเลข เพราะ Compose ใส่ลง `DATABASE_URL` โดยไม่ encode อักขระพิเศษ ส่วน Basic Auth hash ใช้ `sudo docker run --rm -it caddy:2.10-alpine caddy hash-password` แล้วกรอกรหัสผ่านตาม prompt เพื่อไม่ใส่รหัสผ่านใน command history เก็บ hash ในเครื่องหมาย single quote ตามตัวอย่าง
 4. ติดตั้งบริการและ drop-in ก่อนเริ่มระบบ:
 
    ```bash

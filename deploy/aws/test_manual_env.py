@@ -15,7 +15,7 @@ REQUIRED = (
     "POSTGRES_PASSWORD",
     "INTERNAL_JOB_SECRET",
 )
-FILLED = "\n".join(f"{name}='test-value'" for name in REQUIRED) + "\n"
+FILLED = "\n".join(f"{name}='testvalue'" for name in REQUIRED) + "\n"
 
 
 class ManualEnvValidation(unittest.TestCase):
@@ -37,12 +37,12 @@ class ManualEnvValidation(unittest.TestCase):
         for name in REQUIRED:
             for replacement in ("", f"{name}=''\n", f"{name}='   '\n"):
                 with self.subTest(name=name, replacement=replacement):
-                    content = FILLED.replace(f"{name}='test-value'\n", replacement)
+                    content = FILLED.replace(f"{name}='testvalue'\n", replacement)
                     self.assertNotEqual(self.check_env(content).returncode, 0)
 
     def test_filled_file_with_optional_empty_values_and_literal_hash_is_accepted(self):
         content = FILLED.replace(
-            "BASIC_AUTH_HASH='test-value'", "BASIC_AUTH_HASH='$2b$hash$literal'"
+            "BASIC_AUTH_HASH='testvalue'", "BASIC_AUTH_HASH='$2b$hash$literal'"
         )
         result = self.check_env(content + "LINE_CHANNEL_SECRET=''\n# comment\n")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -51,11 +51,30 @@ class ManualEnvValidation(unittest.TestCase):
     def test_duplicate_required_value_and_invalid_format_are_rejected(self):
         for content in (
             FILLED + "SITE_DOMAIN='duplicate'\n",
-            FILLED.replace("SITE_DOMAIN='test-value'", 'SITE_DOMAIN="double-quoted"'),
-            FILLED.replace("SITE_DOMAIN='test-value'", "SITE_DOMAIN=unquoted"),
+            FILLED.replace("SITE_DOMAIN='testvalue'", 'SITE_DOMAIN="double-quoted"'),
+            FILLED.replace("SITE_DOMAIN='testvalue'", "SITE_DOMAIN=unquoted"),
         ):
             with self.subTest(content=content):
                 self.assertNotEqual(self.check_env(content).returncode, 0)
+
+    def test_database_url_unsafe_passwords_are_rejected_without_logging_values(self):
+        for password in ("p@ss:w/rd", "has space", "with-hyphen", "ไทย123", "abc%40def"):
+            with self.subTest(password=password):
+                content = FILLED.replace(
+                    "POSTGRES_PASSWORD='testvalue'", f"POSTGRES_PASSWORD='{password}'"
+                )
+                result = self.check_env(content)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("POSTGRES_PASSWORD", result.stderr)
+                self.assertNotIn(password, result.stdout + result.stderr)
+
+    def test_hex_and_mixed_ascii_alphanumeric_passwords_are_accepted(self):
+        for password in ("a1" * 24, "AbCdEf0123456789"):
+            with self.subTest(password=password):
+                content = FILLED.replace(
+                    "POSTGRES_PASSWORD='testvalue'", f"POSTGRES_PASSWORD='{password}'"
+                )
+                self.assertEqual(self.check_env(content).returncode, 0)
 
     def test_failure_does_not_log_secret_or_execute_shell_content(self):
         with tempfile.TemporaryDirectory() as folder:

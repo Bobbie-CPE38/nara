@@ -37,6 +37,9 @@ def validate(path: Path) -> None:
     missing = [name for name in REQUIRED if name not in values]
     if missing:
         raise ValueError("Missing required settings: " + ", ".join(missing))
+    # Compose interpolates this directly into DATABASE_URL without URL encoding.
+    if re.fullmatch(r"[A-Za-z0-9]+", values["POSTGRES_PASSWORD"]) is None:
+        raise ValueError("POSTGRES_PASSWORD must contain ASCII letters and digits only.")
 
 
 if __name__ == "__main__":
@@ -46,7 +49,8 @@ if __name__ == "__main__":
         # Do not expose values or decoder excerpts in systemd's journal.
         print(
             "Manual env validation failed: provide all six required settings as nonempty "
-            "single-quoted values, remove duplicates and replace REPLACE_WITH_ placeholders.",
+            "single-quoted values, remove duplicates and replace REPLACE_WITH_ placeholders. "
+            "POSTGRES_PASSWORD must contain ASCII letters and digits only.",
             file=sys.stderr,
         )
         sys.exit(1)
