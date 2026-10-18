@@ -61,6 +61,48 @@
 * **`LLM_ENABLED` มาจาก Parameter** (ค่าเริ่มต้น `false` ของ `docker-compose.yml`) PR D เคยตรึงเป็น `false` ใน `docker-compose.aws.yml` จนกว่าคำอธิบายจะสร้างเมื่อผู้ใช้ขอเท่านั้น PR E1 ทำแล้วจึงลบการตรึงออก (ข้อ 6.27) ตั้ง Parameter `LLM_ENABLED=true` แล้ว restart จึงเปิดปุ่มขอคำอธิบาย ชุดทดลองเลือกโมเดล (B2) ไม่ต้องใช้ค่านี้
 * เปลี่ยนค่าแล้วให้ `sudo systemctl restart nara` ค่าใหม่ถูกอ่านทุกครั้งที่เริ่ม
 
+## ทางเลือก: ตั้งค่าบน EC2 ด้วยมือ
+
+หากยังไม่มี IAM instance profile สำหรับ Parameter Store ใช้ไฟล์ `/etc/nara/nara.env` ที่ดูแลเองได้ เว็บ ฐานข้อมูล และ LINE ไม่ต้องใช้ IAM Role แต่ Bedrock จริงยังต้องมี AWS credentials ที่ได้รับอนุญาต (แนะนำ instance role) การใช้ไฟล์นี้ไม่ได้เพิ่มสิทธิ์ Bedrock
+
+ทำหลังติดตั้ง Docker/Compose และ clone โค้ดเป็น `/opt/nara` แล้ว วิธีนี้แทนขั้น IAM, Parameter Store และการติดตั้งบริการในหัวข้อถัดไป ส่วน Elastic IP/DNS, ฐานข้อมูล และการตรวจช่วง ข ยังต้องทำตามเดิม
+
+1. สร้างไฟล์เฉพาะครั้งแรก (อย่าคัดลอกตัวอย่างทับไฟล์ที่กรอกแล้ว):
+
+   ```bash
+   sudo install -d -m 700 /etc/nara
+   if ! sudo test -e /etc/nara/nara.env; then
+     sudo install -o root -g root -m 600 /opt/nara/deploy/aws/manual.env.example /etc/nara/nara.env
+   fi
+   sudo nano /etc/nara/nara.env
+   ```
+
+   กรอกทุกค่า `REPLACE_WITH_...` นอก repo ห้าม commit ไฟล์จริง หากมีไฟล์อยู่แล้ว ตรวจเจ้าของ `root:root` และสิทธิ์ `600` ด้วย `sudo ls -l /etc/nara/nara.env` ห้ามส่งภาพเนื้อหาไฟล์หรือใช้ `compose config` โดยไม่มี `--quiet` เพราะจะแสดงความลับ
+2. `SITE_DOMAIN` ต้องเป็นโดเมนที่ทีมมีสิทธิ์ใช้ ไม่มี scheme หรือ path และ DNS ต้องชี้มายังเครื่องก่อนเปิด HTTPS ใส่ `ACME_EMAIL` ของทีม
+3. สร้างรหัสฐานข้อมูลและ job secret คนละค่าด้วย `openssl rand -hex 24` ส่วน Basic Auth hash ใช้ `sudo docker run --rm -it caddy:2.10-alpine caddy hash-password` แล้วกรอกรหัสผ่านตาม prompt เพื่อไม่ใส่รหัสผ่านใน command history เก็บ hash ในเครื่องหมาย single quote ตามตัวอย่าง
+4. ติดตั้งบริการและ drop-in ก่อนเริ่มระบบ:
+
+   ```bash
+   sudo install -m 644 /opt/nara/deploy/aws/nara.service /etc/systemd/system/nara.service
+   sudo install -d -m 755 /etc/systemd/system/nara.service.d
+   sudo install -m 644 /opt/nara/deploy/aws/manual-env.conf /etc/systemd/system/nara.service.d/manual-env.conf
+   sudo systemctl daemon-reload
+   sudo systemctl cat nara --no-pager
+   ```
+
+   Drop-in นี้ล้าง `EnvironmentFile` ของ Parameter Store และ `ExecStartPre` เดิม จึงไม่ต้องสร้าง `aws.conf` และไม่เรียก `load-env.sh` ใช้ไฟล์ env เดิมเมื่อ reboot หรือ restart ตรวจท้ายผลว่ามี `manual-env.conf` การติดตั้งนี้ยังไม่เริ่มบริการ
+5. ตรวจ Compose โดยไม่พิมพ์ความลับ:
+
+   ```bash
+   sudo env -u AWS_REGION docker compose --env-file /etc/nara/nara.env -f /opt/nara/docker-compose.yml -f /opt/nara/deploy/aws/docker-compose.aws.yml config --quiet
+   ```
+
+   คำสั่งนี้ตรวจโครงสร้าง ไม่ยืนยันว่าค่า placeholder ถูกแทนทั้งหมด หรือ DNS และสิทธิ์บริการจริงใช้ได้ เมื่อกรอกครบ โดเมนและด่าน Basic Auth พร้อม จึงรัน `sudo systemctl enable --now nara` เตรียมฐานข้อมูลและตรวจช่วง ข ตามหัวข้อเดิม
+
+คง `LINE_MODE=simulation` และ `LLM_ENABLED=false` จนพร้อมทดสอบบริการจริง เปลี่ยนไฟล์แล้ว `sudo systemctl restart nara` ห้ามรัน `load-env.sh` ในโหมดนี้เพราะจะเขียนไฟล์ทับ การเปลี่ยน `POSTGRES_PASSWORD` หลังฐานข้อมูลถูกสร้างแล้วไม่ได้เปลี่ยนรหัสของผู้ใช้ในฐานข้อมูลให้อัตโนมัติ ค่า `SITE_DOMAIN` ถูกใช้ตอน build Frontend จึงต้อง build ใหม่เมื่อเปลี่ยน (restart บริการใช้ `--build` อยู่แล้ว) คงข้อกำหนด Basic Auth, การไม่เปิดพอร์ตภายใน และเกณฑ์ตรวจช่วง ข เดิมทั้งหมด
+
+เมื่อต้องการกลับไปใช้ Parameter Store ให้เตรียม IAM/Parameters และ `/etc/nara/aws.conf` ให้ครบก่อน ลบเฉพาะ drop-in `manual-env.conf` แล้ว daemon-reload และ restart บริการ ไฟล์ env จะถูกสร้างใหม่จาก Parameter Store ตามเดิม
+
 ## ตั้งเครื่องครั้งแรก (คน 1)
 
 1. **EC2:** Amazon Linux 2023 ซึ่งมี AWS CLI v2 และ `python3` มาให้ ซึ่ง `load-env.sh` ใช้ RAM อย่างน้อย 4 GB เพราะ `pip install` ของ Backend และ `npm ci` กับ `next build` ตอนสร้าง image ของ Frontend ใช้มากกว่าตอนรันปกติ (บนเครื่องพัฒนาทุก Service รวมกันใช้ราว 1 GB ตอนว่าง) Disk 30 GB
