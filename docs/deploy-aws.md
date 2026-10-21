@@ -125,6 +125,16 @@
    docker compose version   # ต้องเป็น 2.24.4 ขึ้นไป เพราะไฟล์ซ้อนใช้ !reset และ !override
    ```
 
+   **Buildx ต้องมีด้วย:** บนเครื่องจริงพบว่า Docker จาก Amazon Linux กับ Compose ที่ติดตั้งแยกอาจให้ `compose build requires buildx 0.17.0 or later` ตรวจด้วย `sudo docker buildx version` ก่อนเริ่มบริการ ถ้าไม่มีหรือเก่า ให้ติดตั้ง CLI plugin จาก Docker (ตัวอย่างเครื่อง x86_64, รุ่นที่แนะนำระหว่างแก้ปัญหาในรอบนี้):
+
+   ```bash
+   curl -fL https://github.com/docker/buildx/releases/download/v0.38.1/buildx-v0.38.1.linux-amd64 -o /tmp/nara-docker-buildx
+   sudo install -m 755 /tmp/nara-docker-buildx /usr/local/lib/docker/cli-plugins/docker-buildx
+   sudo docker buildx version
+   ```
+
+   ตรวจว่าดาวน์โหลดสำเร็จก่อน install; สำหรับเครื่อง ARM ต้องใช้ binary linux-arm64 แทน ถ้าติดตั้งแบบ manual ต้องดูแลอัปเดตเอง ผลตรวจเครื่องจริงอยู่ `docs/round6/step6-live-checks.md`
+
 7. **โค้ดและบริการ:**
 
    ```bash
@@ -153,7 +163,7 @@ dc exec -T backend python -m app.seed    # ลบ Schema, Migrate ถึง head
 
 ## ตรวจช่วง ข ก่อนเปิดให้ภายนอกเข้า (ขั้นที่ 6)
 
-ช่วง ก (ตรวจในเครื่องผู้พัฒนา) เป็นของ PR F3 ช่วงนี้ตรวจบนเครื่องจริง ผลบันทึกในตาราง "อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง" ของ `workflow.md` และใน Description ของ PR แรกที่ใช้เครื่อง (B2 หรือ W)
+ช่วง ก (ตรวจในเครื่องผู้พัฒนา) เป็นของ PR F3 ช่วงนี้ตรวจบนเครื่องจริง ผลบันทึกในตาราง "อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง" ของ `workflow.md` และใน Description ของ PR แรกที่ใช้เครื่อง (B2 หรือ W) ผลตรวจของคน 3 วันที่ 2026-10-21 อยู่ใน `docs/round6/step6-live-checks.md`
 
 1. Container ของ Frontend รัน production mode จริง: `dc ps` แล้ว `sudo docker inspect nara-staffing-frontend --format '{{.Config.Cmd}}'` ต้องเป็น `next start` ไม่มี `npm run dev` และ `sudo docker inspect nara-staffing-frontend --format '{{len .Mounts}}'` ต้องเป็น `0` (F3 ตรวจเรื่องนี้กับ Compose ในเครื่องแล้วด้วย `deploy/aws/test_frontend.py` ข้อนี้ตรวจซ้ำบนเครื่องจริง)
 2. `bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password>` ผ่านทุกข้อจากเครื่องของตัวเอง ไม่ใช่จากตัวเครื่อง
