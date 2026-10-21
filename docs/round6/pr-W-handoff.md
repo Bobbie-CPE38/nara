@@ -1,6 +1,6 @@
 # PR W — ย้าย LINE Webhook จาก Tunnel ไป AWS
 
-สถานะ: live smoke ผ่านบางส่วนตามผลและภาพที่ผู้ Deploy ส่งเมื่อ 2026-10-21; ยังไม่ปิด W เพราะรอ strict Gate, ผลคำสั่งซ้ำ/DB Audit และการทำงานหลังปิด Tunnel ผู้บันทึกไม่ได้เชื่อม EC2 หรือรันทดสอบ live ซ้ำเอง ไม่ใช้ผล Quick Tunnel ของรอบ 5 แทน
+สถานะ: live smoke ผ่านบางส่วนตามผลและภาพที่ผู้ Deploy ส่งเมื่อ 2026-10-21; ยังไม่ปิด W เพราะรอ strict Gate, revision/image ตอนตรวจรับ และการยืนยันการทำงานหลังปิด Tunnel ผู้บันทึกไม่ได้เชื่อม EC2 หรือรันทดสอบ live ซ้ำเอง ไม่ใช้ผล Quick Tunnel ของรอบ 5 แทน
 
 ## ขอบเขตและจุดเริ่ม
 
@@ -71,7 +71,7 @@ sudo docker exec nara-staffing-backend python -m app.line_accounts issue-code --
 | LINK staff ทดสอบผ่าน AWS | ผู้ Deploy ออกรหัสให้ 201 จาก Backend บน EC2; ภาพ LINE ตอบว่าผูกบัญชีสำเร็จ เวลา 23:47 ไทย ไม่เก็บโค้ดที่ใช้แล้วหรือ LINE UID ในเอกสาร |
 | Offer จริงและการตอบผ่านปุ่ม LINE | ภาพ LINE มี Offer ICU เวรข้ามคืนพร้อมปุ่มรับ/ปฏิเสธ และภาพหน้า Approvals มี staff 201 รออนุมัติ (เคส 3, request 1) ผู้ Deploy รายงานว่าใช้งานปกติ ไม่ได้แนบ webhook/audit trace ของการกดปุ่ม |
 | Approval → Roster → Handover จริง | ภาพ LINE แสดงข้อความยืนยันจัดเวรและ Handover #1 หอ ICU เหตุ NO_SHOW พร้อมปุ่ม check-in เวลา 23:50 ไทย; ยังไม่ได้แนบผลอ่าน Roster/Audit โดยตรง |
-| Check-in และคำสั่งซ้ำ / Attendance / Audit | ภาพ LINE ตอบเช็กอินเวร 1 สำเร็จ เวลา 23:50 (ทันเวลา); คำสั่งซ้ำและการตรวจ Attendance/Audit ยังรอผล |
+| Check-in และคำสั่งซ้ำ / Attendance / Audit | ภาพ LINE ตอบเช็กอินเวร 1 สำเร็จ เวลา 23:50 (ทันเวลา); ผู้ Deploy รายงานว่าส่งคำสั่งเช็กอินซ้ำแล้วตอบว่าไม่ต้องเช็กซ้ำ; ผล SQL บน PostgreSQL ของ AWS ยืนยัน staff 201 / shift 1 มี Attendance 1 แถว และ ATTENDANCE_CHECKED_IN Audit 1 แถว actor staff 201, source SELF (user-reported stdout) ไม่ใช่ผล replay webhookEventId เดิม |
 | ปิด Tunnel แล้ว LINE ยังทำงานผ่าน AWS | รอทดสอบ |
 
 เมื่อผ่านให้บันทึกวันที่ ผู้ทดสอบ revision/image และผลรายข้อโดยแยก user-reported live evidence ออกจาก automated fake tests พร้อมอัปเดตแถว W และแถว LINE/ผูกบัญชีในตาราง fake/ของจริงของ workflow ไม่เปลี่ยนเป็นผ่านเพราะเปิด PR หรือ Verify อย่างเดียว ถ้า AU4 เปลี่ยนกติกา auth ภายหลัง ต้องรัน Gate ที่ปรับตามกติกาใหม่และ LINE smoke ซ้ำ
