@@ -5,13 +5,15 @@
 3. identity no name, staff code or LINE ID of a person in the case
 4. cost     the mean cost of one plan is under the cap
 
-A case that never got an answer because of the provider (timeout, throttle, service or
-configuration error) is "incomplete", not a failure of the model: the model is not judged
-until the case is run again. Latency and retries are measured but never decide.
+A case that never got an answer, because it was not run yet or because of the provider
+(timeout, throttle, service or configuration error), is "incomplete", not a failure of the
+model: the model is not judged until the case is run again. Every model is judged against
+the whole frozen case set. Latency and retries are measured but never decide.
 """
 
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -50,6 +52,12 @@ class Attempt:
     output_tokens: int | None
     duration_ms: int | None
     cost_usd: Decimal | None
+    # Which experiment wrote the row; manifest.check_rows() compares them (PR B2 review)
+    run_id: str
+    provider: str
+    prompt_version: str
+    input_hash: str
+    model_id: str
 
 
 @dataclass
@@ -95,16 +103,27 @@ def judge(
     attempts: list[Attempt],
     payloads: dict[str, dict[str, Any]],
     forbidden: dict[str, list[str]],
+    models: Sequence[str],
 ) -> dict[str, ModelReport]:
-    """One report per model. `payloads` and `forbidden` are keyed by case key."""
+    """One report per expected model, judged against every expected case.
+
+    `payloads` and `forbidden` are keyed by case key and hold the whole frozen case set. A
+    case with no recorded attempt is incomplete, so an interrupted run cannot qualify a
+    model. A row for a model or case that is not expected is an error, not ignored.
+    """
     grouped: dict[tuple[str, str], list[Attempt]] = defaultdict(list)
     for attempt in attempts:
+        if attempt.model not in models or attempt.case_key not in payloads:
+            raise ValueError(f"unexpected result row: {attempt.model} / {attempt.case_key}")
         grouped[(attempt.model, attempt.case_key)].append(attempt)
     reports: dict[str, ModelReport] = {}
     costs: dict[str, list[Decimal]] = defaultdict(list)
-    for (model, case_key), rows in sorted(grouped.items()):
-        report = reports.setdefault(model, ModelReport(model))
-        report.cases += 1
+    for model, case_key in ((m, k) for m in models for k in sorted(payloads)):
+        report = reports.setdefault(model, ModelReport(model, cases=len(payloads)))
+        rows = grouped.get((model, case_key))
+        if not rows:
+            report.incomplete.append(case_key)
+            continue
         rows.sort(key=lambda row: row.attempt)
         if len(rows) > 1:
             report.retried_cases += 1
