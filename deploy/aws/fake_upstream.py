@@ -7,6 +7,7 @@ as "<name> <method> <path>" so the test can read what got past the gate.
 
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 NAME = sys.argv[1]
 PORT = int(sys.argv[2])
@@ -23,9 +24,16 @@ class Handler(BaseHTTPRequestHandler):
         print(f"{NAME} {self.command} {self.path}", flush=True)
         # The real backend refuses a webhook without a good LINE signature with 401
         # (no WWW-Authenticate header, which is how the gate's own 401 is told apart)
-        status = 401 if (NAME == "backend" and self.path == "/line/webhook") else 200
+        status = 200
+        if NAME == "backend" and self.path == "/line/webhook":
+            # Isolated gate tests can model a real-mode or unconfigured backend.
+            status_file = Path("/tmp/nara-test-webhook-status")
+            status = int(status_file.read_text()) if status_file.exists() else 401
         body = b"ok"
         self.send_response(status)
+        if (NAME == "backend" and self.path == "/line/webhook"
+                and Path("/tmp/nara-test-webhook-basic").exists()):
+            self.send_header("WWW-Authenticate", 'Basic realm="test-webhook"')
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
