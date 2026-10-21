@@ -31,6 +31,9 @@ class Handler(BaseHTTPRequestHandler):
             status = int(status_file.read_text()) if status_file.exists() else 401
         body = b"ok"
         self.send_response(status)
+        if (NAME == "backend" and self.path == "/line/webhook"
+                and Path("/tmp/nara-test-webhook-basic").exists()):
+            self.send_header("WWW-Authenticate", 'Basic realm="test-webhook"')
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)

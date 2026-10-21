@@ -12,7 +12,7 @@
 
 - ยืนยันขั้นที่ 6 กับทีม เก็บ HEAD/image ID และผล Gate/Frontend ที่ตรงกับรุ่นที่รัน หากรุ่นเปลี่ยนให้ตรวจใหม่
 - ตกลงผู้ใช้ LINE สำหรับทดสอบจริงและช่วงเวลาที่ทีมไม่กด Demo พร้อมกัน จด Webhook URL เดิมแบบส่วนตัวสำหรับ rollback และเก็บ proxy/Tunnel เดิมไว้ก่อน
-- ตรวจคิว Offer/Handover ของฐาน AWS ก่อนเปิด `real`: คิวค้างอาจเริ่มส่งทันทีหลัง restart อย่าสร้างเคสใหม่หรือ reset ระหว่างเปลี่ยนระบบ ไม่ใช้ DB ของ Tunnel สลับกับ AWS โดยสมมติว่า bindings เหมือนกัน
+- ทำตามหัวข้อ "ตรวจคิวก่อนเปิด real" ด้านล่างก่อนเปลี่ยนค่าและ restart ตรวจคิว Offer/Handover/Outcome ของฐาน AWS ก่อนเปิด `real`: คิวค้างอาจเริ่มส่งทันทีหลัง restart อย่าสร้างเคสใหม่หรือ reset ระหว่างเปลี่ยนระบบ ไม่ใช้ DB ของ Tunnel สลับกับ AWS โดยสมมติว่า bindings เหมือนกัน
 - สำหรับ manual env แก้ `/etc/nara/nara.env` บนเครื่องด้วย `sudo nano` ให้ `LINE_MODE='real'` และใส่ Channel secret/access token ล่าสุดของ Channel เดียวกัน ห้ามส่งค่า secret ลงแชท/PR/Log; สำหรับ Parameter Store เปลี่ยนที่แหล่งค่าตั้งของเครื่องนั้น ไม่ source ไฟล์ env เป็น shell
 - `sudo systemctl restart nara` แล้วตรวจแบบไม่พิมพ์ความลับ:
 
@@ -21,6 +21,26 @@ sudo docker exec nara-staffing-backend python -c 'from app.core.config import se
 ```
 
 ต้องได้ `real` และ `True` ค่านี้บอกว่าค่าตั้งครบ ยังไม่ยืนยัน token ใช้ได้จริง
+
+### ตรวจคิวก่อนเปิด real (สำหรับ cutover ครั้งถัดไป)
+
+ให้ทีมงดสร้าง/เปลี่ยนเคส งดกด Demo และหยุด Job ชั่วคราว **ขณะยังเป็น simulation** เพื่อไม่ให้มี intent ใหม่ระหว่างตรวจ:
+
+```bash
+sudo docker stop nara-staffing-job
+sudo docker exec -i nara-staffing-postgres psql -v ON_ERROR_STOP=1 -U staffing -d staffing <<'SQL'
+SELECT 'offer' AS queue, count(*) AS pending
+FROM candidate_outreach WHERE delivery_status = 'PENDING'
+UNION ALL
+SELECT 'handover', count(*) FROM structured_handover WHERE delivery_status = 'PENDING'
+UNION ALL
+SELECT 'outcome', count(*) FROM offer_outcome_notification WHERE delivery_status = 'PENDING';
+SQL
+```
+
+**ผ่านเมื่อคำสั่ง SQL สำเร็จและ pending = 0 ทั้งสามแถว** นับ PENDING ทั้งหมด รวมรายการ retry ที่ยังไม่ถึงเวลาและรายการที่มี lease ไม่ดูเฉพาะที่พร้อมส่ง หากคำสั่งล้ม/ตารางหายหรือมีค่าเกิน 0 ให้หยุด cutover คง simulation และให้ทีมจัดการคิวด้วย workflow ที่รองรับแล้วตรวจใหม่ ห้ามลบหรือเปลี่ยนสถานะ SQL เพื่อให้ผ่าน หลังคิวว่างและค่าตั้งพร้อมจึง restart nara ตามข้อ 1 ซึ่งจะเริ่ม Job กลับด้วย; ถ้ายกเลิก cutover ให้เริ่ม Job กลับด้วย `sudo docker start nara-staffing-job` โดยคง simulation ไว้ ขั้นนี้ไม่แทนการตรวจ token หรือปลายทางผู้รับ
+
+คิวเป็น snapshot จึงต้องงดกิจกรรมสร้าง intent ต่อจน restart เสร็จ ใน live run ที่รายงานข้างล่าง **ไม่ได้เก็บ SQL ก่อนเปิด real** จึงไม่มีหลักฐานย้อนหลังว่าคิวว่าง ไม่ใช้ SQL ที่รันภายหลังมาอ้างแทน
 
 ## 2. ตรวจด่านและเปลี่ยน URL
 
@@ -59,6 +79,14 @@ sudo docker exec nara-staffing-backend python -m app.line_accounts issue-code --
 
 ## 4. ถอยกลับเมื่อ AWS ใช้ไม่ได้
 
+**หยุด cutover / rollback เมื่อเกิดข้อใดข้อหนึ่ง:**
+- strict Gate ล้ม, webhook ถูก Basic challenge หรือ unsigned webhook ยังตอบ 503
+- Channel Verify ไม่ขึ้น Success (เช่น TLS, timeout, 401/5xx): อย่าปิด Tunnel และอย่าสร้าง Offer เพิ่ม ตรวจ URL/path, DNS/TLS และ Channel secret ของ Channel เดียวกันโดยไม่พิมพ์ค่า ถ้าแก้ไม่ได้ในช่วงทดสอบที่ตกลง ให้คืน URL ไปปลายทางที่ตรวจรับแล้วตามขั้นตอนด้านล่าง จากนั้น Verify ปลายทางนั้นใหม่ก่อนใช้
+- LINK ไม่สำเร็จ/ผูกผิดคน, Offer ไม่ถึงบัญชีทดสอบที่ถูกต้อง, กดตอบแล้ว state ไม่ตรง, อนุมัติแล้วไม่ได้ Handover หรือ check-in/Audit ไม่ผ่าน
+- เมื่อไม่มี Tunnel แล้ว LINE ใช้งานไม่ได้ หรือ Backend/Job หยุดทำงาน: หยุดทดสอบใหม่และให้คนรับผิดชอบตรวจคิวก่อน retry เพื่อไม่ส่งซ้ำเอง
+
+ขณะตัดสินใจ rollback ให้ทีมงดกิจกรรมสร้างเคส/ข้อความใหม่และหยุด Job AWS ชั่วคราว เมื่อเลือกกลับไป Tunnel ให้เปลี่ยน AWS เป็น simulation และ restart nara ตามข้อ 1 ก่อนเริ่มกิจกรรมใหม่ที่ปลายทาง เพื่อไม่ให้สองฐานส่งข้อความพร้อมกัน ค่าในฐาน AWS ไม่ถูกคัดลอกไปฐาน Tunnel โดยอัตโนมัติ ถ้าไม่มีปลายทางที่พร้อมใช้งาน ให้หยุดทดสอบไว้และรายงานว่า cutover ล้ม ไม่ฝืนเปิด URL ที่หมดอายุ
+
 เปิด proxy/Tunnel ที่ตรวจด่านไว้ ถ้า URL เดิมยังใช้ได้ให้เปลี่ยน Webhook กลับ URL นั้น แต่ถ้า Quick Tunnel เดิมหมดอายุ ต้องสร้าง Tunnel ใหม่ที่ชี้เฉพาะ proxy เดิม ตรวจด่านตาม `dev/line-webhook-proxy` ก่อน แล้วเปลี่ยน Webhook URL เป็น URL ใหม่ ตรวจโหมด LINE และ credentials ของ Backend ปลายทางนั้น แล้ว Verify และทดสอบกับบัญชีที่ผูกใน **DB ของปลายทางนั้น** อีกครั้ง คืนค่าตั้งเครื่อง AWS ตามที่ตกลง (simulation หากหยุดใช้ LINE ที่ AWS) เพื่อกันการส่งข้อความจากสอง DB อย่ารัน reset/ย้าย DB หรือคัดลอก binding โดยเดาว่า staff ID คือคนเดียวกัน บันทึกช่วงเวลาและผล cutover ที่ไม่สำเร็จไว้ W ยังไม่เสร็จ
 
 ## หลักฐานตรวจรับ W (user-reported, 2026-10-21)
@@ -74,4 +102,4 @@ sudo docker exec nara-staffing-backend python -m app.line_accounts issue-code --
 | Check-in และคำสั่งซ้ำ / Attendance / Audit | ภาพ LINE ตอบเช็กอินเวร 1 สำเร็จ เวลา 23:50 (ทันเวลา); ผู้ Deploy รายงานว่าส่งคำสั่งเช็กอินซ้ำแล้วตอบว่าไม่ต้องเช็กซ้ำ; ผล SQL บน PostgreSQL ของ AWS ยืนยัน staff 201 / shift 1 มี Attendance 1 แถว และ ATTENDANCE_CHECKED_IN Audit 1 แถว actor staff 201, source SELF (user-reported stdout) ไม่ใช่ผล replay webhookEventId เดิม |
 | ไม่มี Tunnel เดิมแล้ว LINE ยังทำงานผ่าน AWS | ผู้ Deploy ยืนยันว่า Quick Tunnel timeout ไปหลายวันก่อนทดสอบ W และ LINE ยังตอบคำสั่ง check-in ซ้ำว่าไม่ต้องเช็กซ้ำ จึงไม่ต้องหยุด Tunnel ที่หมดอายุแล้ว ไม่ได้ทดสอบ rollback ไป Tunnel ใหม่ในรอบนี้ |
 
-หลักฐานข้างต้นมาจากผู้ Deploy ผ่านแชทและภาพ ไม่ใช่ independent rerun แถว W และแถว LINE/ผูกบัญชีใน workflow อ้างผลตามขอบเขตนี้ automated Caddy tests 4 ข้อใช้ fake upstream เท่านั้น ไม่ได้เรียก LINE จริง ไม่ได้ทดสอบ live crash/retry/concurrency, webhookEventId redelivery หรือ rollback; การเช็กอินซ้ำเป็นคำสั่งใหม่ จึงไม่ใช่ผล dedup ของ Event เดิม ถ้า AU4 เปลี่ยนกติกา auth ภายหลัง ต้องรัน Gate ที่ปรับตามกติกาใหม่และ LINE smoke ซ้ำ
+หลักฐานข้างต้นมาจากผู้ Deploy ผ่านแชทและภาพ ไม่ใช่ independent rerun แถว W และแถว LINE/ผูกบัญชีใน workflow อ้างผลตามขอบเขตนี้ automated Caddy tests 5 ข้อใช้ fake upstream เท่านั้น ไม่ได้เรียก LINE จริง ไม่ได้ทดสอบ live crash/retry/concurrency, webhookEventId redelivery หรือ rollback; การเช็กอินซ้ำเป็นคำสั่งใหม่ จึงไม่ใช่ผล dedup ของ Event เดิม ถ้า AU4 เปลี่ยนกติกา auth ภายหลัง ต้องรัน Gate ที่ปรับตามกติกาใหม่และ LINE smoke ซ้ำ

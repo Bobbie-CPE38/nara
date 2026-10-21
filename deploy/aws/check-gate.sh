@@ -15,9 +15,9 @@
 set -uo pipefail
 shopt -s extglob
 
-base="${1:?Usage: check-gate.sh <base url> <user> <password>}"
-user="${2:?Usage: check-gate.sh <base url> <user> <password>}"
-password="${3:?Usage: check-gate.sh <base url> <user> <password>}"
+base="${1:?Usage: check-gate.sh <base url> <user> <password> [--require-real-line]}"
+user="${2:?Usage: check-gate.sh <base url> <user> <password> [--require-real-line]}"
+password="${3:?Usage: check-gate.sh <base url> <user> <password> [--require-real-line]}"
 webhook_expected="@(401|503) passed"
 case "${4:-}" in
   "") ;;

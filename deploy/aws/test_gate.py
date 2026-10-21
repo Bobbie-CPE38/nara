@@ -126,6 +126,26 @@ class AwsGate(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("signed traffic and Offer flow still need live verification", result.stdout)
 
+    def test_real_line_preflight_rejects_401_with_basic_challenge(self):
+        # Inject the header through the fake backend and real Caddy, not a mocked probe.
+        docker(
+            "exec", self.names["backend"], "python", "-c",
+            "from pathlib import Path; Path('/tmp/nara-test-webhook-basic').touch()",
+        )
+        try:
+            strict = self.run_gate("--require-real-line")
+            self.assertNotEqual(strict.returncode, 0, strict.stdout + strict.stderr)
+            self.assertIn(
+                "LINE webhook (missing signature): got '401 gate', wanted '401 passed'",
+                strict.stdout,
+            )
+            self.assertIn("1 check(s) failed", strict.stdout)
+        finally:
+            docker(
+                "exec", self.names["backend"], "python", "-c",
+                "from pathlib import Path; Path('/tmp/nara-test-webhook-basic').unlink()",
+            )
+
     def test_real_line_preflight_rejects_503_that_default_gate_allows(self):
         docker(
             "exec", self.names["backend"], "python", "-c",
