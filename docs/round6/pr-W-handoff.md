@@ -1,6 +1,6 @@
 # PR W — ย้าย LINE Webhook จาก Tunnel ไป AWS
 
-สถานะ: live smoke ผ่านบางส่วนตามผลและภาพที่ผู้ Deploy ส่งเมื่อ 2026-10-21; ยังไม่ปิด W เพราะรอ revision/image ตอนตรวจรับ และการยืนยันการทำงานหลังปิด Tunnel ผู้บันทึกไม่ได้เชื่อม EC2 หรือรันทดสอบ live ซ้ำเอง ไม่ใช้ผล Quick Tunnel ของรอบ 5 แทน
+สถานะ: live smoke ของ W ผ่านตามผล ภาพ และการยืนยันที่ผู้ Deploy ส่งเมื่อ 2026-10-21 พร้อมให้ทีมรีวิว PR #121 ผู้บันทึกไม่ได้เชื่อม EC2 หรือรันทดสอบ live ซ้ำเอง ไม่ใช้ผล Quick Tunnel ของรอบ 5 แทน และไม่ประกาศปิดรอบ 6 หรือข้อค้างช่วง ข จากรายงาน W นี้
 
 ## ขอบเขตและจุดเริ่ม
 
@@ -59,19 +59,19 @@ sudo docker exec nara-staffing-backend python -m app.line_accounts issue-code --
 
 ## 4. ถอยกลับเมื่อ AWS ใช้ไม่ได้
 
-เปลี่ยน Webhook URL กลับ URL Tunnel เดิมที่จดไว้ เปิด proxy/Tunnel ที่ตรวจด่านไว้ ตรวจโหมด LINE และ credentials ของ Backend ปลายทางนั้น แล้ว Verify และทดสอบกับบัญชีที่ผูกใน **DB ของปลายทางนั้น** อีกครั้ง คืนค่าตั้งเครื่อง AWS ตามที่ตกลง (simulation หากหยุดใช้ LINE ที่ AWS) เพื่อกันการส่งข้อความจากสอง DB อย่ารัน reset/ย้าย DB หรือคัดลอก binding โดยเดาว่า staff ID คือคนเดียวกัน บันทึกช่วงเวลาและผล cutover ที่ไม่สำเร็จไว้ W ยังไม่เสร็จ
+เปิด proxy/Tunnel ที่ตรวจด่านไว้ ถ้า URL เดิมยังใช้ได้ให้เปลี่ยน Webhook กลับ URL นั้น แต่ถ้า Quick Tunnel เดิมหมดอายุ ต้องสร้าง Tunnel ใหม่ที่ชี้เฉพาะ proxy เดิม ตรวจด่านตาม `dev/line-webhook-proxy` ก่อน แล้วเปลี่ยน Webhook URL เป็น URL ใหม่ ตรวจโหมด LINE และ credentials ของ Backend ปลายทางนั้น แล้ว Verify และทดสอบกับบัญชีที่ผูกใน **DB ของปลายทางนั้น** อีกครั้ง คืนค่าตั้งเครื่อง AWS ตามที่ตกลง (simulation หากหยุดใช้ LINE ที่ AWS) เพื่อกันการส่งข้อความจากสอง DB อย่ารัน reset/ย้าย DB หรือคัดลอก binding โดยเดาว่า staff ID คือคนเดียวกัน บันทึกช่วงเวลาและผล cutover ที่ไม่สำเร็จไว้ W ยังไม่เสร็จ
 
-## หลักฐานตรวจรับ (เติมผลจริงก่อนปิด W)
+## หลักฐานตรวจรับ W (user-reported, 2026-10-21)
 
 | เรื่อง | ผล / เวลา / รุ่นที่รัน |
 |---|---|
-| AWS Git HEAD และ Frontend image ID ตอนตรวจรับ | รอเก็บ |
+| AWS Git HEAD และ Frontend image ID ตอนตรวจรับ | ผู้ Deploy ส่ง HEAD `514babd56968c84f6fed37106ff63270b668e1a2` และ local image ID `sha256:44ce976dd5db64106a235e4af178aec5416372bdde98eee0eefd26c5651506e5` หลังทดสอบ W เป็นข้อมูลตอนตรวจ ไม่ใช่ build attestation; image ID ต่างจากตอนขั้นที่ 6 จึงไม่ใช้ image เดิมแทนหลักฐานรอบนี้ |
 | real-line config และ Gate แบบ strict จากภายนอก | ผู้ Deploy ส่ง `LINE_MODE=real`, `REAL_LINE_CONFIGURED=True` หลัง restart; รัน `check-gate.sh --require-real-line` จาก Mac ได้ `All checks passed`: unsigned webhook ตอบ backend 401 ไม่มี Basic challenge, หน้า/API อยู่หลัง gate, internal routes ถูกปิด, login ถูกผ่านและรหัสผิดถูกปฏิเสธ (user-reported stdout) |
 | URL AWS Verify / Use webhook / redelivery | ภาพ LINE Developers แสดง Verify Success บน URL AWS และเปิดทั้ง Use webhook กับ redelivery (2026-10-21); ไม่ใช่ผลทดสอบ redelivery/dedup |
 | LINK staff ทดสอบผ่าน AWS | ผู้ Deploy ออกรหัสให้ 201 จาก Backend บน EC2; ภาพ LINE ตอบว่าผูกบัญชีสำเร็จ เวลา 23:47 ไทย ไม่เก็บโค้ดที่ใช้แล้วหรือ LINE UID ในเอกสาร |
 | Offer จริงและการตอบผ่านปุ่ม LINE | ภาพ LINE มี Offer ICU เวรข้ามคืนพร้อมปุ่มรับ/ปฏิเสธ และภาพหน้า Approvals มี staff 201 รออนุมัติ (เคส 3, request 1) ผู้ Deploy รายงานว่าใช้งานปกติ ไม่ได้แนบ webhook/audit trace ของการกดปุ่ม |
 | Approval → Roster → Handover จริง | ภาพ LINE แสดงข้อความยืนยันจัดเวรและ Handover #1 หอ ICU เหตุ NO_SHOW พร้อมปุ่ม check-in เวลา 23:50 ไทย; ยังไม่ได้แนบผลอ่าน Roster/Audit โดยตรง |
 | Check-in และคำสั่งซ้ำ / Attendance / Audit | ภาพ LINE ตอบเช็กอินเวร 1 สำเร็จ เวลา 23:50 (ทันเวลา); ผู้ Deploy รายงานว่าส่งคำสั่งเช็กอินซ้ำแล้วตอบว่าไม่ต้องเช็กซ้ำ; ผล SQL บน PostgreSQL ของ AWS ยืนยัน staff 201 / shift 1 มี Attendance 1 แถว และ ATTENDANCE_CHECKED_IN Audit 1 แถว actor staff 201, source SELF (user-reported stdout) ไม่ใช่ผล replay webhookEventId เดิม |
-| ปิด Tunnel แล้ว LINE ยังทำงานผ่าน AWS | รอทดสอบ |
+| ไม่มี Tunnel เดิมแล้ว LINE ยังทำงานผ่าน AWS | ผู้ Deploy ยืนยันว่า Quick Tunnel timeout ไปหลายวันก่อนทดสอบ W และ LINE ยังตอบคำสั่ง check-in ซ้ำว่าไม่ต้องเช็กซ้ำ จึงไม่ต้องหยุด Tunnel ที่หมดอายุแล้ว ไม่ได้ทดสอบ rollback ไป Tunnel ใหม่ในรอบนี้ |
 
-เมื่อผ่านให้บันทึกวันที่ ผู้ทดสอบ revision/image และผลรายข้อโดยแยก user-reported live evidence ออกจาก automated fake tests พร้อมอัปเดตแถว W และแถว LINE/ผูกบัญชีในตาราง fake/ของจริงของ workflow ไม่เปลี่ยนเป็นผ่านเพราะเปิด PR หรือ Verify อย่างเดียว ถ้า AU4 เปลี่ยนกติกา auth ภายหลัง ต้องรัน Gate ที่ปรับตามกติกาใหม่และ LINE smoke ซ้ำ
+หลักฐานข้างต้นมาจากผู้ Deploy ผ่านแชทและภาพ ไม่ใช่ independent rerun แถว W และแถว LINE/ผูกบัญชีใน workflow อ้างผลตามขอบเขตนี้ automated Caddy tests 4 ข้อใช้ fake upstream เท่านั้น ไม่ได้เรียก LINE จริง ไม่ได้ทดสอบ live crash/retry/concurrency, webhookEventId redelivery หรือ rollback; การเช็กอินซ้ำเป็นคำสั่งใหม่ จึงไม่ใช่ผล dedup ของ Event เดิม ถ้า AU4 เปลี่ยนกติกา auth ภายหลัง ต้องรัน Gate ที่ปรับตามกติกาใหม่และ LINE smoke ซ้ำ
