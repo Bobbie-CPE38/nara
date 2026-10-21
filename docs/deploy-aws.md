@@ -130,6 +130,7 @@
    ```bash
    sudo bash <<'BASH'
    set -euo pipefail
+   [ "$(uname -m)" = x86_64 ] || { echo 'ERROR: this recipe requires x86_64; no plugin installed' >&2; exit 1; }
    umask 077
    buildx_dir=$(mktemp -d /root/nara-buildx.XXXXXX)
    trap 'rm -rf -- "$buildx_dir"' EXIT
@@ -141,7 +142,9 @@
    # Pin the digest checked against Docker's published checksums and release metadata.
    expected=e25d5cd675092bb5d1d03632fdc46cdf3fede7b514dc5f023a105e00d3ce5ad4
    awk -v asset="$asset" -v expected="$expected" \
-     '($2 == asset || $2 == "*" asset) && $1 == expected { print; found=1 } END { if (!found) exit 1 }' \
+     '{ name=$2; sub(/^\*/, "", name); sub(/^\.\//, "", name) }
+      name == asset && $1 == expected { print expected "  " asset; found=1 }
+      END { if (!found) { print "ERROR: no matching pinned checksum for " asset > "/dev/stderr"; exit 1 } }' \
      checksums.txt > selected-checksum.txt
    sha256sum --check selected-checksum.txt
    install -D -m 755 "$asset" /usr/local/lib/docker/cli-plugins/docker-buildx
