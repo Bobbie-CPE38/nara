@@ -125,6 +125,35 @@
    docker compose version   # ต้องเป็น 2.24.4 ขึ้นไป เพราะไฟล์ซ้อนใช้ !reset และ !override
    ```
 
+   **Buildx ต้องมีด้วย:** บนเครื่องจริงพบ `compose build requires buildx 0.17.0 or later` ตรวจด้วย `sudo docker buildx version` ก่อนเริ่มบริการ Release [v0.38.1 ของ Docker](https://github.com/docker/buildx/releases/tag/v0.38.1) มีอยู่จริง; การตรวจ checksum และการรัน binary แยกจากหลักฐานเครื่องจริง ดู `docs/round6/step6-live-checks.md` ตัวอย่างต่อไปสำหรับ x86_64 ดาวน์โหลดในโฟลเดอร์ส่วนตัวของ root เทียบ published SHA-256 ก่อนติดตั้ง และหยุดทันทีหากขั้นใดล้ม:
+
+   ```bash
+   sudo bash <<'BASH'
+   set -euo pipefail
+   [ "$(uname -m)" = x86_64 ] || { echo 'ERROR: this recipe requires x86_64; no plugin installed' >&2; exit 1; }
+   umask 077
+   buildx_dir=$(mktemp -d /root/nara-buildx.XXXXXX)
+   trap 'rm -rf -- "$buildx_dir"' EXIT
+   cd "$buildx_dir"
+   asset=buildx-v0.38.1.linux-amd64
+   release=https://github.com/docker/buildx/releases/download/v0.38.1
+   curl -fL "$release/$asset" -o "$asset"
+   curl -fL "$release/checksums.txt" -o checksums.txt
+   # Pin the digest checked against Docker's published checksums and release metadata.
+   expected=e25d5cd675092bb5d1d03632fdc46cdf3fede7b514dc5f023a105e00d3ce5ad4
+   awk -v asset="$asset" -v expected="$expected" \
+     '{ name=$2; sub(/^\*/, "", name); sub(/^\.\//, "", name) }
+      name == asset && $1 == expected { print expected "  " asset; found=1 }
+      END { if (!found) { print "ERROR: no matching pinned checksum for " asset > "/dev/stderr"; exit 1 } }' \
+     checksums.txt > selected-checksum.txt
+   sha256sum --check selected-checksum.txt
+   install -D -m 755 "$asset" /usr/local/lib/docker/cli-plugins/docker-buildx
+   docker buildx version
+   BASH
+   ```
+
+   Checksum ตรวจความสมบูรณ์ของ binary และ pin digest ไว้ในคู่มือ ไม่ได้อ้างว่าได้ตรวจลายเซ็น release แบบอิสระ สำหรับ ARM ต้องเลือก binary และ checksum ของ linux-arm64 ให้ตรงกัน ห้ามใช้ digest ของ amd64 ถ้าติดตั้งแบบ manual ต้องดูแลอัปเดตเอง
+
 7. **โค้ดและบริการ:**
 
    ```bash
@@ -153,7 +182,7 @@ dc exec -T backend python -m app.seed    # ลบ Schema, Migrate ถึง head
 
 ## ตรวจช่วง ข ก่อนเปิดให้ภายนอกเข้า (ขั้นที่ 6)
 
-ช่วง ก (ตรวจในเครื่องผู้พัฒนา) เป็นของ PR F3 ช่วงนี้ตรวจบนเครื่องจริง ผลบันทึกในตาราง "อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง" ของ `workflow.md` และใน Description ของ PR แรกที่ใช้เครื่อง (B2 หรือ W)
+ช่วง ก (ตรวจในเครื่องผู้พัฒนา) เป็นของ PR F3 ช่วงนี้ตรวจบนเครื่องจริง ผลบันทึกในตาราง "อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง" ของ `workflow.md` และใน Description ของ PR แรกที่ใช้เครื่อง (B2 หรือ W) ผลตรวจของคน 3 วันที่ 2026-10-21 อยู่ใน `docs/round6/step6-live-checks.md`
 
 1. Container ของ Frontend รัน production mode จริง: `dc ps` แล้ว `sudo docker inspect nara-staffing-frontend --format '{{.Config.Cmd}}'` ต้องเป็น `next start` ไม่มี `npm run dev` และ `sudo docker inspect nara-staffing-frontend --format '{{len .Mounts}}'` ต้องเป็น `0` (F3 ตรวจเรื่องนี้กับ Compose ในเครื่องแล้วด้วย `deploy/aws/test_frontend.py` ข้อนี้ตรวจซ้ำบนเครื่องจริง)
 2. `bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password>` ผ่านทุกข้อจากเครื่องของตัวเอง ไม่ใช่จากตัวเครื่อง
