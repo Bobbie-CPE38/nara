@@ -125,15 +125,31 @@
    docker compose version   # ต้องเป็น 2.24.4 ขึ้นไป เพราะไฟล์ซ้อนใช้ !reset และ !override
    ```
 
-   **Buildx ต้องมีด้วย:** บนเครื่องจริงพบว่า Docker จาก Amazon Linux กับ Compose ที่ติดตั้งแยกอาจให้ `compose build requires buildx 0.17.0 or later` ตรวจด้วย `sudo docker buildx version` ก่อนเริ่มบริการ ถ้าไม่มีหรือเก่า ให้ติดตั้ง CLI plugin จาก Docker (ตัวอย่างเครื่อง x86_64, รุ่นที่แนะนำระหว่างแก้ปัญหาในรอบนี้):
+   **Buildx ต้องมีด้วย:** บนเครื่องจริงพบ `compose build requires buildx 0.17.0 or later` ตรวจด้วย `sudo docker buildx version` ก่อนเริ่มบริการ Release [v0.38.1 ของ Docker](https://github.com/docker/buildx/releases/tag/v0.38.1) มีอยู่จริง; การตรวจ checksum และการรัน binary แยกจากหลักฐานเครื่องจริง ดู `docs/round6/step6-live-checks.md` ตัวอย่างต่อไปสำหรับ x86_64 ดาวน์โหลดในโฟลเดอร์ส่วนตัวของ root เทียบ published SHA-256 ก่อนติดตั้ง และหยุดทันทีหากขั้นใดล้ม:
 
    ```bash
-   curl -fL https://github.com/docker/buildx/releases/download/v0.38.1/buildx-v0.38.1.linux-amd64 -o /tmp/nara-docker-buildx
-   sudo install -m 755 /tmp/nara-docker-buildx /usr/local/lib/docker/cli-plugins/docker-buildx
-   sudo docker buildx version
+   sudo bash <<'BASH'
+   set -euo pipefail
+   umask 077
+   buildx_dir=$(mktemp -d /root/nara-buildx.XXXXXX)
+   trap 'rm -rf -- "$buildx_dir"' EXIT
+   cd "$buildx_dir"
+   asset=buildx-v0.38.1.linux-amd64
+   release=https://github.com/docker/buildx/releases/download/v0.38.1
+   curl -fL "$release/$asset" -o "$asset"
+   curl -fL "$release/checksums.txt" -o checksums.txt
+   # Pin the digest checked against Docker's published checksums and release metadata.
+   expected=e25d5cd675092bb5d1d03632fdc46cdf3fede7b514dc5f023a105e00d3ce5ad4
+   awk -v asset="$asset" -v expected="$expected" \
+     '($2 == asset || $2 == "*" asset) && $1 == expected { print; found=1 } END { if (!found) exit 1 }' \
+     checksums.txt > selected-checksum.txt
+   sha256sum --check selected-checksum.txt
+   install -D -m 755 "$asset" /usr/local/lib/docker/cli-plugins/docker-buildx
+   docker buildx version
+   BASH
    ```
 
-   ตรวจว่าดาวน์โหลดสำเร็จก่อน install; สำหรับเครื่อง ARM ต้องใช้ binary linux-arm64 แทน ถ้าติดตั้งแบบ manual ต้องดูแลอัปเดตเอง ผลตรวจเครื่องจริงอยู่ `docs/round6/step6-live-checks.md`
+   Checksum ตรวจความสมบูรณ์ของ binary และ pin digest ไว้ในคู่มือ ไม่ได้อ้างว่าได้ตรวจลายเซ็น release แบบอิสระ สำหรับ ARM ต้องเลือก binary และ checksum ของ linux-arm64 ให้ตรงกัน ห้ามใช้ digest ของ amd64 ถ้าติดตั้งแบบ manual ต้องดูแลอัปเดตเอง
 
 7. **โค้ดและบริการ:**
 
