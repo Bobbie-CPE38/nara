@@ -12,7 +12,7 @@
 - Frontend Docker image ID: `sha256:bfcf3997afd0db07b612dfec762c2a6c19ac4efafd97aa8c09539d786cb72aa4` จาก `sudo docker inspect nara-staffing-frontend --format '{{.Image}}'` เป็น local image content ID ไม่ใช่ registry RepoDigest
 - Container Created: `2026-10-21T13:59:19.395498345Z` จากผล `docker inspect --format '{{.Created}} {{.Image}}'` ที่ผู้ Deploy ส่งเพิ่มเติม พร้อม image ID เดิม ค่านี้คือเวลาสร้าง Container ไม่ใช่เวลาสร้าง image
 - ลำดับที่ผู้ Deploy รายงาน: build ครั้งแรกติดข้อกำหนด Buildx; หลังติดตั้งเพิ่ม สั่ง restart แล้วบริการสำเร็จเวลา `2026-10-21 14:00:28 UTC` และ Frontend healthy เวลาสร้าง Container ข้างต้นสอดคล้องกับรอบนี้ แต่ไม่มี build log/image provenance ที่ยืนยันว่า image นี้สร้างจาก HEAD ข้างต้นด้วย Buildx รุ่นใด
-- **Buildx บน EC2: ยังไม่ยืนยันเวอร์ชัน** (ยังไม่มี stdout `sudo docker buildx version` จาก host) ผล version ของ binary ใน Container ทดสอบด้านล่างใช้แทนไม่ได้ ต้องเก็บ host version และ build log/metadata ในรอบ build ถัดไปถ้าต้องการยืนยันที่มาของ image
+- **Buildx บน EC2 ที่ตรวจเพิ่มเติม 2026-10-21:** ผู้ Deploy ส่ง stdout ของ `sudo docker buildx version` เป็น `github.com/docker/buildx v0.38.1 0dbe87f36ed472fe36b6796c3f70b4210a731fc5` เป็นผลจาก host แยกจาก Container ทดสอบด้านล่าง ผลนี้ยืนยันเวอร์ชัน ณ ตอนตรวจ ไม่ใช่หลักฐานย้อนหลังว่า image ข้างต้นสร้างด้วยเวอร์ชันนี้ ต้องเก็บ build log/metadata พร้อม host version ในรอบ build ถัดไปถ้าต้องการยืนยันที่มาของ image
 - Git HEAD และ image ID เป็นผลรายงานเพิ่มเติมหลังเก็บภาพ/ผลทดสอบ ไม่ใช่ build attestation หรือหลักฐานว่า checkout ไม่มีไฟล์แก้ค้าง ต้องเก็บใหม่เมื่อ Deploy เปลี่ยน ไม่ใช้ SHA ของ PR เอกสารนี้แทนรุ่นแอปที่ Deploy
 
 
