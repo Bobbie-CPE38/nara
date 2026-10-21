@@ -112,6 +112,37 @@ class AwsGate(unittest.TestCase):
         self.assertEqual(self.new_requests("backend", before["backend"]), EXPECTED_BACKEND)
         self.assertEqual(self.new_requests("frontend", before["frontend"]), EXPECTED_FRONTEND)
 
+    def run_gate(self, *extra):
+        return subprocess.run(
+            ["bash", "check-gate.sh", self.base, USER, PASSWORD, *extra],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+
+    def test_real_line_preflight_accepts_backend_401_without_basic_challenge(self):
+        result = self.run_gate("--require-real-line")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("signed traffic and Offer flow still need live verification", result.stdout)
+
+    def test_real_line_preflight_rejects_503_that_default_gate_allows(self):
+        docker(
+            "exec", self.names["backend"], "python", "-c",
+            "from pathlib import Path; Path('/tmp/nara-test-webhook-status').write_text('503')",
+        )
+        try:
+            default = self.run_gate()
+            self.assertEqual(default.returncode, 0, default.stdout + default.stderr)
+            strict = self.run_gate("--require-real-line")
+            self.assertNotEqual(strict.returncode, 0)
+            self.assertIn("got '503 passed', wanted '401 passed'", strict.stdout)
+        finally:
+            docker(
+                "exec", self.names["backend"], "python", "-c",
+                "from pathlib import Path; Path('/tmp/nara-test-webhook-status').unlink()",
+            )
+
     def test_the_script_fails_with_a_wrong_password(self):
         # Shows that the script can fail at all: with a wrong password the "with the
         # login" checks must fail. That the script catches a hole in the Caddyfile is

@@ -3,7 +3,8 @@
 # (round 6 PR D, docs/workflow.md 6.30; the rule: every path needs the login except
 # the exact request `POST /api/line/webhook`).
 #
-#   deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password>
+#   deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password> [--require-real-line]
+# Use --require-real-line for W: an unconfigured webhook (503) must fail.
 #
 # A 401 from the gate carries "WWW-Authenticate: Basic". The webhook's own 401
 # (bad LINE signature) does not, which is how the two are told apart.
@@ -17,6 +18,16 @@ shopt -s extglob
 base="${1:?Usage: check-gate.sh <base url> <user> <password>}"
 user="${2:?Usage: check-gate.sh <base url> <user> <password>}"
 password="${3:?Usage: check-gate.sh <base url> <user> <password>}"
+webhook_expected="@(401|503) passed"
+case "${4:-}" in
+  "") ;;
+  --require-real-line) webhook_expected="401 passed" ;;
+  *) echo "Usage: check-gate.sh <base url> <user> <password> [--require-real-line]" >&2; exit 2 ;;
+esac
+if [ "$#" -gt 4 ]; then
+  echo "Too many arguments" >&2
+  exit 2
+fi
 # --path-as-is: send "//", "/../" and "%6C" as written, so a path that only works
 # after curl tidied it up cannot hide a hole. A first page load of the dev server
 # compiles the page, hence the generous time limit.
@@ -72,7 +83,10 @@ expect "demo check-in" POST /api/demo/attendance/check-in no-login "401 gate"
 echo "Without a login: the webhook is the only exception, and only the exact request"
 # The webhook passes the gate; the backend refuses the missing signature
 # (401, or 503 while LINE_MODE is not real)
-expect "LINE webhook" POST /api/line/webhook no-login "@(401|503) passed"
+expect "LINE webhook (missing signature)" POST /api/line/webhook no-login "$webhook_expected"
+if [ "${4:-}" = "--require-real-line" ]; then
+  echo "LINE preflight only: 401 without Basic challenge; signed traffic and Offer flow still need live verification"
+fi
 expect "webhook with GET" GET /api/line/webhook no-login "401 gate"
 expect "path under the webhook" POST /api/line/webhook/x no-login "401 gate"
 expect "webhook with a suffix" POST /api/line/webhooks no-login "401 gate"

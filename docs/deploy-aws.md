@@ -216,8 +216,10 @@ Backend เป็น Dev server ที่อ่านโค้ดจาก Volum
 
 ## ส่วนของคน 3 (LINE)
 
+ขั้นตอน cutover, strict preflight, หลักฐาน live และ rollback อยู่ใน `docs/round6/pr-W-handoff.md` W ยังไม่ผ่านจากการตรวจ Gate อย่างเดียว
+
 * URL ของ Webhook: `https://<SITE_DOMAIN>/api/line/webhook`
-* ใส่ `LINE_MODE`, `LINE_CHANNEL_SECRET` และ `LINE_CHANNEL_ACCESS_TOKEN` ลง Parameter Store แล้ว `sudo systemctl restart nara`
+* ใส่ `LINE_MODE=real`, `LINE_CHANNEL_SECRET` และ `LINE_CHANNEL_ACCESS_TOKEN` ในแหล่งค่าตั้งที่เครื่องใช้: Parameter Store หรือ manual env ตาม PR #118 แล้ว `sudo systemctl restart nara` ตรวจคิวค้างก่อนเปิด real เพราะอาจเริ่มส่งข้อความทันที
 * เปิด "Webhook redelivery" ใน LINE Developers Console (ค่าเริ่มต้นปิด `workflow.md` ข้อ 6.16)
 * ย้าย Webhook จาก Tunnel มาเครื่องนี้ (W) หลังเครื่องผ่านช่วง ข และ Offer, ปุ่ม, ผูกบัญชีผ่านเครื่องจริงอย่างน้อยหนึ่งรอบ เก็บ `dev/line-webhook-proxy` ไว้ถอยกลับถ้าเครื่องล่ม
 * ลองรับ Webhook จริงหนึ่งรอบ
