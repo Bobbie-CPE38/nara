@@ -3,6 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { setSessionMode } from "../../../src/lib/api";
 import { ClockProvider } from "../../../src/components/ClockProvider";
 import { DemoClock } from "../../../src/components/DemoClock";
 import { LanguageSwitch } from "../../../src/components/layout/LanguageSwitch";
@@ -63,10 +64,15 @@ describe("demo control page", () => {
     expect(link.getAttribute("href")).toBe("/cases/7");
     expect(screen.getByText("3 (PROCESSED)")).toBeTruthy();
     const [url, request] = fetchMock.mock.calls[0];
-    expect(url).toMatch(/\/events$/);
+    // The Demo control's own route, with the character in the body and no identity header
+    expect(url).toMatch(/\/demo\/events$/);
     expect(request.method).toBe("POST");
-    expect(request.headers.get("X-Demo-User")).toBe("105");
-    expect(JSON.parse(request.body)).toEqual({ event_type: "STAFF_UNAVAILABLE", shift_id: 1 });
+    expect(request.headers.has("X-Demo-User")).toBe(false);
+    expect(JSON.parse(request.body)).toEqual({
+      event_type: "STAFF_UNAVAILABLE",
+      shift_id: 1,
+      reporter_staff_id: 105,
+    });
   });
 
   it("shows that the leave of 203 on shift 2 opened no case", async () => {
@@ -81,8 +87,12 @@ describe("demo control page", () => {
     expect(screen.getByText("4 (IGNORED)")).toBeTruthy();
     expect(screen.queryByRole("link")).toBeNull();
     const request = fetchMock.mock.calls[0][1];
-    expect(request.headers.get("X-Demo-User")).toBe("203");
-    expect(JSON.parse(request.body)).toEqual({ event_type: "STAFF_UNAVAILABLE", shift_id: 2 });
+    expect(request.headers.has("X-Demo-User")).toBe(false);
+    expect(JSON.parse(request.body)).toEqual({
+      event_type: "STAFF_UNAVAILABLE",
+      shift_id: 2,
+      reporter_staff_id: 203,
+    });
   });
 
   it("says that an event is waiting when its merge window is still open", async () => {
@@ -132,9 +142,9 @@ describe("demo control page", () => {
     const link = await screen.findByRole("link", { name: "8 (WAITING_RESPONSE)" });
     expect(link.getAttribute("href")).toBe("/cases/8");
     const [url, request] = fetchMock.mock.calls[0];
-    expect(url).toMatch(/\/events$/);
-    expect(request.headers.get("X-Demo-User")).toBe("900");
-    expect(JSON.parse(request.body)).toEqual(body);
+    expect(url).toMatch(/\/demo\/events$/);
+    expect(request.headers.has("X-Demo-User")).toBe(false);
+    expect(JSON.parse(request.body)).toEqual({ ...body, reporter_staff_id: 900 });
   });
 
   it("advances the clock and links to the case of a closed merge window", async () => {
@@ -293,6 +303,38 @@ describe("demo control page", () => {
     }
     respond(new Response(JSON.stringify({ status: "ok", clock: "now" })));
     expect(await screen.findByText("Demo reset. Clock: now")).toBeTruthy();
+  });
+});
+
+describe("demo control events in session mode", () => {
+  afterEach(() => setSessionMode(false));
+
+  it("plays a character through /demo/events with the login cookie and no identity header", async () => {
+    setSessionMode(true);
+    const fetchMock = stubFetch(
+      { event_id: 9, event_status: "PROCESSED", case_id: 11, case_status: "WAITING_RESPONSE" },
+      201,
+    );
+    render(createElement(DemoControl));
+    click("900 reports 12 patients (shift 1)");
+
+    await screen.findByRole("link", { name: "11 (WAITING_RESPONSE)" });
+    const [url, request] = fetchMock.mock.calls[0];
+    expect(url).toMatch(/\/demo\/events$/);
+    // The session is the identity; the character is only in the body
+    expect(request.credentials).toBe("include");
+    expect(request.headers.has("X-Demo-User")).toBe(false);
+    expect(JSON.parse(request.body)).toMatchObject({ reporter_staff_id: 900, event_type: "PATIENT_SURGE" });
+  });
+
+  it("shows the refusal of a login that is not a manager as a sentence, not a code", async () => {
+    setSessionMode(true);
+    stubFetch({ detail: "AUTH_FORBIDDEN" }, 403);
+    render(createElement(DemoControl));
+    click("900 reports 12 patients (shift 1)");
+
+    const message = await screen.findByText(/You do not have the right to do this\./);
+    expect(message.textContent).not.toContain("AUTH_FORBIDDEN");
   });
 });
 
@@ -538,9 +580,13 @@ describe("demo control live case status", () => {
 
     expect(await screen.findByText("401 reports leave (Medicine, shift 22)")).toBeTruthy();
     const [url, request] = fetchMock.mock.calls[0];
-    expect(url).toMatch(/\/events$/);
-    expect(request.headers.get("X-Demo-User")).toBe("401");
-    expect(JSON.parse(request.body)).toEqual({ event_type: "STAFF_UNAVAILABLE", shift_id: 22 });
+    expect(url).toMatch(/\/demo\/events$/);
+    expect(request.headers.has("X-Demo-User")).toBe(false);
+    expect(JSON.parse(request.body)).toEqual({
+      event_type: "STAFF_UNAVAILABLE",
+      shift_id: 22,
+      reporter_staff_id: 401,
+    });
   });
 
   it("offers only the shifts and people of the chosen ward (PR U)", async () => {

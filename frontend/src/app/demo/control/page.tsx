@@ -9,7 +9,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useBackendClock } from "@/components/ClockProvider";
 import { Notice } from "@/components/ui/Notice";
 import { usePolling } from "@/hooks/usePolling";
-import { ApiError, apiRequest, createDemoApi } from "@/lib/api";
+import { ApiError, apiRequest } from "@/lib/api";
 import { TERMINAL_CASE_STATUSES } from "@/lib/constants";
 import { DEMO_WARDS } from "@/lib/demo";
 import { describeError } from "@/lib/errors";
@@ -203,9 +203,13 @@ export default function DemoControl() {
   const reportEvent = ({ label, staffId, json }: (typeof EVENTS)[number]) => {
     const name: Message = { key: label };
     return run(name, async () => {
-      const result = await createDemoApi(staffId)<EventResult>("/events", {
+      // POST /events is closed to every web account in session mode (docs/workflow.md 6.33.4):
+      // the Demo control plays the character through /demo/events, which records the event by
+      // the SYSTEM actor. In session mode it needs the login of a head nurse or a supervisor;
+      // in demo mode it asks nobody. No X-Demo-User: the character is in the body
+      const result = await apiRequest<EventResult>("/demo/events", {
         method: "POST",
-        json,
+        json: { ...json, reporter_staff_id: staffId },
       });
       return { kind: "event", label: name, result };
     });
@@ -217,9 +221,9 @@ export default function DemoControl() {
       params: { staff: leaveStaffId, ward: ward.name, shift: shift.id },
     };
     return run(name, async () => {
-      const result = await createDemoApi(leaveStaffId)<EventResult>("/events", {
+      const result = await apiRequest<EventResult>("/demo/events", {
         method: "POST",
-        json: { event_type: "STAFF_UNAVAILABLE", shift_id: shift.id },
+        json: { event_type: "STAFF_UNAVAILABLE", shift_id: shift.id, reporter_staff_id: leaveStaffId },
       });
       return { kind: "event", label: name, result };
     });
