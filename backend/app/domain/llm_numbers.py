@@ -9,6 +9,12 @@ Signs are ignored: a dash in "อันดับ 1-3" is not a minus.
 A number is read whole, and a form this checker cannot verify counts as unverified
 rather than being read in pieces: ".5", "1e3", "5k", "1/2", "1,2", "1.2.3", and number
 characters that are not digits ("½", "²", "Ⅻ").
+
+A timestamp the sentence copies character for character from a payload string
+("2026-10-22T23:00:00+07:00") is one value, not the numbers "22T23" and "23T07" glued by
+the T. A timestamp written any other way is read like any other numbers, so a converted
+time zone or a changed digit still fails, and so does one with a digit, a letter or a
+number continuing it on either side ("12026-10-22T...", "...+07:002").
 """
 
 import re
@@ -23,6 +29,12 @@ _TOKEN = re.compile(r"[.,]?\d(?:[\d.,/]|[A-Za-z])*")
 _WELL_FORMED = re.compile(r"\d+(?:\.\d+)?|\d{1,3}(?:,\d{3})+(?:\.\d+)?")
 # Payload values are trusted data, so their strings are only scanned for plain numbers
 _PAYLOAD_NUMBER = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?")
+# Whole token only: no digit, point or comma glued before it, and nothing that continues a
+# number or a word after it (a full stop or comma before a space still ends a sentence)
+_ISO_TIMESTAMP = re.compile(
+    r"(?<![\d.,])\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"
+    r"(?![\d/A-Za-z]|[.,:+-]\d)"
+)
 
 
 def _parse(raw: str) -> tuple[Decimal, int] | None:
@@ -81,10 +93,27 @@ def _matches(value: Decimal, places: int, allowed: set[Decimal]) -> bool:
     return any(number.quantize(step, rounding=ROUND_HALF_UP) == value for number in allowed)
 
 
+def _payload_strings(payload: Any) -> set[str]:
+    found: set[str] = set()
+    stack = [payload]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, str):
+            found.add(value)
+        elif isinstance(value, Mapping):
+            stack.extend(value.values())
+        elif isinstance(value, list | tuple):
+            stack.extend(value)
+    return found
+
+
 def unverified_numbers(text: str, payload: Any) -> list[str]:
     """The numbers of `text`, as written, that the payload does not hold or that are in a
     form this checker cannot verify."""
     allowed = payload_numbers(payload)
+    strings = _payload_strings(payload)
+    # A timestamp copied whole from the payload is verified as a whole
+    text = _ISO_TIMESTAMP.sub(lambda m: " " if m.group() in strings else m.group(), text)
     return [
         raw
         for raw, parsed in _tokens(text)

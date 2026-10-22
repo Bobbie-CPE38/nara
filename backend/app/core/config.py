@@ -29,11 +29,17 @@ class Settings(BaseSettings):
     line_channel_secret: SecretStr | None = None
     line_channel_access_token: SecretStr | None = None
     # LLM ranking explanation (round 3 PR X). Off by default: nothing is enqueued or called.
-    # Round 3 only uses "fake"; "bedrock" needs a model id and region
+    # Round 3 only uses "fake"; "bedrock" needs a model id and region. "lambda" (round 6
+    # PR B3) reaches Bedrock through the API Gateway and Lambda proxy of deploy/aws/lambda,
+    # because the EC2 instance has no IAM role: it needs the URL and the usage-plan API key.
+    # The model and Region are the proxy's; LLM_MODEL_ID and AWS_REGION, when set, are only
+    # the fallback the call log shows if the proxy does not answer with its own
     llm_enabled: bool = False
-    llm_provider: Literal["fake", "bedrock"] = "fake"
+    llm_provider: Literal["fake", "bedrock", "lambda"] = "fake"
     llm_model_id: str | None = None
     aws_region: str | None = None
+    llm_lambda_url: str | None = None
+    llm_lambda_api_key: SecretStr | None = None
     llm_max_output_tokens: int = Field(1024, ge=1, le=4096)
     # Per attempt
     llm_request_timeout_seconds: float = Field(15, gt=0, le=60)
@@ -77,6 +83,8 @@ class Settings(BaseSettings):
         "llm_max_input_tokens",
         "llm_max_attempts_per_row",
         "llm_trial_call_cap",
+        "llm_lambda_url",
+        "llm_lambda_api_key",
         mode="before",
     )
     @classmethod
@@ -86,6 +94,14 @@ class Settings(BaseSettings):
             if info.field_name is None:
                 return None
             return cls.model_fields[info.field_name].get_default()
+        return value
+
+    @field_validator("llm_lambda_url")
+    @classmethod
+    def _https_proxy(cls, value: str | None) -> str | None:
+        # The API key travels in a header: never over plain HTTP
+        if value is not None and not value.startswith("https://"):
+            raise ValueError("LLM_LAMBDA_URL must be an https:// URL")
         return value
 
     @field_validator("llm_quota_timezone")
@@ -113,6 +129,9 @@ class Settings(BaseSettings):
         """The provider has what it needs, whether or not LLM_ENABLED is on."""
         if self.llm_provider == "fake":
             return True
+        if self.llm_provider == "lambda":
+            key = self.llm_lambda_api_key
+            return bool(self.llm_lambda_url and key is not None and key.get_secret_value())
         return bool(self.llm_model_id and self.aws_region)
 
     @property

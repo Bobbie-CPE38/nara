@@ -244,7 +244,8 @@ def start(db: Session, request: LlmRequest, subject: Subject) -> Ticket | LlmRef
     request = replace(
         request, max_output_tokens=min(request.max_output_tokens, settings.llm_max_output_tokens)
     )
-    bedrock = settings.llm_provider == "bedrock"
+    # Bedrock directly or through the Lambda proxy; send() records what the call reports
+    real = settings.llm_provider != "fake"
     log = LlmCallLog(
         work_type=subject.work_type,
         explanation_id=subject.explanation_id,
@@ -255,8 +256,8 @@ def start(db: Session, request: LlmRequest, subject: Subject) -> Ticket | LlmRef
         trial_case_key=subject.trial_case_key,
         provider=settings.llm_provider,
         prompt_version=subject.prompt_version,
-        model_id=settings.llm_model_id if bedrock else None,
-        region=settings.aws_region if bedrock else None,
+        model_id=settings.llm_model_id if real else None,
+        region=settings.aws_region if real else None,
         input_hash=subject.input_hash,
         attempt=subject.attempt,
         status=LlmCallStatus.IN_FLIGHT,

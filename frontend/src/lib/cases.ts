@@ -50,7 +50,7 @@ function isExplanation(value: unknown): boolean {
   if (value.request_blocked_reason !== null && !EXPLANATION_BLOCKS.includes(value.request_blocked_reason)) return false;
   if (TEXTLESS_EXPLANATION_STATUSES.includes(value.status)) return true;
   return value.status === "READY" && typeof value.text === "string" && value.text !== ""
-    && (value.provider === "fake" || value.provider === "bedrock");
+    && (value.provider === "fake" || value.provider === "bedrock" || value.provider === "lambda");
 }
 
 const SUMMARY_BLOCKS = [null, "ALREADY_READY", "PENDING", "NOT_CONFIGURED", "INVALID_INPUT", "ATTEMPTS_EXHAUSTED", "QUOTA_EXHAUSTED"];

@@ -1,10 +1,14 @@
 """Bedrock Converse adapter. One attempt, SDK retries off.
 
 Never log or return exception messages, prompt text or response text.
+
+`status_of_code()` and `parse_converse()` are shared with the Lambda adapter (round 6 PR
+B3), whose proxy returns the same error codes and Converse fields: one set of rules.
 """
 
 import time
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 import boto3
 from botocore.config import Config
@@ -30,6 +34,10 @@ _CONFIG_CODES = {
     "ResourceNotFoundException",
     "UnrecognizedClientException",
 }
+_TIMEOUT_NAMES = {"ReadTimeoutError", "ConnectTimeoutError", "EndpointConnectionError"}
+_CREDENTIAL_NAMES = {"NoCredentialsError", "NoRegionError"}
+
+Usage = tuple[int | None, int | None, int | None]
 
 
 def _client(timeout_seconds: float) -> "BedrockRuntimeClient":
@@ -42,6 +50,37 @@ def _client(timeout_seconds: float) -> "BedrockRuntimeClient":
             retries={"total_max_attempts": 1, "mode": "standard"},
         ),
     )
+
+
+def status_of_code(code: str) -> LlmCallStatus:
+    """The status of a Bedrock error code or a botocore exception class name."""
+    if code == "ThrottlingException":
+        return LlmCallStatus.THROTTLED
+    if code in _CONFIG_CODES or code in _CREDENTIAL_NAMES:
+        return LlmCallStatus.CONFIG_ERROR
+    if code in _TIMEOUT_NAMES:
+        return LlmCallStatus.TIMEOUT
+    # ServiceUnavailable, InternalServer, ModelNotReady, ModelTimeout and any other code
+    return LlmCallStatus.SERVICE_ERROR
+
+
+def parse_converse(response: Mapping[str, Any]) -> tuple[LlmCallStatus, str | None, Usage]:
+    """(status, text, usage) of a Converse response. A cut-off answer is TRUNCATED."""
+    usage_raw = response.get("usage")
+    usage: Usage = (
+        (
+            usage_raw.get("inputTokens"),
+            usage_raw.get("outputTokens"),
+            usage_raw.get("totalTokens"),
+        )
+        if usage_raw
+        else (None, None, None)
+    )
+    if response.get("stopReason") == "max_tokens":
+        return LlmCallStatus.TRUNCATED, None, usage
+    parts = response.get("output", {}).get("message", {}).get("content", [])
+    text = "".join(str(part["text"]) for part in parts if "text" in part)
+    return LlmCallStatus.SUCCEEDED, text, usage
 
 
 def _classify(error: Exception) -> tuple[LlmCallStatus, str]:
@@ -70,7 +109,7 @@ def generate(request: LlmRequest) -> LlmAttempt:
         status: LlmCallStatus,
         *,
         text: str | None = None,
-        usage: tuple[int | None, int | None, int | None] = (None, None, None),
+        usage: Usage = (None, None, None),
         error_type: str | None = None,
     ) -> LlmAttempt:
         return LlmAttempt(
@@ -101,18 +140,5 @@ def generate(request: LlmRequest) -> LlmAttempt:
         status, error_type = _classify(error)
         return result(status, error_type=error_type)
 
-    usage_raw = response.get("usage")
-    usage: tuple[int | None, int | None, int | None] = (
-        (
-            usage_raw.get("inputTokens"),
-            usage_raw.get("outputTokens"),
-            usage_raw.get("totalTokens"),
-        )
-        if usage_raw
-        else (None, None, None)
-    )
-    if response.get("stopReason") == "max_tokens":
-        return result(LlmCallStatus.TRUNCATED, usage=usage)
-    parts = response.get("output", {}).get("message", {}).get("content", [])
-    text = "".join(str(part["text"]) for part in parts if "text" in part)
-    return result(LlmCallStatus.SUCCEEDED, text=text, usage=usage)
+    status, text, usage = parse_converse(response)
+    return result(status, text=text, usage=usage)
