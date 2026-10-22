@@ -229,7 +229,7 @@ def test_matching_rows_pass_the_manifest_check():
     [
         {"run_id": "r2"},
         {"provider": "fake"},
-        {"prompt_version": "rank-explanation-v3"},
+        {"prompt_version": "rank-explanation-v99"},
         {"input_hash": "another-payload"},
         {"model_id": "a-different-model"},
     ],
@@ -258,7 +258,7 @@ def test_resume_refuses_a_manifest_of_another_experiment(tmp_path: Path):
         {"models": [run.parse_model("m,other-id,0.41,3.39")]},  # same name, another model
         {"models": [run.parse_model("m,id-m,9,9")]},  # same model, other prices
         {"hashes": {"case-01": "changed"}},
-        {"prompt_version": "rank-explanation-v3"},
+        {"prompt_version": "rank-explanation-v99"},
         {"cost_cap_usd": Decimal("1")},
     ):
         current, current_hashes = _manifest(**change)
