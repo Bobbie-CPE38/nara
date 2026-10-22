@@ -96,6 +96,14 @@ def _reset_demo() -> datetime:
         auth_service.take_reset_gate(connection)
         held = _hold_llm_ledger(connection)
         subjects = _hold_identities(connection)
+        large_profile = False
+        if _columns(connection, "public.demo_dataset"):
+            profiles = connection.scalars(text("SELECT profile FROM demo_dataset")).all()
+            from app.seed.large_demo import PROFILE
+
+            if any(profile != PROFILE for profile in profiles):
+                raise IdentityConflictError("Unknown demo dataset profile; reset refused.")
+            large_profile = PROFILE in profiles
         # Dropping the schema also removes alembic_version and resets every sequence
         connection.execute(text("DROP SCHEMA public CASCADE"))
         connection.execute(text("CREATE SCHEMA public"))
@@ -106,7 +114,7 @@ def _reset_demo() -> datetime:
         clock.set_time(demo_time)
         options = {key: SessionLocal.kw[key] for key in ("autoflush", "expire_on_commit")}
         with Session(bind=connection, **options) as db:
-            load(db, preserved_subjects=subjects)
+            load(db, preserved_subjects=subjects, large_profile=large_profile)
             db.flush()
         # After the seed: load() refuses to seed a table that already has rows
         if subjects is not None:

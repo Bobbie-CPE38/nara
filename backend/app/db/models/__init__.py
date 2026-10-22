@@ -20,6 +20,7 @@ from app.db.models.candidate_outreach import CandidateOutreach
 from app.db.models.candidate_plan import CandidatePlan
 from app.db.models.case_summary import CaseSummary
 from app.db.models.contact import Contact
+from app.db.models.demo_dataset import DemoDataset
 from app.db.models.hard_constraint_policy import HardConstraintPolicy
 from app.db.models.line_account_link_code import LineAccountLinkCode
 from app.db.models.line_webhook_event import LineWebhookEvent
@@ -75,6 +76,7 @@ __all__ = [
     "LlmCallLog",
     "LlmDailyUsage",
     "LlmTrialUsage",
+    "DemoDataset",
     "ManualAssignment",
     "LineWebhookEvent",
     "LineAccountLinkCode",
