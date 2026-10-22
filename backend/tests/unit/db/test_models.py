@@ -316,7 +316,7 @@ def test_staffing_event_constraint() -> None:
 
 
 # Accounts and sessions expire on real time, not the Demo Clock (docs/database-schema.md)
-REAL_TIME_TABLES = {"auth_account", "auth_session"}
+REAL_TIME_TABLES = {"auth_account", "auth_session", "auth_registration_code"}
 
 
 def test_created_and_updated_timestamps_default_to_the_clock() -> None:

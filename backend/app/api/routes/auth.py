@@ -1,9 +1,7 @@
-"""Login API (round 6 PR AU1, docs/workflow.md 6.33.3 and 6.33.5).
+"""Login and registration API (workflow 6.33.3 and 6.33.6).
 
-GET /auth/config, POST /auth/login, GET /auth/me, POST /auth/logout and
-POST /auth/change-password. They work in both AUTH_MODE values and read only the
-`nara_session` cookie, never X-Demo-User. Every answer under /auth is no-store
-(main.py). POST requests need an allowed Origin (app.api.origin_guard).
+Auth routes work in both modes. Identity checks use only the session cookie,
+never X-Demo-User. All /auth responses are no-store. POST needs an allowed Origin.
 """
 
 from typing import Annotated
@@ -11,10 +9,24 @@ from typing import Annotated
 from fastapi import APIRouter, Body, HTTPException, Request, Response, status
 
 from app.api.dependencies import AUTH_REQUIRED, SESSION_COOKIE, DbSession, SessionUserDep
-from app.api.rate_limit import LOGIN_PER_ACCOUNT, LOGIN_PER_IP, Limit, limiter
+from app.api.rate_limit import (
+    LOGIN_PER_ACCOUNT,
+    LOGIN_PER_IP,
+    REGISTER_PER_IP,
+    REGISTER_PER_SUBJECT,
+    Limit,
+    limiter,
+)
 from app.core.config import settings
-from app.schemas.auth import AuthConfig, AuthMe, ChangePasswordRequest, LoginRequest
-from app.services import auth_service
+from app.schemas.auth import (
+    AuthConfig,
+    AuthMe,
+    ChangePasswordRequest,
+    LoginRequest,
+    RegisteredAccount,
+    RegisterRequest,
+)
+from app.services import auth_service, registration_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -119,3 +131,25 @@ def _me(user: auth_service.SessionUser) -> AuthMe:
         home_ward_id=user.staff.home_ward_id,
         must_change_password=user.must_change_password,
     )
+
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register(body: RegisterRequest, request: Request, db: DbSession) -> RegisteredAccount:
+    # Gate before lookup: a reset cannot replace identity/code tables during signup.
+    auth_service.hold_auth_gate(db)
+    client = request.client.host if request.client else "unknown"
+    subject = registration_service.subject_for_code(db, body.code)
+    limits = [Limit(f"register:ip:{client}", REGISTER_PER_IP)]
+    if subject is not None:
+        limits.append(Limit(f"register:subject:{subject}", REGISTER_PER_SUBJECT))
+    wait = limiter.hit(limits)
+    if wait is not None:
+        db.rollback()
+        raise HTTPException(429, AUTH_RATE_LIMITED, headers={"Retry-After": str(wait)})
+    try:
+        staff_id = registration_service.register(db, body.code, body.password)
+        db.commit()
+    except registration_service.RegistrationError:
+        db.rollback()
+        raise HTTPException(400, "AUTH_INVALID_REGISTRATION") from None
+    return RegisteredAccount(staff_id=staff_id)
