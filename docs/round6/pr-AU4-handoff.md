@@ -1,6 +1,6 @@
 # AU4 — เปลี่ยนด่าน AWS เป็น session
 
-สถานะ: **โค้ดและ automated checks เท่านั้น; live acceptance ยัง PENDING** ไม่ใช้ผลขั้น 6/W ก่อนเปลี่ยนด่านมาปิด AU4 ไม่มี migration ใน PR นี้ แต่เครื่องต้องมี AU1/AU2/AU3/AU3b/AU5 ครบ
+สถานะ: **code and automated checks only; not production acceptance** — deploy แล้ว แต่ live acceptance ยังไม่ครบ ไม่ใช้ผลขั้น 6/W ก่อนเปลี่ยนด่านมาปิด AU4 ไม่มี migration ใน PR นี้ แต่เครื่องต้องมี AU1/AU2/AU3/AU3b/AU5 ครบ
 
 ## พฤติกรรมหลังเปลี่ยน
 
@@ -11,6 +11,14 @@
 - Caddy แทน X-Forwarded-For/Proto ที่มาจากผู้เรียกด้วย peer/scheme จริง และ Uvicorn เชื่อเฉพาะ Caddy `172.30.64.2` ใน compose network `172.30.64.0/24` (dynamic pool `172.30.64.128/25` แยกจาก IP Caddy ป้องกันชนตอนเริ่มเครื่อง) ห้ามเปิด trusted proxies เป็น `*` หรือตีพิมพ์พอร์ต Backend
 - limiter ยัง in-memory: หนึ่ง Backend replica/worker เท่านั้น, restart ล้าง counter, คนหลายคนหลัง NAT ยังแชร์เพดาน IP (login 10/min, register 5/min) อย่าอ้างว่าใช้ป้องกัน DoS หรือเป็น quota ต่อพนักงานอย่างเดียว
 
+## ขอบเขตสิทธิ์ของ Demo controls ที่ยังเปิดอยู่
+
+`/api/demo/reset` และ `/api/demo/clock/*` ยังไม่มี session/role check ที่ Backend. บน AWS ด่านอนุญาตคือ Demo Basic Auth ของ Caddy (พร้อม Origin guard ใน session mode ซึ่งไม่ใช่หลักฐานตัวตน). การมี session ของ staff ไม่ใช่เงื่อนไขของ routes เหล่านี้ ผู้รู้รหัส Basic จึงสามารถ reset/เปลี่ยนนาฬิกาได้แม้ไม่ได้ login เว็บ.
+
+ตาม contract 6.33.5 ปัจจุบัน **ยังไม่มี PR/ขั้นที่กำหนดไว้เพื่อเพิ่ม supervisor session ให้ reset/clock**; AU4 ไม่ได้ปิดช่องนี้ และ #138 เป็นเพียงข้อมูลจำลอง ไม่ใช่งานปิดสิทธิ์ดังกล่าว. หากต้องการเปลี่ยนต้องทำ Backend role guard และปรับ contract/tests ในงานถัดไปโดยระบุขอบเขตใหม่อย่างชัดเจน.
+
+ข้อกำหนดการใช้งานเครื่องนี้: แจก Demo Basic credential เฉพาะผู้ได้รับอนุญาตให้ reset เครื่องและเปลี่ยนนาฬิกาเท่านั้น ไม่แจกให้ผู้ทดลอง/พยาบาลทั่วไป. **ผู้ดูแลยืนยันเมื่อ 2026-10-23 (Bangkok) ว่ารหัสนี้ให้เฉพาะผู้ดูแลที่ได้รับอนุญาตให้ Reset/เปลี่ยนนาฬิกา**. เป็นคำยืนยันจากผู้ดูแล ไม่ใช่การตรวจรายชื่อผู้ถือรหัสอย่างอิสระ และไม่ทำให้ routes มี session/role check เพิ่ม. หากการแจกเปลี่ยนในภายหลังต้องทบทวนสิทธิ์และเปลี่ยนรหัสเมื่อจำเป็น.
+
 ## Automated checks ของ PR (ไม่ใช่ AWS acceptance)
 
 - Caddy 2.10 จริงกับ fake upstream: 10 tests รวม private/Demo URI bypass, signed-webhook double, forwarded header replacement, auth cookie/logout replay และ preflight ที่ต้อง fail เมื่อ mode=demo/มี Basic challenge บน webhook/503 ใน strict mode
@@ -18,6 +26,14 @@
 - Backend integration กับ PostgreSQL แยก: 172 tests รวม route permissions/self-leave/review regressions และ Uvicorn ProxyHeadersMiddleware + login limiter (2 tests ใหม่: IP ผ่าน Caddy แยก bucket; peer อื่นปลอม XFF หนีเพดานไม่ได้)
 - Region 5 tests และ manual-env 8 tests ผ่าน ไม่เปลี่ยนวิธีอ่าน env
 - ทดลอง Docker IPAM จริงแบบแยก: dynamic container ได้ `172.30.64.129` และ static `172.30.64.2` ยังจองได้ภายหลัง ไม่ใช่หลักฐาน subnet overlap ของ EC2
+
+## ผลตรวจ subnet ก่อนและหลัง deploy (operator-reported, 2026-10-23 Bangkok)
+
+ก่อนเปลี่ยน network ผู้ deploy ส่ง Docker network inspect: `bridge 172.17.0.0/16`, `nara_staffing_net 172.20.0.0/16`, และ `host`/`none` ไม่มี subnet. Host `ip -4 route` แสดง default ผ่าน `172.31.16.1`, connected `172.31.16.0/20`, Docker `172.17.0.0/16`/`172.20.0.0/16`, และเส้นทาง host ของ `172.31.0.2`/`172.31.16.1`. ไม่มี explicit route เหล่านี้ทับ `172.30.64.0/24`; default route ไม่ใช่หลักฐานว่า subnet ไม่ทับเครือข่ายอื่น.
+
+หลัง deploy ผู้ดูแลรันจาก CloudShell: หา VPC ของ EC2 ด้วย `describe-instances` แล้ว `describe-route-tables` กรองทุก table ของ VPC นั้น. Output ที่ส่งมาแสดง 1 table: route `172.31.0.0/16 -> local` และ `0.0.0.0/0 -> Internet Gateway`, ทั้งคู่ active. ไม่มี route target แบบ peering, Transit Gateway หรือ VPN ในผลนี้. ผู้ดูแลรายงานว่าไม่ได้ตั้งการเชื่อมเครือข่ายเพิ่มเติมเอง.
+
+เมื่อรวม Docker networks, host explicit routes และ VPC routes ที่รายงาน **ไม่พบ subnet ทับกับ `172.30.64.0/24` ใน configuration ที่ตรวจ**. Default route ไป Internet Gateway ไม่ใช่ subnet collision. ผลเป็น operator-reported output ไม่ใช่ independent AWS rerun หรือหลักฐานว่าไม่มีเครือข่ายอื่นนอก configuration นี้. ตรวจใหม่หากเพิ่ม VPN/peering/TGW หรือเปลี่ยน routes; ถ้าพบทับให้เปลี่ยน subnet/Caddy IP/trusted IP/tests พร้อมกัน. Operator output ภายหลังแสดง service start สำเร็จ แต่การตรวจ route ข้างต้นเป็นหลักฐานแยกจาก startup และไม่ปิด live acceptance ข้ออื่น.
 
 ## ก่อน deploy บน EC2
 

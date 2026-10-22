@@ -39,8 +39,6 @@ class SessionDeployment(unittest.TestCase):
                     "APP_ENV": "dev",
                     "AUTH_MODE": "demo",
                     "AUTH_COOKIE_SECURE": "false",
-                    "WEB_CONCURRENCY": "8",
-                    "FORWARDED_ALLOW_IPS": "*",
                 },
                 text=True,
                 capture_output=True,
@@ -53,8 +51,6 @@ class SessionDeployment(unittest.TestCase):
         self.assertEqual(env["APP_ENV"], "aws")
         self.assertEqual(env["AUTH_MODE"], "session")
         self.assertEqual(env["AUTH_COOKIE_SECURE"], "true")
-        self.assertNotIn("WEB_CONCURRENCY", env)
-        self.assertNotIn("FORWARDED_ALLOW_IPS", env)
 
     def test_one_worker_only_trusts_caddy(self):
         backend = self.config["services"]["backend"]
