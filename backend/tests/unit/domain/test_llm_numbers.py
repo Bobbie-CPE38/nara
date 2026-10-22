@@ -95,6 +95,44 @@ def test_a_timestamp_that_is_not_in_the_payload_still_fails(text: str, bad: list
     assert set(unverified_numbers(text, SUMMARY_PAYLOAD)) & set(bad)
 
 
+TIMESTAMP = "2026-10-22T23:00:00+07:00"
+ATTACHED_PAYLOAD = {"window": {"start": TIMESTAMP}, "rank": 1, "gap": 2}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"1{TIMESTAMP}",  # a digit glued before: 12026-10-22T...
+        f"{TIMESTAMP}2",  # a digit glued after: ...+07:002
+        f".{TIMESTAMP}",  # a point glued before
+        f"{TIMESTAMP}.5",  # a decimal continuing the offset
+        f"{TIMESTAMP}/2",
+        f"{TIMESTAMP}x",
+        f"{TIMESTAMP}-05:00",  # another offset attached
+    ],
+)
+def test_a_timestamp_with_something_attached_is_not_exempt(text: str) -> None:
+    """Review of PR B3 follow-up: the trusted part must not leave a stray 1 or 2 behind."""
+    assert unverified_numbers(text, ATTACHED_PAYLOAD)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        TIMESTAMP,
+        f"เริ่ม {TIMESTAMP} ถึง",
+        f"({TIMESTAMP})",
+        f"เริ่ม {TIMESTAMP}, ขาด 2 คน",
+        f"เริ่ม {TIMESTAMP}. อันดับ 1",
+        f"เริ่ม:{TIMESTAMP};",
+        f"เริ่ม{TIMESTAMP}ถึง",  # Thai letters around it are ordinary prose
+        f'"{TIMESTAMP}"',
+    ],
+)
+def test_a_timestamp_in_ordinary_prose_and_punctuation_passes(text: str) -> None:
+    assert unverified_numbers(text, ATTACHED_PAYLOAD) == []
+
+
 def test_booleans_are_not_numbers() -> None:
     assert payload_numbers({"first_wave": True, "partial": False}) == set()
     assert unverified_numbers("1", {"first_wave": True}) == ["1"]
