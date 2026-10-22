@@ -51,7 +51,9 @@
 | `LINE_MODE` | String | คน 3 | `real` เมื่อพร้อมลอง LINE จริง ไม่ใส่ = `simulation` |
 | `LINE_CHANNEL_SECRET` | SecureString | คน 3 | จาก LINE Developers Console |
 | `LINE_CHANNEL_ACCESS_TOKEN` | SecureString | คน 3 | จาก LINE Developers Console |
-| `LLM_PROVIDER`, `LLM_MODEL_ID`, `AWS_REGION` | String | คน 2 | ใส่หลังเลือกโมเดล (ข้อ 6.28 ขั้น 8) `AWS_REGION` ตรงนี้คือ Region ที่แอปเรียก Bedrock ไม่ใช่ Region ของ Parameter Store (ดูหมายเหตุข้างล่าง) |
+| `LLM_PROVIDER`, `LLM_MODEL_ID`, `AWS_REGION` | String | คน 2 | ใส่หลังเลือกโมเดล (ข้อ 6.28 ขั้น 8) `AWS_REGION` ตรงนี้คือ Region ที่แอปเรียก Bedrock ไม่ใช่ Region ของ Parameter Store (ดูหมายเหตุข้างล่าง) เครื่องที่ไม่มี IAM Role ใช้ `LLM_PROVIDER=lambda` (หัวข้อส่วนของคน 2) ซึ่งโมเดลและ Region เป็นของ Lambda; สองค่านี้เป็นแค่ค่าสำรองที่บันทึกถ้า Lambda ไม่ตอบชื่อโมเดลกลับมา |
+| `LLM_LAMBDA_URL` | String | คน 2 | เฉพาะ `LLM_PROVIDER=lambda`: Invoke URL ของ API Gateway (`https://` เท่านั้น) |
+| `LLM_LAMBDA_API_KEY` | SecureString | คน 2 | เฉพาะ `LLM_PROVIDER=lambda`: API key ของ usage plan ห้ามอยู่ใน repo, Log หรือ Description |
 | `LLM_INPUT_PRICE_PER_MTOK_USD`, `LLM_OUTPUT_PRICE_PER_MTOK_USD` | String | คน 2 | ราคาต่อล้าน token ของโมเดลที่เลือก (Nova 2 Lite ใน Singapore ตรวจแล้ว: 0.41 และ 3.39) |
 
 * หกค่าแรกต้องมี ถ้าขาด `load-env.sh` หยุดและ Stack ไม่เริ่ม
@@ -207,12 +209,24 @@ Backend เป็น Dev server ที่อ่านโค้ดจาก Volum
 * ตรวจราคาของ Elastic IP (IPv4 สาธารณะ) จากหน้า Pricing ของ AWS ก่อนเปิดครั้งแรก เพราะ IP ที่จองไว้อาจมีค่าใช้จ่ายแม้เครื่องหยุด แล้วตัดสินว่าจะเก็บไว้หรือคืนทุกครั้ง (คืนแล้ว IP เปลี่ยน ต้องแก้ Record `A` และ URL ของ Webhook)
 * ตั้ง AWS Budget Alert ก่อนเปิดครั้งแรก (ข้อ 6.28) ผู้จัดการแข่งขันตั้งให้แล้วถ้าครอบคลุมงบเฉพาะ Bedrock และทีมได้รับแจ้งเตือน
 
-## ส่วนของคน 2 (Bedrock)
+## ส่วนของคน 2 (Bedrock ผ่าน Lambda, round 6 PR B3)
 
-* เพิ่มสิทธิ์เรียกเฉพาะโมเดลที่ใช้ลงใน IAM Role ของเครื่อง (Role เดียวกับข้อ 4) **ข้อสังเกตจาก AWS Price List ที่ต้องยืนยันก่อนเขียนนโยบาย (ข้อ 6.28 ขั้น 1):** ใน Singapore SKU ของ Nova 2 (Lite, Omni, Pro) มีคำว่า `cross-region-global` ส่วน Nova Micro, Lite และ Pro รุ่นแรกไม่มี ถ้าเลือก Nova 2 ชื่อโมเดลน่าจะเป็นรหัส inference profile IAM ต้องอนุญาตทั้ง inference profile และโมเดลใน Region ปลายทาง และข้อมูลอาจถูกประมวลผลนอก Singapore ไฟล์ Policy ของ Bedrock จึงยังไม่อยู่ใน PR นี้
-* Backend อยู่ใน Container จึงขอ Credential ของ Role ผ่าน IMDSv2 ข้าม Network ของ Docker หนึ่งชั้น ต้องตั้ง Hop limit ของ Metadata ของเครื่องเป็น 2 ขึ้นไป ถ้าเป็น 1 Container จะได้ Credential ไม่ได้
-* AWS Budget Alert เฉพาะ Bedrock 20 USD ต่อเดือน และตรวจว่าเครดิต AWS ครอบคลุม Bedrock
-* ตัวแปรของ LLM ใส่เป็น Parameter ตามหัวข้อความลับ `LLM_ENABLED=true` ตั้งได้ตั้งแต่ PR E1 merge (คน 2 ตั้งหลังตั้งโมเดล Region และ Budget แล้ว) ก่อน E1 ค่านี้ถูกตรึงเป็น `false`
+บัญชีทีมสร้าง instance profile ของ EC2 ไม่ได้ (`iam:CreateInstanceProfile` ถูกปฏิเสธ) Backend จึงเรียก Bedrock ผ่าน API Gateway และ Lambda (`deploy/aws/lambda/bedrock_proxy.py`) แทน IAM Role ของเครื่อง ไม่ต้องตั้ง Hop limit ของ Metadata ทุกขั้นทำใน Console ของ Region `ap-southeast-1` โดยบัญชีทีม
+
+**ลำดับการคุมค่าใช้จ่าย:** ตัวคุมหลักคือของแอป (B1): จองโควตารายวัน DEMO/TRIAL แบบ atomic ก่อนเรียกทุกครั้ง และเพดาน input/output ต่อคำขอ Lambda บังคับโมเดล ขนาดคำขอ และความยาวคำตอบของตัวเองซ้ำ โควตาและ throttling ของ usage plan เป็นตัวจำกัดเพิ่ม **แบบ best effort ไม่ใช่เพดานที่รับประกัน** ([AWS: Usage plans and API keys](https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-usage-plans.html)) Budget Alert เฉพาะ Bedrock (`nara-bedrock-20usd`) แจ้งเตือนทางอีเมลอย่างเดียว ไม่หยุดการเรียก **ห้ามเปิด Lambda Function URL** เพราะข้าม API key และโควตา (บัญชีนี้ตั้ง reserved concurrency ไม่ได้)
+
+1. **Role ของ Lambda:** IAM → Roles → Create role → AWS service → Lambda → แนบ `AWSLambdaBasicExecutionRole` (เขียน CloudWatch Logs) → ชื่อ `nara-bedrock-lambda` แล้วเพิ่ม inline policy จาก `deploy/aws/lambda/iam-bedrock-invoke-policy.json` (แทน `REGION` และ `ACCOUNT_ID`) ชื่อ `nara-bedrock-nova-lite` อนุญาตเฉพาะ `bedrock:InvokeModel` ของ Nova 2 Lite ผ่าน global inference profile ซึ่งข้อมูลอาจถูกประมวลผลนอก Singapore
+2. **Function:** Lambda → Create function → Author from scratch, ชื่อ `nara-bedrock`, Python 3.13, Execution role = `nara-bedrock-lambda` (Additional settings → Custom execution role); ไม่เปิด Function URL, Durable execution หรือ EC2 capacity provider
+3. **โค้ด:** วางเนื้อหาของ `deploy/aws/lambda/bedrock_proxy.py` เป็นไฟล์ `bedrock_proxy.py` แล้วตั้ง Handler เป็น `bedrock_proxy.handler` → Deploy
+4. **ค่าตั้ง:** Configuration → General: Timeout **12 วินาที** (สั้นกว่า timeout ของแอป 15 วินาที), Memory **256 MB**; Environment variables: `MODEL_ID=global.amazon.nova-2-lite-v1:0`, `MAX_INPUT_BYTES=20000`, `MAX_OUTPUT_TOKENS=1024`, `BEDROCK_TIMEOUT_SECONDS=10`
+5. **Log:** หลังเรียกครั้งแรก CloudWatch → Log groups → `/aws/lambda/nara-bedrock` → ตั้ง Retention **2 สัปดาห์** Log มีแค่ request ID, ผลลัพธ์, จำนวน token และเวลา
+6. **API:** API Gateway → REST API → Build → New API ชื่อ `nara-bedrock-api` → Create method `POST` ที่ `/` → Lambda function `nara-bedrock` เปิด Lambda proxy integration → Method request → **API key required** → Deploy API stage ชื่อ `prod` แล้วจด Invoke URL
+7. **Usage plan:** Usage plans → Create: ชื่อ `nara-bedrock-plan`, Throttling rate 2 burst 5, Quota **200 ต่อวัน** (เพดานแอป 100 ต่อวันบวกชุดทดลอง 60) → Associated stages: `nara-bedrock-api` / `prod` → Associated API keys: Create new key `nara-bedrock-key` แล้ว Show เพื่อคัดลอกค่า ห้ามวางใน chat, repo หรือ Description
+8. **ตั้งค่าบนเครื่อง:** ใส่ใน `/etc/nara/nara.env` (manual env) หรือ Parameter Store: `LLM_PROVIDER='lambda'`, `LLM_LAMBDA_URL='<Invoke URL ของ stage prod>'`, `LLM_LAMBDA_API_KEY='<API key>'`, ราคา `LLM_INPUT_PRICE_PER_MTOK_USD='0.41'` และ `LLM_OUTPUT_PRICE_PER_MTOK_USD='3.39'` **ยังคง `LLM_ENABLED='false'`** แล้ว `sudo systemctl restart nara`
+9. **ลองหนึ่งครั้งจากเครื่อง (ยังไม่เปิดปุ่มในแอป):** รันชุดทดลองผ่านตัวห่อของแอปด้วยเคสเดียวหรือชุดเต็ม (`python -m app.trial.run` ตาม `docs/workflow.md` 6.28) ภายใน Container Backend ไฟล์ผลต้องอยู่นอก `/app` เช่น `/tmp` `--model` ต้องเป็นรหัสโมเดลเดียวกับ `MODEL_ID` ของ Lambda ไม่งั้นเครื่องมือหยุด
+10. **เปิดใช้:** เมื่อการลองสำเร็จและบันทึกผลแล้ว ตั้ง `LLM_ENABLED='true'` แล้ว restart ปุ่ม "สรุปด้วย AI" ของคำอธิบายอันดับ (E1, E2) และสรุปเคส (S) เปิดพร้อมกัน ตรวจหนึ่งเคสว่าแถวใน `llm_call_log` มี `provider=lambda` และค่าใช้จ่าย
+
+**ถอยกลับ:** ตั้ง `LLM_ENABLED='false'` แล้ว restart ปุ่มปิดทันทีโดยไม่ต้องแตะ AWS ถ้าคีย์รั่ว: API Gateway → API keys → ลบหรือปิด `nara-bedrock-key` แล้วสร้างใหม่ใส่ในเครื่อง
 
 ## ส่วนของคน 3 (LINE)
 

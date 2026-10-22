@@ -37,6 +37,7 @@ from app.core import clock  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.db.session import engine  # noqa: E402
 from app.integrations.line import client as line_client  # noqa: E402
+from app.integrations.llm import lambda_proxy  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -88,6 +89,20 @@ def isolated_llm(monkeypatch: pytest.MonkeyPatch) -> None:
 
     original_request = Endpoint.make_request
     monkeypatch.setattr(Endpoint, "make_request", guarded_request)
+
+    # Round 6 PR B3: the Lambda proxy is plain HTTPS, not botocore. No test reaches API
+    # Gateway or any other AWS host; a test of the adapter replaces lambda_proxy._post
+    monkeypatch.setattr(settings, "llm_lambda_url", None)
+    monkeypatch.setattr(settings, "llm_lambda_api_key", None)
+    previous_urlopen = lambda_proxy.urllib.request.urlopen
+
+    def guarded_aws_http(url: str | Request, *args: Any, **kwargs: Any) -> Any:
+        hostname = urlsplit(url.full_url if isinstance(url, Request) else url).hostname or ""
+        if hostname == "amazonaws.com" or hostname.endswith(".amazonaws.com"):
+            pytest.fail("Unmocked AWS HTTP call: replace lambda_proxy._post in this test")
+        return previous_urlopen(url, *args, **kwargs)
+
+    monkeypatch.setattr(lambda_proxy.urllib.request, "urlopen", guarded_aws_http)
 
 
 @pytest.fixture(scope="session", autouse=True)
