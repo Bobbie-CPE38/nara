@@ -50,9 +50,9 @@
 | เรื่อง | ตัดสินว่า |
 |---|---|
 | จำนวนตาราง | 42 ตาราง รวม `OFFER_OUTCOME_NOTIFICATION` ของ Issue #98 |
-| ชนิด ID | `bigint` ทุกตาราง (รวม FK ทุกตัว) |
+| ชนิด ID | ตารางที่ Implement แล้วใช้ `bigint`; planned auth subject UUID ของ AU1/AU5 เป็นข้อยกเว้นตามหัวข้อ AU0 ท้ายไฟล์ |
 | เก็บ Enum | Python `StrEnum` → คอลัมน์ `text` ยังไม่ใส่ DB ENUM / CHECK |
-| `created_at` / `updated_at` | `timestamptz` ตั้งค่าจาก `core/clock.py` ไม่พึ่ง Default ของ DB |
+| `created_at` / `updated_at` | ตารางธุรกิจใช้ `core/clock.py`; planned Auth ของ AU1/AU5 ใช้ real UTC ตามข้อ 6.33 ไม่ตาม Demo Clock |
 | Event ที่ไม่มี Gap | `STAFFING_EVENTS.status = IGNORED` ไม่สร้างเคส |
 | การลาและช่วงที่ไม่พร้อม | เก็บที่ `STAFF_UNAVAILABILITY` เท่านั้น `STAFF.status` ไม่เก็บการลา |
 | ไม่มีแถวใน `STAFF_UNAVAILABILITY` | ถือว่าพร้อม (เฉพาะ `STAFF.status = ACTIVE`) |
@@ -1123,3 +1123,54 @@ Snapshot นิรนามหนึ่งฉบับต่อ (`case_id`, `inp
 | `ready_at` | timestamptz | NULL | Backend Clock ตอนสร้างสำเร็จ |
 
 Partial index บน `id` เมื่อ PENDING; UNIQUE (`case_id`, `input_hash`, `prompt_version`) การเรียก LLM บันทึกใน `LLM_CALL_LOG` ชนิด CASE_SUMMARY โดย `subject_id` = id นี้ (ไม่มี FK ตาม B1) Reset/Downgrade ถอดอ้างอิงและคงค่าใช้จ่าย/โควตา
+
+
+## AU0: Schema ที่วางแผนสำหรับบัญชีและ session (AU1/AU5 ยังไม่ Implement)
+
+กติกาฝั่ง API/สิทธิ์อยู่ `workflow.md` 6.33; AU0 เพิ่มเฉพาะสัญญา ไม่เปลี่ยนจำนวนตารางที่ migrate แล้ว ไม่กำหนด revision ล่วงหน้า AU1 เพิ่ม Migration ต่อ head ปัจจุบันและทดสอบให้มี head เดียว AU5 เพิ่มตาราง registration code ภายหลังต่อ AU1 ใช้ UUID เฉพาะ permanent staff subject; ID ธุรกิจและ surrogate ID เดิมเป็น bigint ตามเดิม
+
+### STAFF.auth_subject (AU1)
+
+เพิ่ม `auth_subject uuid NOT NULL UNIQUE` สุ่ม UUIDv4 ครั้งเดียวให้แต่ละแถวที่มีอยู่และตอนสร้าง staff ใหม่ immutable: ห้ามเปลี่ยน/นำกลับไปให้บุคคลใหม่ Reset ที่รักษาบัญชีต้องรักษา Staff row/subject ต้นฉบับและแก้ seed loader ตาม workflow 6.33.7 ไม่ใช้ชื่อ/email/staff_id ที่สร้างใหม่มาตัดสินว่าเป็นบุคคลเดิม `STAFF.password_hash` เดิมยังคงเพื่อ compatibility (seed `!`) แต่ auth ใหม่ไม่อ่านค่านี้ ไม่ migrate เป็นรหัสที่เปิดใช้โดยอัตโนมัติ
+
+### AUTH_ACCOUNT (AU1)
+
+| Field | Type / Constraint | ความหมาย |
+|---|---|---|
+| staff_subject | uuid PK, FK STAFF.auth_subject ON DELETE RESTRICT | หนึ่งบัญชีต่อพนักงานถาวร ไม่สร้างบัญชีให้ staff ทุกคนโดยอัตโนมัติ |
+| password_hash | text NOT NULL | Argon2id encoded hash พร้อม salt/parameters ไม่ใช่รหัสจริง |
+| must_change_password | boolean NOT NULL default false | script ตั้งรหัสชั่วคราวต้องตั้ง true |
+| disabled_at | timestamptz NULL | ปิดบัญชีแยกจากสถานะการจ้าง; ทั้งคู่ต้องพร้อมใช้จึง login ได้ |
+| credential_version | bigint NOT NULL default 1 CHECK > 0 | เพิ่มเมื่อเปลี่ยน/รีเซ็ตรหัส ใช้กัน session จาก password generation เก่า |
+| created_at, updated_at, password_changed_at | timestamptz NOT NULL | real UTC จาก auth clock ไม่ใช้ Demo clock |
+
+การเปลี่ยนรหัส/ปิดบัญชีถือ lock บัญชี เพิ่ม credential_version เมื่อเปลี่ยนรหัสและ revoke session ใน transaction เดียว การสร้าง/เปลี่ยนบัญชี concurrent กับ reset ต้องรอ lock ไม่ถูก snapshot เก่าทับ ไม่มีตาราง role/user ใหม่ Role/หออ่านจาก STAFF ปัจจุบัน
+
+### AUTH_SESSION (AU1)
+
+| Field | Type / Constraint | ความหมาย |
+|---|---|---|
+| id | bigint PK | surrogate ภายใน ไม่ใช่ cookie |
+| account_subject | uuid NOT NULL FK AUTH_ACCOUNT.staff_subject ON DELETE CASCADE; INDEX | เจ้าของ session |
+| token_hash | text NOT NULL UNIQUE CHECK SHA-256 lowercase hex 64 ตัว | hash ของ token สุ่ม >=256 bit; ไม่เก็บ raw token |
+| credential_version | bigint NOT NULL CHECK > 0 | generation ของบัญชีตอนออก ต้องเท่าปัจจุบันทุก request |
+| created_at, last_seen_at, expires_at | timestamptz NOT NULL | real UTC; CHECK created_at <= last_seen_at <= expires_at และ expires_at > created_at |
+| revoked_at | timestamptz NULL | revoke ถาวร ไม่เอากลับมาใช้อีก |
+
+Valid เมื่อ real now ยังไม่ถึง absolute/idle expiry, ไม่ revoke, generation ตรง, account ไม่ disabled, Staff ACTIVE และมี USER actor เงื่อนไขต้องถูกอ่านจาก DB ไม่ cache ใน cookie อัปเดต last_seen แบบไม่ย้อนเวลาและไม่ยืด expires_at; request ที่หมดอายุห้ามปลุก session กลับมา Reset สำเร็จไม่คืน session ใดๆ แม้ bigint id เริ่มใหม่
+
+### AUTH_REGISTRATION_CODE (AU5)
+
+| Field | Type / Constraint | ความหมาย |
+|---|---|---|
+| id | bigint PK | ภายใน |
+| staff_subject | uuid NOT NULL FK STAFF.auth_subject ON DELETE RESTRICT; INDEX | staff ที่ยังไม่มี AUTH_ACCOUNT |
+| code_hash | text NOT NULL UNIQUE CHECK SHA-256 lowercase hex 64 ตัว | SHA-256 ของ domain `AUTH_REGISTER` กับโค้ดสุ่ม >=192 bit; ไม่ reuse LINK token/table |
+| contact_id | bigint NOT NULL FK contacts.id | binding ที่ออก code ให้; schema จริงชื่อ table คือ contacts |
+| line_uid_hash | text NOT NULL | digest ของ UID ขณะออก ใช้เทียบกับ binding ปัจจุบัน ไม่เก็บ raw code/UID เพิ่ม |
+| created_at, expires_at | timestamptz NOT NULL CHECK expires_at > created_at | real UTC อายุ 600 วินาที ไม่ใช่ Demo clock |
+| used_at, revoked_at | timestamptz NULL | consume ครั้งเดียว หรือ revoke เมื่อออก code ใหม่/reset |
+
+มี account แล้วห้ามสมัครทับ การตรวจ binding ต้องยืนยัน contact ของ subject เดียวกัน ACTIVE และ UID digest ตรง ณ ตอนใช้ ไม่เชื่อ code ที่บอก staff_id จาก client Consume กับ insert account ใน transaction เดียว มี UNIQUE ของ account subject เป็นชั้นกัน race อีกชั้น การออก/consume code ใช้ลำดับ shared Auth reset gate → Staff → registration code → Contacts → AUTH_ACCOUNT ที่เกี่ยวข้อง โดย gate ของ auth write ต้องมาก่อน row lock; การผูก LINK เดิมใช้ Staff → link code → Contacts ตาม PR K ไม่สลับลำดับเดิม; AU5 ทดสอบสอง connection และ rebase migration ถ้า head เปลี่ยน ห้ามออก session อัตโนมัติจากการสมัคร
+
+ไม่มีประวัติ raw password/code/token ใน Audit หรือ DB บัญชี/Session/Registration ใช้ real UTC เป็นข้อยกเว้นจากกติกา `core.clock` เดิม Session/code เก่าถูกล้างเมื่อ Demo reset สำเร็จ บัญชีและ permanent identity คงอยู่; reset rollback ต้องคง session/code เดิมและโควตา LLM ตามเดิม

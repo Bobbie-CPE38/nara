@@ -366,7 +366,13 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 | ขั้นที่ 6 (ไม่ใช่ PR) | ทั้งสามคน | เปิดเครื่อง AWS ตรวจช่วง ข แล้วเปิดให้ภายนอกเข้า; ผลบางส่วนที่คน 3 รายงาน 2026-10-21 ตาม `docs/round6/step6-live-checks.md`; ยังมีข้อค้างก่อนปิดช่วง ข และ W/B2 | 6.30 | D, F3 | | | |
 | B2 | คน 2 | ลอง Bedrock จริง 20 ถึง 30 เคส เลือกโมเดล ผ่านตัวห่อของ B1 | 6.28 | B1 และขั้นที่ 6 | ขั้นที่ 6 | ไม่มี | |
 | W | คน 3 | ย้าย Webhook ไป AWS; live smoke ผู้ Deploy รายงานผ่าน 2026-10-21 (LINK, Offer/คำขออนุมัติ, Handover, check-in/คำสั่งซ้ำ, SQL Attendance/Audit, strict Gate) Quick Tunnel เดิมหมดอายุหลายวันแล้ว; หลักฐาน/ข้อจำกัด/rollback ใน `docs/round6/pr-W-handoff.md` พร้อมรีวิว ไม่ใช่ปิดรอบ 6 | 6.16, 6.30 | D และขั้นที่ 6 | ขั้นที่ 6 | ไม่มี | [#121](https://github.com/Bobbie-CPE38/nara/pull/121) |
-| ปิดรอบ | คน 3 | เอกสารปิดรอบ แล้ว `staging` → `main` และ tag `v0.7-round6` | | ทุกตัว | ทุกตัว | ไม่มี | |
+| AU0 | คน 1 (คน 3 ทำแทนตามผู้ใช้) | Contract ล็อกอิน/สิทธิ์, self-leave และ schema ตามร่าง #120 ไม่มี runtime change | 6.33 | ขั้นที่ 6, #120 | #120 | ไม่มี | AU0 รอรีวิว |
+| AU1 | คน 2 | บัญชี/session, auth API, Origin/rate limit, CLI, permanent identity และ reset preservation | 6.33.2–3, 6.33.7 | AU0 | AU0 | มี | |
+| AU2 | คน 2 | สิทธิ์ทุก Route, self-leave, Demo events, list/count scope, Audit | 6.33.4 | AU1 | AU1 | ไม่มีเว้นแต่จำเป็นตาม schema | |
+| AU3 | คน 1 | หน้า login/register/เปลี่ยนรหัส, เมนู, self-leave, Demo adapter และ 401/403 | 6.33.3–4 | AU1 | AU1 | ไม่มี | |
+| AU5 | คน 3 | REGISTER ผ่าน LINE, atomic register code, security/regression tests | 6.33.6 | AU1 | AU1 | มี | |
+| AU4 | คน 1 | ด่าน AWS/Compose/Gate ใหม่หลัง backend และหน้าเว็บพร้อม; LINE smoke | 6.33.5 | AU2, AU3 | AU2, AU3 | ไม่มี | |
+| ปิดรอบ | คน 3 | เอกสารปิดรอบ แล้ว `staging` → `main` และ tag `v0.7-round6`; ต้องครบ AU0–AU5 และผล production session | 6.33 | ทุกตัวรวม AU | ทุกตัวรวม AU | ไม่มี | |
 
 ลำดับ merge: 0 ก่อนทุกตัว, B1 ก่อน E1, S และ B2, E1 ก่อน E2 และ S, F1 ก่อน F2, F2 และ D ก่อน F3, F3 ก่อน UI1, UI1 ก่อน UI2 (UI1 และ UI2 ทำก่อนขั้นที่ 6 เพื่อตรวจช่วง ข กับหน้าตาสุดท้ายครั้งเดียว ไม่เปลี่ยน API จึงเปิดเครื่องก่อนได้ถ้าไม่ทัน), F3 และ D ก่อนขั้นที่ 6, ขั้นที่ 6 ก่อน B2 และ W Migration ของ B1, S และ E1 (ถ้ามี) ต่อจาก `c5f8b0d3e7a1` เป็นเส้นเดียว ตัวที่ merge ทีหลัง Rebase `down_revision` และแก้ Test ของ Migration ตัวก่อนหน้าที่ตรวจ head ผู้ทำของ P1 และการให้คน 3 ปิดรอบเป็นข้อเสนอของร่างรอบ 6 ถ้าทีมเปลี่ยน แก้ตารางนี้
 
@@ -440,7 +446,7 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 | D6 | Skeleton ทำงาน Sync ภายใน HTTP Request ยังไม่ใช้ Celery | ลดชิ้นส่วนที่ต้องตั้งค่าช่วงแรก |
 | D7 | ID ทุกตารางเป็น `bigint` | ตัดสินแล้วจากทีม |
 | D8 | Enum เป็น Python `StrEnum` ใน `domain/enums.py` เก็บใน DB เป็น `text` ยังไม่ใส่ DB ENUM หรือ CHECK | ค่าหลายตัวยังไม่ยืนยัน แก้ได้โดยไม่ต้อง Migration |
-| D9 | Skeleton ยังไม่มี Login ระบุตัวผู้ใช้ด้วย Header `X-Demo-User: <staff_id>` | `approver_id` และ Actor ต้องมีค่า |
+| D9 | **[AU1/AU2 ยังไม่ Implement]** สองโหมด: demo ใช้ `X-Demo-User`; session ใช้ cookie/session ที่ Backend ตรวจแล้วและไม่อ่าน Header นี้ ตามข้อ 6.33 | USER actor กับ staff ต้องมาจากบัญชีเดียวกัน; ก่อน AU4 เครื่องยังใช้ Demo เดิม |
 | D10 | เวลาของระบบมาจาก `core/clock.py` ที่ตั้งค่าได้ ห้ามเรียก `datetime.now()` ตรง ๆ | Demo และ Test ต้องได้ผลเหมือนเดิมทุกครั้ง |
 | D11 | เกิด Exception ระหว่าง Workflow: Rollback งานของรอบนั้นด้วย Savepoint (งานของผู้เรียกใน Transaction เดียวกันยังอยู่) ตั้งเคสเป็น `FAILED` และบันทึก `WORKFLOW_FAILED` แล้ว Commit รายละเอียดดูข้อ 6.2 | ไม่มีเคสค้างกลางทางโดยไม่มีใครรู้ |
 | D12 | Skeleton ยังไม่มี LLM, OR-Tools, LINE จริง, Aggregation | ใช้ Stub ทั้งหมด แล้วเปลี่ยนเป็นของจริงทีละส่วน |
@@ -624,6 +630,8 @@ Body ที่เพิ่ม การตรวจตอนรับ และ 
   | `REQUIREMENT_CHANGED` | `{roles: [{role_id, required_count}], skills: [{skill_id, required_count}], reported_by}` เรียงตาม ID รายการที่ไม่ได้ส่งเป็น List ว่าง |
 
 ### 3.5 Request และการตรวจตอนรับ Event
+
+**[AU2]** ใน session ไม่เปิด POST `/events` ทั่วไปแก่ผู้ใช้ ใช้ POST `/me/unavailability` สำหรับแจ้งลาตัวเองแบบไม่รออนุมัติการลา ตามข้อ 6.33.4; Demo ใช้ `/demo/events` และ System Job ใช้ service ทางเดิม รายละเอียด `X-Demo-User` ข้างล่างใช้เฉพาะ demo เมื่อ AU2 เสร็จ
 
 * Request: `POST /events` พร้อม `X-Demo-User` และ Body `{event_type, shift_id, ...}` ตาม Field ของแต่ละชนิดในข้อ 3.4 ผู้แจ้งคือ `user.staff.id`
 * `end_at` ของ `STAFF_UNAVAILABLE` คือเวลากลับที่แจ้ง ต้องมี Timezone และอยู่หลัง `SHIFT.start_at` ไม่ส่งมา = ถึง `SHIFT.end_at`
@@ -1518,6 +1526,8 @@ LINE จริงอยู่คู่กับหน้าจำลอง ท�
 
 ### 6.17 หน้าเว็บพยาบาลและตัวตนจำลอง
 
+**AU0:** รายละเอียดข้างล่างเป็น behavior เดิมของ demo เมื่อ AU1–AU4 ทำเสร็จ session ยึดข้อ 6.33: หน้า My offers ใช้บัญชีจริง เพิ่มแจ้งลาตนเอง และด่าน Basic Auth เหลือเฉพาะ Demo หลัง AU4 ตรวจรับ ไม่ใช่ให้แก้เครื่องตาม AU0 ทันที
+
 NTT ยืนยันแล้วว่าการแข่งขันใช้ LINE Messaging API ได้ งาน LINE จึงเดินตามข้อ 6.16 ทีมตกลงเพิ่มหน้าเว็บ "ข้อเสนอเข้าเวรของฉัน" เป็นช่องทางเสริม LINE ใช้รับการแจ้งเตือนและตอบเร็ว หน้าเว็บใช้ดูรายการ ติดตามสถานะ และตอบได้ด้วย
 
 * **สิ่งที่หน้าแสดง:** เฉพาะ Offer ของพยาบาลผู้ใช้งาน ข้อมูลมาจาก `outreach_service.list_offers()` ที่คืน `OfferView` อยู่แล้ว: หอ วันและเวลาเวร เส้นตาย ปุ่ม Accept และ Reject (`can_accept`, `can_reject`) สถานะ เหตุที่ตอบไม่ได้ (`blocked_reason`) และเหตุที่ยกเลิก (`cancellation_reason`) "รออนุมัติ" คือ `status = ACCEPTED` และ `is_assigned = false` หน้าต้องเขียนให้ชัดว่า Accept ยังไม่ใช่การได้เข้าเวร พยาบาลได้รับมอบหมายเมื่อ Head Nurse อนุมัติและระบบ Execute สำเร็จแล้ว
@@ -1949,6 +1959,8 @@ Tests: `test_offer_outcome_notifications.py` (เหตุผล, ทางอ�
 
 ### 6.30 เครื่อง AWS และเกณฑ์เว็บพร้อมก่อน Deploy [รอบ 6 · PR W]
 
+**การเปลี่ยนด่าน AU4:** กฎ Basic Auth แบบครอบทั้งหมดและหลักฐานขั้นที่ 6/W ข้างล่างเป็น baseline ก่อน AU4 หลัง AU4 ให้ยึดข้อ 6.33.5 และตรวจ production ใหม่ตามกติกา session; AU0 ยังไม่เปลี่ยน Caddy/Compose บนเครื่องจริง
+
 **ทางเลือกตั้งค่ามือระหว่างรอ Instance profile:** ใช้ `/etc/nara/nara.env` เจ้าของ `root` สิทธิ์ `600` ตามคู่มือ Deploy และ systemd drop-in ได้ ไม่ commit ความลับ บริการต้องปฏิเสธ placeholder และค่าจำเป็นที่ขาดหรือว่างก่อนเริ่ม ทุกด่าน HTTPS/Basic Auth และการตรวจช่วง ข ยังคงเดิม ทางเลือกนี้ไม่ได้ให้สิทธิ์เรียก Bedrock
 
 **ลำดับ (มติทีม 2026-10-14 และ R6-Q3, R6-Q13):** เครื่องขึ้นและผ่านด่านก่อน จากนั้นคน 2 ลอง Bedrock ด้วย IAM Role ของเครื่อง และคน 3 ย้าย Webhook จาก Tunnel มาที่เครื่องแล้วปิด Tunnel (ถ้าเครื่องล่มกลับไปใช้ Tunnel ได้ เพราะไฟล์ใน `dev/line-webhook-proxy/` ยังอยู่) ย้ายหลังเครื่องผ่านด่านและ Offer, ปุ่ม, ผูกบัญชีผ่านเครื่องจริงอย่างน้อยหนึ่งรอบ
@@ -1993,7 +2005,9 @@ Tests: `test_offer_outcome_notifications.py` (เหตุผล, ทางอ�
 3. เปิดหน้าหลักผ่าน Caddy ด้วยรหัส Basic Auth (`/`, `/gap`, หน้าเคส, `/demo/control`) และเรียก API ผ่าน `/api` ได้โดยไม่มี Error ใน Console และ Bundle ที่เครื่องส่งให้ไม่มี `localhost:8000` และเบราว์เซอร์ไม่ถามรหัสซ้ำหลัง API ตอบ `401` ของ Backend (Header `WWW-Authenticate: X-Demo-User` คนละ Scheme กับ Basic ของด่าน ดู `docs/deploy-aws.md`)
 4. ข้อเสนอที่ยังไม่ตกลง: ระหว่างตรวจจำกัด Security Group ให้ IP ของทีมเท่านั้น และเปลี่ยน Webhook ของ LINE (W) หลังเปิดแล้วเท่านั้น
 
-**เกณฑ์ปิดรอบ 6 (R6-Q3 ก):** (1) เครื่อง AWS ผ่าน `check-gate.sh` (2) LINE ส่ง Offer และรับคำตอบผ่านเครื่อง AWS จริงอย่างน้อยหนึ่งเส้นทาง (3) Bedrock สร้างประโยคอธิบายอันดับจริงอย่างน้อยหนึ่งเคสพร้อมบันทึกค่าใช้จ่าย (4) ตาราง fake กับของจริงทุกแถวมีวันที่หรือเหตุผลที่ยังใช้ fake
+**เกณฑ์ปิดรอบ 6 เพิ่ม AUTH-Q14/Q16:** ต้อง AU0–AU5 merge และผ่าน session/สิทธิ์บน production ตามข้อ 6.33 เพิ่มจากเกณฑ์เดิม ไม่มี fallback ปิดด้วย demo โดยไม่มีมติทีม
+
+**เกณฑ์ปิดรอบ 6 เดิม (R6-Q3 ก):** (1) เครื่อง AWS ผ่าน `check-gate.sh` (2) LINE ส่ง Offer และรับคำตอบผ่านเครื่อง AWS จริงอย่างน้อยหนึ่งเส้นทาง (3) Bedrock สร้างประโยคอธิบายอันดับจริงอย่างน้อยหนึ่งเคสพร้อมบันทึกค่าใช้จ่าย (4) ตาราง fake กับของจริงทุกแถวมีวันที่หรือเหตุผลที่ยังใช้ fake
 
 ### 6.31 Dashboard และหน้าเช็ค Gap
 
@@ -2048,6 +2062,122 @@ Tests: `test_offer_outcome_notifications.py` (เหตุผล, ทางอ�
 * **สองก้อน** UI1 ทำ: ฐานทั้งหมดข้างบน และ Dashboard กับหน้าเคส (รวม `GapTable`, `CandidateTable`, `SkippedTable`, `AuditTimeline`, `HandoverList`, `ScoreBreakdown`, `CaseSummary`, `ActingAs`, `DemoClock`) หน้าที่เหลือได้ธีมจาก base แล้วแต่ข้อความยังเป็นอังกฤษ UI2 ทำ: ปรับและแปลหน้าที่เหลือ (Gap check, Approvals, Handoff, Roster, My offers, LINE simulator, Demo control, `OfferList`) แล้วลบของชั่วคราวที่ UI1 เก็บไว้ให้หน้าเหล่านั้น (`DEMO_APPROVERS.label`, `SKIP_REASON_INFO`) พร้อมลบป้ายของข้อนี้
 * **เกณฑ์ผ่านของแต่ละ PR** `tsc`, `vitest`, `next build` ผ่าน `deploy/aws/test_frontend.py` ผ่าน (โลโก้ ไอคอน และภาษาตาม cookie ใน image) และตรวจในเบราว์เซอร์ทั้งสองภาษากับสองขนาดจอ (1280 และ 390 พิกเซล) ไม่ล้นแนวนอน ไม่มี Error ใน Console หลัง UI2 ตรวจครบทุกหน้า
 * **Test** `tests/unit/lib/i18n.test.ts` (สองภาษามีคีย์และ `{ชื่อ}` ตรงกัน ข้อความไทยเป็นไทย ไม่มีประโยคอังกฤษหลุดในไฟล์ไทย `parseLang`), `tests/unit/components/language.test.tsx` (สวิตช์ cookie เมนูมือถือ หน้าเคสสองภาษา ข้อความ Backend ไม่ถูกแปล), Dashboard ภาษาไทยใน `tests/unit/app/dashboard.test.tsx`
+
+### 6.33 ล็อกอิน ตัวตน และสิทธิ์ [รอบ 6 · AU0 เป็น Contract; AU1–AU5 ยังต้อง Implement]
+
+AU0 รับร่างข้อ 5C ของ PR #120 เป็นกติกาสำหรับงาน AU ไม่ใช่ประกาศว่าโค้ดหรือเครื่อง AWS เปลี่ยนแล้ว ก่อน AU4 ตรวจรับ เครื่องยังใช้ด่าน PR D/W เดิม ข้อความเดิมของข้อ 3, 6.17, 6.27 และ 9 ที่บอก `X-Demo-User` หรืออ่านโดยไม่ระบุตัว ใช้กับ `AUTH_MODE=demo` เท่านั้นเมื่อ AU1/AU2 ทำเสร็จ โหมด `session` ยึดข้อนี้เหนือข้อเดิม ส่วนกฎจัดเวร, Hard Rules, Lock, Timeout, โควตา และลายเซ็น LINE คงเดิม
+
+#### 6.33.1 มติและขอบเขต
+
+ผู้ใช้ให้คน 3 ทำหน้าที่คน 1 สำหรับ AU0 และยืนยันเพิ่มเมื่อ 2026-10-22 ว่า **พยาบาลแจ้งลาของตัวเองได้ มีผลตาม flow แจ้งลาเดิมทันที ไม่รอหัวหน้าอนุมัติการลา** แทนคำตอบ AUTH-Q3 เดิมที่ไม่ให้ผู้ใช้สร้าง Event ทุกชนิด การอนุมัติจัดคนแทนยังใช้ Approval เดิม ไม่ใช่อนุมัติการลา ข้ออื่นของ AUTH-Q1 ถึง Q16 คงไว้
+
+| จุดที่ร่างค้าง | กติกาของ AU0 |
+|---|---|
+| แจ้งลา/รายงาน Event | เพิ่ม `POST /me/unavailability` สำหรับแจ้งลาตัวเองเท่านั้น; `POST /events` ไม่เปิดให้บัญชีผู้ใช้ใน session (403) เหตุอื่นมาจากระบบหรือ Demo control |
+| Demo บน AWS | Basic Auth ครอบหน้า `/demo`, `/demo/*` และ API `/api/demo`, `/api/demo/*`; หน้าควบคุมไม่ต้องมีบัญชีเว็บ แต่ simulator API ต้องมี session และใช้ได้เฉพาะตัวเอง; ซ่อนเมนู Demo จากผู้ใช้ปกติ |
+| บัญชีใหม่ | ยืนยันผ่าน LINE ที่ผูก staff แล้วด้วยโค้ดสมัครชนิดใหม่ ไม่ทำ OAuth/LINE Login ในรอบนี้ แม้มีโดเมน HTTPS แล้ว; `LINK` เดิมไม่เปลี่ยน |
+| demo บน AWS โดยพลาด | `APP_ENV=dev\|aws` ค่าเริ่มต้น dev; Backend WARNING ถ้า aws+demo (ไม่ log ความลับ ไม่หยุด startup ตาม Q11 ก); AU4 ตรึง APP_ENV=aws, AUTH_MODE=session ในไฟล์ซ้อน และตรวจจากภายนอกว่า Header ปลอมตัวไม่ได้ |
+| เดารหัส/โค้ด | จำกัดอัตรา login/register แบบเบาตามข้อ 6.33.3 ไม่ทำ account lockout หรือระบบกู้รหัสอัตโนมัติ |
+
+เป็นระบบทดสอบที่แยกตัวตนจริงขณะสาธิต ยังไม่รองรับข้อมูลพยาบาลจริง ไม่มี admin หรือระบบสร้าง staff/role/ward จากหน้า register งานนี้ไม่ขึ้นกับ IAM/Bedrock ไม่เปิด `LLM_ENABLED` และไม่ลดเกณฑ์ปิดรอบ: ต้องมี AU0–AU5 และผล session บน production ก่อนปิดรอบ 6 หากไม่ทันต้องมีมติแก้ขอบเขตใหม่ ไม่ปิดด้วย demo โดยปริยาย
+
+#### 6.33.2 บัญชีและ Session (AU1)
+
+- AU1 เพิ่ม `get_current_user` dependency เดียวคืน CurrentUser (staff กับ USER actor_id จาก DB และข้อมูล session ภายในที่จำเป็น) ส่วนชื่อ `DemoUser` เดิมเป็น alias/wrapper ได้เพื่อไม่แก้เทสต์ทั้งหมดพร้อมกัน แต่ใน session ต้องไม่อ่าน X-Demo-User ทุกกรณี ค่าตั้ง AUTH_MODE/APP_ENV ที่ไม่ใช่ค่าที่กำหนดต้อง startup validation ล้ม ไม่ fallback เป็น demo เงียบ
+- username คือเลข `STAFF.id` แต่เจ้าของบัญชีถาวรคือ `STAFF.auth_subject` UUID ที่ไม่เปลี่ยน/ไม่ใช้ซ้ำ (schema ที่วางแผนไว้ใน `database-schema.md`) มี `AUTH_ACCOUNT` หนึ่งต่อหนึ่งกับ subject นี้ `STAFF.password_hash` เดิมและค่า seed `!` **ไม่ใช่แหล่งตรวจรหัสของระบบใหม่** ไม่คัดลอกอัตโนมัติเป็นบัญชีที่เปิดใช้; Migration ไม่สร้างรหัสที่ใช้ได้บน AWS
+- password 12–128 Unicode characters ไม่ trim ไม่ตัดข้อความเงียบ เก็บ Argon2id ด้วย salt สุ่มของไลบรารี (อย่างน้อย memory 19 MiB, iterations 2, parallelism 1) ไม่เก็บ/ตอบ/Log รหัสจริง Hash หรือ token; AU1 เลือก dependency และตรึงค่าที่ทดสอบไว้ หน้า login ไม่แยกว่าไม่มีบัญชี/รหัสผิด/ถูกปิด
+- session token สุ่มอย่างน้อย 256 bit เก็บ SHA-256 ของ token เท่านั้นใน DB token ใหม่ทุก login; ไม่ใช้ UUID ของ staff เป็น token และไม่รับ token จาก query/body/localStorage ส่งเฉพาะ cookie `nara_session`, HttpOnly, SameSite=Lax, Path=/, ไม่ตั้ง Domain; Secure บน AWS เสมอ ยกเว้น dev HTTP ใน APP_ENV=dev ได้โดยค่าตั้ง `AUTH_COOKIE_SECURE=false` ห้ามใช้บน aws
+- ทุก request ตรวจ token, revoked, credential_version ของบัญชี, absolute expiry และ idle expiry แล้ว join บัญชี/STAFF/ACTORS ปัจจุบัน ต้อง ACTIVE, ไม่ disabled และมี USER actor ไม่ cache Role/หอไว้ใน cookie; หมดอายุเมื่อ **real UTC now >= expires_at** หรือ **now >= last_seen_at + idle seconds** ใช้เวลาจริงไม่ใช้ Demo Clock; ค่าเริ่มต้น `AUTH_SESSION_MAX_AGE_SECONDS=43200`, `AUTH_SESSION_IDLE_SECONDS=1800` ปรับได้เป็นจำนวนบวกและ idle ไม่เกิน max age last_seen อัปเดตหลังยืนยัน session เท่านั้น ไม่ต่อ absolute expiry
+- logout revoke session ปัจจุบันและล้าง cookie; เปลี่ยน/รีเซ็ตรหัสหรือปิดบัญชี revoke ทุก session ของบัญชีใน transaction เดียว; change-password เพิ่ม credential_version และสำเร็จแล้วต้อง login ใหม่ คำขอพร้อมกันต้องไม่คืน session ที่ถูก revoke ให้กลับใช้ได้
+- `must_change_password=true` ให้ใช้ได้แค่ me/logout/change-password; route ธุรกิจตอบ 403 `AUTH_PASSWORD_CHANGE_REQUIRED` จนเปลี่ยนสำเร็จ Script ดูแลบัญชีรับรหัสผ่าน getpass/stdin แบบไม่ echo ไม่ผ่าน argv หรือพิมพ์รหัสลง Log; reset รหัสด้วย script เท่านั้น ไม่มี API admin สาธารณะ บัญชี Demo ที่มีรหัสตั้งต้นสร้างได้ใน demo เท่านั้น
+- การตรวจ cookie/Hash อ้างแนวทาง [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) และ [Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html); ตัวเลข timeout เป็นมติทีม ไม่ใช่คำอ้างว่าระบบพร้อมใช้ข้อมูลจริง
+
+#### 6.33.3 API ล็อกอิน รูป Error และการป้องกันคำขอข้ามเว็บ (AU1/AU3/AU4)
+
+Path ข้างล่างเป็นของ Backend (public เติม `/api`); ทุก schema ใหม่ `extra=forbid` ไม่รับ role, ward, actor หรือ staff ของคนอื่น
+
+| Method / Path | Request | ผลสำเร็จ / กติกา |
+|---|---|---|
+| POST `/auth/login` | `{staff_id, password}` | 200 พร้อม Set-Cookie และรูปเดียวกับ me; รหัสผิด/บัญชีไม่พร้อมใช้ 401 `AUTH_INVALID_CREDENTIALS` ไม่บอกเหตุเจาะจง |
+| GET `/auth/me` | cookie | 200 `{staff_id, role, home_ward_id, must_change_password}`; role เป็น `staff\|head_nurse\|supervisor` (map จาก ROLE เดิม RN/HEAD_NURSE/SUPERVISOR ที่ Backend เท่านั้น) ไม่ส่งข้อมูล hash/token |
+| POST `/auth/logout` | cookie ถ้ามี | 204, idempotent แม้หมดอายุ; ล้าง cookie ด้วย attributes เดียวกับตอนตั้ง |
+| POST `/auth/change-password` | cookie, `{current_password, new_password}` | 204 และล้าง cookie/revoke ทั้งบัญชี; current_password ผิด 400 `AUTH_INVALID_PASSWORD` ไม่ใช้ 401 ที่หน้าเว็บตีความว่า session หาย |
+| POST `/auth/register` (AU5) | `{code, password}` | 201 `{staff_id}` ไม่ login อัตโนมัติ; code ไม่ถูกต้อง/หมดอายุ/ใช้แล้ว/เจ้าของไม่พร้อมใช้ 400 `AUTH_INVALID_REGISTRATION` แบบเดียวกัน; ไม่เขียนทับบัญชีเดิม |
+| POST `/me/unavailability` (AU2) | cookie, `{shift_id, end_at?}` | 201 `EventResult` ตามข้อ 6.33.4; ไม่รับ staff_id/event_type/reason/actor |
+
+API ที่ต้องมี session: ไม่มี/หมดอายุ/ถูก revoke/บัญชีถูกปิด/STAFF ไม่ ACTIVE ตอบ 401 `{"detail":"AUTH_REQUIRED"}` **ไม่มี WWW-Authenticate** (ทั้ง Basic และ X-Demo-User) ล็อกอินแล้วแต่สิทธิ์ไม่ตรง 403 `{"detail":"AUTH_FORBIDDEN"}` หรือ code เฉพาะที่กำหนด; ไม่เปลี่ยน error domain 404/409/422 เดิมหลังผ่านด่านตัวตน/สิทธิ์ ใน demo error เดิมและ X-Demo-User คงไว้ หน้าเว็บจับ code และแปล TH/EN ไม่แสดง stack trace หรือ detail ของ hash verifier
+
+`/auth/*` ส่ง Cache-Control: no-store; `GET /auth/me` ใช้ตรวจตัวตนจาก Backend ไม่เชื่อ localStorage หน้าเว็บเมื่อได้ 401 พาไป `/login` โดยยอมรับ return path แบบ relative ภายในเว็บเท่านั้น ไม่ยอม URL ข้าม origin; 403 แสดงข้อความไม่วนกลับ login และลบช่อง ActingAs ใน session
+
+Cookie และ Basic Auth ถูก browser แนบให้อัตโนมัติ จึงกำหนดให้ state-changing HTTP APIs ใน session (รวม login/register/logout และ Demo mutation ที่อยู่หลัง Basic Auth) **ต้องมี Origin ตรงหนึ่งใน CORS_ORIGINS ที่ server ตั้งไว้**; ไม่มี/`null`/ผิด origin ตอบ 403 `AUTH_ORIGIN_FORBIDDEN` ก่อนเขียนข้อมูล เว็บส่ง JSON และ credentials ให้ถูกต้อง CORS ไม่ใช่ตัวแทนของการตรวจ Origin คำขอที่ทดสอบผ่าน curl ต้องส่ง Origin ที่อนุญาตด้วย ยกเว้น LINE webhook (ลายเซ็น), internal job (secret) และ trusted CLI ที่ใช้ internal API ซึ่งไม่มี cookie ข้อยกเว้นนี้ไม่ให้เข้าถึง API ผู้ใช้โดยข้าม session
+
+login/register: ก่อน hash password ให้ตรวจหน้าต่าง 60 วินาทีต่อ IP (login 10 ครั้ง, register 5 ครั้ง) และต่อบัญชีที่ระบุได้ (login ต่อ staff_id 10 ครั้ง, register ต่อ subject ที่พบจาก code 5 ครั้ง); นับทุก attempt ตอบ 429 `AUTH_RATE_LIMITED` พร้อม Retry-After เมื่อเกิน ไม่ lock บัญชี จัดเก็บใน process memory มี TTL และจำนวน key สูงสุด 10,000; เมื่อเต็มให้ปฏิเสธ key ใหม่ชั่วคราวแทนโตไม่จำกัด AU4 ต้องกำหนด trusted proxy chain ให้เชื่อ X-Forwarded-For เฉพาะจาก Caddy ที่ Backend รับตรง ไม่เชื่อ header จากผู้ใช้และไม่ publish Backend ใช้ต่อเครื่องแบบ process เดียวในรอบนี้ ไม่อ้างว่า quota นี้กระจายหลาย Worker หรือคงหลัง restart
+
+#### 6.33.4 สิทธิ์และแจ้งลาของตัวเอง (AU2/AU3)
+
+**ขอบเขต:** staff = ตัวเองและเคสที่เกี่ยวข้อง, head_nurse = หอของตัวเอง, supervisor = ทุกหอ แต่การตัดสิน Approval ของ Supervisor ยังต้องรอ `supervisor_from` และใช้ side/กฎสองหอในข้อ 6.21 ห้ามข้าม Safety/Hard Rules/Timeout เดิม ใน MANUAL_HANDOFF ใช้สิทธิ์ Supervisor ทันทีตามเดิม
+
+เคสที่ staff เกี่ยวข้องหมายถึงมี CandidateOutreach ของตนในเคสนั้น (ไม่ใช่เพียงอยู่ในรายการผู้สมัครที่ยังไม่ติดต่อ), หรือเป็น staff ของ Event ที่เคสประมวลผล, หรือเป็นเจ้าของ Roster ที่เกิดจากเคสนั้น (รวมประวัติ) ตรวจจากความสัมพันธ์ใน DB ไม่รับ case scope จาก client Event ของเวรเดียวกันที่ยังไม่มีเคส staff อ่านได้เมื่อเป็นเจ้าของ Event เท่านั้น; หัวหน้าตรวจหอของ SHIFT; ถ้าเป็นคำขอสองหอ หัวหน้าหอ SOURCE ที่มีฝั่งอนุมัติของตนอ่านเคส/ประวัติที่จำเป็นต่อคำขอนั้นได้ด้วย แต่ไม่ทำให้เห็นเคสอื่นของหอปลายทาง Supervisor ทุกหอ ทั้ง list และ count ต้องกรองก่อน paginate/aggregate ห้ามคืนข้อมูลของเคสอื่นแล้วให้ browser ซ่อน
+
+| ความสามารถ | staff | head_nurse | supervisor |
+|---|---|---|---|
+| My offers / Handovers / ตอบ Offer / check-in | ตัวเอง | ตัวเอง | ตัวเอง |
+| แจ้งลา POST `/me/unavailability` | ตัวเองที่มี Roster ในเวร | ตัวเองที่มี Roster ในเวร | ตัวเองที่มี Roster ในเวร |
+| Roster / Gap | หอของตัวเอง; Roster ตัวเองอ่านเวรที่ถูกย้ายไปหออื่นได้ | หอของตัวเอง; Roster ตัวเองเช่นเดียวกัน | ทุกหอ |
+| Dashboard / รายการเคส / case detail / Audit / Handover ของเคส | เฉพาะเคสที่เกี่ยวข้อง; Roster/Gap ตามหอ | เคสของหอตัวเอง | ทุกหอ |
+| ขอ LLM explanation / summary | เคสที่อ่านได้ | เคสที่อ่านได้ | เคสที่อ่านได้ |
+| อ่านรายการ Approval / auto-approval / ตัดสิน | ไม่ได้ | เฉพาะฝั่งหอตัวเอง | ทุกหอแต่กฎเวลา/side เดิมยังใช้ |
+| Handoff candidates / จัดคน / ปิดเคส | ไม่ได้ | หอตัวเอง | ทุกหอ |
+| PATCH `/unavailability/{id}` แก้วันกลับ | ไม่ได้ | หอของคนลา | ทุกหอ (ขยายตาม Q9; AU2 ปรับตัวตรวจเดิมที่ให้แค่ head_nurse) |
+| POST `/events` ทั่วไป | 403 | 403 | 403 |
+| Demo control / simulator | ซ่อนเมนูปกติ; URL ภายใต้ด่านพิเศษข้อ 6.33.5 | เช่นเดียวกัน | เช่นเดียวกัน |
+
+Roster แยก query ชัดเจน: `shift_id` ตรวจหอของเวร; `staff_id` เท่าตนอ่าน Roster ของตนทุกหอได้เพื่อเลือกเวรแจ้งลา ส่วน `staff_id` คนอื่นต้องอยู่ใน home ward ที่ผู้ใช้ดูได้ และคืนเฉพาะแถวของเวรในหอที่ดูได้ มิฉะนั้น 403 ไม่คืนประวัติข้ามหอแถมมา หน้า self-leave อ่าน `GET /roster?staff_id=<ตัวเองจาก auth/me>` แล้วให้เลือก assigned shift ของตน ไม่ต้องกรอกรหัสเวรด้วยการเดา และ Backend ตรวจเจ้าของซ้ำก่อนบันทึก
+
+**แจ้งลาทันที:** route ใหม่บังคับ `EventType.STAFF_UNAVAILABLE`, ใช้ staff/USER actor จาก session และเรียก `event_service.receive_event()` ทางเดียวกับเดิม ไม่สร้าง Approval ลาอีกชุด รหัสเวรต้องมีและมีแถว assigned Roster ของตนตามกฎเดิม; ห้ามแจ้งแทนคนอื่นแม้เป็นหัวหน้า ถ้าไม่มี Roster ของตนตอบ 403 `AUTH_FORBIDDEN` ก่อนเขียน Event/Unavailability (ไม่เปลี่ยน 404 ของเวรที่ไม่มี) `end_at` ใช้กฎ `EventCreate`/ข้อ 3.4 เดิม ไม่ส่ง = จบเวร ไม่เก็บ free-text เหตุป่วยในรอบนี้ การสร้าง Event/ปิด merge window, no-gap→IGNORED, dedup/NO_SHOW ไม่เปลี่ยน การมีผลทันทีหมายถึงไม่รออนุมัติการลา แต่ถ้า merge window ยังไม่ถึงเวลาปิด เคสยังรอตามกติกาเดิม ห้ามสัญญาว่าคนแทนถูกจัดทันที
+
+เพิ่มปุ่มแจ้งลาตัวเองบนหน้าพยาบาลและแสดง EventResult/สถานะให้ชัด ไม่ reuse หน้าควบคุมที่เลือก staff_id ได้ Backend ใช้ body ที่จำกัดข้างต้นและตรวจความเป็นเจ้าของที่ API ตรงๆ; คำขอซ้ำใช้กฎ Event เดิม ไม่สร้างระบบ idempotency ใหม่โดยไม่จำเป็น ผู้ใช้ทั่วไปยังสร้าง PATIENT_SURGE/REQUIREMENT_CHANGED/ASSIGNMENT_CANCELLED ไม่ได้
+
+System Job/NO_SHOW เรียก service เดิมโดย SYSTEM actor ไม่ผ่าน user cookie; ปุ่ม Demo จำลองเหตุอื่นให้เพิ่ม `POST /demo/events` ที่กัน Basic Auth/Origin ตามข้อ 6.33.5 และใช้ SYSTEM actor พร้อม payload source=SIMULATED ของ Demo โดยไม่อ้างว่าเป็นการแจ้งของบัญชีผู้ใช้ รับ staff เป้าหมายได้เฉพาะขอบเขต Demo Endpoint นี้แยกจาก `/events` ที่ถูกปฏิเสธใน session AU2 ต้องระบุ adapter ที่ใช้ event/Domain validation เดิม และ AU3 เปลี่ยนปุ่ม Demo มาเรียก adapter นี้ ไม่เปิด `/events` กลับเพื่อให้ Demo ใช้ได้
+
+#### 6.33.5 ด่าน AWS และการเปลี่ยนโหมด (AU4)
+
+ก่อน deploy AU4 ใช้ Basic Auth PR D/W ที่ครอบทั้งเว็บตามเดิม หลัง AU1, AU2, AU3 merge และตรวจ session/สิทธิ์ครบ จึงเปลี่ยน Caddy: Basic Auth เฉพาะ `/demo` กับใต้ `/demo/` และ `/api/demo` กับใต้ `/api/demo/`; `/api/internal/*` ยัง 404 จากภายนอกทุกกรณี; **เฉพาะ POST `/api/line/webhook` URI ดิบตรงตัว** ยังผ่านไปตรวจลายเซ็น LINE ไม่มี session/Basic Auth เช่นเดิม รูป URI ที่ดัดแปลงต้องไม่กลายเป็นข้อยกเว้นไปถึง handler เดียวกัน; Caddy ต้องปฏิเสธหรือ Backend ต้องคืน 401/404 โดยไม่มีข้อมูล ไม่ใช้การ normalize URI เพื่อหลบด่าน
+
+public API มี GET `/health`, GET `/clock` (ไม่มีข้อมูลบุคคล), auth/login และ auth/register (anonymous แต่มี Origin/rate limit); `/docs`, `/redoc`, `/openapi.json` ต้องมี session หรือปิดบน AWS; logout ไม่ต้องมี session ที่ยัง valid เพื่อให้ล้าง cookie ได้ ส่วน `/demo/line-sim/offers` และ `/respond` ต้องผ่าน **ทั้ง Basic Auth และ session**: query staff_id ต้องเท่ากับผู้ล็อกอิน และ respond ต้องตรวจเจ้าของ outreach ใน DB ไม่สร้าง dependency สำหรับเลือกตัวตน Demo แยกใน session
+
+`GET /auth/config` เป็น public JSON แบบ no-store `{auth_mode: "demo"|"session"}` ไม่มี secret ใช้ให้ Frontend เลือก flow โดยยึด Backend เดียวกัน อย่าใช้ค่าใน browser ตัดสินสิทธิ์; AU1 Implement, AU3 อ่านหลังโหลดหน้าและแสดง loading/error จนรู้โหมด ส่วน route ธุรกิจยังใช้ dependency ฝั่ง server เสมอ
+
+การตรวจรับ AU4 ต้องแก้ `check-gate.sh`/`test_gate.py` ให้ตรงกติกาใหม่ (ไม่ใช้ผล PR W แบบครอบทุก Path อ้างแทน) ตรวจ anonymous 401 ของ business API, role/ward 403, X-Demo-User และ actor ใน body ใช้ปลอมตัวไม่ได้, Demo Basic Auth, simulator ต้องสองด่าน, exact signed webhook ยังผ่าน และ LINE smoke หลังเปลี่ยนด่าน เก็บ revision/image/result พร้อมระบุ live/fake ตามจริง `AUTH_MODE=demo` บน AWS ต้องทำให้ acceptance check ล้ม; ไม่เพิ่มสิทธิ์ Bedrock หรือ AWS keys เป็นส่วนของ AU4
+
+#### 6.33.6 ลงทะเบียนผ่าน LINE (AU5) และ Audit
+
+`LINK` และ schema/โค้ดออก LINK ของ PR K คงเดิม การเพิ่มบัญชีเว็บเป็น flow แยก: staff ที่ ACTIVE และผูก LINE ส่วนตัวอยู่แล้วส่ง **REGISTER** ใน LINE (signed user message เท่านั้น ไม่ใช่ group/room) Backend ออกโค้ดสุ่ม 192 bit, แสดงครั้งเดียวใน reply หลัง commit, เก็บ hash แบบแยก domain `AUTH_REGISTER` พร้อม subject และ binding ที่ออกให้; invalidates code เดิมของ subject เมื่อออกใหม่ ถ้ามีบัญชีแล้วให้แนะนำ login/ติดต่อทีม ไม่ออกโค้ดเพื่อเขียนทับรหัสและไม่ใช้ flow นี้กู้รหัส
+
+ผู้ใช้กรอกโค้ดกับ password บนหน้า `/register` ซึ่งไม่ขอ role/ward/staff_id; API หา subject จาก code เท่านั้น ตรวจ expiry/used/STAFF ACTIVE/current binding ตรงกับตอนออก และยังไม่มี account ขณะถือ lock ให้ consume code กับสร้าง AUTH_ACCOUNT เป็น transaction เดียว คำขอพร้อมกันสร้างได้หนึ่งบัญชี/ใช้โค้ดได้ครั้งเดียว บัญชีที่ disabled ไม่สมัครทับได้ การ unlink/rebind LINE ทำให้โค้ดสมัครที่ออกกับ binding เก่าใช้ไม่ได้ แต่ไม่ยกเลิกบัญชีเว็บเดิมของคนเดียวกันโดยปริยาย (Q13 ก)
+
+**auth registration code อายุ 600 วินาทีด้วย real UTC** เช่นเดียวกับ session; ต่างจาก LINK เดิมของ PR K ที่ใช้ Demo Clock กติกาใหม่นี้ไม่แก้วันหมดอายุ LINK การ freeze/advance/reset Demo ไม่ทำให้ auth code อยู่ตลอดไป ไม่ log token/password/UID/raw message และไม่ส่งข้อมูลดิบไป LLM REGISTER ใช้ event dedup/commit และ post-commit reply ตาม webhook เดิม ถ้าตอบกลับล้มเหลว ผู้ใช้ขอ REGISTER ใหม่ได้โดยไม่สร้างบัญชีซ้ำ; จำกัดคำสั่งออกโค้ดด้วย 5 ครั้ง/60 วินาทีต่อ subject บน real time
+
+Audit ของการกระทำเว็บใช้ USER actor ที่ join จาก subject/session ไม่เชื่อ actor_id จาก body/header; ฝั่ง LINE ใช้ USER actor ของ staff ที่ผูกกับ UID; job/Demo ใช้ SYSTEM/component ตามกฎเดิม ไม่ทำ Audit login/access log ใหม่ในรอบนี้ Audit ธุรกิจเดิมไม่ถูกลบ/เขียนใหม่เพื่อเปลี่ยนผู้กระทำย้อนหลัง
+
+#### 6.33.7 Reset Demo และเจ้าของงาน
+
+AU1 เพิ่ม `STAFF.auth_subject` UUID immutable UNIQUE และเก็บ snapshot **STAFF ทุกแถวพร้อม subject, metadata บทบาท/หอ/สถานะเดิม** พร้อม ACTORS ของ identity ที่รักษา และ AUTH_ACCOUNT ภายใน transaction ของ reset; กำหนดให้ seed loader รองรับการรักษา identity นี้ก่อนสร้าง Golden Case (ไม่สร้างบุคคลใหม่มาทับ ID ที่จองไว้) คีย์คืนบัญชีคือ subject ไม่ใช่ first_name/email หรือ staff_id เพียงอย่างเดียว ต้องเก็บ USER actor ของพนักงานที่รักษาด้วย ไม่ล้างจนบัญชีที่ไม่ใช่ Golden Case login ไม่ได้ ตำแหน่ง identity ของ fixture เดิมต้องผูกกับ subject เดิมที่ snapshot ไว้; กรณีสร้าง DB ใหม่จึงสร้าง subject ใหม่ได้ ไม่ใช้ชื่อเป็นตัวพิสูจน์ว่าเป็นคนเดียวกัน
+
+ห้ามคืนบัญชีกับคนอื่นเมื่อเลข ID ถูกใช้ซ้ำ: preserve Staff row/subject ต้นฉบับและตรวจ FK role/ward ก่อนโหลดสถานการณ์; ถ้าทำไม่ได้/ตัวตนขัดกัน ให้ rollback reset ทั้งหมด ไม่ drop บัญชีที่ไม่มีใน Golden Case เงียบๆ AU1 ต้องปรับ loader/reset ที่ตอนนี้ใช้ DROP SCHEMA ให้รักษา identity tables ได้และคืน sequence ต่อจาก max ID; ข้อมูลสถานการณ์/CONTACTS และ LINK เดิมใช้กติกา reset เดิม ไม่อ้างว่าผูก LINE คงอยู่หลัง reset ถ้าโค้ดเดิมล้าง
+
+reset สำเร็จคง password hash/disabled/must_change/password-change generation เดิม แต่ล้าง AUTH_SESSION และ AUTH_REGISTRATION_CODE (เมื่อ AU5 migration มีแล้ว) ทั้งหมดใน transaction เดียว; cookie/code เก่าใช้ไม่ได้ หาก reset ล้มให้บัญชี/session/code ก่อนเริ่มยังคงเดิม Reset ไม่ต่อโควตาและยังเก็บ LLM ledger ตามข้อ 6.27 ต้องล็อกการสร้างบัญชี/เปลี่ยนรหัส/ปิดบัญชี/ออก session ตลอด snapshot→restore โดยใช้ transaction advisory lock กลางสำหรับ Auth reset: reset ถือ exclusive `(6210, 1)` ก่อนล็อกตาราง ส่วนทุก auth write/แก้ identity/logout ถือ shared key เดียวกันก่อน row lock และถือจนจบ transaction ไม่ทับ concurrent write หรือคืน session ที่ logout แล้ว หากชน deadlock ใช้ retry แบบ bounded ตาม reset เดิม ไม่ reset เป็นสำเร็จครึ่งหนึ่ง UI แจ้งให้ login ใหม่หลัง reset สำเร็จ; restart/migrate ปกติไม่ล้างบัญชี ห้ามใช้ destructive seed CLI บน AWS เป็นทางลัดข้าม reset ที่รองรับ auth
+
+| PR | ส่งต่อจาก AU0 / หลักฐานที่ต้องมี |
+|---|---|
+| AU1 คน 2 | Migration ต่อ head ล่าสุดหนึ่งเส้น, schema/hashed password/session, API auth/config, Origin/rate limit, CLI บัญชีและ reset/identity-preservation tests; unit/integration fake ไม่เรียก LINE/Bedrock |
+| AU2 คน 2 | เพิ่มตัวตรวจ current subject/role/ward ทุก route ตาม matrix, self-leave/Domain adapter, demo events, System Job ยังทำงาน; ตาราง route inventory และ API tests ที่รวม 401/403/เจ้าของผิด |
+| AU3 คน 1 (คน 3 ทำแทนได้ตามผู้ใช้) | login/register/change-password, โหมดจาก auth/config, 401/403, เมนูและ self-leave, Demo adapter, reset→login; TH/EN และ production build/browser |
+| AU5 คน 3 | REGISTER/atomic register code/real-time expiry/binding checks, regression LINK/check-in/buttons, reset/session/impersonation cross-tests |
+| AU4 คน 1 (คน 3 ทำแทนได้ตามผู้ใช้) | หลัง AU2+AU3; Caddy/Compose/Gate และคู่มือ/production checks/LINE smoke; AU5 ต้อง merge และตรวจ register จริงก่อนปิดรอบ |
+
+**เงื่อนไข AU2 tests:** ทุก method/path ของ business API ต้องมีผู้รับผิดชอบใน inventory ไม่ตรวจเฉพาะ route ที่เคยมี DemoUser; anonymous และ X-Demo-User-only ต้องไม่ผ่านใน session, staff ข้ามคน/หอ/เคสไม่ได้, list/count ไม่รั่ว, session เวลาเป็น real, logout/disable/password-change/reset ใช้ token เดิมไม่ได้, CSRF/Origin และ rate limit ตรวจ server-side, login/register ไม่เปิด role escalation, self-leave เฉพาะ Roster ตนและ no_show/การอนุมัติคนแทนไม่เปลี่ยน ทุก mutation ที่ถูกปฏิเสธต้องไม่เขียนข้อมูล
+
 
 ## 7. Audit
 
@@ -2257,7 +2387,7 @@ Offer ของ 201 กับ 202 เป็น `TIMEOUT` ตามข้อ 6.9 
 | POST | `/me/offers/{outreach_id}/response` | พนักงานใน Header ตอบ `ACCEPT` / `REJECT` (รอบ 3 PR N) | คน 1 |
 | POST | `/internal/merge-windows/close-due` | Route ภายในที่ Service ของ Job เรียก กันด้วย `X-Internal-Secret` ไม่ใช้ `X-Demo-User` | คน 1 |
 
-ทุก Request ที่ต้องรู้ตัวผู้ใช้ส่ง Header `X-Demo-User: <staff_id>` (D9)
+**[AU1/AU2]** ทุก Request ที่ต้องรู้ตัวผู้ใช้ใช้ current-user dependency ตัวเดียว: demo อ่าน `X-Demo-User`, session อ่าน cookie/session ที่ตรวจแล้วตามข้อ 6.33 เท่านั้น ตัวอย่าง dependency และ Header error ข้างล่างเป็นโค้ดเดิมของ demo ไม่ใช่สัญญาของ session
 
 Route ที่ต้องรู้ตัวผู้ใช้ประกาศ Dependency จาก `api/dependencies.py`
 
@@ -2706,6 +2836,10 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 
 ---
 
+### 9.9 API ล็อกอินและแจ้งลาตัวเอง [AU1/AU2/AU5 ยังไม่ Implement]
+
+รูป request/response/error ที่ใช้ร่วมกันกำหนดในข้อ 6.33.3: AU1 ทำ `/auth/config`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/change-password`; AU2 ทำ self-only POST `/me/unavailability` และ trusted Demo POST `/demo/events`; AU5 ทำ `/auth/register` และคำสั่ง LINE REGISTER ไม่มี API admin เพิ่ม รูป API เดิมของข้อ 9.1–9.8 ยังคงข้อมูลธุรกิจ แต่เงื่อนไข session/สิทธิ์ต้องใช้ matrix ข้อ 6.33.4 หลัง AU2 ทำเสร็จ ไม่อ้างคำว่า "อ่านได้โดยไม่ส่ง X-Demo-User" เดิมเพื่อเปิด endpoint โดยไม่มี session
+
 ## 10. Golden Case
 
 ### 10.1 สถานการณ์
@@ -2997,3 +3131,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-21 | รอบ 6 ขั้นที่ 6: บันทึกผลเปิดเครื่อง AWS ด้วย env แบบตั้งมือ HTTPS/Basic Auth, Gate จาก Mac, Frontend production ไม่มี Mount, Console/Network และ literal Bundle scan เป็นหลักฐานบางส่วนจากผู้ Deploy ยังไม่ปิดช่วง ข; เพิ่มวิธีติดตั้ง Buildx พร้อม checksum ที่พบว่าขาดตอนเปิดเครื่องจริง; LINE ยัง simulation และ LLM ปิด ไม่ใช่ผล W/B2 ไม่มี Migration | คน 3 |
 | 2026-10-21 | รอบ 6 PR W: เพิ่ม strict Gate สำหรับ LINE จริงที่ปฏิเสธ webhook 503 พร้อม tests Caddy/fake upstream, runbook cutover/rollback และหลักฐาน live ที่ผู้ Deploy รายงานบน AWS: LINK 201, Offer/คำขออนุมัติ, Handover, check-in/คำสั่งซ้ำ, SQL ยืนยัน Attendance/Audit อย่างละหนึ่ง source SELF และ Gate จาก Mac ผ่าน; Quick Tunnel เดิมหมดอายุแล้ว ไม่ได้ทดสอบ live redelivery/crash/rollback และไม่ปิดข้อค้างขั้นที่ 6 หรือรอบ 6 จากผลนี้ ไม่มี Migration | คน 3 |
 | 2026-10-22 | รอบ 6 PR B2: ลอง Bedrock จริงกับ Amazon Nova 2 Lite ผ่านตัวห่อของ B1 เพิ่มเครื่องมือ `app/trial/` (ชุดเคสสังเคราะห์ 30 เคสที่ตรึงด้วย `input_hash`, ตัวให้คะแนนสี่เกณฑ์ด้วยโค้ด, คำสั่ง `python -m app.trial.run generate/run/report`) ที่เรียก LLM ผ่าน `llm_gateway.call()` แบบ `MODEL_TRIAL` เท่านั้น ปฏิเสธไฟล์ผลที่อยู่ในโฟลเดอร์โค้ดหรือ repo (หาจาก marker `.git` และโฟลเดอร์ `backend` ไม่ใช้ความลึกโฟลเดอร์ตายตัว ใช้ได้ใน container ที่ mount เฉพาะ `./backend`) และปฏิเสธการรันจริงถ้า provider ไม่ใช่ `bedrock` เขียน manifest ข้างไฟล์ผล (run, ชุดเคส, prompt, provider, model ID และราคา, เพดานค่าใช้จ่ายต่อ Plan) `run` ต่อไฟล์ผลได้เฉพาะเมื่อ manifest และทุกแถวตรงกับการทดลองปัจจุบัน `report` ตัดสินจาก manifest (เพดานเปลี่ยนตอนรายงานไม่ได้) และตัดสินทุกโมเดลกับทุกเคสของชุดที่ตรึง เคสที่ไม่มีผลนับเป็น incomplete ค่าตั้งต้น: เพดานต่อ Plan 0.00552136 USD และงบชุดทดลอง 3.43592 USD ตามข้อ 6.28 (แก้ตามรีวิว PR B2) ผลและข้อจำกัด (โมเดลเดียว, รันจาก CloudShell, ยังไม่มี IAM Role ของเครื่อง) อยู่ในตาราง fake กับของจริง ไม่มี Migration และไม่ตั้ง `LLM_ENABLED=true` | คน 2 |
+| 2026-10-22 | รอบ 6 AU0: รับร่าง #120 เป็น Contract ข้อ 6.33 และ planned schema; เปลี่ยน D9 เป็น demo/session เมื่อ AU Implement, เพิ่ม self-leave ของตัวเองแบบไม่รออนุมัติการลาตามผู้ใช้ แยกจาก Event ทั่วไป, กำหนด auth API/สิทธิ์/Origin/rate limit/REGISTER/permanent identity และ reset, เจ้าของ AU1–AU5 กับเกณฑ์ production; ไม่เปลี่ยนโค้ด Migration หรือเครื่อง AWS และไม่เปิด LLM | คน 3 ทำแทนคน 1 |
