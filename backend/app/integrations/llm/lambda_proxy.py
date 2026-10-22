@@ -11,6 +11,7 @@ and answers in the shape below, which this adapter reads with the Bedrock adapte
             {"ok": false, "error_code": "<Bedrock code or botocore class>", "model_id", "region"}
   403       wrong or missing API key (API Gateway)
   429       usage-plan quota or throttling (API Gateway, best effort only)
+  3xx       never followed (the key must not leave the configured URL): SERVICE_ERROR
   400/413   the proxy refused the request (its limits); 5xx/504 a proxy or gateway fault
 
 The quota of the app (llm_gateway) is still the control: the usage plan is an extra limit
@@ -40,8 +41,18 @@ _HTTP_STATUSES: dict[int, tuple[LlmCallStatus, str]] = {
 }
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow a redirect: urllib would resend `x-api-key` to wherever it points."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
 def _post(url: str, body: bytes, api_key: str, timeout_seconds: float) -> tuple[int, bytes]:
-    """(HTTP status, body). An HTTP error answer is returned, not raised."""
+    """(HTTP status, body). An HTTP error answer, a redirect included, is returned, not raised."""
     request = urllib.request.Request(
         url,
         data=body,
@@ -49,7 +60,7 @@ def _post(url: str, body: bytes, api_key: str, timeout_seconds: float) -> tuple[
         headers={"Content-Type": "application/json", API_KEY_HEADER: api_key},
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:  # noqa: S310
+        with _OPENER.open(request, timeout=timeout_seconds) as response:  # noqa: S310
             return response.status, response.read()
     except urllib.error.HTTPError as error:
         with error:
@@ -90,8 +101,10 @@ def generate(request: LlmRequest) -> LlmAttempt:
             "system": request.system,
             "prompt": request.prompt,
             "max_output_tokens": request.max_output_tokens,
-        }
-    ).encode()
+        },
+        # Thai as UTF-8 (3 bytes), not \uXXXX (6 bytes): the proxy's size limit is in bytes
+        ensure_ascii=False,
+    ).encode("utf-8")
     try:
         code, raw = _post(url, body, key.get_secret_value(), request.timeout_seconds)
     except TimeoutError:

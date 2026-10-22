@@ -45,3 +45,14 @@ class AuthMe(BaseModel):
     role: ApiRole
     home_ward_id: int
     must_change_password: bool
+
+
+class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Annotated[StrictStr, Field(max_length=128)]
+    password: NewPassword
+
+
+class RegisteredAccount(BaseModel):
+    staff_id: int

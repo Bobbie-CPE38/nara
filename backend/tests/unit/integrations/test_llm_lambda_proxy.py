@@ -6,8 +6,12 @@ AWS host fails the test.
 
 import json
 import logging
+import sys
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 import urllib.error
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -15,7 +19,7 @@ from pydantic import SecretStr, ValidationError
 from app.core.config import Settings, settings
 from app.domain.enums import LlmCallStatus
 from app.integrations.llm import LlmRequest, lambda_proxy
-from app.services import llm_service
+from app.services import llm_gateway, llm_service
 
 URL = "https://abc123.execute-api.ap-southeast-1.amazonaws.com/prod"
 KEY = "API-KEY-do-not-leak"
@@ -227,3 +231,101 @@ def test_lambda_is_configured_with_url_and_key(
     assert fresh.llm_configured is configured
     # The key never shows in the settings' text
     assert KEY not in repr(fresh)
+
+
+# --------------------------------------------------------------------------- redirects, Thai
+def _server(handler: type[BaseHTTPRequestHandler]) -> HTTPServer:
+    server = HTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+@pytest.mark.parametrize("location_host", ["127.0.0.1", "localhost"], ids=["same-host", "other-host"])
+def test_a_redirect_is_not_followed_and_the_key_goes_nowhere_else(location_host: str) -> None:
+    seen: list[dict[str, str]] = []
+
+    class Target(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            seen.append(dict(self.headers))
+            self.send_response(200)
+            self.end_headers()
+
+        do_GET = do_POST
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    target = _server(Target)
+
+    class Origin(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            self.send_response(307)  # 307 keeps the method and the body
+            self.send_header("Location", f"http://{location_host}:{target.server_port}/x")
+            self.end_headers()
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    origin = _server(Origin)
+    try:
+        code, body = lambda_proxy._post(
+            f"http://127.0.0.1:{origin.server_port}/prod", b"{}", KEY, 5.0
+        )
+    finally:
+        origin.shutdown()
+        target.shutdown()
+
+    assert code == 307
+    assert body == b""
+    assert seen == []
+
+
+def test_a_redirect_is_a_service_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(lambda_proxy, "_post", Recorder(status=302, body=b""))
+
+    attempt = lambda_proxy.generate(_request())
+
+    assert attempt.status is LlmCallStatus.SERVICE_ERROR
+    assert attempt.error_type == "ProxyError"
+
+
+def test_thai_goes_over_the_wire_as_utf8_within_the_proxys_default_limit() -> None:
+    """The largest input the app accepts (5000 Thai characters = 5000 estimated tokens)
+    must fit MAX_INPUT_BYTES of the Lambda, which reads the body as the proxy does."""
+    sys_path = str(Path(__file__).resolve().parents[4] / "deploy" / "aws" / "lambda")
+    monkeypatch_path = sys.path[:]
+    sys.path.insert(0, sys_path)
+    try:
+        import bedrock_proxy  # type: ignore[import-not-found]
+    finally:
+        sys.path[:] = monkeypatch_path
+
+    sent: list[bytes] = []
+
+    def capture(url: str, body: bytes, api_key: str, timeout: float) -> tuple[int, bytes]:
+        sent.append(body)
+        return 200, json.dumps(SUCCESS).encode()
+
+    request = LlmRequest(
+        system="",
+        prompt="ก" * settings.llm_max_input_tokens,
+        payload={},
+        max_output_tokens=321,
+        timeout_seconds=7.5,
+    )
+    assert llm_gateway.estimate_input_tokens(request) <= settings.llm_max_input_tokens
+    original = lambda_proxy._post
+    lambda_proxy._post = capture
+    try:
+        lambda_proxy.generate(request)
+    finally:
+        lambda_proxy._post = original
+
+    body = sent[0]
+    assert b"\u0e01" not in body
+    assert len(body) < 20000 * 1  # the old default would have rejected 30054 bytes
+    status, parsed = bedrock_proxy._read(
+        {"body": body.decode("utf-8")}, bedrock_proxy.DEFAULT_MAX_INPUT_BYTES
+    )
+    assert status == 200
+    assert parsed is not None and parsed["prompt"] == request.prompt

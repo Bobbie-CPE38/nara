@@ -18,7 +18,7 @@ Request body  {"system": str, "prompt": str, "max_output_tokens": int}
 Never logs the prompt, the answer or an exception message: one JSON line per request with
 the request ID, the outcome, the token counts and the time taken.
 
-Environment: MODEL_ID (required), MAX_INPUT_BYTES (20000), MAX_OUTPUT_TOKENS (1024),
+Environment: MODEL_ID (required), MAX_INPUT_BYTES (32000), MAX_OUTPUT_TOKENS (1024),
 BEDROCK_TIMEOUT_SECONDS (10, under the function timeout and the Backend's 15 seconds).
 AWS_REGION is set by Lambda itself.
 """
@@ -29,7 +29,9 @@ import os
 import time
 from typing import Any
 
-DEFAULT_MAX_INPUT_BYTES = 20000
+# The app accepts 5000 estimated tokens = 15000 bytes of system + prompt (3 bytes a token);
+# JSON quoting and escaping can double that, plus the keys: 2 * 15000 + overhead
+DEFAULT_MAX_INPUT_BYTES = 32000
 DEFAULT_MAX_OUTPUT_TOKENS = 1024
 DEFAULT_BEDROCK_TIMEOUT_SECONDS = 10.0
 
