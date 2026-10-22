@@ -261,8 +261,11 @@ def test_a_redirect_is_not_followed_and_the_key_goes_nowhere_else(location_host:
 
     class Origin(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
+            # Read the body first: closing with unread data can reset the connection
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
             self.send_response(307)  # 307 keeps the method and the body
             self.send_header("Location", f"http://{location_host}:{target.server_port}/x")
+            self.send_header("Content-Length", "0")
             self.end_headers()
 
         def log_message(self, *args: object) -> None:
