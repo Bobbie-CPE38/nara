@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import type { ReactNode } from "react";
+import { AuthGate, AuthProvider } from "@/components/AuthProvider";
 import { ClockProvider } from "@/components/ClockProvider";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { LANG_COOKIE, parseLang, translate } from "@/lib/i18n";
@@ -23,10 +24,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     <html lang={lang}>
       <body>
         <LanguageProvider initial={lang}>
-          <ClockProvider>
-            <SiteHeader />
-            {children}
-          </ClockProvider>
+          <AuthProvider>
+            <ClockProvider>
+              <SiteHeader />
+              <AuthGate>{children}</AuthGate>
+            </ClockProvider>
+          </AuthProvider>
         </LanguageProvider>
       </body>
     </html>
