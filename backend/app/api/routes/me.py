@@ -9,12 +9,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
 
 from app.api.dependencies import DbSession, DemoUser, forbidden
 from app.api.offer_responses import ResponseResult, answer_offer
 from app.core.constants import MAX_BIGINT
-from app.db.models import RosterAssignment
 from app.domain.enums import CandidateResponse, CheckInSource, EventType
 from app.domain.errors import ShiftNotFoundError
 from app.schemas.attendance import CheckInResponse, MyCheckIn
@@ -138,16 +136,4 @@ def report_my_leave(body: SelfLeave, db: DbSession, user: DemoUser) -> EventResu
         event_status=outcome.event_status,
         case_id=outcome.case_id,
         case_status=outcome.case_status,
-    )
-
-
-def _has_roster_row(db: DbSession, staff_id: int, shift_id: int) -> bool:
-    """Any row of the person in the shift, whatever its status: the shift is theirs."""
-    return (
-        db.scalar(
-            select(RosterAssignment.id)
-            .where(RosterAssignment.staff_id == staff_id, RosterAssignment.shift_id == shift_id)
-            .limit(1)
-        )
-        is not None
     )

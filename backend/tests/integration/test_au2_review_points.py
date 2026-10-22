@@ -396,6 +396,36 @@ def test_the_leave_period_is_decided_by_the_role_it_is_given(
 # --------------------------------------------------------------------------- #
 # One query to read a case or an event
 # --------------------------------------------------------------------------- #
+def test_a_head_nurse_reads_only_the_rows_of_their_wards_in_anothers_roster(
+    scene: Scene,
+) -> None:
+    """201 (an ICU nurse) holds one row on a shift of another ward. The ICU head nurse reads their
+    roster without it, the supervisor and 201 with it, and the filter is in the statement."""
+    db = scene.db
+    statements: list[str] = []
+    engine = db.get_bind()
+
+    def record(conn, cursor, statement, parameters, context, executemany) -> None:  # type: ignore[no-untyped-def]
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        seen = client_of(900).get("/roster?staff_id=201")
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    assert seen.status_code == 200
+    assert seen.json()["assignments"] == []
+    rows = [s for s in statements if "FROM roster_assignment" in s and "staff_id" in s]
+    assert rows and all("ward_id" in s for s in rows), "the ward filter is not in the query"
+
+    for reader in (scene.supervisor, 201):
+        full = client_of(reader).get("/roster?staff_id=201")
+        assert full.status_code == 200
+        assert len(full.json()["assignments"]) == 1
+    # A head nurse of a ward that does not read 201's ward is refused before any row
+    assert client_of(902).get("/roster?staff_id=201").status_code == 403
+
+
 def test_may_the_viewer_read_this_is_one_statement(scene: Scene) -> None:
     db = scene.db
     viewer = access_service.Viewer(staff_id=902, home_ward_id=2, role="head_nurse")
