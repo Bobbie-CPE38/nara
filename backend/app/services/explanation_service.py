@@ -52,7 +52,7 @@ from app.services.llm_service import LlmAttempt, LlmRequest
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "rank-explanation-v2"
+PROMPT_VERSION = "rank-explanation-v3"
 MAX_EXPLAINED_CANDIDATES = 10
 MAX_PER_SWEEP = 3
 _MIN_LEASE_SECONDS = 60
@@ -68,11 +68,22 @@ RANKING_KEY_ORDER = [
 
 SYSTEM_PROMPT = (
     "You explain, for a hospital shift manager, how a ranked list of replacement candidates "
-    "was produced by a scheduling program. Answer in Thai, in 2 to 4 sentences, as plain text "
-    "with no markdown and no recommendations. Use only numbers that appear in the data. "
+    "was produced by a scheduling program. Answer in 2 to 4 short sentences of natural Thai "
+    "only: no English, Chinese or other scripts, no markdown, no bullets, no recommendations. "
+    "Use only numbers that appear in the data. "
     'Refer to people only as "อันดับ N" using the rank field. '
+    "Never write a field name or an id (ranking_key, plan_penalty, first_wave, "
+    "hours_this_week, plan or staff ids): say what it means in plain Thai instead. "
     "plan_penalty.meaning says what chose the first wave. "
-    "ranking_key orders the candidates inside the plan (first wave first, then reserves). "
+    "The first wave is the first group asked (กลุ่มแรกที่ถูกติดต่อ); the other candidates are "
+    "reserves (ตัวสำรอง). "
+    "ranking_key orders the candidates inside the plan (first wave first, then reserves): "
+    "compare two candidates by its items in the order listed, and the first item on which they "
+    "differ decides. Items: candidate_source is where the person comes from "
+    "(SAME_WARD = ward เดียวกัน, FLOAT_POOL = กลุ่มสำรองกลาง, CROSS_WARD = ต่าง ward), "
+    "hours_this_week = ชั่วโมงที่ทำงานในสัปดาห์นี้, "
+    "projected_consecutive_shifts = จำนวนเวรติดกันที่จะเกิดขึ้น, "
+    "overtime_hours = ชั่วโมงล่วงเวลา. "
     "Never claim that a rank comes from the total points."
 )
 

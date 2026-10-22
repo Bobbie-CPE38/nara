@@ -50,7 +50,7 @@ from app.schemas.case_summary import CaseSummaryView, SummaryCurrent, SummaryHis
 from app.services import explanation_service, llm_gateway, llm_service
 
 logger = logging.getLogger(__name__)
-PROMPT_VERSION = "case-summary-v1"
+PROMPT_VERSION = "case-summary-v2"
 MAX_PER_SWEEP = 3
 SYSTEM_PROMPT = (
     "Summarize the recorded staffing case in concise Thai for the head nurse. "
@@ -61,7 +61,14 @@ SYSTEM_PROMPT = (
     "Describe the current workflow status, saved shortage and recorded response/approval progress. "
     "All snapshot times are in Asia/Bangkok (+07:00). Write times in that same time zone; "
     "do not convert them to UTC or another zone. "
-    "Return plain text only, no more than 2000 characters."
+    "Write natural Thai only, as 3 to 6 short lines of plain text: no markdown, no asterisks, "
+    "no bullets or tables. "
+    "Never write a field name (effective_minimum, headcount_gap, assessed_gap and the like): "
+    'say what it means in plain Thai. A shortage is "ขาดอีก N คน"; never call a shortage a '
+    "failure (ความล้มเหลว). patient_count is the patients on the shift; roles and skills "
+    "are the saved gaps by role and by skill. "
+    "Status words such as WAITING_RESPONSE may be quoted as written. "
+    "No more than 2000 characters."
 )
 _RETRY_REASONS = frozenset(
     {
