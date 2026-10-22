@@ -42,7 +42,11 @@ from app.services import (
     requirement_service,
     unavailability_service,
 )
-from app.services.merge_window_service import NO_SHOW_REASON, REPORTED_BY
+from app.services.merge_window_service import (
+    EVENT_SOURCE,
+    NO_SHOW_REASON,
+    REPORTED_BY,
+)
 
 
 class EventNotFoundError(LookupError):
@@ -83,6 +87,7 @@ def receive_event(
     patient_count: int | None = None,
     roles: Mapping[int, int] | None = None,
     skills: Mapping[int, int] | None = None,
+    source: str | None = None,
 ) -> EventOutcome:
     """Take in one event reported by a staff member and commit the result.
 
@@ -93,6 +98,9 @@ def receive_event(
       * ASSIGNMENT_CANCELLED: `target_staff_id` and `reason`.
       * PATIENT_SURGE: `patient_count`, the new total of the shift.
       * REQUIREMENT_CHANGED: `roles` and `skills`, ID to new required count.
+
+    `source`, when given, is kept as payload.source: POST /demo/events sends SIMULATED so
+    a demo event is never mistaken for a report of a web account (6.33.4).
 
     Every check runs before the first write, so a rejected request leaves no
     trace: ShiftNotFoundError, requirement_service.RequirementNotFoundError,
@@ -116,6 +124,8 @@ def receive_event(
         else:
             subject_staff_id, payload = None, _requirement_details(db, shift, roles, skills)
         payload[REPORTED_BY] = staff_id
+    if source is not None:
+        payload[EVENT_SOURCE] = source
     if event_type in STAFF_EVENT_TYPES:
         assert subject_staff_id is not None
         # Taken after the shift lock, always in this order. It does not stop a

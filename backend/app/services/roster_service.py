@@ -7,7 +7,7 @@ The orchestrator owns status and commit.
 
 from datetime import datetime
 
-from sqlalchemy import ColumnElement, and_, exists, select
+from sqlalchemy import ColumnElement, and_, exists, select, true
 from sqlalchemy.orm import InstrumentedAttribute, Session, aliased
 
 from app.db.models import (
@@ -299,8 +299,13 @@ def get_shift_roster(db: Session, shift_id: int) -> ShiftRoster:
     )
 
 
-def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
+def get_staff_roster(
+    db: Session, staff_id: int, shift_condition: ColumnElement[bool] | None = None
+) -> StaffRoster:
     """Read the staff member and every roster row they hold, without flushes, commits or locks.
+
+    `shift_condition` (session mode, someone else's roster) limits the rows to the shifts the
+    reader may see, in the query, so a hidden row is neither loaded nor counted.
 
     Rows come back in every status, ordered by effective start, then row ID: a
     person's shifts read as a timeline. Two statements whatever the number of
@@ -352,7 +357,10 @@ def get_staff_roster(db: Session, staff_id: int) -> StaffRoster:
         )
         .join(Shift, Shift.id == RosterAssignment.shift_id)
         .join(Ward, Ward.id == Shift.ward_id)
-        .where(RosterAssignment.staff_id == staff_id)
+        .where(
+            RosterAssignment.staff_id == staff_id,
+            true() if shift_condition is None else shift_condition,
+        )
         .order_by(roster_time_service.start_at(), RosterAssignment.id)
     ).mappings()
     return StaffRoster(

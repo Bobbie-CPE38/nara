@@ -65,6 +65,9 @@ logger = logging.getLogger(__name__)
 # Key of STAFFING_EVENTS.payload that names who reported an event about someone
 # or something else. A leave is reported by the person themselves (staff_id)
 REPORTED_BY = "reported_by"
+# payload.source of an event that is not a person's own report, and its value for the Demo control
+EVENT_SOURCE = "source"
+SIMULATED_SOURCE = "SIMULATED"
 
 # Value of payload["reason"] on a STAFF_UNAVAILABLE event that the NO_SHOW job
 # wrote (stage 1, workflow.md 6.24). A leave event has no such key
@@ -388,7 +391,15 @@ def _assigned_roster(db: Session, event: StaffingEvent) -> RosterAssignment:
         raise _NotApplicableError(EventIgnoredReason.NO_ASSIGNED_ROSTER) from error
 
 
+def _is_simulated(event: StaffingEvent) -> bool:
+    return event.payload.get(EVENT_SOURCE) == SIMULATED_SOURCE
+
+
 def _reporter_actor(db: Session, event: StaffingEvent) -> int:
+    """Who did what the event says: the person who reported it, the SYSTEM actor when the Demo
+    control simulated it (nobody reported it, whatever staff the demo character stands for)."""
+    if _is_simulated(event):
+        return actor_service.component_id(db, ActorName.SYSTEM)
     return actor_service.user_id(db, int(event.payload[REPORTED_BY]))
 
 
@@ -405,7 +416,12 @@ def _apply_leave(db: Session, shift: Shift, event: StaffingEvent) -> None:
         db,
         case_id=None,
         event_id=event.id,
-        actor_id=actor_service.user_id(db, roster.staff_id),
+        # The person on leave reported it, except when the Demo control simulated it
+        actor_id=(
+            actor_service.component_id(db, ActorName.SYSTEM)
+            if _is_simulated(event)
+            else actor_service.user_id(db, roster.staff_id)
+        ),
         action=AuditAction.UNAVAILABILITY_CREATED,
         entity_type=EntityType.STAFF_UNAVAILABILITY,
         entity_id=unavailability.id,

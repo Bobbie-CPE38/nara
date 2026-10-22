@@ -14,7 +14,7 @@ import logging
 from collections.abc import Collection
 from typing import NamedTuple
 
-from sqlalchemy import func, select, true
+from sqlalchemy import ColumnElement, func, select, true
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -122,21 +122,27 @@ class HandoffLockRetryError(ValueError):
 
 
 def list_cases(
-    db: Session, *, role_id: int, home_ward_id: int, statuses: Collection[CaseStatus]
+    db: Session,
+    *,
+    role_id: int,
+    home_ward_id: int,
+    statuses: Collection[CaseStatus],
+    condition: ColumnElement[bool] | None = None,
 ) -> list[HandoffCase]:
     """Cases of the caller's ward in the given statuses, oldest first. Read-only.
 
-    Head Nurses see their own ward; Supervisors see all wards immediately.
+    Head Nurses see their own ward; Supervisors see all wards immediately. `condition`
+    replaces that rule for a session-mode staff member (access_service.case_condition):
+    the rows they may read, with no manager role needed. It may read SHIFT.
     """
-    supervisor = _require_manager_role(db, role_id) == SUPERVISOR_ROLE
+    if condition is None:
+        supervisor = _require_manager_role(db, role_id) == SUPERVISOR_ROLE
+        condition = true() if supervisor else Shift.ward_id == home_ward_id
     with db.no_autoflush:
         rows = db.execute(
             select(StaffingCase, Shift.ward_id)
             .join(Shift, Shift.id == StaffingCase.shift_id)
-            .where(
-                StaffingCase.status.in_(list(statuses)),
-                true() if supervisor else Shift.ward_id == home_ward_id,
-            )
+            .where(StaffingCase.status.in_(list(statuses)), condition)
             .order_by(StaffingCase.id)
         ).all()
         case_ids = [case.id for case, _ in rows]

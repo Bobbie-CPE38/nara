@@ -23,7 +23,7 @@ from app.core.constants import MAX_BIGINT
 from app.db.models import Actor, Staff
 from app.db.session import SessionLocal
 from app.domain.enums import StaffStatus
-from app.services import auth_service
+from app.services import access_service, auth_service
 
 DEMO_USER_HEADER = "X-Demo-User"
 SESSION_COOKIE = "nara_session"
@@ -72,6 +72,8 @@ class CurrentUser:
     actor_id: int
     # AUTH_SESSION.id in session mode, None in demo mode
     session_id: int | None = None
+    # The API role checked with the session; None in demo mode (read from ROLE when needed)
+    role: auth_service.ApiRole | None = None
 
 
 def get_demo_user(
@@ -142,8 +144,51 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail=AUTH_PASSWORD_CHANGE_REQUIRED
         )
-    return CurrentUser(staff=user.staff, actor_id=user.actor_id, session_id=user.session_id)
+    return CurrentUser(
+        staff=user.staff, actor_id=user.actor_id, session_id=user.session_id, role=user.role
+    )
 
 
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
 DemoUser = CurrentUserDep
+
+
+# --------------------------------------------------------------------------- #
+# Route permissions (docs/workflow.md 6.33.4, round 6 PR AU2)
+# --------------------------------------------------------------------------- #
+AUTH_FORBIDDEN = "AUTH_FORBIDDEN"
+
+
+def session_mode() -> bool:
+    return settings.auth_mode == "session"
+
+
+def forbidden() -> HTTPException:
+    """Signed in, but this user may not do this (6.33.3). Raised before any write."""
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=AUTH_FORBIDDEN)
+
+
+def get_reader(
+    request: Request,
+    db: DbSession,
+    x_demo_user: Annotated[str | None, Header(alias=DEMO_USER_HEADER)] = None,
+) -> CurrentUser | None:
+    """For routes section 9 lets anyone read: nobody is needed in demo mode (None), a
+    signed-in user is in session mode (401 AUTH_REQUIRED otherwise)."""
+    if not session_mode():
+        return None
+    return get_current_user(request, db, x_demo_user)
+
+
+Reader = Annotated[CurrentUser | None, Depends(get_reader)]
+
+
+def deny_in_session() -> None:
+    """POST /events: no web account reports events in session mode (6.33.4). Runs before
+    the body is read, so the answer is 401 or 403, never a 422 about the body."""
+    if session_mode():
+        raise forbidden()
+
+
+def access_viewer(db: Session, user: CurrentUser) -> access_service.Viewer:
+    return access_service.viewer(db, user.staff, user.role)

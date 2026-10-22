@@ -411,7 +411,9 @@ def test_missing_wrong_role_stale_and_bad_side_follow_error_order(scene, side):
     assert decide(client, request_id, supervisor, side=side).status_code == 403
 
 
-def test_supervisor_does_not_gain_head_nurse_event_or_leave_permissions(scene):
+def test_supervisor_reports_no_head_nurse_event_but_changes_any_leave(scene):
+    """A supervisor still cannot report a head nurse's events. Changing the end of a
+    leave period is open to supervisors of every ward since round 6 PR AU2 (6.33.4)."""
     from app.db.models import StaffUnavailability
     from app.domain.enums import AvailabilityReason
 
@@ -439,7 +441,7 @@ def test_supervisor_does_not_gain_head_nurse_event_or_leave_permissions(scene):
             headers=supervisor,
             json={"end_at": (DEMO_NOW + timedelta(days=1)).isoformat()},
         ).status_code
-        == 403
+        == 200
     )
 
 

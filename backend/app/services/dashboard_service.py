@@ -3,6 +3,9 @@ GET /dashboard: one read of what needs attention now (docs/workflow.md 6.31, 9.8
 
 Round 6 PR F1. Reads only: no flush of new rows, no lock, no commit. Every number is
 limited to the wards the demo user sees (`gap_check_service.ward_scope`, R6-Q16 ก).
+In session mode a staff member also sees only the cases they are part of, their own offers
+and their own no-shows, and no approval counts (6.33.4, round 6 PR AU2); the shortages stay
+by ward, as the gap check does.
 The gap is measured only for shifts in progress or starting within
 DASHBOARD_SHORTAGE_WINDOW_HOURS of the Backend Clock, so the cost of a refresh does
 not grow with every shift in the system (about 4.5 ms per shift at demo scale).
@@ -11,7 +14,7 @@ not grow with every shift in the system (about 4.5 ms per shift at demo scale).
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -22,6 +25,7 @@ from app.core.constants import (
     DASHBOARD_SHORTAGE_WINDOW_HOURS,
 )
 from app.db.models import (
+    CandidateItem,
     CandidateOutreach,
     LlmDailyUsage,
     Shift,
@@ -41,14 +45,19 @@ from app.schemas.dashboard import (
     Shortage,
     WardCount,
 )
-from app.services import approval_service, gap_check_service, llm_gateway
+from app.services import access_service, approval_service, gap_check_service, llm_gateway
 from app.services.gap_check_service import WardScope
 from app.services.merge_window_service import NO_SHOW_REASON
 
 
-def build(db: Session, staff: Staff) -> Dashboard:
+def build(db: Session, staff: Staff, viewer: access_service.Viewer | None = None) -> Dashboard:
+    """`viewer` is given in session mode only; demo mode keeps the ward view of F1."""
     scope = gap_check_service.ward_scope(db, staff)
     now = clock.now()
+    own = viewer if viewer is not None and viewer.role == "staff" else None
+    # A nurse's counts follow what concerns them, in any ward (the same condition as the case
+    # itself and the case list); gaps and shortages stay by ward. Managers and demo mode: None
+    cases = access_service.case_condition(own) if own is not None else None
     with db.no_autoflush:
         return Dashboard(
             now=now,
@@ -58,30 +67,35 @@ def build(db: Session, staff: Staff) -> Dashboard:
                 llm_enabled=settings.llm_enabled,
             ),
             wards=list(scope.ward_ids),
-            cases_by_status=_cases_by_status(db, scope),
-            shortages=_shortages(db, scope, now),
-            pending_approvals=_pending_approvals(db, scope),
-            open_offers=OpenOffers(count=_open_offers(db, scope, now)),
-            recent_no_show=_recent_no_shows(db, scope),
+            cases_by_status=_cases_by_status(db, scope, cases),
+            shortages=_shortages(db, scope, now, cases),
+            pending_approvals=[] if own is not None else _pending_approvals(db, scope),
+            open_offers=OpenOffers(count=_open_offers(db, scope, now, own)),
+            recent_no_show=_recent_no_shows(db, scope, own),
             llm_usage=_llm_usage(db, now) if settings.llm_enabled else None,
         )
 
 
-def _cases_by_status(db: Session, scope: WardScope) -> list[CaseStatusCount]:
+def _cases_by_status(
+    db: Session, scope: WardScope, cases: ColumnElement[bool] | None
+) -> list[CaseStatusCount]:
     counts = {
         status: count
         for status, count in db.execute(
             select(StaffingCase.status, func.count())
             .join(Shift, Shift.id == StaffingCase.shift_id)
-            .where(Shift.ward_id.in_(scope.ward_ids))
+            .where(Shift.ward_id.in_(scope.ward_ids) if cases is None else cases)
             .group_by(StaffingCase.status)
         )
     }
     return [CaseStatusCount(status=status, count=counts.get(status, 0)) for status in CaseStatus]
 
 
-def _shortages(db: Session, scope: WardScope, now: datetime) -> list[Shortage]:
-    """Short shifts of the window, earliest first, at most DASHBOARD_MAX_SHORTAGES."""
+def _shortages(
+    db: Session, scope: WardScope, now: datetime, cases: ColumnElement[bool] | None
+) -> list[Shortage]:
+    """Short shifts of the window, earliest first, at most DASHBOARD_MAX_SHORTAGES. A case
+    the user may not read is not linked (`case_id` null)."""
     shifts = db.scalars(
         select(Shift)
         .where(
@@ -107,7 +121,19 @@ def _shortages(db: Session, scope: WardScope, now: datetime) -> list[Shortage]:
         {role_id for _, result in short for role_id in result.role_gaps},
         {skill_id for _, result in short for skill_id in result.skill_gaps},
     )
-    cases = gap_check_service.running_case_ids(db, [shift.id for shift, _ in short])
+    running = gap_check_service.running_case_ids(db, [shift.id for shift, _ in short])
+    # Only a nurse needs the extra read: a manager reads every case of their wards already
+    readable = (
+        None
+        if cases is None
+        else set(
+            db.scalars(
+                select(StaffingCase.id)
+                .join(Shift, Shift.id == StaffingCase.shift_id)
+                .where(StaffingCase.id.in_(list(running.values())), cases)
+            )
+        )
+    )
     return [
         Shortage(
             shift_id=shift.id,
@@ -125,7 +151,9 @@ def _shortages(db: Session, scope: WardScope, now: datetime) -> list[Shortage]:
                 for skill_id, count in sorted(result.skill_gaps.items())
                 if count.gap_count > 0
             ],
-            case_id=cases.get(shift.id),
+            case_id=running.get(shift.id)
+            if readable is None or running.get(shift.id) in readable
+            else None,
         )
         for shift, result in short
     ]
@@ -144,15 +172,22 @@ def _pending_approvals(db: Session, scope: WardScope) -> list[WardCount]:
     return [WardCount(ward_id=ward_id, count=count) for ward_id, count in sorted(counts.items())]
 
 
-def _open_offers(db: Session, scope: WardScope, now: datetime) -> int:
-    """Offers sent and still open for a reply, on running cases of visible wards."""
+def _open_offers(
+    db: Session, scope: WardScope, now: datetime, own: access_service.Viewer | None
+) -> int:
+    """Offers sent and still open for a reply, on running cases of visible wards; only
+    the user's own offers for a session-mode staff member."""
     return db.execute(
         select(func.count())
         .select_from(CandidateOutreach)
         .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
         .join(Shift, Shift.id == StaffingCase.shift_id)
+        .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
         .where(
-            Shift.ward_id.in_(scope.ward_ids),
+            # A nurse's own offers are theirs in any ward, so no ward filter for them
+            Shift.ward_id.in_(scope.ward_ids)
+            if own is None
+            else CandidateItem.staff_id == own.staff_id,
             CandidateOutreach.status == OutreachStatus.SENT,
             CandidateOutreach.expires_at > now,
             StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
@@ -160,8 +195,11 @@ def _open_offers(db: Session, scope: WardScope, now: datetime) -> int:
     ).scalar_one()
 
 
-def _recent_no_shows(db: Session, scope: WardScope) -> list[NoShowEvent]:
-    """The NO_SHOW job's events: STAFF_UNAVAILABLE with payload.reason NO_SHOW (6.24)."""
+def _recent_no_shows(
+    db: Session, scope: WardScope, own: access_service.Viewer | None
+) -> list[NoShowEvent]:
+    """The NO_SHOW job's events: STAFF_UNAVAILABLE with payload.reason NO_SHOW (6.24); only
+    the user's own for a session-mode staff member."""
     rows = db.execute(
         select(
             StaffingEvent.id,
@@ -171,7 +209,10 @@ def _recent_no_shows(db: Session, scope: WardScope) -> list[NoShowEvent]:
         )
         .join(Shift, Shift.id == StaffingEvent.shift_id)
         .where(
-            Shift.ward_id.in_(scope.ward_ids),
+            # A nurse's own no-shows are theirs in any ward, so no ward filter for them
+            Shift.ward_id.in_(scope.ward_ids)
+            if own is None
+            else StaffingEvent.staff_id == own.staff_id,
             StaffingEvent.event_type == EventType.STAFF_UNAVAILABLE,
             StaffingEvent.payload["reason"].as_string() == NO_SHOW_REASON,
         )
