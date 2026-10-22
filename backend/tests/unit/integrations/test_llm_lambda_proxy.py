@@ -8,9 +8,9 @@ import json
 import logging
 import sys
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 import urllib.error
 from decimal import Decimal
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
@@ -240,7 +240,9 @@ def _server(handler: type[BaseHTTPRequestHandler]) -> HTTPServer:
     return server
 
 
-@pytest.mark.parametrize("location_host", ["127.0.0.1", "localhost"], ids=["same-host", "other-host"])
+@pytest.mark.parametrize(
+    "location_host", ["127.0.0.1", "localhost"], ids=["same-host", "other-host"]
+)
 def test_a_redirect_is_not_followed_and_the_key_goes_nowhere_else(location_host: str) -> None:
     seen: list[dict[str, str]] = []
 
