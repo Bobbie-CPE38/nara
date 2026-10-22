@@ -5,7 +5,9 @@ import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { useAuth } from "@/components/AuthProvider";
 import { useBackendClock } from "@/components/ClockProvider";
+import { Notice } from "@/components/ui/Notice";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, apiRequest, createDemoApi } from "@/lib/api";
 import { TERMINAL_CASE_STATUSES } from "@/lib/constants";
@@ -135,6 +137,7 @@ export default function DemoControl() {
   const [busy, setBusy] = useState(false);
   // The buttons that need a frozen clock, or a running one, follow the one shared read of /clock
   const clockFrozen = useBackendClock().data?.frozen;
+  const auth = useAuth();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // A leave on any seeded ward and shift (docs/workflow.md 9.6, round 4 PR U)
   const [wardId, setWardId] = useState<number>(DEMO_WARDS[0].id);
@@ -240,6 +243,14 @@ export default function DemoControl() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
       <PageHeader title={t("ctl.title")} />
+      {/* Reset demo ends every login of a server that uses logins */}
+      {auth.state.status !== "demo" && (
+        <div className="mb-4">
+          <Notice kind="warning" role="status">
+            {t("auth.note.sessionReset")}
+          </Notice>
+        </div>
+      )}
       <Card>
         <div className="grid gap-2 sm:grid-cols-2">
           <Button className="text-left" disabled={busy} onClick={reset}>

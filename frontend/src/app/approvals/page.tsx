@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { ActingAs } from "@/components/ActingAs";
+import { useSessionUser } from "@/components/AuthProvider";
 import { ScrollX } from "@/components/ScrollX";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -204,6 +205,7 @@ function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
 function ApprovalsPage() {
   const t = useT();
   const [actorId, setActorId] = useActor();
+  const me = useSessionUser();
   const api = useMemo(() => createDemoApi(actorId), [actorId]);
   const load = useCallback((signal: AbortSignal) => loadRows(api, signal), [api]);
   const { data, error, isLoading } = usePolling(load);
@@ -287,7 +289,9 @@ function ApprovalsPage() {
   /** The side to send: only the Supervisor with more than one waiting ward picks one */
   function sideFor(row: PendingApproval): ApprovalSide | undefined {
     const open = pendingSides(row);
-    if (actorId !== SUPERVISOR_ID || open.length < 2) return undefined;
+    // With a login the role says who the Supervisor is; the seeded ID is only the demo's way
+    const isSupervisor = me ? me.role === "supervisor" : actorId === SUPERVISOR_ID;
+    if (!isSupervisor || open.length < 2) return undefined;
     // A side another approver decided since the pick is no longer offered
     const picked = sides[requestKey(row)];
     return picked && open.includes(picked) ? picked : open[0];
@@ -300,7 +304,13 @@ function ApprovalsPage() {
    * answers 403 before supervisor_from (workflow.md 6.21).
    */
   function canDecide(row: PendingApproval): boolean {
-    const wardId = DEMO_APPROVERS.find((approver) => approver.id === actorId)?.wardId ?? null;
+    // A nurse who opens the page by its address is offered nothing (the Backend refuses as well)
+    if (me && me.role === "staff") return false;
+    const wardId = me
+      ? me.role === "supervisor"
+        ? null
+        : me.home_ward_id
+      : (DEMO_APPROVERS.find((approver) => approver.id === actorId)?.wardId ?? null);
     if (wardId === null || row.wards === undefined) return true;
     return row.wards.some((ward) => ward.status === "PENDING" && ward.ward_id === wardId);
   }
