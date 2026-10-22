@@ -45,6 +45,7 @@ from app.domain.enums import (
 )
 from app.schemas.approval import ApprovalDecisionResult, AutoApprovedApproval, PendingApproval
 from app.services import (
+    access_service,
     actor_service,
     approval_wards,
     audit_service,
@@ -617,7 +618,7 @@ def decision_offers_query(
     )
 
 
-def list_pending(db: Session) -> list[PendingApproval]:
+def list_pending(db: Session, viewer: access_service.Viewer | None = None) -> list[PendingApproval]:
     """Read pending requests of running cases by ID, without writes or locks.
 
     Do not hide other cases when a case has duplicate pending requests. Any
@@ -626,6 +627,10 @@ def list_pending(db: Session) -> list[PendingApproval]:
     cases keep undecided requests as history, but those cannot be acted on and
     are excluded here, including requests left behind by D11 failures. Pending
     requests whose offers were cancelled are also excluded on running cases.
+
+    With a viewer (session mode, a manager) the requests are those that have a side in their ward
+    (a supervisor: all), filtered in the query, and a head nurse gets only the approval sides of
+    their own ward: the other ward's side and its status are not theirs to read (6.33.4).
     """
     with db.no_autoflush:
         rows = db.execute(
@@ -643,10 +648,21 @@ def list_pending(db: Session) -> list[PendingApproval]:
             )
             .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
             .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
-            .where(*actionable_pending())
+            .where(
+                *actionable_pending(),
+                # By request, not by case: a request without a side in the reader's ward is not
+                # in their queue even when they may read its case
+                access_service.approval_request_condition(viewer),
+            )
             .order_by(ApprovalRequest.id)
         ).mappings()
-        return [PendingApproval.model_validate(row) for row in _enrich_wards(db, list(rows))]
+        enriched = _enrich_wards(db, list(rows))
+        if viewer is not None and viewer.role == "head_nurse":
+            enriched = [
+                row | {"wards": [w for w in row["wards"] if w["ward_id"] == viewer.home_ward_id]}
+                for row in enriched
+            ]
+        return [PendingApproval.model_validate(row) for row in enriched]
 
 
 def actionable_pending() -> tuple[ColumnElement[bool], ...]:

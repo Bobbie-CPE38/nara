@@ -42,10 +42,11 @@ from app.services import (
     requirement_service,
     unavailability_service,
 )
-from app.services.merge_window_service import NO_SHOW_REASON, REPORTED_BY
-
-# payload key of an event's origin when it is not a person's own report (6.33.4)
-EVENT_SOURCE = "source"
+from app.services.merge_window_service import (
+    EVENT_SOURCE,
+    NO_SHOW_REASON,
+    REPORTED_BY,
+)
 
 
 class EventNotFoundError(LookupError):

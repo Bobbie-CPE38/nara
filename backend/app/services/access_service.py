@@ -17,7 +17,7 @@ see are never loaded and then hidden.
 
 from dataclasses import dataclass
 
-from sqlalchemy import ColumnElement, exists, or_, select, true
+from sqlalchemy import ColumnElement, exists, false, or_, select, true
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
@@ -98,10 +98,36 @@ def _part_of(staff_id: int) -> ColumnElement[bool]:
     return or_(offered, reported, assigned)
 
 
-def sees_case(db: Session, viewer: Viewer, case_id: int) -> bool | None:
-    """True or False for a case that exists, None for an unknown case (the route's 404)."""
-    if db.get(StaffingCase, case_id) is None:
-        return None
+def approval_request_condition(viewer: Viewer | None) -> ColumnElement[bool]:
+    """The pending approval REQUESTS this viewer may read, one by one (not by case).
+
+    Reading a case is wider: a source head nurse reads the whole case when one of its requests
+    moves someone out of their ward. Their queue of approvals is only the requests that have a
+    side in their ward, as destination or as source, so another request of the same case that
+    involves other wards stays out of it. The query must join CANDIDATE_ITEMS. A supervisor, and
+    no viewer (demo mode), is not limited; a nurse has no approval queue (the route refuses).
+    """
+    if viewer is None or viewer.role == "supervisor":
+        return true()
+    if viewer.role != "head_nurse":
+        return false()
+    ward_shift = aliased(Shift)
+    source_row = aliased(RosterAssignment)
+    source_shift = aliased(Shift)
+    destination = CandidateItem.proposed_shift_id.in_(
+        select(ward_shift.id).where(ward_shift.ward_id == viewer.home_ward_id)
+    )
+    source = CandidateItem.source_assignment_id.in_(
+        select(source_row.id)
+        .join(source_shift, source_shift.id == source_row.shift_id)
+        .where(source_shift.ward_id == viewer.home_ward_id)
+    )
+    return or_(destination, source)
+
+
+def sees_case(db: Session, viewer: Viewer, case_id: int) -> bool:
+    """One query for "it exists" and "this viewer may read it". False for both an unknown case
+    and one that is not theirs, so a user cannot tell which IDs exist (6.33.4)."""
     return (
         db.scalar(
             select(StaffingCase.id)
@@ -112,19 +138,32 @@ def sees_case(db: Session, viewer: Viewer, case_id: int) -> bool | None:
     )
 
 
-def sees_event(db: Session, viewer: Viewer, event: StaffingEvent) -> bool:
-    """The event's own person, a reader of its ward (head nurse, supervisor) or of its case.
-
-    An event of a shift that has no case yet is read only by the person it is about and by
-    the managers of the shift's ward (6.33.4).
-    """
-    if viewer.role == "supervisor" or event.staff_id == viewer.staff_id:
-        return True
+def event_condition(viewer: Viewer) -> ColumnElement[bool]:
+    """The STAFFING_EVENTS rows this viewer may read: their own, those of a case they may read,
+    and for a head nurse those of a shift of their ward that has no case yet (6.33.4)."""
+    if viewer.role == "supervisor":
+        return true()
+    readable_case = StaffingEvent.case_id.in_(
+        select(StaffingCase.id)
+        .join(Shift, Shift.id == StaffingCase.shift_id)
+        .where(case_condition(viewer))
+    )
+    conditions = [StaffingEvent.staff_id == viewer.staff_id, readable_case]
     if viewer.role == "head_nurse":
-        ward_id = db.scalar(select(Shift.ward_id).where(Shift.id == event.shift_id))
-        if ward_id == viewer.home_ward_id:
-            return True
-    return event.case_id is not None and bool(sees_case(db, viewer, event.case_id))
+        conditions.append(
+            StaffingEvent.shift_id.in_(select(Shift.id).where(Shift.ward_id == viewer.home_ward_id))
+        )
+    return or_(*conditions)
+
+
+def sees_event(db: Session, viewer: Viewer, event_id: int) -> bool:
+    """One query for "the event exists" and "this viewer may read it" (False for both)."""
+    return (
+        db.scalar(
+            select(StaffingEvent.id).where(StaffingEvent.id == event_id, event_condition(viewer))
+        )
+        is not None
+    )
 
 
 def roster_shift_condition(viewer: Viewer) -> ColumnElement[bool]:

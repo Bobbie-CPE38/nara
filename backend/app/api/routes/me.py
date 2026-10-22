@@ -9,12 +9,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
 
 from app.api.dependencies import DbSession, DemoUser, forbidden
 from app.api.offer_responses import ResponseResult, answer_offer
 from app.core.constants import MAX_BIGINT
-from app.db.models import RosterAssignment
 from app.domain.enums import CandidateResponse, CheckInSource, EventType
 from app.domain.errors import ShiftNotFoundError
 from app.schemas.attendance import CheckInResponse, MyCheckIn
@@ -104,10 +102,12 @@ def report_my_leave(body: SelfLeave, db: DbSession, user: DemoUser) -> EventResu
     """Report your own leave from a shift you are rostered on. It takes effect at once:
     the same STAFF_UNAVAILABLE flow as before, with no approval of the leave (6.33.4).
 
-    401 → 422 body → 404 unknown shift → 409 shift not set up for staffing → 403 no roster
-    row of yours in that shift (AUTH_FORBIDDEN) → 409 your row is no longer assigned (the
-    leave was already taken, as for POST /events) → 422 end time. Every refusal writes
-    nothing. A repeat follows the event rules as they are.
+    401 → 422 body → 404 unknown shift → 409 shift not set up for staffing → 403
+    AUTH_FORBIDDEN when you have no assigned row in that shift → 422 end time. Every refusal
+    writes nothing. The 403 is one answer for "never yours", "cancelled" and "a report already
+    closed the window that cancelled it": it comes from the state the intake saw under its own
+    lock, so a concurrent change cannot flip it and it does not tell which shifts a person was
+    on. A repeat while the window is open follows the event rules (the second is IGNORED).
     """
     try:
         outcome = event_service.receive_event(
@@ -125,13 +125,10 @@ def report_my_leave(body: SelfLeave, db: DbSession, user: DemoUser) -> EventResu
     except RequirementNotFoundError as error:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
-    except unavailability_service.NoAssignedRosterError as error:
+    except unavailability_service.NoAssignedRosterError:
         db.rollback()
-        if not _has_roster_row(db, user.staff.id, body.shift_id):
-            raise forbidden() from error
-        # Rostered, but the row was cancelled: the leave was already taken (rule of 3.x)
-        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
-    except event_service.InvalidLeaveEndError as error:
+        raise forbidden() from None
+    except (event_service.InvalidLeaveEndError, event_service.InvalidEventDetailsError) as error:
         db.rollback()
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
     return EventResult(
@@ -139,16 +136,4 @@ def report_my_leave(body: SelfLeave, db: DbSession, user: DemoUser) -> EventResu
         event_status=outcome.event_status,
         case_id=outcome.case_id,
         case_status=outcome.case_status,
-    )
-
-
-def _has_roster_row(db: DbSession, staff_id: int, shift_id: int) -> bool:
-    """Any row of the person in the shift, whatever its status: the shift is theirs."""
-    return (
-        db.scalar(
-            select(RosterAssignment.id)
-            .where(RosterAssignment.staff_id == staff_id, RosterAssignment.shift_id == shift_id)
-            .limit(1)
-        )
-        is not None
     )

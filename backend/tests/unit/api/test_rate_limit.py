@@ -1,6 +1,6 @@
 """Login attempt limits (docs/workflow.md 6.33.3, PR AU1)."""
 
-from app.api.rate_limit import Limit, RateLimiter
+from app.core.rate_limit import Limit, RateLimiter
 
 
 class FakeTime:

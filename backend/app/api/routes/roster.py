@@ -44,15 +44,15 @@ def get_roster(
                 and access_service.sees_staff_roster(db, viewer, staff_id) is False
             ):
                 raise forbidden()
-            rows = roster_service.get_staff_roster(db, staff_id)
-            if viewer is None or staff_id == viewer.staff_id:
-                return rows
-            rows.assignments = [
-                row
-                for row in rows.assignments
-                if access_service.sees_ward(viewer, row.shift.ward_id)
-            ]
-            return rows
+            # Someone else's roster: only the rows of shifts in wards the reader sees (in the query)
+            others = (
+                viewer is not None and staff_id != viewer.staff_id and viewer.role != "supervisor"
+            )
+            return roster_service.get_staff_roster(
+                db,
+                staff_id,
+                access_service.roster_shift_condition(viewer) if others and viewer else None,
+            )
     except (ShiftNotFoundError, StaffNotFoundError) as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
     raise HTTPException(

@@ -5,7 +5,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.api.dependencies import DbSession
+from app.api.dependencies import DbSession, Reader, access_viewer, forbidden
 from app.core import clock
 from app.db.models import Staff
 from app.domain.enums import ActorName, CheckInSource, StaffStatus
@@ -100,15 +100,22 @@ def simulate_check_in(body: SimulatedCheckIn, db: DbSession) -> CheckInResponse:
 
 
 @router.post("/events", status_code=status.HTTP_201_CREATED)
-def simulate_event(body: DemoEventCreate, db: DbSession) -> EventResult:
+def simulate_event(body: DemoEventCreate, db: DbSession, reader: Reader) -> EventResult:
     """The Demo control's events, now that POST /events refuses web accounts (6.33.4).
 
     The same validation and service as POST /events, as the demo character in
-    `reporter_staff_id`, but recorded by the SYSTEM actor with payload.source SIMULATED:
-    never a report of a signed-in user. No session is needed; on AWS this path is behind
+    `reporter_staff_id`, but recorded by the SYSTEM actor with payload.source SIMULATED, and
+    every audit row it makes while the event is applied is by SYSTEM as well: never a report
+    of a signed-in user. In demo mode no session is needed; on AWS this path is behind
     the Demo Basic Auth (6.33.5). Answers as POST /events, plus 404 for an unknown or
     inactive character. None of the errors writes anything.
+
+    Session mode needs a session of a head nurse or a supervisor as well, whatever stands in
+    front of the machine: Basic Auth alone is not the only guard of a call that cancels roster
+    rows or changes a requirement (401 without a session, 403 for a nurse). Demo mode asks nobody.
     """
+    if reader is not None and access_viewer(db, reader).role == "staff":
+        raise forbidden()
     reporter = db.get(Staff, body.reporter_staff_id)
     if reporter is None or reporter.status != StaffStatus.ACTIVE:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No active staff {body.reporter_staff_id}")
