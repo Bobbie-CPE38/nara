@@ -74,6 +74,9 @@ export function safeNext(value: string | null | undefined): string {
     return "/";
   }
   if (url.origin !== SAFE_BASE) return "/";
+  // `/.//evil.example` resolves to the path `//evil.example`: on its own, as a router target, that is
+  // another site. The result must stay a path when it is read without its origin
+  if (url.pathname.startsWith("//")) return "/";
   if (/^\/(login|register)\/?$/.test(url.pathname)) return "/";
   return `${url.pathname}${url.search}${url.hash}`;
 }

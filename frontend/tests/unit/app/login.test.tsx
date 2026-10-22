@@ -116,8 +116,33 @@ describe("safeNext", () => {
     ["/login/", "/"],
     ["/gap/../me/offers", "/me/offers"],
     ["/gap#top", "/gap#top"],
+    // The path resolves to //evil.example: returned alone it would be another site
+    ["/.//evil.example", "/"],
+    ["/a/..//evil.example", "/"],
+    ["/a/b/../..//evil.example", "/"],
+    ["/./gap", "/gap"],
   ])("%s becomes %s", (value, expected) => {
     expect(safeNext(value)).toBe(expected);
+  });
+
+  it("never returns a value that leaves the app when it is resolved against the app's origin", () => {
+    const origin = "https://app.example";
+    const attempts = [
+      "/.//evil.example",
+      "/a/..//evil.example",
+      "//evil.example",
+      "/\t/evil.example",
+      "/%2F/evil.example",
+      "/..//evil.example",
+      "/gap/../../evil.example",
+      "/gap?next=//evil.example",
+      "/gap#//evil.example",
+      "https://evil.example",
+      "/login/..//evil.example",
+    ];
+    for (const attempt of attempts) {
+      expect(new URL(safeNext(attempt), origin).origin, attempt).toBe(origin);
+    }
   });
 });
 
