@@ -372,7 +372,7 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 | AU3 | คน 1 | หน้า login/register/เปลี่ยนรหัส, เมนู, self-leave และ 401/403 | 6.33.3–4 | AU1 | AU1 | ไม่มี | merge แล้ว (#127) ยกเว้นปุ่ม Demo ดู AU3b |
 | AU3b | คน 1 | ย้ายปุ่มจำลองเหตุของ Demo control จาก `POST /events` ไป `POST /demo/events` (ใน `session` ใช้ได้เมื่อล็อกอินเป็นผู้จัดการ) พร้อมเทสต์ | 6.33.4 | AU2 merge | AU2 | ไม่มี | ทำแล้ว (PR AU3b); ต้องมีก่อนตรวจ production ของ AU4 |
 | AU5 | คน 3 | REGISTER ผ่าน LINE, atomic register code, security/regression tests | 6.33.6 | AU1 | AU1 | มี | AU5 merge แล้ว (#126); live รอ AU4 |
-| AU4 | คน 1 | ด่าน AWS/Compose/Gate ใหม่หลัง backend และหน้าเว็บพร้อม; LINE smoke | 6.33.5 | AU2, AU3 | AU2, AU3 | ไม่มี | |
+| AU4 | คน 1 (คน 3 ทำแทน) | ด่าน AWS/Compose/Gate ใหม่หลัง backend และหน้าเว็บพร้อม; LINE smoke | 6.33.5 | AU2, AU3, AU3b | AU2, AU3, AU3b | ไม่มี | โค้ด/เทสต์และคู่มืออยู่ใน PR AU4; production/LINE/register/reset ยัง PENDING ห้ามใช้ผล W แทน |
 | ปิดรอบ | คน 3 | เอกสารปิดรอบ แล้ว `staging` → `main` และ tag `v0.7-round6`; ต้องครบ AU0–AU5 และผล production session | 6.33 | ทุกตัวรวม AU | ทุกตัวรวม AU | ไม่มี | |
 
 ลำดับ merge: 0 ก่อนทุกตัว, B1 ก่อน E1, S และ B2, E1 ก่อน E2 และ S, F1 ก่อน F2, F2 และ D ก่อน F3, F3 ก่อน UI1, UI1 ก่อน UI2 (UI1 และ UI2 ทำก่อนขั้นที่ 6 เพื่อตรวจช่วง ข กับหน้าตาสุดท้ายครั้งเดียว ไม่เปลี่ยน API จึงเปิดเครื่องก่อนได้ถ้าไม่ทัน), F3 และ D ก่อนขั้นที่ 6, ขั้นที่ 6 ก่อน B2 และ W Migration ของ B1, S และ E1 (ถ้ามี) ต่อจาก `c5f8b0d3e7a1` เป็นเส้นเดียว ตัวที่ merge ทีหลัง Rebase `down_revision` และแก้ Test ของ Migration ตัวก่อนหน้าที่ตรวจ head ผู้ทำของ P1 และการให้คน 3 ปิดรอบเป็นข้อเสนอของร่างรอบ 6 ถ้าทีมเปลี่ยน แก้ตารางนี้ B2 ก่อน B3 และ B3 ก่อนปิดรอบ (B3 ทำให้แอปเรียก Bedrock จริงได้ ไม่ขึ้นกับ AU) Head ของ Migration หลัง AU5 คือ `b8f3d5a0c2e4` ต่อ `a7e2c4f9b1d3` (AU1); PR ถัดไปที่เพิ่ม Migration ต้องต่อ head ล่าสุดให้เป็นเส้นเดียว ส่วน B3 ไม่มี Migration
@@ -2186,6 +2186,8 @@ public API มี GET `/health`, GET `/clock` (ไม่มีข้อมูล
 `GET /auth/config` เป็น public JSON แบบ no-store `{auth_mode: "demo"|"session"}` ไม่มี secret ใช้ให้ Frontend เลือก flow โดยยึด Backend เดียวกัน อย่าใช้ค่าใน browser ตัดสินสิทธิ์; AU1 Implement, AU3 อ่านหลังโหลดหน้าและแสดง loading/error จนรู้โหมด ส่วน route ธุรกิจยังใช้ dependency ฝั่ง server เสมอ
 
 การตรวจรับ AU4 ต้องแก้ `check-gate.sh`/`test_gate.py` ให้ตรงกติกาใหม่ (ไม่ใช้ผล PR W แบบครอบทุก Path อ้างแทน) ตรวจ anonymous 401 ของ business API, role/ward 403, X-Demo-User และ actor ใน body ใช้ปลอมตัวไม่ได้, Demo Basic Auth, simulator ต้องสองด่าน, exact signed webhook ยังผ่าน และ LINE smoke หลังเปลี่ยนด่าน เก็บ revision/image/result พร้อมระบุ live/fake ตามจริง `AUTH_MODE=demo` บน AWS ต้องทำให้ acceptance check ล้ม; ไม่เพิ่มสิทธิ์ Bedrock หรือ AWS keys เป็นส่วนของ AU4
+
+**AU4 implementation:** AWS overlay ตรึง session/Secure cookie และหนึ่ง Uvicorn worker; Caddy Basic Auth เฉพาะ Demo, ปิด API docs/internal และ reject URI ที่ไม่ canonical ก่อน proxy; Caddy เขียน X-Forwarded-For ใหม่และ Backend เชื่อเฉพาะ IP Caddy `172.30.64.2` ใน subnet `172.30.64.0/24` (ต้องตรวจ subnet overlap และ down/up เมื่อย้ายจาก network เดิม) `check-gate.sh` ตรวจจากภายนอกแบบ preflight และรับ `--staff-id` เพื่อตรวจบัญชีจริงด้วยรหัสที่ถามโดยไม่ echo; automated pass ไม่ใช่ผลตรวจ production ครบ รายการ deploy/rollback/live evidence อยู่ใน [AU4 handoff](round6/pr-AU4-handoff.md) ห้ามปิด AU4 จนช่อง live ครบ
 
 #### 6.33.6 ลงทะเบียนผ่าน LINE (AU5) และ Audit
 

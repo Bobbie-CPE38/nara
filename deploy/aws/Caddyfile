@@ -1,28 +1,36 @@
-# Reverse proxy of the AWS test machine (round 6 PR D, docs/deploy-aws.md).
-#
-# One HTTPS site: the web pages at /, the API at /api (the prefix is stripped
-# before the backend sees the path). The browser calls the API on the same
-# origin, so it sends the Basic Auth login it already gave for the pages.
-#
-# The rule (docs/workflow.md 6.30): every path needs the Basic Auth login except
-# the exact request `POST /api/line/webhook`, which the backend guards with the
-# LINE signature (6.16). `/demo/*` pages and `/api/demo/*` are NOT blocked; they
-# work with the login. The webhook exception is matched on the raw request URI,
-# not on Caddy's `path` matcher: `path` ignores case, collapses "//" and decodes
-# "%6C", so `/API/line/webhook`, `/api//line/webhook` and `/api/%6Cine/webhook`
-# would have slipped past the login. deploy/aws/test_gate.py checks each of them.
+# AU4: session identity for the app; Basic Auth is an additional gate only for Demo.
+# Match the webhook exception on the original URI, before any prefix is stripped.
 {
 	email {$ACME_EMAIL}
 }
 
+(backend_proxy) {
+	reverse_proxy backend:8000 {
+		# This deployment terminates HTTPS here (no external trusted proxy).
+		# Replace, rather than trust, headers supplied by an Internet client.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
 {$SITE_DOMAIN} {
 	encode gzip
-
-	# Evaluated top to bottom: the first matching handler answers
 	route {
-		# Only the job service calls these, inside the compose network
-		@internal path /api/internal /api/internal/*
-		respond @internal 404
+		# Caddy path matching decodes and normalizes. Reject alternate API/Demo
+		# spellings before they can bypass a gate or become an exact webhook.
+		@noncanonicalApi {
+			path /api /api/*
+			not expression {http.request.orig_uri}.matches("^/api(/[a-z0-9_-]+)*/?([?].*)?$")
+		}
+		respond @noncanonicalApi 404
+		@noncanonicalDemo {
+			path /demo /demo/*
+			not expression {http.request.orig_uri}.matches("^/demo(/[a-z0-9_-]+)*/?([?].*)?$")
+		}
+		respond @noncanonicalDemo 404
+
+		@private path /api/internal /api/internal/* /api/docs /api/docs/* /api/redoc /api/redoc/* /api/openapi.json
+		respond @private 404
 
 		@webhook {
 			method POST
@@ -30,17 +38,19 @@
 		}
 		handle @webhook {
 			uri strip_prefix /api
-			reverse_proxy backend:8000
+			import backend_proxy
 		}
+		# Even an authenticated client cannot use a normalized variant as a webhook.
+		@otherWebhook path /api/line/webhook*
+		respond @otherWebhook 404
 
-		basic_auth {
+		@demo path /demo /demo/* /api/demo /api/demo/*
+		basic_auth @demo {
 			{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
 		}
-
 		handle_path /api/* {
-			reverse_proxy backend:8000
+			import backend_proxy
 		}
-
 		reverse_proxy frontend:3000
 	}
 }
