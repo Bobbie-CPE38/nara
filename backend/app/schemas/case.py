@@ -142,7 +142,7 @@ class RankExplanationView(BaseModel):
     status: ExplanationViewStatus
     # The next three are set only when READY (model_id is null for the fake provider)
     text: str | None
-    provider: Literal["fake", "bedrock"] | None
+    provider: Literal["fake", "bedrock", "lambda"] | None
     model_id: str | None
     # True when POST /cases/{id}/explanation would queue the explanation now
     can_request: bool

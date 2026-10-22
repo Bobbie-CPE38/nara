@@ -153,6 +153,28 @@ def test_ready_exposes_text_provider_and_model(client: TestClient, seeded: Sessi
     )
 
 
+def test_ready_from_the_lambda_provider_is_readable(client: TestClient, seeded: Session) -> None:
+    """PR B3: the provider the Lambda adapter stores must pass the response schema."""
+    case = _planned_case(seeded)
+    _row(
+        seeded,
+        case,
+        _plan(seeded, case),
+        ExplanationStatus.READY,
+        text="Staff 201 ranks first.",
+        provider="lambda",
+        model_id="global.amazon.nova-2-lite-v1:0",
+    )
+
+    assert _explanation(client, case) == _answer(
+        "READY",
+        "ALREADY_READY",
+        text="Staff 201 ranks first.",
+        provider="lambda",
+        model_id="global.amazon.nova-2-lite-v1:0",
+    )
+
+
 @pytest.mark.parametrize(
     ("status", "reason", "blocked"),
     [
