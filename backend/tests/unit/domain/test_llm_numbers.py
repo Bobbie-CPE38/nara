@@ -69,6 +69,32 @@ def test_numbers_not_in_the_payload_are_reported(text: str, bad: list[str]) -> N
     assert unverified_numbers(text, PAYLOAD) == bad
 
 
+SUMMARY_PAYLOAD = {
+    "window": {"start": "2026-10-22T23:00:00+07:00", "end": "2026-10-23T07:00:00+07:00"},
+    "assessed_gap": 2,
+}
+
+
+def test_a_timestamp_copied_whole_from_the_payload_passes() -> None:
+    """PR B3 live check: the model copied the window and the T glued '22T23' into a token."""
+    text = "ช่วงเวลาจาก 2026-10-22T23:00:00+07:00 ถึง 2026-10-23T07:00:00+07:00 ขาด 2 คน"
+    assert unverified_numbers(text, SUMMARY_PAYLOAD) == []
+
+
+@pytest.mark.parametrize(
+    ("text", "bad"),
+    [
+        # another time zone: the digits changed even though the date is the same
+        ("เริ่ม 2026-10-22T16:00:00+00:00", ["22T16", "00", "00"]),
+        # a timestamp the payload does not hold
+        ("เริ่ม 2026-10-22T23:30:00+07:00", ["22T23", "30"]),
+    ],
+)
+def test_a_timestamp_that_is_not_in_the_payload_still_fails(text: str, bad: list[str]) -> None:
+    assert unverified_numbers(text, SUMMARY_PAYLOAD)
+    assert set(unverified_numbers(text, SUMMARY_PAYLOAD)) & set(bad)
+
+
 def test_booleans_are_not_numbers() -> None:
     assert payload_numbers({"first_wave": True, "partial": False}) == set()
     assert unverified_numbers("1", {"first_wave": True}) == ["1"]
