@@ -444,10 +444,10 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 | D4 | Handler และ Audit ใช้ DB Session เดียวกัน Orchestrator Commit ครั้งเดียวต่อรอบ | งานกับ Audit ของมันสำเร็จหรือล้มเหลวพร้อมกัน |
 | D5 | ไม่สร้างเคสถ้าไม่มี Gap Event ที่ไม่มี Gap ถูกตั้งเป็น `IGNORED` | ไม่มีเคสขยะในระบบ (ดูข้อ 3) |
 | D6 | Skeleton ทำงาน Sync ภายใน HTTP Request ยังไม่ใช้ Celery | ลดชิ้นส่วนที่ต้องตั้งค่าช่วงแรก |
-| D7 | ID ทุกตารางเป็น `bigint` | ตัดสินแล้วจากทีม |
+| D7 | ID ทุกตารางเป็น `bigint`; ยกเว้น permanent auth subject และคีย์ที่อ้างถึง subject ใช้ UUID ตามข้อ 6.33 | ตัดสินแล้วจากทีม |
 | D8 | Enum เป็น Python `StrEnum` ใน `domain/enums.py` เก็บใน DB เป็น `text` ยังไม่ใส่ DB ENUM หรือ CHECK | ค่าหลายตัวยังไม่ยืนยัน แก้ได้โดยไม่ต้อง Migration |
 | D9 | **[AU1/AU2 ยังไม่ Implement]** สองโหมด: demo ใช้ `X-Demo-User`; session ใช้ cookie/session ที่ Backend ตรวจแล้วและไม่อ่าน Header นี้ ตามข้อ 6.33 | USER actor กับ staff ต้องมาจากบัญชีเดียวกัน; ก่อน AU4 เครื่องยังใช้ Demo เดิม |
-| D10 | เวลาของระบบมาจาก `core/clock.py` ที่ตั้งค่าได้ ห้ามเรียก `datetime.now()` ตรง ๆ | Demo และ Test ต้องได้ผลเหมือนเดิมทุกครั้ง |
+| D10 | เวลาของระบบมาจาก `core/clock.py` ที่ตั้งค่าได้ ห้ามเรียก `datetime.now()` ตรง ๆ; ยกเว้น auth session/registration code ใช้ real UTC ตามข้อ 6.33 (และ lease เดิมตามข้อ 6.15) | Demo และ Test ต้องได้ผลเหมือนเดิมทุกครั้ง |
 | D11 | เกิด Exception ระหว่าง Workflow: Rollback งานของรอบนั้นด้วย Savepoint (งานของผู้เรียกใน Transaction เดียวกันยังอยู่) ตั้งเคสเป็น `FAILED` และบันทึก `WORKFLOW_FAILED` แล้ว Commit รายละเอียดดูข้อ 6.2 | ไม่มีเคสค้างกลางทางโดยไม่มีใครรู้ |
 | D12 | Skeleton ยังไม่มี LLM, OR-Tools, LINE จริง, Aggregation | ใช้ Stub ทั้งหมด แล้วเปลี่ยนเป็นของจริงทีละส่วน |
 
@@ -459,7 +459,7 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 
 | ตาราง | เปลี่ยน | เหตุผล |
 |---|---|---|
-| ทุกตาราง | `id` และ FK เป็น `bigint` (ยกเว้น `CONTACTS.line_id`, `line_uid`) | D7 |
+| ทุกตาราง | `id` และ FK เป็น `bigint` (ยกเว้น `CONTACTS.line_id`, `line_uid`; auth subject/คีย์อ้างถึง subject ใช้ UUID ตามข้อ 6.33) | D7 |
 | `STAFF` | ตัด `PLANNED_LEAVE`, `UNPLANNED_LEAVE` ออกจาก Staff status เหลือ `ACTIVE` / `INACTIVE` | การลาเก็บที่ `STAFF_UNAVAILABILITY` ที่เดียว |
 | `STAFF_UNAVAILABILITY` (เดิม `STAFF_AVAILABILITY`) | ตัด `is_available`, `reason` → `NOT NULL`, Reason เป็น `PLANNED_LEAVE` / `UNPLANNED_LEAVE` / `NO_SHOW` (ตัด `OTHER`), `end_at` → `NULL` ได้ | เก็บเฉพาะช่วงที่ไม่พร้อม ไม่มีแถว = พร้อม (เฉพาะ `STAFF.status = ACTIVE`) |
 | `STAFFING_EVENTS` | เพิ่ม `status text NOT NULL` ค่า `RECEIVED` / `PROCESSED` / `IGNORED` | เก็บผลของ Event ที่ไม่มี Gap (ไม่มีเคสให้เก็บ) และใช้ต่อตอนทำ Aggregation |
@@ -2111,7 +2111,7 @@ API ที่ต้องมี session: ไม่มี/หมดอายุ/�
 
 Cookie และ Basic Auth ถูก browser แนบให้อัตโนมัติ จึงกำหนดให้ state-changing HTTP APIs ใน session (รวม login/register/logout และ Demo mutation ที่อยู่หลัง Basic Auth) **ต้องมี Origin ตรงหนึ่งใน CORS_ORIGINS ที่ server ตั้งไว้**; ไม่มี/`null`/ผิด origin ตอบ 403 `AUTH_ORIGIN_FORBIDDEN` ก่อนเขียนข้อมูล เว็บส่ง JSON และ credentials ให้ถูกต้อง CORS ไม่ใช่ตัวแทนของการตรวจ Origin คำขอที่ทดสอบผ่าน curl ต้องส่ง Origin ที่อนุญาตด้วย ยกเว้น LINE webhook (ลายเซ็น), internal job (secret) และ trusted CLI ที่ใช้ internal API ซึ่งไม่มี cookie ข้อยกเว้นนี้ไม่ให้เข้าถึง API ผู้ใช้โดยข้าม session
 
-login/register: ก่อน hash password ให้ตรวจหน้าต่าง 60 วินาทีต่อ IP (login 10 ครั้ง, register 5 ครั้ง) และต่อบัญชีที่ระบุได้ (login ต่อ staff_id 10 ครั้ง, register ต่อ subject ที่พบจาก code 5 ครั้ง); นับทุก attempt ตอบ 429 `AUTH_RATE_LIMITED` พร้อม Retry-After เมื่อเกิน ไม่ lock บัญชี จัดเก็บใน process memory มี TTL และจำนวน key สูงสุด 10,000; เมื่อเต็มให้ปฏิเสธ key ใหม่ชั่วคราวแทนโตไม่จำกัด AU4 ต้องกำหนด trusted proxy chain ให้เชื่อ X-Forwarded-For เฉพาะจาก Caddy ที่ Backend รับตรง ไม่เชื่อ header จากผู้ใช้และไม่ publish Backend ใช้ต่อเครื่องแบบ process เดียวในรอบนี้ ไม่อ้างว่า quota นี้กระจายหลาย Worker หรือคงหลัง restart
+login/register: ก่อน hash password ให้ตรวจหน้าต่าง 60 วินาทีต่อ IP (login 10 ครั้ง, register 5 ครั้ง) และต่อบัญชีที่ระบุได้ (login ต่อ staff_id 10 ครั้ง, register ต่อ subject ที่พบจาก code 5 ครั้ง); นับทุก attempt ตอบ 429 `AUTH_RATE_LIMITED` พร้อม Retry-After เมื่อเกิน ไม่ lock บัญชี จัดเก็บใน process memory มี TTL และจำนวน key สูงสุด 10,000; เมื่อเต็มให้ปฏิเสธ key ใหม่ชั่วคราวแทนโตไม่จำกัด ต้องล้าง key ที่หมด TTL ก่อนตรวจเพดาน **ข้อจำกัดที่ยอมรับในรอบนี้:** ผู้โจมตีอาจเติม key จนเต็มและทำให้ผู้ใช้จริงที่เป็น key ใหม่ login/register ไม่ได้ชั่วคราวจน key หมด TTL จึงไม่อ้างว่ากลไกนี้ป้องกัน denial of service ได้ AU4 ต้องกำหนด trusted proxy chain ให้เชื่อ X-Forwarded-For เฉพาะจาก Caddy ที่ Backend รับตรง ไม่เชื่อ header จากผู้ใช้และไม่ publish Backend ใช้ต่อเครื่องแบบ process เดียวในรอบนี้ ไม่อ้างว่า quota นี้กระจายหลาย Worker หรือคงหลัง restart
 
 #### 6.33.4 สิทธิ์และแจ้งลาของตัวเอง (AU2/AU3)
 
@@ -2162,6 +2162,8 @@ Audit ของการกระทำเว็บใช้ USER actor ที�
 
 #### 6.33.7 Reset Demo และเจ้าของงาน
 
+**สถานะโค้ดที่ AU0 ตรวจ:** `backend/app/seed/reset.py` ใช้ process-local `threading.Lock`, transaction เดียวที่ล็อก/สำรอง LLM ledger แล้ว `DROP SCHEMA public CASCADE` → migrate → seed → คืน ledger; `reset_demo()` retry เฉพาะ `DeadlockDetected` ได้เพิ่ม 3 ครั้ง (`_DEADLOCK_RETRIES = 3`, รวมสูงสุด 4 attempts) ยังไม่มี transaction advisory lock สำหรับ auth และยังไม่มีการรักษา auth identity ข้อกำหนด `(6210, 1)` ข้างล่างเป็นงานใหม่ของ AU1 ไม่ใช่กลไกที่มีแล้ว ก่อน Implement AU1 ต้องตรวจ reset/seed/lock order และ integration tests กับ source revision ปัจจุบัน ยืนยันว่าแนวทางรักษา identity และ shared/exclusive lock ใช้ร่วมกันได้จริง รวมการ rollback และ concurrent auth writes; ถ้าต้องเปลี่ยนกลไกหรือเลิกใช้ `DROP SCHEMA` ให้แก้ contract/schema ที่เกี่ยวข้องพร้อมหลักฐานก่อนให้ AU2/AU5 อาศัยกลไกนี้
+
 AU1 เพิ่ม `STAFF.auth_subject` UUID immutable UNIQUE และเก็บ snapshot **STAFF ทุกแถวพร้อม subject, metadata บทบาท/หอ/สถานะเดิม** พร้อม ACTORS ของ identity ที่รักษา และ AUTH_ACCOUNT ภายใน transaction ของ reset; กำหนดให้ seed loader รองรับการรักษา identity นี้ก่อนสร้าง Golden Case (ไม่สร้างบุคคลใหม่มาทับ ID ที่จองไว้) คีย์คืนบัญชีคือ subject ไม่ใช่ first_name/email หรือ staff_id เพียงอย่างเดียว ต้องเก็บ USER actor ของพนักงานที่รักษาด้วย ไม่ล้างจนบัญชีที่ไม่ใช่ Golden Case login ไม่ได้ ตำแหน่ง identity ของ fixture เดิมต้องผูกกับ subject เดิมที่ snapshot ไว้; กรณีสร้าง DB ใหม่จึงสร้าง subject ใหม่ได้ ไม่ใช้ชื่อเป็นตัวพิสูจน์ว่าเป็นคนเดียวกัน
 
 ห้ามคืนบัญชีกับคนอื่นเมื่อเลข ID ถูกใช้ซ้ำ: preserve Staff row/subject ต้นฉบับและตรวจ FK role/ward ก่อนโหลดสถานการณ์; ถ้าทำไม่ได้/ตัวตนขัดกัน ให้ rollback reset ทั้งหมด ไม่ drop บัญชีที่ไม่มีใน Golden Case เงียบๆ AU1 ต้องปรับ loader/reset ที่ตอนนี้ใช้ DROP SCHEMA ให้รักษา identity tables ได้และคืน sequence ต่อจาก max ID; ข้อมูลสถานการณ์/CONTACTS และ LINK เดิมใช้กติกา reset เดิม ไม่อ้างว่าผูก LINE คงอยู่หลัง reset ถ้าโค้ดเดิมล้าง
@@ -2176,7 +2178,7 @@ reset สำเร็จคง password hash/disabled/must_change/password-chang
 | AU5 คน 3 | REGISTER/atomic register code/real-time expiry/binding checks, regression LINK/check-in/buttons, reset/session/impersonation cross-tests |
 | AU4 คน 1 (คน 3 ทำแทนได้ตามผู้ใช้) | หลัง AU2+AU3; Caddy/Compose/Gate และคู่มือ/production checks/LINE smoke; AU5 ต้อง merge และตรวจ register จริงก่อนปิดรอบ |
 
-**เงื่อนไข AU2 tests:** ทุก method/path ของ business API ต้องมีผู้รับผิดชอบใน inventory ไม่ตรวจเฉพาะ route ที่เคยมี DemoUser; anonymous และ X-Demo-User-only ต้องไม่ผ่านใน session, staff ข้ามคน/หอ/เคสไม่ได้, list/count ไม่รั่ว, session เวลาเป็น real, logout/disable/password-change/reset ใช้ token เดิมไม่ได้, CSRF/Origin และ rate limit ตรวจ server-side, login/register ไม่เปิด role escalation, self-leave เฉพาะ Roster ตนและ no_show/การอนุมัติคนแทนไม่เปลี่ยน ทุก mutation ที่ถูกปฏิเสธต้องไม่เขียนข้อมูล
+**เงื่อนไข AU2 tests:** ทุก method/path ของ business API ต้องมีผู้รับผิดชอบใน inventory ไม่ตรวจเฉพาะ route ที่เคยมี DemoUser; anonymous และ X-Demo-User-only ต้องไม่ผ่านใน session, staff ข้ามคน/หอ/เคสไม่ได้, list/count ไม่รั่ว, session เวลาเป็น real, logout/disable/password-change/reset ใช้ token เดิมไม่ได้, CSRF/Origin และ rate limit ตรวจ server-side, login/register ไม่เปิด role escalation, self-leave เฉพาะ Roster ตนและ no_show/การอนุมัติคนแทนไม่เปลี่ยน; ต้องมี test ส่ง POST `/me/unavailability` ซ้ำทั้งแบบต่อเนื่องและพร้อมกันบนเวรเดียวกัน ตรวจผลตามกฎ Event/merge/dedup เดิม รวมจำนวน Event/Window/Case/Unavailability/Audit และผลข้างเคียงการติดต่อ ไม่สร้าง workflow หรือส่ง Offer ซ้ำเกินกติกาเดิม ทุก mutation ที่ถูกปฏิเสธต้องไม่เขียนข้อมูล
 
 
 ## 7. Audit

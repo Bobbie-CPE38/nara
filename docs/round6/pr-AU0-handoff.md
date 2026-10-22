@@ -13,45 +13,45 @@ AU0 เป็นเอกสารเท่านั้น: ย้ายร่�
 
 ## Inventory ของ Route ปัจจุบัน (ตรวจจาก source ก่อน Implement AU)
 
-Path เป็นของ Backend ก่อน Caddy เติม `/api` คอลัมน์สิทธิ์เป็น **ข้อกำหนดหลัง AU** ไม่ใช่สิ่งที่โค้ดวันนี้ทำแล้ว AU2 ต้องเติม integration test ต่อ method/path รวม list/count ไม่ใช่เปลี่ยนแค่ DemoUser dependency แล้วถือว่าครบ
+Path เป็นของ Backend ก่อน Caddy เติม `/api` ตารางนี้เก็บเฉพาะ method/path และเจ้าของงาน **กติกาสิทธิ์มีแหล่งเดียวที่ [workflow ข้อ 6.33.4–6.33.5](../workflow.md)** ไม่ทำ matrix ซ้ำใน handoff; กติกาเหล่านั้นเป็นข้อกำหนดหลัง AU ไม่ใช่สิ่งที่โค้ดวันนี้ทำแล้ว AU2 ต้องเติม integration test ต่อ method/path รวม list/count ไม่ใช่เปลี่ยนแค่ DemoUser dependency แล้วถือว่าครบ
 
-| Method | Path | สิทธิ์หลัง AU | ผู้รับผิดชอบ |
-|---|---|---|---|
-| POST | `/approvals/{approval_id}/decision` | session + head own-side / supervisor ตามเวลา/side; filter list | AU2 |
-| GET | `/approvals` | session + head own-side / supervisor ตามเวลา/side; filter list | AU2 |
-| GET | `/approvals/auto` | session + head own-side / supervisor ตามเวลา/side; filter list | AU2 |
-| GET | `/cases` | session + related case / head ward / supervisor | AU2 |
-| GET | `/cases/{case_id}` | session + related case / head ward / supervisor | AU2 |
-| POST | `/cases/{case_id}/explanation` | session + related case / head ward / supervisor | AU2 |
-| POST | `/cases/{case_id}/summary` | session + related case / head ward / supervisor | AU2 |
-| GET | `/cases/{case_id}/audit` | session + related case / head ward / supervisor | AU2 |
-| GET | `/cases/{case_id}/handoff/candidates` | session + head own ward / supervisor; Hard Rules เดิม | AU2 |
-| POST | `/cases/{case_id}/handoff/assignments` | session + head own ward / supervisor; Hard Rules เดิม | AU2 |
-| POST | `/cases/{case_id}/handoff/close` | session + head own ward / supervisor; Hard Rules เดิม | AU2 |
-| GET | `/clock` | public; ไม่มีข้อมูลบุคคล | AU2/AU4 |
-| GET | `/dashboard` | session + ward scope + related-case scope ของ staff | AU2 |
-| POST | `/demo/reset` | Basic + Origin สำหรับ mutation; SYSTEM/Demo actor | AU1 reset, AU3 adapter, AU4 gate |
-| POST | `/demo/clock/advance` | Basic + Origin สำหรับ mutation; SYSTEM/Demo actor | AU1 reset, AU3 adapter, AU4 gate |
-| POST | `/demo/clock/freeze` | Basic + Origin สำหรับ mutation; SYSTEM/Demo actor | AU1 reset, AU3 adapter, AU4 gate |
-| POST | `/demo/clock/unfreeze` | Basic + Origin สำหรับ mutation; SYSTEM/Demo actor | AU1 reset, AU3 adapter, AU4 gate |
-| POST | `/demo/attendance/check-in` | Basic + Origin สำหรับ mutation; SYSTEM/Demo actor | AU1 reset, AU3 adapter, AU4 gate |
-| POST | `/events` | session ทุก role 403; self-leave แยก route | AU2 |
-| GET | `/events/{event_id}` | session + Event owner/case relation หรือ ward/supervisor | AU2 |
-| GET | `/gap/shifts` | session + ward scope; staff_id=self อ่านเวรของตนทุกหอได้ | AU2 |
-| GET | `/gap/shifts/{shift_id}` | session + ward scope; staff_id=self อ่านเวรของตนทุกหอได้ | AU2 |
-| POST | `/internal/merge-windows/close-due` | internal secret; public 404 | เดิม; AU2 regression |
-| POST | `/internal/line-accounts/{staff_id}/issue-code` | internal secret; public 404 | เดิม; AU2 regression |
-| POST | `/internal/line-accounts/{staff_id}/unlink` | internal secret; public 404 | เดิม; AU2 regression |
-| GET | `/demo/line-sim/offers` | Basic + session + own staff/outreach | AU2/AU4 |
-| POST | `/demo/line-sim/respond` | Basic + session + own staff/outreach | AU2/AU4 |
-| POST | `/line/webhook` | exact signed LINE webhook; ไม่ใช้ session | AU4/AU5 regression |
-| GET | `/me/handovers` | session + self only | AU2 |
-| GET | `/me/offers` | session + self only | AU2 |
-| POST | `/me/offers/{outreach_id}/response` | session + self only | AU2 |
-| POST | `/me/attendance/check-in` | session + self only | AU2 |
-| GET | `/roster` | session + ward scope; staff_id=self อ่านเวรของตนทุกหอได้ | AU2 |
-| PATCH | `/unavailability/{unavailability_id}` | session + head ของคนลา / supervisor ทุกหอ | AU2 |
-| GET | `/health` | public; ไม่มีข้อมูลบุคคล | AU2/AU4 |
+| Method | Path | ผู้รับผิดชอบ |
+|---|---|---|
+| POST | `/approvals/{approval_id}/decision` | AU2 |
+| GET | `/approvals` | AU2 |
+| GET | `/approvals/auto` | AU2 |
+| GET | `/cases` | AU2 |
+| GET | `/cases/{case_id}` | AU2 |
+| POST | `/cases/{case_id}/explanation` | AU2 |
+| POST | `/cases/{case_id}/summary` | AU2 |
+| GET | `/cases/{case_id}/audit` | AU2 |
+| GET | `/cases/{case_id}/handoff/candidates` | AU2 |
+| POST | `/cases/{case_id}/handoff/assignments` | AU2 |
+| POST | `/cases/{case_id}/handoff/close` | AU2 |
+| GET | `/clock` | AU2/AU4 |
+| GET | `/dashboard` | AU2 |
+| POST | `/demo/reset` | AU1 reset, AU3 adapter, AU4 gate |
+| POST | `/demo/clock/advance` | AU1 reset, AU3 adapter, AU4 gate |
+| POST | `/demo/clock/freeze` | AU1 reset, AU3 adapter, AU4 gate |
+| POST | `/demo/clock/unfreeze` | AU1 reset, AU3 adapter, AU4 gate |
+| POST | `/demo/attendance/check-in` | AU1 reset, AU3 adapter, AU4 gate |
+| POST | `/events` | AU2 |
+| GET | `/events/{event_id}` | AU2 |
+| GET | `/gap/shifts` | AU2 |
+| GET | `/gap/shifts/{shift_id}` | AU2 |
+| POST | `/internal/merge-windows/close-due` | เดิม; AU2 regression |
+| POST | `/internal/line-accounts/{staff_id}/issue-code` | เดิม; AU2 regression |
+| POST | `/internal/line-accounts/{staff_id}/unlink` | เดิม; AU2 regression |
+| GET | `/demo/line-sim/offers` | AU2/AU4 |
+| POST | `/demo/line-sim/respond` | AU2/AU4 |
+| POST | `/line/webhook` | AU4/AU5 regression |
+| GET | `/me/handovers` | AU2 |
+| GET | `/me/offers` | AU2 |
+| POST | `/me/offers/{outreach_id}/response` | AU2 |
+| POST | `/me/attendance/check-in` | AU2 |
+| GET | `/roster` | AU2 |
+| PATCH | `/unavailability/{unavailability_id}` | AU2 |
+| GET | `/health` | AU2/AU4 |
 
 รวม 35 method/path จากโค้ดที่ AU0 ตรวจ ไม่รวม routes ของ framework (docs/redoc/openapi ต้องปิดหรือ session ตาม workflow 6.33.5) และ route ใหม่ที่ยังไม่ Implement: GET auth/config, POST auth/login, POST auth/logout, GET auth/me, POST auth/change-password (AU1); POST me/unavailability, POST demo/events (AU2); POST auth/register (AU5) ถ้ามี PR อื่นเพิ่ม route ต้องเพิ่ม inventory และเทสต์ด้วย
 
