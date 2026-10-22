@@ -41,6 +41,27 @@ const DEMO_WARD_NAMES = new Map<number, string>([
   [1, "ICU"],
   [2, "Medicine"],
   [3, "Float Pool"],
+  // Keep labels aligned with app.seed.large_demo.WARD_NAMES.
+  [10001, "Demo ICU 01"],
+  [10002, "Demo Medicine 02"],
+  [10003, "Demo Surgery 03"],
+  [10004, "Demo Emergency 04"],
+  [10005, "Demo Pediatrics 05"],
+  [10006, "Demo Cardiology 06"],
+  [10007, "Demo Neurology 07"],
+  [10008, "Demo Orthopedics 08"],
+  [10009, "Demo Oncology 09"],
+  [10010, "Demo Recovery 10"],
+  [10011, "Demo ICU 11"],
+  [10012, "Demo Medicine 12"],
+  [10013, "Demo Surgery 13"],
+  [10014, "Demo Emergency 14"],
+  [10015, "Demo Pediatrics 15"],
+  [10016, "Demo Cardiology 16"],
+  [10017, "Demo Neurology 17"],
+  [10018, "Demo Orthopedics 18"],
+  [10019, "Demo Oncology 19"],
+  [10020, "Demo Recovery 20"],
 ]);
 
 export function wardName(wardId: number): string {

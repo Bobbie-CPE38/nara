@@ -73,6 +73,11 @@ WARD_NAMES = (
 )
 
 
+def required_skill(ward: int, ordinal: int) -> int:
+    """Include BLS shortages as well as ICU shortages in synthetic examples."""
+    return 2 if ward % 10 == 0 else (7 if (ward + ordinal) % 3 == 0 else 4)
+
+
 def counts(db: Session) -> dict[str, int]:
     return {
         "staff": db.scalar(
@@ -179,7 +184,10 @@ def generate(db: Session, reference_at: datetime) -> dict[str, int]:
                 index = ward * DAYS * 2 + day * 2 + duty
                 start = start_day + timedelta(days=day, hours=7 + duty * 12)
                 # Some future/current shifts visibly lack one RN, without starting automation.
-                required = 7 if (ward + day + duty) % 7 == 0 else 6
+                required = max(
+                    7 if (ward + day + duty) % 7 == 0 else 6,
+                    required_skill(ward, day * 2 + duty),
+                )
                 shift_record = Shift(
                     id=SHIFT_BASE + index + 1,
                     ward_id=WARD_BASE + ward + 1,
@@ -215,16 +223,17 @@ def generate(db: Session, reference_at: datetime) -> dict[str, int]:
             StaffingRequirementSkill(
                 staffing_requirement_id=shift.id,
                 skill_id=skills["ICU" if ward % 10 == 0 else "BLS"],
-                required_count=2 if ward % 10 == 0 else 4,
+                required_count=required_skill(ward, ordinal),
             )
         )
         past = shift.end_at <= now
-        history = past and ordinal % 4 == 0
+        history = past and ordinal % 5 == 0
+        cancelled_slot = (ordinal // 5 + ward) % 6
         rows = []
         for slot in range(6):
             staff_id = STAFF_BASE + ward * 25 + (ordinal % 4) * 6 + slot + 1
             roster_status = RosterStatus.COMPLETED if past else RosterStatus.ASSIGNED
-            if history and slot == 0:
+            if history and slot == cancelled_slot:
                 roster_status = RosterStatus.CANCELLED
                 db.add(
                     StaffUnavailability(
@@ -262,11 +271,11 @@ def generate(db: Session, reference_at: datetime) -> dict[str, int]:
                     )
                 )
         if history:
-            historical.append((shift, ward, ordinal, required, rows))
+            historical.append((shift, ward, ordinal, required, rows, cancelled_slot))
     db.flush()
     # Read-only historical endpoints can show three terminal outcomes. These are
     # synthetic imports, not evidence that the live Solver/approval flow ran.
-    for n, (shift, ward, ordinal, required, rows) in enumerate(historical):
+    for n, (shift, ward, ordinal, required, rows, cancelled_slot) in enumerate(historical):
         status = (CaseStatus.RESOLVED, CaseStatus.UNRESOLVED, CaseStatus.FAILED)[n % 3]
         case = StaffingCase(
             shift_id=shift.id,
@@ -281,7 +290,7 @@ def generate(db: Session, reference_at: datetime) -> dict[str, int]:
             event_type=EventType.STAFF_UNAVAILABLE,
             shift_id=shift.id,
             occurred_at=case.created_at,
-            staff_id=rows[0].staff_id,
+            staff_id=rows[cancelled_slot].staff_id,
             payload={"source": "SIMULATED", "dataset": PROFILE, "synthetic_history": True},
             status=EventStatus.PROCESSED,
             processed_at=case.created_at,
@@ -329,7 +338,8 @@ def generate(db: Session, reference_at: datetime) -> dict[str, int]:
             )
         )
         skill_id = skills["ICU" if ward % 10 == 0 else "BLS"]
-        skill_required, skill_current = (2, 1) if ward % 10 == 0 else (4, 5)
+        skill_required = required_skill(ward, ordinal)
+        skill_current = (2 - int(cancelled_slot % 3 == 0)) if ward % 10 == 0 else 5
         db.add(
             StaffingGapSkill(
                 gap_id=gap.id,

@@ -17,7 +17,7 @@
 sudo docker exec -it nara-staffing-backend python -m app.auth_accounts create --staff-id 950
 ```
 
-IDs ของชุดนี้: หอ 10001–10020, staff 100001–100500, shifts 2000001–2001200 หัวหน้าแต่ละหอคือ staff 100025, 100050, …, 100500 หน้า Gap ใช้รายชื่อหอจาก Dashboard; บาง dropdown ยังแสดงชื่อ fallback เช่น `Ward 10001` เพราะ dictionary ของ Golden Case มีเพียงสามหอเดิม ปุ่ม Demo control เดิมยังเป็นตัวละคร Golden Case ไม่ได้เพิ่มปุ่มสร้างเหตุของทั้ง 20 หอ สามารถเปิด Gap/roster/detail และสร้างบัญชีรายคนเพื่อทดลอง `/me/unavailability` ได้ตามสิทธิ์
+IDs ของชุดนี้: หอ 10001–10020, staff 100001–100500, shifts 2000001–2001200 หัวหน้าแต่ละหอคือ staff 100025, 100050, …, 100500 หน้า Gap ใช้รายชื่อหอจาก Dashboard; dictionary มีชื่อของหอใหม่ครบ 20 หอแล้ว (revision เดิมที่ deploy ก่อน review follow-up ยังแสดง fallback เช่น `Ward 10001`) ปุ่ม Demo control เดิมยังเป็นตัวละคร Golden Case ไม่ได้เพิ่มปุ่มสร้างเหตุของทั้ง 20 หอ สามารถเปิด Gap/roster/detail และสร้างบัญชีรายคนเพื่อทดลอง `/me/unavailability` ได้ตามสิทธิ์
 
 ## Preview / Apply
 
@@ -28,7 +28,7 @@ sudo docker exec nara-staffing-backend python -m app.mock_data
 sudo docker exec nara-staffing-backend python -m app.mock_data --apply
 ```
 
-Preview ไม่เขียนข้อมูล Apply เพิ่มทั้งชุดใน transaction เดียว; รันซ้ำ profile เดิมไม่เพิ่มแถวและไม่เขียนทับการเปลี่ยนแปลงจากการทดสอบ หาก ID namespace มีข้อมูลอื่นอยู่แต่ไม่มี marker ของชุดนี้ จะปฏิเสธก่อนเขียน ห้ามแก้ marker/ID ด้วย SQL เพื่อบังคับให้ผ่าน ไม่ลบ/replace ชุดเดิมผ่าน CLI นี้
+Preview แสดง `reference_at` ที่บันทึกไว้ของ profile ที่โหลดแล้ว; apply ซ้ำใช้เวลาอ้างอิงเดิมโดยไม่ต้องเรียก `/clock`. ถ้าโหลดครั้งแรกอ่าน clock ไม่ได้จะปฏิเสธพร้อมข้อความให้รอ backend healthy โดยไม่เขียนชุดข้อมูล. Preview ไม่เขียนข้อมูล Apply เพิ่มทั้งชุดใน transaction เดียว; รันซ้ำ profile เดิมไม่เพิ่มแถวและไม่เขียนทับการเปลี่ยนแปลงจากการทดสอบ หาก ID namespace มีข้อมูลอื่นอยู่แต่ไม่มี marker ของชุดนี้ จะปฏิเสธก่อนเขียน ห้ามแก้ marker/ID ด้วย SQL เพื่อบังคับให้ผ่าน ไม่ลบ/replace ชุดเดิมผ่าน CLI นี้
 
 ก่อน apply บน AWS ให้เก็บ SQL backup สิทธิ์ 600 ที่ต่างจาก backup AU4 เดิม หยุด Job/traffic ชั่วคราวตามขั้นตอนด้านล่าง แม้ generator ไม่ส่งข้อความเอง ข้อมูลใหม่นี้เข้าร่วม candidate pool ของงานจริงหลังโหลด: การสร้างเหตุ/เดินนาฬิกาในภายหลังอาจกระตุ้นการติดต่อ/LLM ตามค่าตั้งของระบบได้ อย่าตีความว่าเปิด Demo จริงแล้วไม่มีค่าใช้จ่ายเสมอ
 
@@ -90,3 +90,9 @@ dc ps
 - หน้า Gap เลือก Ward 10001 วันที่ 23/10/2026 แสดงเวร 2000029 เวลา 07:00–19:00 ต้องมี 7 / มี 6 / ขาด 1 และเวร 2000030 เวลา 19:00–07:00 วันถัดไป ต้องมี 6 / มี 6 / ครบ.
 
 ยังไม่แนบ image ID และยังไม่ได้ทำ live Reset ของชุดใหญ่ ไม่ใช้ข้อมูลนี้ปิด AU4 acceptance หรืออ้างว่า workflow จริงผ่าน.
+
+## Review follow-up: ข้อมูลที่โหลดแล้ว
+
+Generator รุ่นปรับปรุงหมุนประวัติทุก 5 เวรแทนทุก 4 เวร จึงครอบคลุมทั้ง 4 ทีม สลับผู้ลาที่ถูกยกเลิก และมีทั้ง ICU/BLS skill gaps. ใช้กับ import ครั้งแรกหรือ Reset ครั้งถัดไปเท่านั้น; apply ซ้ำไม่แก้ประวัติ AWS ที่โหลดแล้วและไม่ได้ Reset เครื่องโดยอัตโนมัติ. ตัวเลข/ภาพหลักฐานข้างต้นยังเป็นของ revision c28e467.
+
+การทดสอบ `test_reset_replays_large_profile_preserving_old_and_new_accounts_and_subjects` โหลด profile, สร้างบัญชีเดิม 900 และบัญชีใหม่ 100001, Reset แล้วเทียบ subjects/password hashes/จำนวน 500–20–1200, ยืนยัน session เก่าใช้ไม่ได้และ login ใหม่ได้. เป็น integration test ในฐานแยก ไม่ใช่ผล live Reset บน AWS.

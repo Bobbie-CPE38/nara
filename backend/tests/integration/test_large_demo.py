@@ -1,5 +1,8 @@
 """Large demo: additive import, no outbound work, collision refusal and auth-safe replay."""
 
+import json
+from contextlib import contextmanager
+
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import func, select
@@ -15,13 +18,15 @@ from app.db.models import (
     DemoDataset,
     LlmCallLog,
     RosterAssignment,
+    Skill,
     Staff,
     StaffingCase,
+    StaffingGapSkill,
     StructuredHandover,
     Ward,
 )
 from app.db.session import SessionLocal
-from app.domain.enums import CaseStatus
+from app.domain.enums import CaseStatus, RosterStatus
 from app.seed.large_demo import PROFILE, STAFF_BASE, WARD_BASE, counts, generate
 from app.seed.reset import reset_demo
 from app.services import auth_service, case_service, job_service
@@ -70,6 +75,24 @@ def test_large_import_is_additive_idempotent_and_does_not_queue_paid_or_live_wor
     job_service.run_due_work(db)
     assert db.scalar(select(func.count()).select_from(CandidateOutreach)) == 0
     assert db.scalar(select(func.count()).select_from(LlmCallLog)) == 0
+    cancelled = db.scalars(
+        select(RosterAssignment).where(
+            RosterAssignment.staff_id.between(STAFF_BASE + 1, STAFF_BASE + 24),
+            RosterAssignment.status == RosterStatus.CANCELLED,
+        )
+    ).all()
+    assert len({(row.staff_id - STAFF_BASE - 1) // 6 for row in cancelled}) == 4
+    assert len({(row.staff_id - STAFF_BASE - 1) % 6 for row in cancelled}) > 1
+    for skill_name in ("ICU", "BLS"):
+        assert (
+            db.scalar(
+                select(func.count())
+                .select_from(StaffingGapSkill)
+                .join(Skill, Skill.id == StaffingGapSkill.skill_id)
+                .where(Skill.name == skill_name, StaffingGapSkill.gap_count > 0)
+            )
+            > 0
+        )
     # Every historical status renders through the real read model.
     for status in (CaseStatus.RESOLVED, CaseStatus.UNRESOLVED, CaseStatus.FAILED):
         case_id = db.scalar(select(StaffingCase.id).where(StaffingCase.status == status).limit(1))
@@ -142,3 +165,54 @@ def test_unknown_profile_refuses_reset_without_losing_existing_accounts() -> Non
         assert db.get(Staff, 900).auth_subject == subject
         assert db.get(AuthAccount, subject) is not None
         assert db.scalars(select(DemoDataset.profile)).one() == "unsupported-future-profile"
+
+
+def test_cli_clock_failure_is_clear_and_does_not_write(
+    production_seeded: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from app import mock_data
+
+    @contextmanager
+    def session():
+        yield production_seeded
+
+    def unavailable():
+        raise ValueError("Cannot read a valid local Backend /clock. No dataset was written.")
+
+    monkeypatch.setattr(mock_data, "SessionLocal", session)
+    monkeypatch.setattr(mock_data, "backend_reference", unavailable)
+    monkeypatch.setattr("sys.argv", ["mock_data", "--apply"])
+    with pytest.raises(SystemExit) as stopped:
+        mock_data.main()
+    assert stopped.value.code == 1
+    stderr = capsys.readouterr().err
+    assert "Import refused:" in stderr and "Traceback" not in stderr
+    assert counts(production_seeded) == {"staff": 0, "wards": 0, "shifts": 0}
+    assert production_seeded.scalar(select(func.count()).select_from(DemoDataset)) == 0
+
+
+def test_cli_reapply_uses_recorded_reference_without_clock(
+    production_seeded: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from app import mock_data
+
+    db = production_seeded
+    generate(db, clock.now())
+    reference = db.scalars(select(DemoDataset.reference_at)).one()
+
+    @contextmanager
+    def session():
+        yield db
+
+    def unexpected_clock():
+        pytest.fail("An existing dataset must use its recorded reference, without HTTP")
+
+    monkeypatch.setattr(mock_data, "SessionLocal", session)
+    monkeypatch.setattr(db, "commit", lambda: db.flush())
+    monkeypatch.setattr(mock_data, "backend_reference", unexpected_clock)
+    monkeypatch.setattr("sys.argv", ["mock_data", "--apply"])
+    mock_data.main()
+    preview, loaded = map(json.loads, capsys.readouterr().out.splitlines())
+    assert preview["reference_at"] == reference.isoformat()
+    assert preview["already_loaded"] is True
+    assert loaded["loaded"] == {"staff": 500, "wards": 20, "shifts": 1200}

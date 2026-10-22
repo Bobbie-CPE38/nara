@@ -8,6 +8,8 @@
 
 ผู้ Deploy รายงานก่อนเริ่ม W: Git HEAD `514babd56968c84f6fed37106ff63270b668e1a2`, `LINE_MODE=simulation`, `REAL_LINE_CONFIGURED=False` (2026-10-21) เป็นผลตรวจค่าตั้ง ไม่ใช่ผล cutover
 
+**เครื่องที่โหลด mock data ชุดใหญ่:** พนักงานใหม่เข้าร่วม candidate pool จริง การสร้างเหตุ/เดินนาฬิกาอาจส่ง LINE ให้ผู้ที่ผูกบัญชีและเรียก LLM ตามค่าตั้ง อ่าน [Demo runbook](../demo-runbook.md) ก่อนเริ่ม; ห้ามถือว่าชุดข้อมูลจำลองแยกจาก real outreach
+
 ## 1. เตรียมเครื่องและ Channel
 
 - ยืนยันขั้นที่ 6 กับทีม เก็บ HEAD/image ID และผล Gate/Frontend ที่ตรงกับรุ่นที่รัน หากรุ่นเปลี่ยนให้ตรวจใหม่

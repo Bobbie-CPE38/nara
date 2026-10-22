@@ -7,6 +7,7 @@ matches the page, including a frozen demo. No environment secrets are printed.
 
 import argparse
 import json
+import urllib.error
 import urllib.request
 from datetime import datetime
 
@@ -16,6 +17,22 @@ from app.db.models import DemoDataset
 from app.db.session import SessionLocal
 from app.seed.large_demo import DAYS, PROFILE, STAFF_COUNT, WARD_COUNT, counts, generate
 from app.services.auth_service import hold_auth_gate
+
+
+def backend_reference() -> datetime:
+    """Read only the local clock; report transport/format errors without a traceback."""
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8000/clock", timeout=5) as response:
+            view = json.load(response)
+        reference = datetime.fromisoformat(view["now"])
+        if reference.tzinfo is None:
+            raise ValueError("Clock must include timezone")
+        return reference
+    except (urllib.error.URLError, OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError(
+            "Cannot read a valid local Backend /clock. Start the backend, wait for it "
+            "to become healthy, then retry. No dataset was written."
+        ) from error
 
 
 def main() -> None:
@@ -37,15 +54,20 @@ def main() -> None:
                         "shifts": WARD_COUNT * DAYS * 2,
                     },
                     "already_loaded": existing is not None,
+                    "reference_at": existing.reference_at.isoformat() if existing else None,
                     "current_namespace": counts(db),
                 }
             )
         )
         if not args.apply:
             return
-        with urllib.request.urlopen("http://127.0.0.1:8000/clock", timeout=5) as response:
-            view = json.load(response)
-        reference = datetime.fromisoformat(view["now"])
+        if existing is not None:
+            reference = existing.reference_at
+        else:
+            try:
+                reference = backend_reference()
+            except ValueError as error:
+                parser.exit(1, f"Import refused: {error}\n")
         result = generate(db, reference)
         db.commit()
         print(json.dumps({"loaded": result, "profile": PROFILE}))
