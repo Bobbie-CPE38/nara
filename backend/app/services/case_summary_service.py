@@ -50,7 +50,7 @@ from app.schemas.case_summary import CaseSummaryView, SummaryCurrent, SummaryHis
 from app.services import explanation_service, llm_gateway, llm_service
 
 logger = logging.getLogger(__name__)
-PROMPT_VERSION = "case-summary-v2"
+PROMPT_VERSION = "case-summary-v3"
 MAX_PER_SWEEP = 3
 SYSTEM_PROMPT = (
     "Summarize the recorded staffing case in concise Thai for the head nurse. "
@@ -61,6 +61,10 @@ SYSTEM_PROMPT = (
     "Describe the current workflow status, saved shortage and recorded response/approval progress. "
     "All snapshot times are in Asia/Bangkok (+07:00). Write times in that same time zone; "
     "do not convert them to UTC or another zone. "
+    "Copy every date and time exactly as it is written in the data (for example "
+    "2026-10-23T23:00:00+07:00): never reformat it, and never convert the year to another "
+    "calendar (no Buddhist-era year). "
+    "Write the word shift as เวร, never in another language. "
     "Write natural Thai only, as 3 to 6 short lines of plain text: no markdown, no asterisks, "
     "no bullets or tables. "
     "Never write a field name (effective_minimum, headcount_gap, assessed_gap and the like): "

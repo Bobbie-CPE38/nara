@@ -298,15 +298,15 @@ def test_a_partial_plan_says_coverage_comes_first_without_new_keys(seeded: Sessi
     assert service.build_payload(plan) == normal
 
 
-def test_the_prompt_version_is_v3_and_the_prompt_defers_to_the_meaning(
+def test_the_prompt_version_is_v4_and_the_prompt_defers_to_the_meaning(
     seeded: Session, llm_on
 ) -> None:
     _requested_case(seeded)
 
     (row,) = _rows(seeded)
 
-    assert service.PROMPT_VERSION == "rank-explanation-v3"
-    assert row.prompt_version == "rank-explanation-v3"
+    assert service.PROMPT_VERSION == "rank-explanation-v4"
+    assert row.prompt_version == "rank-explanation-v4"
     assert "plan_penalty.meaning says what chose the first wave." in service.SYSTEM_PROMPT
     assert "selects which group of candidates" not in service.SYSTEM_PROMPT
 
