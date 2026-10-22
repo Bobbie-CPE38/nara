@@ -27,11 +27,13 @@
 - Region 5 tests และ manual-env 8 tests ผ่าน ไม่เปลี่ยนวิธีอ่าน env
 - ทดลอง Docker IPAM จริงแบบแยก: dynamic container ได้ `172.30.64.129` และ static `172.30.64.2` ยังจองได้ภายหลัง ไม่ใช่หลักฐาน subnet overlap ของ EC2
 
-## ผลตรวจ subnet ก่อน deploy (operator-reported, 2026-10-23 Bangkok)
+## ผลตรวจ subnet ก่อนและหลัง deploy (operator-reported, 2026-10-23 Bangkok)
 
 ก่อนเปลี่ยน network ผู้ deploy ส่ง Docker network inspect: `bridge 172.17.0.0/16`, `nara_staffing_net 172.20.0.0/16`, และ `host`/`none` ไม่มี subnet. Host `ip -4 route` แสดง default ผ่าน `172.31.16.1`, connected `172.31.16.0/20`, Docker `172.17.0.0/16`/`172.20.0.0/16`, และเส้นทาง host ของ `172.31.0.2`/`172.31.16.1`. ไม่มี explicit route เหล่านี้ทับ `172.30.64.0/24`; default route ไม่ใช่หลักฐานว่า subnet ไม่ทับเครือข่ายอื่น.
 
-ผลนี้ยืนยันเฉพาะ Docker/host routes ที่ส่งมา **ยังไม่ได้ตรวจ VPC route table ทั้งหมด, peering/Transit Gateway หรือ VPN routes ที่อยู่นอก host** จึงไม่อ้างว่าตรวจ VPC/VPN ครบแล้ว. ต้องให้ผู้ดูแลตรวจและบันทึกผลก่อนปิด acceptance; ถ้าพบทับให้เปลี่ยน subnet/Caddy IP/trusted IP/tests พร้อมกัน ไม่ข้ามการตรวจเพียงเพราะ start สำเร็จ. Operator output ภายหลังแสดง service start สำเร็จ ซึ่งเป็นหลักฐาน startup ไม่ใช่การพิสูจน์ว่าเข้าถึงทุกเครือข่ายได้.
+หลัง deploy ผู้ดูแลรันจาก CloudShell: หา VPC ของ EC2 ด้วย `describe-instances` แล้ว `describe-route-tables` กรองทุก table ของ VPC นั้น. Output ที่ส่งมาแสดง 1 table: route `172.31.0.0/16 -> local` และ `0.0.0.0/0 -> Internet Gateway`, ทั้งคู่ active. ไม่มี route target แบบ peering, Transit Gateway หรือ VPN ในผลนี้. ผู้ดูแลรายงานว่าไม่ได้ตั้งการเชื่อมเครือข่ายเพิ่มเติมเอง.
+
+เมื่อรวม Docker networks, host explicit routes และ VPC routes ที่รายงาน **ไม่พบ subnet ทับกับ `172.30.64.0/24` ใน configuration ที่ตรวจ**. Default route ไป Internet Gateway ไม่ใช่ subnet collision. ผลเป็น operator-reported output ไม่ใช่ independent AWS rerun หรือหลักฐานว่าไม่มีเครือข่ายอื่นนอก configuration นี้. ตรวจใหม่หากเพิ่ม VPN/peering/TGW หรือเปลี่ยน routes; ถ้าพบทับให้เปลี่ยน subnet/Caddy IP/trusted IP/tests พร้อมกัน. Operator output ภายหลังแสดง service start สำเร็จ แต่การตรวจ route ข้างต้นเป็นหลักฐานแยกจาก startup และไม่ปิด live acceptance ข้ออื่น.
 
 ## ก่อน deploy บน EC2
 
