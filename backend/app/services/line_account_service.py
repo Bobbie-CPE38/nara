@@ -20,7 +20,7 @@ from app.core import clock
 from app.core.constants import MAX_BIGINT
 from app.db.models import Contact, LineAccountLinkCode, Staff
 from app.domain.enums import ActorName, AuditAction, EntityType, StaffStatus
-from app.services import actor_service, audit_service
+from app.services import actor_service, audit_service, auth_service, registration_service
 
 CODE_LIFETIME = timedelta(minutes=10)
 _CODE = re.compile(r"[A-Za-z0-9_-]{32}\Z")
@@ -86,6 +86,7 @@ def _contacts(db: Session, staff_id: int) -> list[Contact]:
 
 
 def issue_code(db: Session, staff_id: int) -> IssuedCode:
+    auth_service.hold_auth_gate(db)
     _lock_staff(db, staff_id)
     _user_actor(db, staff_id)
     # Refuse existing bindings, including inactive ones: explicit unlink is required.
@@ -110,6 +111,7 @@ def issue_code(db: Session, staff_id: int) -> IssuedCode:
 
 
 def link(db: Session, code: str, uid: str) -> Contact:
+    auth_service.hold_auth_gate(db)
     if not _CODE.fullmatch(code) or not uid or len(uid) > 255:
         raise InvalidLinkCodeError("Invalid link code or LINE sender")
     code_id = db.scalar(
@@ -185,7 +187,9 @@ def link(db: Session, code: str, uid: str) -> Contact:
 
 
 def unlink(db: Session, staff_id: int) -> int:
-    _lock_staff(db, staff_id, require_active=False)
+    auth_service.hold_auth_gate(db)
+    staff = _lock_staff(db, staff_id, require_active=False)
+    registration_service.revoke_codes(db, staff.auth_subject)
     # Invalidate unused codes, so a pre-unlink code cannot rebind the old account.
     db.execute(
         update(LineAccountLinkCode)

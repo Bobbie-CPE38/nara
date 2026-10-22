@@ -448,6 +448,19 @@ describe("change password page", () => {
     expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe("a brand new password");
   });
 
+  it("goes to /login when the session expires during the change", async () => {
+    session(ME, { "POST /auth/change-password": () => ({ status: 401, body: { detail: "AUTH_REQUIRED" } }) });
+    pathname = "/change-password";
+    app(<ChangePasswordPage />);
+    await screen.findByLabelText("Current password");
+    fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "the old password" } });
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a brand new password" } });
+    fireEvent.change(screen.getByLabelText("Repeat the password"), { target: { value: "a brand new password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+    // The user is not left on "Checking who you are…": the page sends them to log in again
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+  });
+
   it("shows the success message even when the provider turns anonymous before the page does", async () => {
     // The provider is anonymous the moment the password is changed; the page must not leave first
     session(ME, { "POST /auth/change-password": () => ({ status: 204 }) });

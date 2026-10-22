@@ -224,7 +224,7 @@ describe("My offers with a login", () => {
 
   it("does not say there is no shift while the roster is still loading", async () => {
     login({ staff_id: 201, role: "staff", home_ward_id: 1 });
-    rosterAnswer = () => new Promise(() => {}) as unknown as never;
+    hangRoster = true;
     app(<MyOffers />);
     expect(await screen.findByText("Loading your shifts…")).toBeTruthy();
     expect(screen.queryByText("You have no shift to check in to.")).toBeNull();

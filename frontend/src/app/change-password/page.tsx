@@ -37,7 +37,9 @@ export default function ChangePasswordPage() {
   useEffect(() => {
     // Not logged in and not changing or just changed: there is nothing to change here
     if (state.status === "anonymous" && !done && !changing.current) router.replace("/login");
-  }, [state.status, done, router]);
+    // `busy` is a dependency so that the effect runs again when a call ends: a session that
+    // expired during the call turned the provider anonymous while `changing` was still true
+  }, [state.status, done, busy, router]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();

@@ -144,13 +144,13 @@ export function SiteHeader() {
               className="px-2 md:hidden"
               aria-expanded={open}
               aria-controls="mobile-menu"
-            aria-label={open ? t("nav.closeMenu") : t("nav.openMenu")}
-            onClick={() => setOpen((value) => !value)}
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
-            </svg>
-          </button>
+              aria-label={open ? t("nav.closeMenu") : t("nav.openMenu")}
+              onClick={() => setOpen((value) => !value)}
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+              </svg>
+            </button>
           )}
         </div>
       </div>

@@ -25,9 +25,11 @@ from app.domain.errors import ShiftNotFoundError
 from app.integrations.line import client
 from app.services import (
     attendance_service,
+    auth_service,
     line_account_service,
     line_contact_service,
     outreach_service,
+    registration_service,
     unavailability_service,
 )
 
@@ -205,6 +207,55 @@ def _check_in_event(db: Session, event: dict[str, Any], event_id: str) -> bool:
     return True
 
 
+def _is_register(event: dict[str, Any]) -> bool:
+    message = event.get("message")
+    text = message.get("text") if isinstance(message, dict) else None
+    return bool(
+        event.get("type") == "message"
+        and isinstance(message, dict)
+        and message.get("type") == "text"
+        and isinstance(text, str)
+        and re.fullmatch(r"REGISTER[ \t\r\n]*", text, re.IGNORECASE | re.ASCII)
+    )
+
+
+def _register_event(db: Session, event: dict[str, Any], event_id: str) -> None:
+    source = event.get("source")
+    uid = source.get("userId") if isinstance(source, dict) else None
+    try:
+        if (
+            not isinstance(source, dict)
+            or source.get("type") != "user"
+            or not isinstance(uid, str)
+            or not 1 <= len(uid) <= 255
+        ):
+            raise registration_service.RegistrationError("Invalid sender")
+        issued = registration_service.issue(db, uid)
+    except registration_service.RegistrationError as error:
+        if _business_refusal(db, event_id):
+            message = (
+                "คุณมีบัญชีเว็บแล้ว กรุณาเข้าสู่ระบบ หรือติดต่อผู้ดูแลหากลืมรหัสผ่าน"
+                if isinstance(error, registration_service.AlreadyRegisteredError)
+                else "ขอรหัสบ่อยเกินไป กรุณารออย่างน้อยหนึ่งนาทีแล้วส่ง REGISTER อีกครั้ง"
+                if isinstance(error, registration_service.IssuanceLimitedError)
+                else "กรุณาส่ง REGISTER จากบัญชี LINE ส่วนตัวที่ผูกกับพนักงานที่พร้อมใช้งานแล้ว"
+            )
+            _reply(db, event, message)
+        return
+    _remember(db, event_id)
+    db.commit()
+    _reply(
+        db,
+        event,
+        (
+            "รหัสสมัครบัญชีเว็บ Nara (ใช้ได้ครั้งเดียวภายใน 10 นาที):\n"
+            f"{issued.code.get_secret_value()}\n"
+            "เปิดหน้าสมัครสมาชิกของเว็บ Nara แล้วกรอกรหัสนี้พร้อมตั้งรหัสผ่าน "
+            "ห้ามส่งรหัสนี้ให้ผู้อื่น หากไม่ได้รับรหัสหรือรหัสหมดอายุให้ส่ง REGISTER ใหม่"
+        ),
+    )
+
+
 def process_event(db: Session, event: dict[str, Any]) -> None:
     """Process an event or raise for retry. Expected refusals are terminal, not HTTP errors.
 
@@ -214,10 +265,16 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
     event_id = event.get("webhookEventId")
     if not isinstance(event_id, str) or not event_id or len(event_id) > 256:
         raise ValueError("Missing or invalid webhook event ID")
+    if _is_register(event):
+        # Before even the dedup read: reset takes the exclusive gate before table locks.
+        auth_service.hold_auth_gate(db)
     if db.get(LineWebhookEvent, event_id) is not None:
         db.rollback()
         return
     try:
+        if _is_register(event):
+            _register_event(db, event, event_id)
+            return
         if _check_in_event(db, event, event_id):
             return
         message = event.get("message")
