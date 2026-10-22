@@ -6,14 +6,25 @@ The caller commits and owns rollback/reset.
 app.seed.reset.reset_demo() does all of this for POST /demo/reset.
 """
 
+import uuid
+from collections.abc import Mapping
+
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
 
+_PRESERVED_SUBJECTS = "seed_preserved_staff_subjects"
 
-def load(db: Session) -> None:
-    """Populate empty application tables without deleting data or committing."""
+
+def load(db: Session, preserved_subjects: Mapping[int, uuid.UUID] | None = None) -> None:
+    """Populate empty application tables without deleting data or committing.
+
+    preserved_subjects: STAFF.id to the auth_subject that ID had before a demo reset
+    (docs/workflow.md 6.33.7). A seeded staff member with one of these IDs is the same
+    permanent person again, so their web account still belongs to them; any other gets
+    a new random subject.
+    """
     # Imported here: the loaders import sync_sequences from this module
     from app.seed import base_data, check_ins
     from app.seed.scenarios import golden_case, multi_ward
@@ -24,10 +35,20 @@ def load(db: Session) -> None:
                 f"Cannot seed: {table.name} already contains data. "
                 "Use a fresh demo database; no existing data has been deleted."
             )
-    base_data.seed(db)
-    golden_case.seed(db)
-    multi_ward.seed(db)
-    check_ins.seed(db)
+    db.info[_PRESERVED_SUBJECTS] = dict(preserved_subjects or {})
+    try:
+        base_data.seed(db)
+        golden_case.seed(db)
+        multi_ward.seed(db)
+        check_ins.seed(db)
+    finally:
+        del db.info[_PRESERVED_SUBJECTS]
+
+
+def staff_subject(db: Session, staff_id: int) -> uuid.UUID:
+    """The auth_subject for a seeded staff member: the one kept by load(), or a new one."""
+    preserved: Mapping[int, uuid.UUID] = db.info.get(_PRESERVED_SUBJECTS, {})
+    return preserved.get(staff_id) or uuid.uuid4()
 
 
 def sync_sequences(db: Session, tables: list[str]) -> None:

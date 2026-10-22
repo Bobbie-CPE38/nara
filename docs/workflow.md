@@ -367,7 +367,7 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 | B2 | คน 2 | ลอง Bedrock จริง 20 ถึง 30 เคส เลือกโมเดล ผ่านตัวห่อของ B1 | 6.28 | B1 และขั้นที่ 6 | ขั้นที่ 6 | ไม่มี | |
 | W | คน 3 | ย้าย Webhook ไป AWS; live smoke ผู้ Deploy รายงานผ่าน 2026-10-21 (LINK, Offer/คำขออนุมัติ, Handover, check-in/คำสั่งซ้ำ, SQL Attendance/Audit, strict Gate) Quick Tunnel เดิมหมดอายุหลายวันแล้ว; หลักฐาน/ข้อจำกัด/rollback ใน `docs/round6/pr-W-handoff.md` พร้อมรีวิว ไม่ใช่ปิดรอบ 6 | 6.16, 6.30 | D และขั้นที่ 6 | ขั้นที่ 6 | ไม่มี | [#121](https://github.com/Bobbie-CPE38/nara/pull/121) |
 | AU0 | คน 1 (คน 3 ทำแทนตามผู้ใช้) | Contract ล็อกอิน/สิทธิ์, self-leave และ schema ตามร่าง #120 ไม่มี runtime change | 6.33 | ขั้นที่ 6, #120 | #120 | ไม่มี | AU0 รอรีวิว |
-| AU1 | คน 2 | บัญชี/session, auth API, Origin/rate limit, CLI, permanent identity และ reset preservation | 6.33.2–3, 6.33.7 | AU0 | AU0 | มี | |
+| AU1 | คน 2 | บัญชี/session, auth API, Origin/rate limit, CLI, permanent identity และ reset preservation | 6.33.2–3, 6.33.7 | AU0 | AU0 | มี | AU1 รอรีวิว |
 | AU2 | คน 2 | สิทธิ์ทุก Route, self-leave, Demo events, list/count scope, Audit | 6.33.4 | AU1 | AU1 | ไม่มีเว้นแต่จำเป็นตาม schema | |
 | AU3 | คน 1 | หน้า login/register/เปลี่ยนรหัส, เมนู, self-leave, Demo adapter และ 401/403 | 6.33.3–4 | AU1 | AU1 | ไม่มี | |
 | AU5 | คน 3 | REGISTER ผ่าน LINE, atomic register code, security/regression tests | 6.33.6 | AU1 | AU1 | มี | |
@@ -446,7 +446,7 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 | D6 | Skeleton ทำงาน Sync ภายใน HTTP Request ยังไม่ใช้ Celery | ลดชิ้นส่วนที่ต้องตั้งค่าช่วงแรก |
 | D7 | ID ทุกตารางเป็น `bigint`; ยกเว้น permanent auth subject และคีย์ที่อ้างถึง subject ใช้ UUID ตามข้อ 6.33 | ตัดสินแล้วจากทีม |
 | D8 | Enum เป็น Python `StrEnum` ใน `domain/enums.py` เก็บใน DB เป็น `text` ยังไม่ใส่ DB ENUM หรือ CHECK | ค่าหลายตัวยังไม่ยืนยัน แก้ได้โดยไม่ต้อง Migration |
-| D9 | **[AU1/AU2 ยังไม่ Implement]** สองโหมด: demo ใช้ `X-Demo-User`; session ใช้ cookie/session ที่ Backend ตรวจแล้วและไม่อ่าน Header นี้ ตามข้อ 6.33 | USER actor กับ staff ต้องมาจากบัญชีเดียวกัน; ก่อน AU4 เครื่องยังใช้ Demo เดิม |
+| D9 | **[AU1 ทำ dependency/session แล้ว; สิทธิ์ราย Route ของ AU2 ยังไม่ Implement]** สองโหมด: demo ใช้ `X-Demo-User`; session ใช้ cookie/session ที่ Backend ตรวจแล้วและไม่อ่าน Header นี้ ตามข้อ 6.33 | USER actor กับ staff ต้องมาจากบัญชีเดียวกัน; ก่อน AU4 เครื่องยังใช้ Demo เดิม |
 | D10 | เวลาของระบบมาจาก `core/clock.py` ที่ตั้งค่าได้ ห้ามเรียก `datetime.now()` ตรง ๆ; ยกเว้น auth session/registration code ใช้ real UTC ตามข้อ 6.33 (และ lease เดิมตามข้อ 6.15) | Demo และ Test ต้องได้ผลเหมือนเดิมทุกครั้ง |
 | D11 | เกิด Exception ระหว่าง Workflow: Rollback งานของรอบนั้นด้วย Savepoint (งานของผู้เรียกใน Transaction เดียวกันยังอยู่) ตั้งเคสเป็น `FAILED` และบันทึก `WORKFLOW_FAILED` แล้ว Commit รายละเอียดดูข้อ 6.2 | ไม่มีเคสค้างกลางทางโดยไม่มีใครรู้ |
 | D12 | Skeleton ยังไม่มี LLM, OR-Tools, LINE จริง, Aggregation | ใช้ Stub ทั้งหมด แล้วเปลี่ยนเป็นของจริงทีละส่วน |
@@ -2063,7 +2063,7 @@ Tests: `test_offer_outcome_notifications.py` (เหตุผล, ทางอ�
 * **เกณฑ์ผ่านของแต่ละ PR** `tsc`, `vitest`, `next build` ผ่าน `deploy/aws/test_frontend.py` ผ่าน (โลโก้ ไอคอน และภาษาตาม cookie ใน image) และตรวจในเบราว์เซอร์ทั้งสองภาษากับสองขนาดจอ (1280 และ 390 พิกเซล) ไม่ล้นแนวนอน ไม่มี Error ใน Console หลัง UI2 ตรวจครบทุกหน้า
 * **Test** `tests/unit/lib/i18n.test.ts` (สองภาษามีคีย์และ `{ชื่อ}` ตรงกัน ข้อความไทยเป็นไทย ไม่มีประโยคอังกฤษหลุดในไฟล์ไทย `parseLang`), `tests/unit/components/language.test.tsx` (สวิตช์ cookie เมนูมือถือ หน้าเคสสองภาษา ข้อความ Backend ไม่ถูกแปล), Dashboard ภาษาไทยใน `tests/unit/app/dashboard.test.tsx`
 
-### 6.33 ล็อกอิน ตัวตน และสิทธิ์ [รอบ 6 · AU0 เป็น Contract; AU1–AU5 ยังต้อง Implement]
+### 6.33 ล็อกอิน ตัวตน และสิทธิ์ [รอบ 6 · AU0 เป็น Contract; AU1 Implement แล้ว; AU2–AU5 ยังต้อง Implement]
 
 AU0 รับร่างข้อ 5C ของ PR #120 เป็นกติกาสำหรับงาน AU ไม่ใช่ประกาศว่าโค้ดหรือเครื่อง AWS เปลี่ยนแล้ว ก่อน AU4 ตรวจรับ เครื่องยังใช้ด่าน PR D/W เดิม ข้อความเดิมของข้อ 3, 6.17, 6.27 และ 9 ที่บอก `X-Demo-User` หรืออ่านโดยไม่ระบุตัว ใช้กับ `AUTH_MODE=demo` เท่านั้นเมื่อ AU1/AU2 ทำเสร็จ โหมด `session` ยึดข้อนี้เหนือข้อเดิม ส่วนกฎจัดเวร, Hard Rules, Lock, Timeout, โควตา และลายเซ็น LINE คงเดิม
 
@@ -2091,6 +2091,16 @@ AU0 รับร่างข้อ 5C ของ PR #120 เป็นกติก
 - logout revoke session ปัจจุบันและล้าง cookie; เปลี่ยน/รีเซ็ตรหัสหรือปิดบัญชี revoke ทุก session ของบัญชีใน transaction เดียว; change-password เพิ่ม credential_version และสำเร็จแล้วต้อง login ใหม่ คำขอพร้อมกันต้องไม่คืน session ที่ถูก revoke ให้กลับใช้ได้
 - `must_change_password=true` ให้ใช้ได้แค่ me/logout/change-password; route ธุรกิจตอบ 403 `AUTH_PASSWORD_CHANGE_REQUIRED` จนเปลี่ยนสำเร็จ Script ดูแลบัญชีรับรหัสผ่าน getpass/stdin แบบไม่ echo ไม่ผ่าน argv หรือพิมพ์รหัสลง Log; reset รหัสด้วย script เท่านั้น ไม่มี API admin สาธารณะ บัญชี Demo ที่มีรหัสตั้งต้นสร้างได้ใน demo เท่านั้น
 - การตรวจ cookie/Hash อ้างแนวทาง [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) และ [Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html); ตัวเลข timeout เป็นมติทีม ไม่ใช่คำอ้างว่าระบบพร้อมใช้ข้อมูลจริง
+
+**AU1 Implement แล้ว (ส่วนที่ AU2–AU5 ต้องรู้):**
+
+- โค้ด: `app/core/passwords.py` (argon2-cffi ตรึง Argon2id memory 19 MiB, iterations 2, parallelism 1; บัญชีที่ไม่มี/ใช้ไม่ได้ยัง verify hash หลอกเพื่อให้เวลาตอบใกล้กัน), `app/services/auth_service.py` (login/resolve/logout/change-password และฟังก์ชันของ script), `app/api/dependencies.py` (`get_current_user`, `get_session_user`; `DemoUser` เป็นชื่อเดิมของ dependency เดียวกัน), `app/api/routes/auth.py`, `app/api/origin_guard.py`, `app/api/rate_limit.py`, `app/core/auth_clock.py` (real UTC ที่เทสต์แทนได้)
+- ค่าตั้ง `APP_ENV`, `AUTH_MODE`, `AUTH_COOKIE_SECURE`, `AUTH_SESSION_MAX_AGE_SECONDS`, `AUTH_SESSION_IDLE_SECONDS` ค่าที่ไม่รู้จักหรือ aws+cookie ไม่ Secure หรือ idle > max age ทำให้ startup ล้ม Compose ในเครื่องตั้ง `AUTH_COOKIE_SECURE=false`; ไฟล์ซ้อน AWS ตรึง `true` ไว้แล้ว ส่วน `APP_ENV=aws`/`AUTH_MODE=session` บนเครื่องยังเป็นงาน AU4
+- ตรวจ session ทุก request ด้วย UPDATE แบบมีเงื่อนไขครั้งเดียว (ไม่ revoke, credential_version ตรง, ก่อน absolute/idle expiry, บัญชีไม่ปิด, Staff ACTIVE, มี USER actor) แล้ว commit ทันที logout/เปลี่ยนรหัสที่ล็อกแถวก่อนจึงชนะเสมอ ทุก auth write และการตรวจ session ถือ shared `(6210, 1)` ก่อน row lock ลำดับ gate → STAFF → AUTH_ACCOUNT → AUTH_SESSION
+- `must_change_password` ตอบ 403 `AUTH_PASSWORD_CHANGE_REQUIRED` ใน Route ที่ใช้ `get_current_user`/`DemoUser` อยู่แล้วเท่านั้น Route อ่านที่ยังไม่ใช้ dependency นี้ยังเปิดตามเดิมจน AU2 ใส่ตัวตรวจ
+- Origin: POST/PUT/PATCH/DELETE ใต้ `/auth` ตรวจทุกโหมด และทุก Path เมื่อ `AUTH_MODE=session` ยกเว้น POST `/line/webhook` ที่ raw path ตรงตัวและ `/internal/*`; `make reset` ส่ง Origin แรกของ `CORS_ORIGINS` เอง CORS เปิด `allow_credentials` ให้ cookie
+- rate limit ใช้ IP จาก `request.client` ของ Backend ตอนนี้ หลัง Caddy ทุกคำขอมาจาก IP เดียว AU4 ต้องตั้ง trusted proxy ตามข้อ 6.33.3 ก่อนนับต่อ IP จริง
+- Script: `python -m app.auth_accounts create|reset-password|disable|enable --staff-id N` รับรหัสด้วย getpass สองครั้งหรือ `--password-stdin`; create/reset-password ตั้ง must_change; `demo-accounts` ใช้ได้เฉพาะ `AUTH_MODE=demo` กับ `APP_ENV=dev` ตั้งรหัสเดียวกันให้คนใน seed ที่ยังไม่มีบัญชีโดยไม่บังคับเปลี่ยน ไม่มีรหัสตั้งต้นใน repo
 
 #### 6.33.3 API ล็อกอิน รูป Error และการป้องกันคำขอข้ามเว็บ (AU1/AU3/AU4)
 
@@ -2163,6 +2173,8 @@ Audit ของการกระทำเว็บใช้ USER actor ที�
 #### 6.33.7 Reset Demo และเจ้าของงาน
 
 **สถานะโค้ดที่ AU0 ตรวจ:** `backend/app/seed/reset.py` ใช้ process-local `threading.Lock`, transaction เดียวที่ล็อก/สำรอง LLM ledger แล้ว `DROP SCHEMA public CASCADE` → migrate → seed → คืน ledger; `reset_demo()` retry เฉพาะ `DeadlockDetected` ได้เพิ่ม 3 ครั้ง (`_DEADLOCK_RETRIES = 3`, รวมสูงสุด 4 attempts) ยังไม่มี transaction advisory lock สำหรับ auth และยังไม่มีการรักษา auth identity ข้อกำหนด `(6210, 1)` ข้างล่างเป็นงานใหม่ของ AU1 ไม่ใช่กลไกที่มีแล้ว ก่อน Implement AU1 ต้องตรวจ reset/seed/lock order และ integration tests กับ source revision ปัจจุบัน ยืนยันว่าแนวทางรักษา identity และ shared/exclusive lock ใช้ร่วมกันได้จริง รวมการ rollback และ concurrent auth writes; ถ้าต้องเปลี่ยนกลไกหรือเลิกใช้ `DROP SCHEMA` ให้แก้ contract/schema ที่เกี่ยวข้องพร้อมหลักฐานก่อนให้ AU2/AU5 อาศัยกลไกนี้
+
+**AU1 ทำแล้ว:** reset ถือ exclusive `(6210, 1)` ก่อนล็อก LLM ledger แล้วคัด STAFF ทุกแถว, USER actor และ AUTH_ACCOUNT ลงตารางชั่วคราว; ยังใช้ `DROP SCHEMA` → migrate → seed เดิม โดย `load(db, preserved_subjects=...)` ให้ staff ID ใน seed ได้ subject เดิมตั้งแต่ตอน insert (ข้อมูลอื่นของ Golden Case โหลดใหม่ตามเดิม) แถว STAFF ที่ seed ไม่สร้างคืนตามเดิมพร้อม USER actor (actor ID ใหม่) ถ้า role/ward ของแถวนั้นไม่มีแล้ว reset ทั้งหมด rollback ด้วย `IdentityConflictError`; AUTH_ACCOUNT คืนทุกแถว AUTH_SESSION ไม่คืน; ข้อมูลสถานการณ์ของแถวที่คืน (STAFF_SKILL, CONTACTS, Roster) ไม่คืนตามกติกา reset เดิม subject แก้ไม่ได้ด้วย trigger ใน DB
 
 AU1 เพิ่ม `STAFF.auth_subject` UUID immutable UNIQUE และเก็บ snapshot **STAFF ทุกแถวพร้อม subject, metadata บทบาท/หอ/สถานะเดิม** พร้อม ACTORS ของ identity ที่รักษา และ AUTH_ACCOUNT ภายใน transaction ของ reset; กำหนดให้ seed loader รองรับการรักษา identity นี้ก่อนสร้าง Golden Case (ไม่สร้างบุคคลใหม่มาทับ ID ที่จองไว้) คีย์คืนบัญชีคือ subject ไม่ใช่ first_name/email หรือ staff_id เพียงอย่างเดียว ต้องเก็บ USER actor ของพนักงานที่รักษาด้วย ไม่ล้างจนบัญชีที่ไม่ใช่ Golden Case login ไม่ได้ ตำแหน่ง identity ของ fixture เดิมต้องผูกกับ subject เดิมที่ snapshot ไว้; กรณีสร้าง DB ใหม่จึงสร้าง subject ใหม่ได้ ไม่ใช้ชื่อเป็นตัวพิสูจน์ว่าเป็นคนเดียวกัน
 
@@ -2838,7 +2850,7 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 
 ---
 
-### 9.9 API ล็อกอินและแจ้งลาตัวเอง [AU1/AU2/AU5 ยังไม่ Implement]
+### 9.9 API ล็อกอินและแจ้งลาตัวเอง [AU1 ทำแล้ว; AU2/AU5 ยังไม่ Implement]
 
 รูป request/response/error ที่ใช้ร่วมกันกำหนดในข้อ 6.33.3: AU1 ทำ `/auth/config`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/change-password`; AU2 ทำ self-only POST `/me/unavailability` และ trusted Demo POST `/demo/events`; AU5 ทำ `/auth/register` และคำสั่ง LINE REGISTER ไม่มี API admin เพิ่ม รูป API เดิมของข้อ 9.1–9.8 ยังคงข้อมูลธุรกิจ แต่เงื่อนไข session/สิทธิ์ต้องใช้ matrix ข้อ 6.33.4 หลัง AU2 ทำเสร็จ ไม่อ้างคำว่า "อ่านได้โดยไม่ส่ง X-Demo-User" เดิมเพื่อเปิด endpoint โดยไม่มี session
 
@@ -3134,3 +3146,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-21 | รอบ 6 PR W: เพิ่ม strict Gate สำหรับ LINE จริงที่ปฏิเสธ webhook 503 พร้อม tests Caddy/fake upstream, runbook cutover/rollback และหลักฐาน live ที่ผู้ Deploy รายงานบน AWS: LINK 201, Offer/คำขออนุมัติ, Handover, check-in/คำสั่งซ้ำ, SQL ยืนยัน Attendance/Audit อย่างละหนึ่ง source SELF และ Gate จาก Mac ผ่าน; Quick Tunnel เดิมหมดอายุแล้ว ไม่ได้ทดสอบ live redelivery/crash/rollback และไม่ปิดข้อค้างขั้นที่ 6 หรือรอบ 6 จากผลนี้ ไม่มี Migration | คน 3 |
 | 2026-10-22 | รอบ 6 PR B2: ลอง Bedrock จริงกับ Amazon Nova 2 Lite ผ่านตัวห่อของ B1 เพิ่มเครื่องมือ `app/trial/` (ชุดเคสสังเคราะห์ 30 เคสที่ตรึงด้วย `input_hash`, ตัวให้คะแนนสี่เกณฑ์ด้วยโค้ด, คำสั่ง `python -m app.trial.run generate/run/report`) ที่เรียก LLM ผ่าน `llm_gateway.call()` แบบ `MODEL_TRIAL` เท่านั้น ปฏิเสธไฟล์ผลที่อยู่ในโฟลเดอร์โค้ดหรือ repo (หาจาก marker `.git` และโฟลเดอร์ `backend` ไม่ใช้ความลึกโฟลเดอร์ตายตัว ใช้ได้ใน container ที่ mount เฉพาะ `./backend`) และปฏิเสธการรันจริงถ้า provider ไม่ใช่ `bedrock` เขียน manifest ข้างไฟล์ผล (run, ชุดเคส, prompt, provider, model ID และราคา, เพดานค่าใช้จ่ายต่อ Plan) `run` ต่อไฟล์ผลได้เฉพาะเมื่อ manifest และทุกแถวตรงกับการทดลองปัจจุบัน `report` ตัดสินจาก manifest (เพดานเปลี่ยนตอนรายงานไม่ได้) และตัดสินทุกโมเดลกับทุกเคสของชุดที่ตรึง เคสที่ไม่มีผลนับเป็น incomplete ค่าตั้งต้น: เพดานต่อ Plan 0.00552136 USD และงบชุดทดลอง 3.43592 USD ตามข้อ 6.28 (แก้ตามรีวิว PR B2) ผลและข้อจำกัด (โมเดลเดียว, รันจาก CloudShell, ยังไม่มี IAM Role ของเครื่อง) อยู่ในตาราง fake กับของจริง ไม่มี Migration และไม่ตั้ง `LLM_ENABLED=true` | คน 2 |
 | 2026-10-22 | รอบ 6 AU0: รับร่าง #120 เป็น Contract ข้อ 6.33 และ planned schema; เปลี่ยน D9 เป็น demo/session เมื่อ AU Implement, เพิ่ม self-leave ของตัวเองแบบไม่รออนุมัติการลาตามผู้ใช้ แยกจาก Event ทั่วไป, กำหนด auth API/สิทธิ์/Origin/rate limit/REGISTER/permanent identity และ reset, เจ้าของ AU1–AU5 กับเกณฑ์ production; ไม่เปลี่ยนโค้ด Migration หรือเครื่อง AWS และไม่เปิด LLM | คน 3 ทำแทนคน 1 |
+| 2026-10-22 | รอบ 6 AU1: Migration `a7e2c4f9b1d3` เพิ่ม `STAFF.auth_subject` (immutable ด้วย trigger), AUTH_ACCOUNT และ AUTH_SESSION; Argon2id, session cookie `nara_session`, `/auth/config|login|me|logout|change-password`, Origin guard, rate limit ใน process, `get_current_user` สองโหมด, script `app.auth_accounts`, reset รักษา subject/บัญชีและล้าง session ภายใต้ advisory lock `(6210, 1)`; ไม่เปลี่ยนโหมดบนเครื่อง AWS นอกจากตรึง cookie Secure และไม่เปิด LLM | คน 2 |

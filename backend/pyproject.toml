@@ -22,6 +22,8 @@ dependencies = [
     "langgraph==1.2.15",
     # orchestrator.py imports RunnableConfig from it; the bound langgraph 1.2.15 declares
     "langchain-core>=1.4.7,<2",
+    # Argon2id password hashes for web accounts (docs/workflow.md 6.33.2, round 6 PR AU1)
+    "argon2-cffi>=23.1",
 ]
 
 [tool.setuptools.packages.find]

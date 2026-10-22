@@ -11,6 +11,8 @@ from app.db.models.approval_request import ApprovalRequest
 from app.db.models.approval_ward_decision import ApprovalWardDecision
 from app.db.models.attendance import Attendance
 from app.db.models.audit_log import AuditLog
+from app.db.models.auth_account import AuthAccount
+from app.db.models.auth_session import AuthSession
 from app.db.models.candidate_item import CandidateItem
 from app.db.models.candidate_item_target import CandidateItemTarget
 from app.db.models.candidate_outreach import CandidateOutreach
@@ -59,6 +61,8 @@ __all__ = [
     "ApprovalWardDecision",
     "Attendance",
     "AuditLog",
+    "AuthAccount",
+    "AuthSession",
     "CandidateItem",
     "CandidateItemTarget",
     "CandidateOutreach",

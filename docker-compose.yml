@@ -75,6 +75,13 @@ services:
       LLM_MAX_INPUT_TOKENS: ${LLM_MAX_INPUT_TOKENS:-}
       LLM_MAX_ATTEMPTS_PER_ROW: ${LLM_MAX_ATTEMPTS_PER_ROW:-}
       LLM_TRIAL_CALL_CAP: ${LLM_TRIAL_CALL_CAP:-}
+      # Round 6 PR AU1 (docs/workflow.md 6.33). demo = X-Demo-User, session = login cookie.
+      # Local HTTP needs a cookie without Secure; APP_ENV=aws refuses that at startup
+      APP_ENV: ${APP_ENV:-dev}
+      AUTH_MODE: ${AUTH_MODE:-demo}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      AUTH_SESSION_MAX_AGE_SECONDS: ${AUTH_SESSION_MAX_AGE_SECONDS:-43200}
+      AUTH_SESSION_IDLE_SECONDS: ${AUTH_SESSION_IDLE_SECONDS:-1800}
     command: >
       sh -c "
       pip install --no-cache-dir -e ".[dev]" &&

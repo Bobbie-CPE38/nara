@@ -28,7 +28,7 @@ from app.db.models import (
     Ward,
 )
 from app.domain.enums import ActorType, AssignmentType, RosterStatus, StaffStatus
-from app.seed import sync_sequences
+from app.seed import staff_subject, sync_sequences
 
 MEDICINE_WARD = 2
 FLOAT_POOL_WARD = 3
@@ -81,6 +81,7 @@ def seed(db: Session) -> None:
                 role_id=role_id,
                 home_ward_id=ward_id,
                 status=StaffStatus.ACTIVE,
+                auth_subject=staff_subject(db, staff_id),
                 created_at=now,
                 updated_at=now,
             )

@@ -17,7 +17,8 @@ REVISION = "f9a1c3e5b7d2"
 
 def test_one_head_after_e1():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
-    assert script.get_heads() == [REVISION]
+    # Round 6 AU1 follows this revision
+    assert len(script.get_heads()) == 1
     assert script.get_revision(REVISION).down_revision == "e7c3a5d9b1f4"
 
 

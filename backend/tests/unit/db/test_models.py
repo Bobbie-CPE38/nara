@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 import app.db.models  # noqa: F401  registers all tables on Base.metadata
-from app.core import clock
+from app.core import auth_clock, clock
 from app.db.base import Base, StrEnumText
 
 NOT_NULL = False
@@ -24,6 +24,8 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "role_id": (BigInteger, NOT_NULL),
         "home_ward_id": (BigInteger, NOT_NULL),
         "status": (StrEnumText, NOT_NULL),
+        # Round 6 PR AU1: the permanent person behind the row
+        "auth_subject": (postgresql.UUID, NOT_NULL),
         "created_at": (DateTime, NOT_NULL),
         "updated_at": (DateTime, NOT_NULL),
     },
@@ -313,14 +315,22 @@ def test_staffing_event_constraint() -> None:
     )
 
 
+# Accounts and sessions expire on real time, not the Demo Clock (docs/database-schema.md)
+REAL_TIME_TABLES = {"auth_account", "auth_session"}
+
+
 def test_created_and_updated_timestamps_default_to_the_clock() -> None:
-    """Team convention for all 30 tables: these two columns never rely on the caller."""
+    """Team convention for all tables: these two columns never rely on the caller."""
     missing = [
         f"{table.name}.{column.name}"
         for table in Base.metadata.tables.values()
         for column in table.columns
         if column.name in {"created_at", "updated_at"}
-        and (column.default is None or column.default.arg.__wrapped__ is not clock.now)
+        and (
+            column.default is None
+            or column.default.arg.__wrapped__
+            is not (auth_clock.now if table.name in REAL_TIME_TABLES else clock.now)
+        )
     ]
 
     assert missing == []
