@@ -9,7 +9,8 @@ from typing import Annotated
 from fastapi import APIRouter, Body, HTTPException, Request, Response, status
 
 from app.api.dependencies import AUTH_REQUIRED, SESSION_COOKIE, DbSession, SessionUserDep
-from app.api.rate_limit import (
+from app.core.config import settings
+from app.core.rate_limit import (
     LOGIN_PER_ACCOUNT,
     LOGIN_PER_IP,
     REGISTER_PER_IP,
@@ -17,7 +18,6 @@ from app.api.rate_limit import (
     Limit,
     limiter,
 )
-from app.core.config import settings
 from app.schemas.auth import (
     AuthConfig,
     AuthMe,
@@ -135,19 +135,18 @@ def _me(user: auth_service.SessionUser) -> AuthMe:
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(body: RegisterRequest, request: Request, db: DbSession) -> RegisteredAccount:
-    # Gate before lookup: a reset cannot replace identity/code tables during signup.
-    auth_service.hold_auth_gate(db)
+    # Preflight releases its reset gate/transaction before rate limiting and hashing.
+    prepared = registration_service.prepare_registration(db, body.code)
     client = request.client.host if request.client else "unknown"
-    subject = registration_service.subject_for_code(db, body.code)
     limits = [Limit(f"register:ip:{client}", REGISTER_PER_IP)]
-    if subject is not None:
-        limits.append(Limit(f"register:subject:{subject}", REGISTER_PER_SUBJECT))
+    if prepared is not None:
+        limits.append(Limit(f"register:subject:{prepared.subject}", REGISTER_PER_SUBJECT))
     wait = limiter.hit(limits)
     if wait is not None:
         db.rollback()
         raise HTTPException(429, AUTH_RATE_LIMITED, headers={"Retry-After": str(wait)})
     try:
-        staff_id = registration_service.register(db, body.code, body.password)
+        staff_id = registration_service.complete_registration(db, prepared, body.password)
         db.commit()
     except registration_service.RegistrationError:
         db.rollback()

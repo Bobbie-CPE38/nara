@@ -1,6 +1,7 @@
 """LINE REGISTER and atomic web signup (workflow 6.33.6).
 
-Caller owns commit/rollback. Lock order: shared reset gate → Staff → registration
+Preflight owns a short read transaction and closes it before hashing. Caller owns
+commit/rollback of the final consume. Lock order: shared reset gate → Staff → registration
 codes → Contacts → account. Staff serializes issuance, signup, provisioning and LINK
 unlink. Never persist raw codes, UIDs, messages or passwords. No session is issued.
 """
@@ -17,8 +18,8 @@ from pydantic import SecretStr
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.api.rate_limit import REGISTER_ISSUE_PER_SUBJECT, Limit, RateLimiter
 from app.core import auth_clock, passwords
+from app.core.rate_limit import REGISTER_ISSUE_PER_SUBJECT, Limit, RateLimiter
 from app.db.models import Actor, AuthAccount, AuthRegistrationCode, Contact, Staff
 from app.domain.enums import ActorType, StaffStatus
 from app.services import auth_service
@@ -54,14 +55,53 @@ def uid_digest(uid: str) -> str:
     return hashlib.sha256(b"AUTH_REGISTER_UID\x00" + uid.encode()).hexdigest()
 
 
-def subject_for_code(db: Session, code: str) -> uuid.UUID | None:
-    if _CODE.fullmatch(code) is None:
-        return None
-    return db.scalar(
-        select(AuthRegistrationCode.staff_subject).where(
-            AuthRegistrationCode.code_hash == code_digest(code)
+@dataclass(frozen=True)
+class RegistrationPreflight:
+    subject: uuid.UUID
+    code_hash: str
+    eligible: bool
+
+
+def prepare_registration(db: Session, code: str) -> RegistrationPreflight | None:
+    """Read-only early rejection, not authorization. End this transaction before Argon2.
+
+    Keep only immutable values; the locked consume must recheck everything after hashing.
+    Like auth_service's login/resolve, this helper owns its short transaction. Call with
+    no pending writes. The route counts attempts for a known subject even if ineligible.
+    """
+    try:
+        auth_service.hold_auth_gate(db)
+        if _CODE.fullmatch(code) is None:
+            return None
+        row = db.execute(
+            select(AuthRegistrationCode, Staff, Contact, Actor.id, AuthAccount.staff_subject)
+            .join(Staff, Staff.auth_subject == AuthRegistrationCode.staff_subject)
+            .outerjoin(Contact, Contact.id == AuthRegistrationCode.contact_id)
+            .outerjoin(Actor, (Actor.staff_id == Staff.id) & (Actor.actor_type == ActorType.USER))
+            .outerjoin(AuthAccount, AuthAccount.staff_subject == Staff.auth_subject)
+            .where(AuthRegistrationCode.code_hash == code_digest(code))
+            .execution_options(populate_existing=True)
+        ).first()
+        if row is None:
+            return None
+        proof, staff, contact, actor_id, account_subject = row
+        eligible = bool(
+            proof.used_at is None
+            and proof.revoked_at is None
+            and auth_clock.now() < proof.expires_at
+            and staff.status == StaffStatus.ACTIVE
+            and actor_id is not None
+            and account_subject is None
+            and contact is not None
+            and contact.is_active
+            and contact.staff_id == staff.id
+            and contact.line_uid
+            and hmac.compare_digest(uid_digest(contact.line_uid), proof.line_uid_hash)
         )
-    )
+        return RegistrationPreflight(proof.staff_subject, proof.code_hash, eligible)
+    finally:
+        # Release shared gate and relation locks, including when preflight is refused.
+        db.rollback()
 
 
 def _staff(db: Session, subject: uuid.UUID) -> Staff:
@@ -139,14 +179,25 @@ def issue(db: Session, uid: str) -> RegistrationCode:
 
 
 def register(db: Session, code: str, password: str) -> int:
-    auth_service.hold_auth_gate(db)
-    subject = subject_for_code(db, code)
-    if subject is None:
+    """Service entry point; API can reuse its rate-limited preflight instead."""
+    return complete_registration(db, prepare_registration(db, code), password)
+
+
+def complete_registration(
+    db: Session, prepared: RegistrationPreflight | None, password: str
+) -> int:
+    if prepared is None or not prepared.eligible:
         raise RegistrationError("Registration unavailable")
+    if db.in_transaction():
+        raise RuntimeError("Registration hashing requires a closed preflight transaction")
+    password_hash = passwords.hash_password(password)
+    # Hashing may have taken time: never trust the preflight's eligibility here.
+    auth_service.hold_auth_gate(db)
+    subject = prepared.subject
     staff = _staff(db, subject)
     row = db.scalar(
         select(AuthRegistrationCode)
-        .where(AuthRegistrationCode.code_hash == code_digest(code))
+        .where(AuthRegistrationCode.code_hash == prepared.code_hash)
         .with_for_update()
         .execution_options(populate_existing=True)
     )
@@ -172,7 +223,7 @@ def register(db: Session, code: str, password: str) -> int:
     db.add(
         AuthAccount(
             staff_subject=subject,
-            password_hash=passwords.hash_password(password),
+            password_hash=password_hash,
             must_change_password=False,
             credential_version=1,
             created_at=now,

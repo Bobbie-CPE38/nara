@@ -6,7 +6,7 @@ from unittest.mock import Mock
 import pytest
 from sqlalchemy import func, select, text
 
-from app.core import passwords
+from app.core import auth_clock, passwords
 from app.db.models import AuthAccount, AuthRegistrationCode, AuthSession, Contact
 from app.db.session import SessionLocal
 from app.seed import reset as reset_module
@@ -121,43 +121,81 @@ def test_duplicate_parallel_register_event_replies_once(code, monkeypatch):
     assert webhook.client.reply.call_count == 1
 
 
-def test_unlink_waits_for_signup_and_keeps_created_web_account(code, monkeypatch):
-    entered, release, unlink_started = threading.Event(), threading.Event(), threading.Event()
+@pytest.mark.parametrize(
+    "change", ["unlink", "reissue", "reset", "expiry", "inactive", "provision", "name"]
+)
+def test_hash_holds_no_locks_and_rechecks_changes(code, monkeypatch, change):
+    entered, release, changed = threading.Event(), threading.Event(), threading.Event()
     original = passwords.hash_password
-    results = []
+    results, errors = [], []
+    with SessionLocal() as db:
+        deadline = db.scalar(select(AuthRegistrationCode.expires_at))
 
     def pause(password):
-        entered.set()
-        assert release.wait(5)
+        if threading.current_thread().name == "registration-hash":
+            entered.set()
+            assert release.wait(10)
         return original(password)
 
     monkeypatch.setattr(passwords, "hash_password", pause)
 
     def signup():
-        results.append(register(code))
+        try:
+            results.append(register(code))
+        except BaseException as error:
+            errors.append(error)
 
-    def unlink():
-        with SessionLocal() as db:
-            unlink_started.set()
-            line_account_service.unlink(db, 201)
-            db.commit()
+    def mutate():
+        try:
+            if change == "reset":
+                reset_demo()
+            elif change == "expiry":
+                monkeypatch.setattr(auth_clock, "now", lambda: deadline)
+            else:
+                with SessionLocal() as db:
+                    db.execute(text("SET LOCAL statement_timeout='3s'"))
+                    if change == "unlink":
+                        line_account_service.unlink(db, 201)
+                    elif change == "reissue":
+                        registration_service.issue(db, "U201")
+                    elif change == "inactive":
+                        db.execute(text("UPDATE staff SET status='INACTIVE' WHERE id=201"))
+                    elif change == "provision":
+                        auth_service.create_account(db, 201, PASSWORD)
+                    else:
+                        db.execute(text("UPDATE staff SET first_name='New name' WHERE id=201"))
+                    db.commit()
+        except BaseException as error:
+            errors.append(error)
+        finally:
+            changed.set()
 
-    first = threading.Thread(target=signup)
-    second = threading.Thread(target=unlink)
+    first = threading.Thread(target=signup, name="registration-hash")
+    second = threading.Thread(target=mutate)
     first.start()
     try:
         assert entered.wait(5)
         second.start()
-        assert unlink_started.wait(5)
+        # These operations must finish while hashing remains paused: no reset/row locks retained.
+        assert changed.wait(5)
+        assert not errors
     finally:
         release.set()
-        first.join(10)
+        first.join(15)
         if second.ident is not None:
-            second.join(10)
-    assert not first.is_alive() and not second.is_alive() and results == [201]
+            second.join(15)
+    assert not first.is_alive() and not second.is_alive() and not errors
+    assert results == ([201] if change == "name" else ["refused"])
     with SessionLocal() as db:
-        assert db.scalar(select(Contact.line_uid)) is None
-        assert auth_service.login(db, 201, PASSWORD) is not None
+        expected_accounts = 1 if change in ("name", "provision") else 0
+        assert db.scalar(select(func.count()).select_from(AuthAccount)) == expected_accounts
+        if change not in ("reset", "name"):
+            proof = db.scalar(
+                select(AuthRegistrationCode).where(
+                    AuthRegistrationCode.code_hash == registration_service.code_digest(code)
+                )
+            )
+            assert proof.used_at is None
 
 
 def test_failed_account_insert_rolls_back_code_consumption(code, monkeypatch):

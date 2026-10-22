@@ -11,9 +11,9 @@ from pydantic import SecretStr
 from sqlalchemy import delete, func, select
 
 from app.api.dependencies import SESSION_COOKIE, get_db
-from app.api.rate_limit import limiter
 from app.core import auth_clock, clock, passwords
 from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.db.models import (
     Actor,
     AuthAccount,
@@ -318,3 +318,37 @@ def test_link_and_register_codes_are_not_interchangeable(client, db):
     assert post_event(client, event("WRONG-LINK", text=f"LINK {register_code}")).status_code == 200
     assert db.scalar(select(func.count()).select_from(AuthAccount)) == 0
     assert row(db, register_code).used_at is None
+
+
+@pytest.mark.parametrize("change", ["expired", "used", "revoked"])
+def test_ineligible_proof_is_rejected_before_hash(client, db, monkeypatch, change):
+    raw = issue(client)
+    proof = row(db, raw)
+    now = auth_clock.now()
+    if change == "expired":
+        deadline = proof.expires_at
+        monkeypatch.setattr(auth_clock, "now", lambda: deadline)
+    elif change == "used":
+        proof.used_at = now
+    else:
+        proof.revoked_at = now
+    db.commit()
+    hashing = Mock(side_effect=AssertionError("must reject before hashing"))
+    monkeypatch.setattr(passwords, "hash_password", hashing)
+    assert signup(client, raw).status_code == 400
+    assert not hashing.called
+
+
+def test_route_reuses_one_preflight_without_holding_a_transaction(client, db, monkeypatch):
+    raw = issue(client)
+    prepare = Mock(wraps=registration_service.prepare_registration)
+    original = passwords.hash_password
+
+    def hash_without_transaction(value):
+        assert not db.in_transaction()
+        return original(value)
+
+    monkeypatch.setattr(registration_service, "prepare_registration", prepare)
+    monkeypatch.setattr(passwords, "hash_password", hash_without_transaction)
+    assert signup(client, raw).status_code == 201
+    assert prepare.call_count == 1
