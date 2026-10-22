@@ -84,4 +84,9 @@ dc ps
 - Compose แสดง Backend/Frontend/PostgreSQL/Redis healthy; Caddy และ Job Up หลัง `systemctl start nara`.
 - Backup ก่อน deploy ขนาด 161 KB สิทธิ์ 600; ผู้ใช้รายงานว่าสร้างและ login supervisor 950 ได้ก่อน import.
 
-ยังไม่แนบ image ID และยังไม่ได้ยืนยันหน้า Dashboard/Gap ด้วย 950 หลัง import หรือทำ live Reset ของชุดใหญ่ ไม่ใช้ข้อมูลนี้ปิด AU4 acceptance หรืออ้างว่า workflow จริงผ่าน.
+ภาพหน้าจอจากผู้ใช้หลัง import ยืนยัน supervisor 950 บน AWS:
+
+- Dashboard แสดงหอใหม่ 10001–10020, ประวัติ RESOLVED 47 / UNRESOLVED 47 / FAILED 46 และเวรชุดใหม่ที่มี Gap. จำนวนประวัติเหล่านี้เป็น synthetic ตามเวลาอ้างอิง ไม่ใช่ผล workflow จริง.
+- หน้า Gap เลือก Ward 10001 วันที่ 23/10/2026 แสดงเวร 2000029 เวลา 07:00–19:00 ต้องมี 7 / มี 6 / ขาด 1 และเวร 2000030 เวลา 19:00–07:00 วันถัดไป ต้องมี 6 / มี 6 / ครบ.
+
+ยังไม่แนบ image ID และยังไม่ได้ทำ live Reset ของชุดใหญ่ ไม่ใช้ข้อมูลนี้ปิด AU4 acceptance หรืออ้างว่า workflow จริงผ่าน.
