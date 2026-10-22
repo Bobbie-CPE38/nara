@@ -1,14 +1,15 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useSessionUser } from "@/components/AuthProvider";
 import { HandoverList, isHandover } from "@/components/handover/HandoverList";
 import { type OfferApi, OfferList } from "@/components/outreach/OfferList";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useHandoverHistory } from "@/hooks/useHandoverHistory";
-import { DEFAULT_POLL_INTERVAL_MS } from "@/hooks/usePolling";
-import { ApiError, createDemoApi } from "@/lib/api";
+import { DEFAULT_POLL_INTERVAL_MS, usePolling } from "@/hooks/usePolling";
+import { ApiError, apiRequest, createDemoApi } from "@/lib/api";
 import {
   DEMO_APPROVERS,
   DEMO_SIGNED_IN_STORAGE_KEY as SIGNED_IN_STORAGE_KEY,
@@ -20,6 +21,7 @@ import { formatDateTime } from "@/lib/format";
 import type { MessageKey, Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import type { CheckInResult } from "@/lib/types/attendance";
+import type { StaffRoster } from "@/lib/types/auth";
 import type { HandoverView } from "@/lib/types/case";
 import type { Offer, OfferResponse } from "@/lib/types/outreach";
 
@@ -85,7 +87,17 @@ function checkInError(cause: unknown): Failure {
 /** Check in for yourself (section 6.24). The backend clock decides the time, not this browser. */
 function CheckIn({ staffId, handovers }: { staffId: number; handovers: readonly HandoverView[] }) {
   const t = useT();
-  const shifts = shiftsOf(staffId, handovers);
+  // With a login the shifts are the roster of the person; in demo mode they are the seed's (above)
+  const loggedIn = useSessionUser() !== undefined;
+  const loadRoster = useCallback(
+    (signal: AbortSignal) => apiRequest<StaffRoster>(`/roster?staff_id=${staffId}`, { signal }),
+    [staffId],
+  );
+  // Polled like the offers: an offer accepted on this page can become an assignment while it is open
+  const roster = usePolling(loadRoster, { enabled: loggedIn });
+  const shifts = loggedIn
+    ? (roster.data?.assignments ?? []).filter((row) => row.status === "ASSIGNED").map((row) => row.shift.id)
+    : shiftsOf(staffId, handovers);
   const [shiftId, setShiftId] = useState<number | null>(null);
   const chosen = shiftId !== null && shifts.includes(shiftId) ? shiftId : (shifts[0] ?? null);
   const [busy, setBusy] = useState(false);
@@ -113,8 +125,19 @@ function CheckIn({ staffId, handovers }: { staffId: number; handovers: readonly 
 
   return (
     <Card title={t("me.checkIn")} className="mt-4">
+      {loggedIn && roster.isLoading && roster.data === undefined && (
+        <p role="status" className="mt-2">
+          {t("me.shiftsLoading")}
+        </p>
+      )}
+      {loggedIn && roster.error && roster.data === undefined && (
+        <p role="alert" className="mt-2 text-red-700">
+          {t("me.shiftsFailed", { error: describeError(roster.error, t) })}
+        </p>
+      )}
       {chosen === null ? (
-        <p className="mt-2">{t("me.noShift")}</p>
+        // Not "no shift" while the roster has not arrived or could not be read
+        !(loggedIn && roster.data === undefined) && <p className="mt-2">{t("me.noShift")}</p>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label htmlFor="check-in-shift">{t("common.shift")}</label>
@@ -187,7 +210,8 @@ function DemoSignIn({ onSignIn }: { onSignIn: (staffId: number) => void }) {
   );
 }
 
-function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => void }) {
+/** `onSignOut` is the demo sign-out; with a login there is none here (the top bar logs out). */
+function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut?: () => void }) {
   const t = useT();
   const [responding, setResponding] = useState(false);
   const api = useMemo(() => myOffersApi(staffId), [staffId]);
@@ -197,15 +221,17 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => vo
     : [];
   return (
     <>
-      <div
-        role="note"
-        className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900"
-      >
-        <span>{t("me.demoMode", { id: staffId })}</span>
-        <Button disabled={responding} onClick={onSignOut}>
-          {t("me.signOut")}
-        </Button>
-      </div>
+      {onSignOut && (
+        <div
+          role="note"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900"
+        >
+          <span>{t("me.demoMode", { id: staffId })}</span>
+          <Button disabled={responding} onClick={onSignOut}>
+            {t("me.signOut")}
+          </Button>
+        </div>
+      )}
       <p className="mt-4">
         {t("me.acceptNote", { seconds: DEFAULT_POLL_INTERVAL_MS / 1000 })}
       </p>
@@ -253,6 +279,7 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut: () => vo
 
 export default function MyOffersPage() {
   const t = useT();
+  const me = useSessionUser();
   // undefined until storage is read in the browser, so the server render matches.
   const [staffId, setStaffId] = useState<number | null | undefined>(undefined);
   useEffect(() => setStaffId(readSignedIn()), []);
@@ -270,8 +297,9 @@ export default function MyOffersPage() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
       <PageHeader title={t("me.title")} />
-      {staffId === null && <DemoSignIn onSignIn={signIn} />}
-      {typeof staffId === "number" && (
+      {me && <SignedIn key={me.staff_id} staffId={me.staff_id} />}
+      {!me && staffId === null && <DemoSignIn onSignIn={signIn} />}
+      {!me && typeof staffId === "number" && (
         <SignedIn key={staffId} staffId={staffId} onSignOut={signOut} />
       )}
     </main>

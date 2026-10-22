@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@/components/AuthProvider";
 import { DEMO_APPROVERS, wardName } from "@/lib/demo";
 import type { MessageKey } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
@@ -23,6 +24,8 @@ export function ActingAs({
   disabled?: boolean;
 }) {
   const t = useT();
+  // With a login the choice does not exist: the identity is the cookie, and the header shows who it is
+  if (useAuth().state.status !== "demo") return null;
   return (
     <label className="flex flex-wrap items-center gap-2 text-sm font-medium" htmlFor={id}>
       {t(label)}
