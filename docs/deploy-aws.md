@@ -2,39 +2,30 @@
 
 > เครื่องนี้มีไว้ลอง LINE จริงและ Bedrock จริงร่วมกัน ไม่ใช่ระบบใช้งานจริง ข้อตกลงอยู่ใน `docs/workflow.md` ข้อ 6.16, 6.17, 6.27, 6.28 และ 6.30 (R3-Q12, R3-Q19 ถึง R3-Q21, R6-Q3 ถึง R6-Q6, R6-Q13) PR D เขียนไฟล์ชุดนี้และไม่เปิดเครื่อง การเปิดเครื่องและตรวจบนเครื่องจริงเป็น "ขั้นที่ 6" ของรอบ 6 (ข้อ 6.30)
 
-## ภาพรวม
+> **AU4:** รุ่นปัจจุบันใช้ session และ Basic Auth เฉพาะ Demo ข้อความขั้นที่ 6/W เป็น baseline เดิม วิธีเปลี่ยนเครื่อง/สำรอง/บัญชี/migrate/ตรวจ/rollback อยู่ใน [AU4 handoff](round6/pr-AU4-handoff.md) ห้ามใช้ destructive seed บนเครื่องที่มีบัญชี
+
+## ภาพรวมและด่าน AU4
 
 ```text
-อินเทอร์เน็ต ── 443 / 80 ──> Caddy (HTTPS, Basic Auth)
-                                ├── POST /api/line/webhook ตรงตัว (ไม่ผ่านด่าน) ──> backend
-                                ├── /api/internal/*        ตอบ 404 เสมอ
-                                ├── /api/*                 ผ่านด่าน ตัด /api ออก ──> backend
-                                └── อื่น ๆ                  ผ่านด่าน ──> frontend
+อินเทอร์เน็ต ── 443 / 80 ──> Caddy (HTTPS)
+                                ├── POST /api/line/webhook ตรงตัว ──> LINE signature
+                                ├── /api/internal/* และ API docs  ──> 404
+                                ├── /demo/* และ /api/demo/*       ──> Basic Auth เพิ่ม
+                                ├── /api/* ตัด /api ออก           ──> Backend ตรวจ session/สิทธิ์
+                                └── หน้าเว็บ                     ──> Frontend production
 ```
 
-* เครื่อง EC2 หนึ่งเครื่องรัน `docker compose` ชุดเดียวกับเครื่องพัฒนา โดยซ้อนไฟล์ `deploy/aws/docker-compose.aws.yml` ไว้ข้างบน ไฟล์นี้ปิด Port ของทุก Service แล้วเปิดเฉพาะ Caddy ที่ Port 80 และ 443
-* หน้าเว็บและ API อยู่ใน Domain เดียวกัน API อยู่ใต้ `/api` เบราว์เซอร์จึงส่งรหัส Basic Auth ที่กรอกตอนเปิดหน้าเว็บไปกับคำขอ API เองโดยไม่ต้องแก้โค้ด Frontend และไม่ติด CORS
-* Caddy ขอใบรับรอง HTTPS จาก Let's Encrypt เอง Domain จึงต้องชี้มาที่เครื่องก่อนเริ่มครั้งแรก ใบรับรองเก็บใน Volume `caddy_data` เปิดปิดเครื่องแล้วไม่ต้องขอใหม่
-* `/api/internal/*` ตอบ `404` จากภายนอกเสมอ ทั้งมีและไม่มีรหัส เพราะมีแค่ Job ที่เรียก และเรียกผ่าน Network ภายในของ compose
-* Frontend เป็น production image (`deploy/aws/frontend.Dockerfile`, PR F3): `next build` ทำตอนสร้าง image และ `next start` ให้บริการ ไม่มี bind mount โค้ดเข้า Container ที่อยู่นอก image ใช้ RAM ตอนว่างราว 45 ถึง 120 MiB (Dev server เคยวัดได้ 424 MiB) Backend ยังเป็น Dev server เหมือนเครื่องพัฒนา **ห้ามเปิดให้ภายนอกเข้าก่อนผ่านช่วง ข**
+เครื่อง EC2 รัน Compose ซ้อน `deploy/aws/docker-compose.aws.yml` เปิดเฉพาะ Caddy 80/443 หน้าเว็บและ API อยู่ origin เดียวกัน cookie `nara_session` จึงใช้กับ `/api` ได้ Caddy ขอและเก็บใบรับรองใน `caddy_data` Domain ต้องชี้มาเครื่องก่อนเริ่ม
 
-## ด่าน Basic Auth
+AWS overlay ตรึง `APP_ENV=aws`, `AUTH_MODE=session`, Secure cookie และหนึ่ง Backend serving worker ไม่มี reload Frontend ใช้ `next build`/`next start` ไม่มี bind mount Backend ยัง mount source จึงต้องหยุด service ก่อน checkout/redeploy ไม่ใช้รหัส Demo แทนบัญชีเว็บ และ `X-Demo-User` ไม่เปลี่ยนตัวตนใน session
 
-กฎเดียว (ข้อ 6.30): **ทุก Path ต้องมีรหัสของเครื่อง ยกเว้น `POST /api/line/webhook` ตรงตัว** ไม่มีการกัน `/demo/` แยกต่างหาก ใครใส่รหัสแล้วใช้หน้า Demo และเรียก `/api/demo/*` ได้ เพราะหน้า Demo control เรียก API เหล่านั้นจากเบราว์เซอร์ รหัสตัวเดียวให้ทุกคนที่เข้าได้มีสิทธิ์เท่ากัน (ข้อ 6.17) ใครรู้รหัสก็รีเซ็ตข้อมูล Demo ได้
+Basic Auth ครอบ `/demo`, `/demo/*`, `/api/demo`, `/api/demo/*` เท่านั้น คนรู้รหัส Demo ยัง reset/ควบคุมนาฬิกาได้ตาม contract แต่ simulator ต้องมี session ของตน และ Demo events ต้องมี manager session ด้วย API docs/redoc/openapi และ `/api/internal/*` ปิดจากภายนอก ไม่มีข้อยกเว้นเมื่อมี Basic หรือ session
 
-* ชื่อ Path มีสองชนิด: หน้าเว็บไม่มี `/api` (`/demo/control`, `/demo/line-sim`) ส่วน API มี `/api` นำหน้า (`/api/demo/reset`, `/api/demo/clock/advance`, `/api/demo/attendance/check-in`, `/api/clock`) Caddy ตัด `/api` ออกก่อนส่งให้ Backend ฝั่ง Backend จึงเห็น `/demo/reset`
-* ข้อยกเว้นของ Webhook จับจาก **URI ดิบของคำขอ** (`{http.request.orig_uri}`) ไม่ใช้ตัวจับ `path` ของ Caddy เพราะตัวนั้นไม่สนตัวพิมพ์เล็กใหญ่ รวม `//` และถอดรหัส `%6C` ทำให้ `/API/line/webhook`, `/api//line/webhook` และ `/api/%6Cine/webhook` หลุดด่านได้ (ตรวจแล้วกับ Caddy 2.10.2 ด้วยตัวจับเดิมของ PR D รอบ 3)
-* Method อื่นของ Path นั้น, Path ที่ต่อท้าย (`/api/line/webhook/x`, `/api/line/webhooks`, `/api/line/webhook/`), Query (`?x=1`) และ `/line/webhook` ที่ไม่มี `/api` ต้องผ่านด่านทั้งหมด
-* Tunnel ในเครื่องพัฒนา (`dev/line-webhook-proxy`) เป็นอีกกฎหนึ่ง: เปิดเฉพาะ `POST /line/webhook` Path อื่นรวม `/demo/*` ได้ `404` ไม่มีรหัส ใช้จนกว่าจะย้าย Webhook มาเครื่องนี้ (W)
-* `X-Demo-User` ตั้งเองได้ ใครผ่านด่านได้ก็ทำแทนพยาบาลหรือ Head Nurse คนไหนก็ได้ รหัสจึงต้องเก็บในทีม ห้ามเปิดเครื่องให้เข้าจากภายนอกถ้าด่านยังไม่ผ่าน `check-gate.sh`
-* ลองด่านจากเครื่องไหนก็ได้ที่มี `bash` และ `curl`:
+Webhook เฉพาะ POST `/api/line/webhook` ที่ URI ดิบตรงตัวผ่านไปตรวจลายเซ็น LINE ไม่ถาม Basic/session URI ดัดแปลง (ตัวพิมพ์ใหญ่, `//`, encoded path, dot segment, query, suffix/trailing slash) ถูกปฏิเสธ ไม่ normalize ให้กลายเป็นข้อยกเว้น Tunnel ในเครื่องพัฒนาเป็นคนละกฎ และไม่ใช่เส้นทาง production หลัง W
 
-  ```bash
-  bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> <user> <password>
-  ```
+ตรวจจากภายนอกด้วย Python 3 และ bash: `bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> nara --require-real-line` (ถามรหัส Demo แบบไม่ echo) เพิ่ม `--staff-id 900` หลังเปลี่ยนรหัสครั้งแรกแล้วเพื่อตรวจ session/role/simulator/logout ด้วยรหัสเว็บที่ถามต่างหาก สคริปต์ไม่ทำ reset/Offer/LLM และยังไม่ใช่ผล LINE smoke ครบ ขั้นตอน deploy/rollback และ live checklist อยู่ใน [AU4 handoff](round6/pr-AU4-handoff.md)
 
-  สคริปต์แยก `401` ของด่านกับ `401` ของ Webhook จาก Header `WWW-Authenticate: Basic` ซึ่งมีเฉพาะของด่าน ไม่มีรหัสต้องได้ `401` ทุก Path ของหน้าเว็บและ API (รวมหน้า `/demo/*` และ `/api/demo/*`) ได้ `404` ที่ `/api/internal/*` และ Path ที่คล้าย Webhook ทุกแบบ (ตัวพิมพ์ใหญ่ `//` `%6C` `%2F` `?x=1` `/../`) ได้ `401` ของด่าน มีรหัสถูกแล้วต้องได้ `200` ที่ `/`, `/demo/control`, `/api/health` และ `/api/clock` รหัสผิดได้ `401` ต้องรันทุกครั้งที่แก้ `Caddyfile` และหลังตั้งเครื่องใหม่
-* ทดสอบอัตโนมัติโดยไม่ต้องมีเครื่อง AWS: `python3 deploy/aws/test_gate.py` เริ่ม Caddy ด้วย `Caddyfile` จริงบน Docker (HTTP ธรรมดา ไม่มีใบรับรอง) กับ Upstream ปลอม สองตัว แล้วรัน `check-gate.sh` ใส่ผลเข้า CI (job "AWS test machine gate (Caddy)") Test ยังตรวจด้วยว่าคำขอที่ติดด่านไม่ไปถึง Upstream เลย: ที่ถึง Backend มีแค่ `POST /line/webhook`, `GET /health` และ `GET /clock` ส่วน Frontend มีแค่ `GET /` กับ `GET /demo/control`
+เทสต์โดยไม่ใช้ AWS: `python3 deploy/aws/test_gate.py` ใช้ Caddy จริงกับ upstream ปลอม ตรวจการไม่หลุดด่านและการแทน forwarded headers; `python3 deploy/aws/test_session_deploy.py` ตรวจ Compose; Backend integration tests ตรวจ session/สิทธิ์และ Uvicorn proxy trust/rate limit จริง ผล fake ไม่แทนผลบนเครื่อง AWS
 
 ## ความลับและค่าตั้ง (Parameter Store)
 
@@ -169,7 +160,7 @@
 
    ครั้งแรกใช้เวลาหลายนาทีเพราะต้องติดตั้ง Package ของ Python และ npm ดูความคืบหน้าด้วย `sudo journalctl -u nara -f` และคำสั่ง `ps` ข้างล่าง
 
-8. **ฐานข้อมูลและข้อมูล Demo:** เมื่อทุก Service healthy แล้ว รัน `seed` ตามข้างล่างหนึ่งครั้ง ก่อน `seed` ฐานข้อมูลยังไม่มีตาราง Job จะได้ `500` จาก `/internal/merge-windows/close-due` หนึ่งครั้ง (`relation "roster_assignment" does not exist`) เป็นเรื่องปกติและหายหลัง `seed` (ตรวจแล้วบน Stack จริงในเครื่องผู้พัฒนา)
+8. **ฐานข้อมูล:** ทำ migration ด้วย `alembic upgrade head` และเตรียมบัญชีตาม AU4 handoff ก่อนตรวจ session เครื่องที่มีข้อมูลอยู่ห้าม seed/drop schema ถ้าเป็นฐานข้อมูล Demo ใหม่ว่างทั้งหมด ให้ตกลงกับทีมก่อนใช้ Demo reset ที่รองรับ auth เพื่อสร้างสถานการณ์ แล้วใช้ CLI สร้างบัญชีผู้จัดการรายคน ไม่ใช้ demo-accounts บน AWS
 9. **ตรวจช่วง ข (ข้อ 6.30):** ทั้งสามคนทำ ต้องผ่านทุกข้อก่อนเปิดให้ภายนอกเข้า ดูหัวข้อถัดไป
 
 คำสั่ง compose บนเครื่องนี้ต้องมีไฟล์ซ้อนและไฟล์ env ทุกครั้ง:
@@ -179,10 +170,12 @@ cd /opt/nara
 alias dc='sudo docker compose --env-file /etc/nara/nara.env -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml'
 dc ps                                    # สถานะ
 dc logs -f backend                       # Log
-dc exec -T backend python -m app.seed    # ลบ Schema, Migrate ถึง head แล้วโหลด Demo (เหมือน make reset)
+dc exec -T backend alembic upgrade head   # Migration เท่านั้น ไม่ล้างบัญชีหรือข้อมูล
 ```
 
-## ตรวจช่วง ข ก่อนเปิดให้ภายนอกเข้า (ขั้นที่ 6)
+## ตรวจช่วง ข ก่อนเปิดให้ภายนอกเข้า (ขั้นที่ 6 — baseline ก่อน AU4)
+
+หลัง AU4 ใช้ live checklist ใน AU4 handoff แทน ห้ามอ้างคำสั่ง/ความคาดหวัง 401 Basic ครอบเว็บของ baseline นี้เป็นผล AU4
 
 ช่วง ก (ตรวจในเครื่องผู้พัฒนา) เป็นของ PR F3 ช่วงนี้ตรวจบนเครื่องจริง ผลบันทึกในตาราง "อะไรทดสอบด้วย fake และอะไรผ่านบริการจริง" ของ `workflow.md` และใน Description ของ PR แรกที่ใช้เครื่อง (B2 หรือ W) ผลตรวจของคน 3 วันที่ 2026-10-21 อยู่ใน `docs/round6/step6-live-checks.md`
 
@@ -193,13 +186,7 @@ dc exec -T backend python -m app.seed    # ลบ Schema, Migrate ถึง head
 
 ## Deploy โค้ดใหม่
 
-```bash
-cd /opt/nara
-sudo git pull
-sudo systemctl restart nara
-```
-
-Backend เป็น Dev server ที่อ่านโค้ดจาก Volume เหมือนเครื่องพัฒนา (R3-Q20 ใช้ `docker compose` ชุดเดิม) ส่วน Frontend เป็น image ที่ build ไว้แล้ว `nara.service` สั่ง `up -d --build` ดังนั้น Restart จะสร้าง image ของ Frontend ใหม่เมื่อโค้ดของ Frontend เปลี่ยน (ใช้เวลาตามความแรงของเครื่อง ยังไม่ได้วัดบนเครื่อง AWS ถ้าไม่เปลี่ยนใช้ Cache) และ `NEXT_PUBLIC_API_BASE_URL` ถูกเขียนลง Bundle ตอน build จึงเปลี่ยนโดเมนแล้วต้อง build ใหม่ Restart ทำให้อ่าน Parameter Store ใหม่ด้วย ถ้า PR ที่เข้ามามี Migration ให้รัน `seed` ใหม่ ซึ่งล้างข้อมูลบนเครื่อง ใครเป็นคน Deploy และ Deploy เมื่อไรให้ตกลงในทีม
+ใช้ขั้นตอนใน [AU4 handoff](round6/pr-AU4-handoff.md): หยุด service ก่อนเปลี่ยน source (รุ่นก่อน AU4 มี reload), สำรอง DB, checkout revision ที่รีวิวแล้ว, migrate โดยไม่ seed และ start เพื่อ build frontend ใหม่ การย้ายจาก network เดิมเป็น AU4 ต้อง down/up โดยไม่ลบ volumes ก่อน restart ปกติหลังจากนั้นไม่ต้องสร้าง network ใหม่ ถ้าอ่าน env จาก Parameter Store การ start ยังอ่าน Parameter ใหม่; manual-env ใช้วิธีเดิมของเครื่อง
 
 ## เปิดและปิดเครื่อง (R6-Q5)
 

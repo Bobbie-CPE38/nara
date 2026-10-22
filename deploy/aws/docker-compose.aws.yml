@@ -29,7 +29,14 @@ services:
       INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must be set in the deployment env file}
       # HTTPS through Caddy: the session cookie is always Secure here, whatever the main
       # file's local default (round 6 PR AU1). AU4 pins APP_ENV=aws and AUTH_MODE=session
+      APP_ENV: "aws"
+      AUTH_MODE: "session"
       AUTH_COOKIE_SECURE: "true"
+    # One serving process: the auth limiter is process-local. No reload on AWS.
+    command: >-
+      sh -c 'pip install --no-cache-dir -e ".[dev]" &&
+      exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+      --proxy-headers --forwarded-allow-ips=172.30.64.2'
 
   job:
     environment:
@@ -77,8 +84,19 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - staffing_net
+      staffing_net:
+        ipv4_address: 172.30.64.2
 
 volumes:
   caddy_data:
   caddy_config:
+
+# A fixed Caddy address makes proxy trust exact, rather than trusting every container.
+# Check for subnet overlap before first AU4 start; changing an existing network requires down/up.
+networks:
+  staffing_net:
+    ipam:
+      config:
+        - subnet: 172.30.64.0/24
+          # Dynamic containers must not claim the fixed proxy address before Caddy starts.
+          ip_range: 172.30.64.128/25
