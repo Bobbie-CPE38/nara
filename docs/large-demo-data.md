@@ -96,3 +96,19 @@ dc ps
 Generator รุ่นปรับปรุงหมุนประวัติทุก 5 เวรแทนทุก 4 เวร จึงครอบคลุมทั้ง 4 ทีม สลับผู้ลาที่ถูกยกเลิก และมีทั้ง ICU/BLS skill gaps. ใช้กับ import ครั้งแรกหรือ Reset ครั้งถัดไปเท่านั้น; apply ซ้ำไม่แก้ประวัติ AWS ที่โหลดแล้วและไม่ได้ Reset เครื่องโดยอัตโนมัติ. ตัวเลข/ภาพหลักฐานข้างต้นยังเป็นของ revision c28e467.
 
 การทดสอบ `test_reset_replays_large_profile_preserving_old_and_new_accounts_and_subjects` โหลด profile, สร้างบัญชีเดิม 900 และบัญชีใหม่ 100001, Reset แล้วเทียบ subjects/password hashes/จำนวน 500–20–1200, ยืนยัน session เก่าใช้ไม่ได้และ login ใหม่ได้. เป็น integration test ในฐานแยก ไม่ใช่ผล live Reset บน AWS.
+
+## Golden Case หลัง import (automated, ไม่ใช่ AWS live)
+
+`test_large_demo_golden.py::test_golden_candidates_and_complete_flow` รันสองกรณีด้วย real HTTP routes/handlers/Solver บน PostgreSQL แยก: Golden seed เดิม และ seed + import ชุดใหญ่. เวลาอ้างอิงคงที่ `2026-10-09T21:00:00+07:00`, LINE simulation และไม่เปิด LLM จริง.
+
+| ผล | ก่อน import | หลัง import |
+|---|---:|---:|
+| `_pool()` ก่อนแจ้งลา 105 | 14 | 514 (ใหม่ 500) |
+| ผู้สมัครที่มี CandidateItem หลัง Hard Rules/Solver | 3 | 123 (ใหม่ 120) |
+| อันดับ 1–3 | 201, 202, 203 | 201, 202, 203 |
+| First wave | 201, 202 | 201, 202 |
+| Solver / objective | OPTIMAL / 2023 | OPTIMAL / 2023 |
+
+หลัง import อันดับ 4–9 เป็น 100019–100024, อันดับ 10 เป็น 100044 (CROSS_WARD); ไม่อ้างว่า candidate list ทั้งหมดคงเดิม. ทั้งสองกรณี 201 ตอบรับ → หัวหน้า 900 อนุมัติ → RESOLVED พร้อม Handover ของ 201 และเช็กอินด้วย 201 ที่เวลาเริ่มเวร +7 นาทีได้ on_time. Golden transitions ตรง baseline. เทสต์ล็อกจำนวน pool/ranked และสามอันดับแรก/first wave เพื่อจับ regression.
+
+ผลนี้รองรับการคง flow หลักของ Golden Case ณ fixture นี้; การมี 120 ตัวสำรองใหม่เป็นผลข้างเคียงที่ยอมรับตามการตัดสินใจคง pool ไม่ใช่การรับรอง ranking ทุกวันที่/สถานการณ์. หากผู้สมัครเดิมปฏิเสธ หมดเวลา หรือไม่มีสิทธิ์ รายชื่อใหม่อาจถูกใช้ใน wave ถัดไป และอาจเกิดการอนุมัติข้ามหอ ต้องทำตาม Demo runbook. ไม่ได้รัน Golden Case ซ้ำบน AWS จริงหรือส่ง LINE/LLM เพื่อเก็บผลนี้.
