@@ -129,6 +129,7 @@ INVENTORY: dict[tuple[str, str], str] = {
     ("GET", "/clock"): "public",
     ("GET", "/auth/config"): "auth",
     ("POST", "/auth/login"): "auth",
+    ("POST", "/auth/register"): "auth",
     ("GET", "/auth/me"): "session",
     ("POST", "/auth/logout"): "auth",
     ("POST", "/auth/change-password"): "session",
@@ -237,10 +238,10 @@ def test_internal_routes_still_want_their_secret(anonymous: TestClient, path: st
     [
         (105, 200),  # the event is theirs
         (201, 200),  # an offer is theirs
-        (101, 403),  # same ward, no part in the case
-        (301, 403),  # another ward
+        (101, 404),  # same ward, no part in the case
+        (301, 404),  # another ward
         (900, 200),  # head nurse of the case's ward
-        (902, 403),  # head nurse of another ward
+        (902, 404),  # head nurse of another ward
         (950, 200),  # supervisor
     ],
 )
@@ -251,8 +252,13 @@ def test_case_reads_follow_the_matrix(
     response = as_(staff_id).get(f"/cases/{world['case']}{suffix}")
 
     assert response.status_code == status_code
-    if status_code == 403:
-        assert response.json() == {"detail": "AUTH_FORBIDDEN"}
+    if status_code == 404:
+        # A case that is not theirs reads like one that does not exist: no ID can be probed
+        unknown = as_(staff_id).get(f"/cases/999999{suffix}")
+        assert unknown.status_code == 404
+        assert response.json()["detail"].replace(str(world["case"]), "N") == unknown.json()[
+            "detail"
+        ].replace("999999", "N")
 
 
 def test_an_unknown_case_is_404_before_403(as_: Client, world: dict[str, int]) -> None:
@@ -301,12 +307,18 @@ def test_handoff_candidates_need_a_manager_of_the_ward(
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
     ("staff_id", "status_code"),
-    [(105, 200), (201, 200), (101, 403), (301, 403), (900, 200), (902, 403), (950, 200)],
+    [(105, 200), (201, 200), (101, 404), (301, 404), (900, 200), (902, 404), (950, 200)],
 )
 def test_event_reads_follow_the_case_and_the_ward(
     as_: Client, world: dict[str, int], staff_id: int, status_code: int
 ) -> None:
-    assert as_(staff_id).get(f"/events/{world['event']}").status_code == status_code
+    response = as_(staff_id).get(f"/events/{world['event']}")
+    assert response.status_code == status_code
+    if status_code == 404:
+        unknown = as_(staff_id).get("/events/999999")
+        assert response.json()["detail"].replace(str(world["event"]), "N") == unknown.json()[
+            "detail"
+        ].replace("999999", "N")
 
 
 @pytest.mark.parametrize("staff_id", [105, 900, 950])

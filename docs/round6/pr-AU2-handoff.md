@@ -12,17 +12,18 @@ Path เป็นของ Backend ก่อน Caddy เติม `/api` ชน
 | auth | API ล็อกอินของ AU1 (ไม่ต้องมี session ที่ยัง valid) | GET `/auth/config`, POST `/auth/login`, POST `/auth/logout` |
 | internal | ต้องมี `X-Internal-Secret` ไม่ใช่ session (Job และ CLI) | POST `/internal/merge-windows/close-due`, POST `/internal/line-accounts/{staff_id}/issue-code`, POST `/internal/line-accounts/{staff_id}/unlink` |
 | webhook | ลายเซ็น LINE | POST `/line/webhook` |
-| demo | ไม่ต้องมี session; บน AWS อยู่หลัง Basic Auth ของ Demo (AU4) และใน session ต้องมี Origin | POST `/demo/reset`, `/demo/clock/advance`, `/demo/clock/freeze`, `/demo/clock/unfreeze`, `/demo/attendance/check-in`, **`/demo/events` (ใหม่)** |
+| demo | ไม่ต้องมี session; บน AWS อยู่หลัง Basic Auth ของ Demo (AU4) และใน session ต้องมี Origin | POST `/demo/reset`, `/demo/clock/advance`, `/demo/clock/freeze`, `/demo/clock/unfreeze`, `/demo/attendance/check-in`; **`/demo/events` (ใหม่) ต้องมี session ของ head nurse หรือ supervisor ใน session (เหตุผลในข้อ 6.33.4)** |
 | session | ต้องมี session: ไม่มี cookie หรือมีแค่ X-Demo-User ได้ 401 `AUTH_REQUIRED` ไม่มี `WWW-Authenticate` | ที่เหลือทั้งหมด 27 route (ด้านล่าง) |
 
 | Route ที่ต้องมี session | staff | head_nurse | supervisor |
 |---|---|---|---|
 | GET `/auth/me`, POST `/auth/change-password` | ตัวเอง (AU1) | ตัวเอง | ตัวเอง |
-| GET `/cases/{id}`, GET `/cases/{id}/audit`, POST `/cases/{id}/explanation`, POST `/cases/{id}/summary` | เคสที่เกี่ยวข้อง | หอตัวเอง และเคสที่ฝั่ง SOURCE ของคำขอสองหออยู่หอตัวเอง | ทุกเคส |
+| GET `/cases/{id}`, GET `/cases/{id}/audit` (เคสที่ไม่ใช่ของตนตอบ 404 เหมือนไม่มี) | เคสที่เกี่ยวข้อง | หอตัวเอง และเคสที่ฝั่ง SOURCE ของคำขอสองหออยู่หอตัวเอง | ทุกเคส |
+| POST `/cases/{id}/explanation`, POST `/cases/{id}/summary` | 403 | เคสที่อ่านได้ (ไม่ใช่ของตน 404) | ทุกเคส |
 | GET `/cases?status=` | เฉพาะเคสที่เกี่ยวข้อง (กรองใน query) | หอตัวเอง | ทุกหอ |
 | GET `/cases/{id}/handoff/candidates`, POST `.../handoff/assignments`, POST `.../handoff/close` | 403 (กติกาเดิมของ service) | หอตัวเอง | ทุกหอ |
 | GET `/dashboard` | เคส/Offer/NO_SHOW ของตัวเอง ไม่มีจำนวน Approval; shortage ตามหอ | หอตัวเอง | ทุกหอ |
-| GET `/approvals` | 403 | คำขอที่มีฝั่งในหอตัวเอง | ทั้งหมด |
+| GET `/approvals` | 403 | คำขอของเคสที่อ่านได้ เฉพาะ side ของหอตัวเอง (กรองใน query) | ทั้งหมด |
 | GET `/approvals/auto`, POST `/approvals/{id}/decision` | 403 (กติกาเดิม) | ตามกติกาเดิม | ตามกติกาเดิม |
 | POST `/events` | 403 `AUTH_FORBIDDEN` ก่อนอ่าน body | 403 | 403 |
 | GET `/events/{id}` | Event ของตัวเอง หรือของเคสที่อ่านได้ | + Event ของเวรในหอตัวเอง | ทั้งหมด |

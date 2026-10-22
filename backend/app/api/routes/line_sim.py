@@ -7,17 +7,19 @@ owner of the offer in the database (outreach_service.record_response).
 
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.api.dependencies import DbSession, DemoUser, forbidden, session_mode
+from app.api.dependencies import DbSession, DemoUser, forbidden, get_reader, session_mode
 from app.api.offer_responses import ResponseResult, answer_offer
 from app.core.constants import MAX_BIGINT
 from app.domain.enums import CandidateResponse
 from app.schemas.outreach import OfferView
 from app.services import outreach_service
 
-router = APIRouter(prefix="/demo/line-sim", tags=["line-sim"])
+# The identity is asked at the router, so a route added here later is guarded by default: in
+# session mode it needs a session as well as the Basic Auth of the AWS machine (6.33.5)
+router = APIRouter(prefix="/demo/line-sim", tags=["line-sim"], dependencies=[Depends(get_reader)])
 
 
 @router.get("/offers")

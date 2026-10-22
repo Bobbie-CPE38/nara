@@ -58,7 +58,7 @@ def _counts(db: Session) -> list[int]:
 
 @pytest.fixture
 def db(production_seeded: Session) -> Session:
-    for staff_id in (101, 105, 301):
+    for staff_id in (101, 105, 301, 900, 950):
         auth_service.create_account(
             production_seeded, staff_id, PASSWORD, must_change_password=False
         )
@@ -158,7 +158,7 @@ def test_anonymous_leave_is_401(anonymous: TestClient, db: Session) -> None:
     assert _counts(db) == before
 
 
-def test_repeated_leave_follows_the_old_rule_and_opens_no_second_case(
+def test_repeated_leave_is_refused_like_no_row_and_opens_no_second_case(
     as_: Callable[[int], TestClient], db: Session
 ) -> None:
     client = as_(105)
@@ -168,8 +168,10 @@ def test_repeated_leave_follows_the_old_rule_and_opens_no_second_case(
     second = client.post("/me/unavailability", json={"shift_id": NIGHT_SHIFT})
 
     assert first.status_code == 201
-    # The first report already cancelled the roster row: 409 as for POST /events, not 403
-    assert second.status_code == 409
+    # The first report already cancelled the row. The answer is the one a person with no row
+    # gets (403), decided from the state the intake saw, so it tells nothing about the past
+    assert second.status_code == 403
+    assert second.json() == {"detail": "AUTH_FORBIDDEN"}
     assert _counts(db) == after_first
     assert db.scalar(select(func.count()).select_from(StaffingCase)) == 1
     assert db.scalar(select(func.count()).select_from(StaffUnavailability)) == 1
@@ -225,7 +227,7 @@ def test_same_own_leave_twice_at_once_opens_one_case(committed: None) -> None:
         thread.join(timeout=30)
 
     assert not any(thread.is_alive() for thread in threads)
-    assert sorted(statuses) == [201, 409]
+    assert sorted(statuses) == [201, 403]
     with SessionLocal() as session:
         for model, expected in (
             (StaffingEvent, 1),
@@ -246,8 +248,10 @@ def test_same_own_leave_twice_at_once_opens_one_case(committed: None) -> None:
 # --------------------------------------------------------------------------- #
 # POST /demo/events
 # --------------------------------------------------------------------------- #
-def test_demo_event_is_recorded_by_system_as_simulated(anonymous: TestClient, db: Session) -> None:
-    response = anonymous.post(
+def test_demo_event_is_recorded_by_system_as_simulated(
+    as_: Callable[[int], TestClient], db: Session
+) -> None:
+    response = as_(900).post(
         "/demo/events",
         json={"event_type": "STAFF_UNAVAILABLE", "shift_id": NIGHT_SHIFT, "reporter_staff_id": 105},
     )
@@ -266,8 +270,10 @@ def test_demo_event_is_recorded_by_system_as_simulated(anonymous: TestClient, db
     assert received.actor_id == actor_service.component_id(db, ActorName.SYSTEM)
 
 
-def test_demo_head_nurse_event_keeps_the_reporter(anonymous: TestClient, db: Session) -> None:
-    response = anonymous.post(
+def test_demo_head_nurse_event_keeps_the_reporter(
+    as_: Callable[[int], TestClient], db: Session
+) -> None:
+    response = as_(900).post(
         "/demo/events",
         json={
             "event_type": "PATIENT_SURGE",
@@ -315,22 +321,22 @@ def test_demo_head_nurse_event_keeps_the_reporter(anonymous: TestClient, db: Ses
     ],
 )
 def test_refused_demo_events_write_nothing(
-    anonymous: TestClient, db: Session, body: dict[str, Any], status_code: int
+    as_: Callable[[int], TestClient], db: Session, body: dict[str, Any], status_code: int
 ) -> None:
     before = _counts(db)
 
-    response = anonymous.post("/demo/events", json=body)
+    response = as_(900).post("/demo/events", json=body)
 
     assert response.status_code == status_code
     assert _counts(db) == before
 
 
 def test_demo_events_need_an_allowed_origin_in_session_mode(
-    anonymous: TestClient, db: Session
+    as_: Callable[[int], TestClient], db: Session
 ) -> None:
     before = _counts(db)
 
-    response = anonymous.post(
+    response = as_(900).post(
         "/demo/events",
         json={"event_type": "STAFF_UNAVAILABLE", "shift_id": NIGHT_SHIFT, "reporter_staff_id": 105},
         headers={"Origin": "https://evil.example"},

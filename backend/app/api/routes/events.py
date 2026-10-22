@@ -15,10 +15,8 @@ from app.api.dependencies import (
     Reader,
     access_viewer,
     deny_in_session,
-    forbidden,
 )
 from app.core.constants import MAX_BIGINT
-from app.db.models import StaffingEvent
 from app.schemas.event import EventCreate, EventResult
 from app.services import access_service, event_service
 from app.services.event_service import (
@@ -99,18 +97,18 @@ def create_event(
 @router.get("/{event_id}")
 def get_event(event_id: EventId, db: DbSession, reader: Reader) -> EventResult:
     """Status of an event and the case it became part of. No X-Demo-User needed in demo
-    mode; session mode needs a user who may see it (401, 404, then 403).
+    mode; session mode needs a session (401), and an event that is not the person's to read
+    answers 404 like an unknown one, so an ID cannot be probed.
 
     The same shape as the answer of POST /events, for a reporter whose event
     was RECEIVED and who wants to know what its merge window made of it.
     """
     try:
+        if reader is not None and not access_service.sees_event(
+            db, access_viewer(db, reader), event_id
+        ):
+            raise EventNotFoundError(f"No event {event_id}")
         outcome = event_service.get_event(db, event_id)
     except EventNotFoundError as error:
         raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
-    if reader is not None:
-        event = db.get(StaffingEvent, event_id)
-        assert event is not None
-        if not access_service.sees_event(db, access_viewer(db, reader), event):
-            raise forbidden()
     return _result(outcome)

@@ -79,10 +79,8 @@ def pending_approvals(
     viewer = access_viewer(db, user)
     if viewer.role == "staff":
         raise forbidden()
-    requests = approval_service.list_pending(db)
-    if viewer.role == "supervisor":
-        return requests
-    return [item for item in requests if any(w.ward_id == viewer.home_ward_id for w in item.wards)]
+    # The filter and the trimming of the sides are in the query and the service, not here
+    return approval_service.list_pending(db, viewer)
 
 
 @router.get("/auto")

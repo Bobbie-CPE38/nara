@@ -63,12 +63,16 @@ StatusFilter = Annotated[
 
 
 def _check_case(db: DbSession, reader: CurrentUser | None, case_id: int) -> None:
-    """403 in session mode for a case the user may not see. An unknown case passes, so the
-    route answers its own 404. Demo mode (no reader) checks nothing."""
-    if (
-        reader is not None
-        and access_service.sees_case(db, access_viewer(db, reader), case_id) is False
-    ):
+    """404 in session mode for a case the user may not see, the same as an unknown case: an
+    ID cannot be probed. Demo mode (no reader) checks nothing."""
+    if reader is not None and not access_service.sees_case(db, access_viewer(db, reader), case_id):
+        raise CaseNotFoundError(f"No case {case_id}")
+
+
+def _check_manager(db: DbSession, reader: CurrentUser | None) -> None:
+    """Asking the LLM queues model work and uses the shared daily quota, so it is for a head
+    nurse or a supervisor, not for a nurse who may only read the case (6.33.4)."""
+    if reader is not None and access_viewer(db, reader).role == "staff":
         raise forbidden()
 
 
@@ -123,9 +127,11 @@ _EXPLANATION_MESSAGES: dict[ExplanationBlock, str] = {
 def request_explanation(case_id: CaseId, db: DbSession, reader: Reader) -> RankExplanationView:
     """Ask for the LLM explanation of the latest plan. Never calls the LLM itself: the Job
     makes the sentence later. An answered request returns the row unchanged; a refused
-    one changes nothing and uses no quota (section 9.8)."""
-    _check_case(db, reader, case_id)
+    one changes nothing and uses no quota (section 9.8). In session mode: a head nurse or a
+    supervisor who may read the case (403 for a nurse, 404 for a case that is not theirs)."""
+    _check_manager(db, reader)
     try:
+        _check_case(db, reader, case_id)
         return explanation_service.request(db, case_id)
     except CaseNotFoundError as error:
         raise HTTPException(
@@ -140,9 +146,11 @@ def request_explanation(case_id: CaseId, db: DbSession, reader: Reader) -> RankE
 
 @router.post("/{case_id}/summary")
 def request_summary(case_id: CaseId, db: DbSession, reader: Reader) -> CaseSummaryView:
-    """Queue the current anonymous snapshot. No model call in this request."""
-    _check_case(db, reader, case_id)
+    """Queue the current anonymous snapshot. No model call in this request. In session mode: a
+    head nurse or a supervisor who may read the case, as for the explanation."""
+    _check_manager(db, reader)
     try:
+        _check_case(db, reader, case_id)
         return case_summary_service.request(db, case_id)
     except CaseNotFoundError as error:
         raise HTTPException(
