@@ -20,10 +20,11 @@ the reset takes the exclusive side of the Auth reset gate (auth_service), which 
 auth write and session check takes shared: a login or a password change is either in
 the copy or waits and runs on the rebuilt tables.
 
-A seeded staff ID gets back the subject it had; the Golden Case data itself is reloaded
-as usual. A kept staff row that the seed does not create is put back as it was. If its
-role or ward no longer exists, the whole reset fails and rolls back rather than drop
-that person or their account.
+A seeded staff ID gets back the subject, role, home ward and status it had, so a reset
+never changes what an account may do; the rest of the Golden Case is reloaded as usual.
+A kept staff row that the seed does not create is put back as it was. If any kept
+person's role or ward no longer exists, the whole reset fails and rolls back rather
+than drop that person or their account.
 """
 
 import uuid
@@ -160,9 +161,13 @@ def _hold_identities(connection: Connection) -> dict[int, uuid.UUID] | None:
 
 
 def _restore_identities(connection: Connection) -> None:
-    """Put back the people the seed did not create, their actors, and every account.
+    """Put back every person's authorization metadata, their actors, and every account.
 
-    Runs after the seed, which already gave each seeded staff ID its old subject."""
+    Runs after the seed, which already gave each seeded staff ID its old subject. A
+    seeded person also gets back the role, home ward and status they had: the seed's
+    values would otherwise change what an existing account may do, for example make a
+    closed-out head nurse ACTIVE again (6.33.7). Their name and the scenario rows come
+    from the seed. A person the seed did not create comes back as the whole old row."""
     changed = connection.scalars(
         text(
             "SELECT h.id FROM held_staff h JOIN staff s ON s.id = h.id"
@@ -174,15 +179,21 @@ def _restore_identities(connection: Connection) -> None:
     orphans = connection.scalars(
         text(
             "SELECT h.id FROM held_staff h"
-            " WHERE NOT EXISTS (SELECT 1 FROM staff s WHERE s.id = h.id)"
-            " AND (NOT EXISTS (SELECT 1 FROM role r WHERE r.id = h.role_id)"
-            " OR NOT EXISTS (SELECT 1 FROM ward w WHERE w.id = h.home_ward_id))"
+            " WHERE NOT EXISTS (SELECT 1 FROM role r WHERE r.id = h.role_id)"
+            " OR NOT EXISTS (SELECT 1 FROM ward w WHERE w.id = h.home_ward_id)"
         )
     ).all()
     if orphans:
         raise IdentityConflictError(
             f"Staff {sorted(orphans)} refer to a role or ward the demo no longer has"
         )
+
+    connection.execute(
+        text(
+            "UPDATE staff s SET role_id = h.role_id, home_ward_id = h.home_ward_id,"
+            " status = h.status FROM held_staff h WHERE s.id = h.id"
+        )
+    )
 
     for table, held_rows in (("staff", "held_staff"), ("auth_account", "held_auth_account")):
         kept = set(_columns(connection, f"pg_temp.{held_rows}"))

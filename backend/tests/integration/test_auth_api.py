@@ -487,3 +487,66 @@ def test_nothing_secret_in_responses(client: TestClient, db: Session) -> None:
 
     for secret in (PASSWORD, account.password_hash, session.token_hash, "argon2"):
         assert secret not in body
+
+
+SECRET = "Sekr1t-never-echoed"
+LOGIN_BAD_BODIES = [
+    # Too long for the login bound
+    {"staff_id": 105, "password": SECRET * 60},
+    # Wrong type next to a password
+    {"staff_id": "x", "password": SECRET},
+    # Extra field: FastAPI's default echoes its value as `input`
+    {"staff_id": 105, "password": SECRET, "role": SECRET},
+    # Password not a string
+    {"staff_id": 105, "password": [SECRET]},
+    # Not an object at all: the whole body becomes `input`
+    [SECRET, SECRET],
+]
+CHANGE_BAD_BODIES = [
+    # The reviewer's case: an 11-character new password
+    {"current_password": PASSWORD, "new_password": SECRET[:11]},
+    {"current_password": PASSWORD, "new_password": SECRET * 10},
+    {"current_password": SECRET * 60, "new_password": NEW_PASSWORD},
+    {"current_password": PASSWORD, "new_password": NEW_PASSWORD, "extra": SECRET},
+    {"current_password": {"nested": SECRET}, "new_password": NEW_PASSWORD},
+]
+
+
+def _assert_sanitized(response) -> None:  # type: ignore[no-untyped-def]
+    assert response.status_code == 422
+    assert SECRET not in response.text and SECRET[:11] not in response.text
+    assert PASSWORD not in response.text and NEW_PASSWORD not in response.text
+    for item in response.json()["detail"]:
+        assert set(item) <= {"type", "loc", "msg"}
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("body", LOGIN_BAD_BODIES)
+def test_login_validation_errors_never_echo_the_password(client: TestClient, body: object) -> None:
+    _assert_sanitized(client.post("/auth/login", json=body))
+
+
+@pytest.mark.parametrize("body", CHANGE_BAD_BODIES)
+def test_change_password_validation_errors_never_echo_a_password(
+    client: TestClient, body: object
+) -> None:
+    login(client)
+
+    _assert_sanitized(client.post("/auth/change-password", json=body))
+
+
+def test_malformed_json_is_not_echoed(client: TestClient) -> None:
+    response = client.post(
+        "/auth/login",
+        content=f'{{"staff_id": 105, "password": "{SECRET}"'.encode(),
+        headers={"Content-Type": "application/json"},
+    )
+
+    _assert_sanitized(response)
+
+
+def test_other_routes_keep_the_default_validation_detail(client: TestClient) -> None:
+    response = client.post("/demo/clock/advance", json={"seconds": "soon"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["input"] == "soon"

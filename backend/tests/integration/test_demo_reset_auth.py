@@ -125,7 +125,7 @@ def test_reset_twice_still_keeps_the_same_subjects(accounts: dict[str, Any]) -> 
         assert _accounts(db) == accounts["accounts"]
 
 
-def test_golden_case_data_is_reloaded_for_seeded_people(accounts: dict[str, Any]) -> None:
+def test_seeded_name_is_reloaded_but_not_authorization(accounts: dict[str, Any]) -> None:
     with SessionLocal() as db:
         db.execute(text("UPDATE staff SET first_name = 'Changed' WHERE id = 105"))
         db.commit()
@@ -137,6 +137,74 @@ def test_golden_case_data_is_reloaded_for_seeded_people(accounts: dict[str, Any]
         assert staff is not None
         assert staff.first_name == "Sudarat"
         assert staff.auth_subject == accounts["subjects"][105]
+
+
+def _staff_metadata(db: Session, staff_id: int) -> tuple[int, int, StaffStatus]:
+    staff = db.get(Staff, staff_id)
+    assert staff is not None
+    return staff.role_id, staff.home_ward_id, staff.status
+
+
+def test_inactive_seeded_person_stays_inactive_and_cannot_log_in(
+    accounts: dict[str, Any],
+) -> None:
+    """Review of #124: a reset made a closed-out head nurse ACTIVE and able to log in."""
+    with SessionLocal() as db:
+        db.execute(text("UPDATE staff SET status = 'INACTIVE' WHERE id = 105"))
+        db.commit()
+        assert auth_service.login(db, 105, PASSWORD) is None
+
+    reset_demo()
+
+    with SessionLocal() as db:
+        assert _staff_metadata(db, 105)[2] == StaffStatus.INACTIVE
+        assert auth_service.login(db, 105, PASSWORD) is None
+
+
+def test_seeded_person_keeps_changed_role_and_ward(accounts: dict[str, Any]) -> None:
+    """The reviewer's case: 900 moved to RN in ward 2 and closed out. After a reset the same
+    account must not come back as an ACTIVE head nurse of ward 1."""
+    with SessionLocal() as db:
+        rn = db.scalars(select(Role.id).where(Role.name == "RN")).one()
+        db.execute(
+            text(
+                "UPDATE staff SET role_id = :rn, home_ward_id = 2, status = 'INACTIVE'"
+                " WHERE id = 900"
+            ),
+            {"rn": rn},
+        )
+        db.commit()
+        before = _staff_metadata(db, 900)
+
+    reset_demo()
+
+    with SessionLocal() as db:
+        assert _staff_metadata(db, 900) == before == (rn, 2, StaffStatus.INACTIVE)
+        assert auth_service.login(db, 900, PASSWORD) is None
+        db.execute(text("UPDATE staff SET status = 'ACTIVE' WHERE id = 900"))
+        db.commit()
+        login = auth_service.login(db, 900, PASSWORD)
+        assert login is not None
+        assert (login[1].role, login[1].staff.home_ward_id) == ("staff", 2)
+
+
+def test_a_seeded_person_whose_role_is_gone_fails_the_whole_reset(
+    accounts: dict[str, Any],
+) -> None:
+    with SessionLocal() as db:
+        db.add(Role(id=77, name="SCENARIO_ROLE"))
+        db.commit()
+        db.execute(text("UPDATE staff SET role_id = 77 WHERE id = 105"))
+        db.commit()
+
+    with pytest.raises(IdentityConflictError, match="105"):
+        reset_demo()
+
+    with SessionLocal() as db:
+        assert _staff_metadata(db, 105)[0] == 77
+        # Rolled back: the sessions are still there (a role outside the API's map
+        # cannot use one, so check the rows rather than resolve)
+        assert db.scalar(select(func.count()).select_from(AuthSession)) == 2
 
 
 def test_a_person_whose_ward_is_gone_fails_the_whole_reset(accounts: dict[str, Any]) -> None:
