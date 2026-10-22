@@ -597,6 +597,10 @@ export const en = {
 
   // ---- password changed ----
   "auth.change.done": "The password is changed and every login of the account has ended. Log in with the new password.",
+
+  // ---- check-in roster states ----
+  "me.shiftsLoading": "Loading your shifts…",
+  "me.shiftsFailed": "Cannot load your shifts: {error}",
 } as const;
 
 export type MessageKey = keyof typeof en;

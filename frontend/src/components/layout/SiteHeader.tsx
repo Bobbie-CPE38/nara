@@ -124,6 +124,7 @@ function NavLinks({ onNavigate, stacked }: { onNavigate?: () => void; stacked: b
 export function SiteHeader() {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const hasMenu = useNavItems().length > 0;
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
       <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2">
@@ -137,11 +138,12 @@ export function SiteHeader() {
         </nav>
         <div className="ml-auto flex items-center gap-3">
           <LanguageSwitch />
-          <button
-            type="button"
-            className="px-2 md:hidden"
-            aria-expanded={open}
-            aria-controls="mobile-menu"
+          {hasMenu && (
+            <button
+              type="button"
+              className="px-2 md:hidden"
+              aria-expanded={open}
+              aria-controls="mobile-menu"
             aria-label={open ? t("nav.closeMenu") : t("nav.openMenu")}
             onClick={() => setOpen((value) => !value)}
           >
@@ -149,9 +151,10 @@ export function SiteHeader() {
               {open ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
             </svg>
           </button>
+          )}
         </div>
       </div>
-      {open && (
+      {open && hasMenu && (
         <nav id="mobile-menu" aria-label={t("nav.main")} className="border-t border-slate-200 px-4 py-3 md:hidden">
           <NavLinks stacked onNavigate={() => setOpen(false)} />
         </nav>

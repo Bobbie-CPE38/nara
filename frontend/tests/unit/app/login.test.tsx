@@ -422,6 +422,47 @@ describe("change password page", () => {
     expect(screen.getByLabelText("Current password")).toBeTruthy();
   });
 
+  it("keeps what the user typed when the change fails", async () => {
+    session(ME, { "POST /auth/change-password": () => ({ status: 400, body: { detail: "AUTH_INVALID_PASSWORD" } }) });
+    app(<ChangePasswordPage />);
+    await screen.findByLabelText("Current password");
+    fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "a wrong current one" } });
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a brand new password" } });
+    fireEvent.change(screen.getByLabelText("Repeat the password"), { target: { value: "a brand new password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("The current password is wrong.");
+    expect((screen.getByLabelText("Current password") as HTMLInputElement).value).toBe("a wrong current one");
+    expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe("a brand new password");
+    expect((screen.getByLabelText("Repeat the password") as HTMLInputElement).value).toBe("a brand new password");
+  });
+
+  it("keeps the fields on a rate limit too", async () => {
+    session(ME, { "POST /auth/change-password": () => ({ status: 429, body: { detail: "AUTH_RATE_LIMITED" } }) });
+    app(<ChangePasswordPage />);
+    await screen.findByLabelText("Current password");
+    fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "the old password" } });
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a brand new password" } });
+    fireEvent.change(screen.getByLabelText("Repeat the password"), { target: { value: "a brand new password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("Too many attempts");
+    expect((screen.getByLabelText("New password") as HTMLInputElement).value).toBe("a brand new password");
+  });
+
+  it("shows the success message even when the provider turns anonymous before the page does", async () => {
+    // The provider is anonymous the moment the password is changed; the page must not leave first
+    session(ME, { "POST /auth/change-password": () => ({ status: 204 }) });
+    pathname = "/change-password";
+    app(<ChangePasswordPage />);
+    await screen.findByLabelText("Current password");
+    fireEvent.change(screen.getByLabelText("Current password"), { target: { value: "the old password" } });
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a brand new password" } });
+    fireEvent.change(screen.getByLabelText("Repeat the password"), { target: { value: "a brand new password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+    expect((await screen.findByRole("status")).textContent).toContain("every login of the account has ended");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(replace).not.toHaveBeenCalledWith("/login");
+  });
+
   it("refuses a new password equal to the current one", async () => {
     session(ME);
     app(<ChangePasswordPage />);
@@ -472,6 +513,20 @@ describe("the menu follows the role", () => {
       const links = await menuOf(me);
       expect(links).toEqual(["Dashboard", "Gap check", "Approvals", "Handoff", "Roster", "My offers", "Report leave"]);
     }
+  });
+
+  it("shows a visitor no menu button on a phone either: there is nothing to open", async () => {
+    session(null);
+    app(<SiteHeader />);
+    await screen.findByRole("link", { name: "Log in" });
+    expect(screen.queryByRole("button", { name: "Open the menu" })).toBeNull();
+  });
+
+  it("shows a logged-in user the menu button", async () => {
+    session(ME);
+    app(<SiteHeader />);
+    await screen.findByText("Staff 201 · Staff");
+    expect(screen.getByRole("button", { name: "Open the menu" })).toBeTruthy();
   });
 
   it("shows a visitor no pages, only the login link", async () => {

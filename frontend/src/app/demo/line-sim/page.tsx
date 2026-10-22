@@ -38,23 +38,25 @@ export default function LineSimulatorPage() {
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
       <PageHeader title={t("sim.title")} description={me ? t("sim.sessionIntro") : t("sim.intro")}>
-        {!me && <label className="flex flex-wrap items-center gap-2 text-sm font-medium" htmlFor="staff">
-          {t("sim.staffMember")}
-          <select
-            id="staff"
-            value={staffId}
-            disabled={responding}
-            onChange={(event) => {
-              if (!responding) setStaffId(Number(event.target.value));
-            }}
-          >
-            {DEMO_STAFF_IDS.map((id) => (
-              <option key={id} value={id}>
-                {t("sim.staffOption", { id })}
-              </option>
-            ))}
-          </select>
-        </label>}
+        {!me && (
+          <label className="flex flex-wrap items-center gap-2 text-sm font-medium" htmlFor="staff">
+            {t("sim.staffMember")}
+            <select
+              id="staff"
+              value={staffId}
+              disabled={responding}
+              onChange={(event) => {
+                if (!responding) setStaffId(Number(event.target.value));
+              }}
+            >
+              {DEMO_STAFF_IDS.map((id) => (
+                <option key={id} value={id}>
+                  {t("sim.staffOption", { id })}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </PageHeader>
       <OfferList
         key={staffId}

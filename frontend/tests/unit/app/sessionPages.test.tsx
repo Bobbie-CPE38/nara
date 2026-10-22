@@ -25,6 +25,8 @@ const calls: { path: string; method: string; body: unknown; headers: Headers; cr
 // What the stub answers for the two reads a test changes; set again before each test
 let approvalRows: unknown[] = [];
 let rosterAnswer: () => unknown = () => ({ staff: {}, assignments: [] });
+let hangRoster = false;
+let failRoster = false;
 
 const PENDING = {
   id: 4,
@@ -70,7 +72,11 @@ function login(me: { staff_id: number; role: string; home_ward_id: number }) {
       if (url.pathname === "/approvals/auto") return json([]);
       if (/^\/cases\/\d+$/.test(url.pathname)) return json({ id: 7, gap: { headcount_gap: 2 }, assigned_count: 1 });
       if (url.pathname === "/me/handovers") return json({ active: [], history: [], next_cursor: null });
-      if (url.pathname === "/roster") return json(rosterAnswer());
+      if (url.pathname === "/roster") {
+        if (hangRoster) await new Promise(() => {});
+        if (failRoster) return json({ detail: "boom" }, 500);
+        return json(rosterAnswer());
+      }
       return json([]);
     }),
   );
@@ -91,6 +97,8 @@ beforeEach(() => {
   calls.length = 0;
   approvalRows = [PENDING];
   rosterAnswer = () => ({ staff: {}, assignments: [] });
+  hangRoster = false;
+  failRoster = false;
 });
 afterEach(() => {
   cleanup();
@@ -126,6 +134,15 @@ describe("Approvals with a login", () => {
     app(<Approvals />);
     await screen.findByRole("link", { name: "7" });
     expect(screen.getByRole<HTMLButtonElement>("button", { name: "Approve" }).disabled).toBe(true);
+  });
+
+  it("offers a nurse who opens the page by its address no decide button at all", async () => {
+    login({ staff_id: 201, role: "staff", home_ward_id: 1 });
+    app(<Approvals />);
+    // The request is of the nurse's own ward, and still nothing can be decided from here
+    const approve = await screen.findByRole<HTMLButtonElement>("button", { name: "Approve" });
+    expect(approve.disabled).toBe(true);
+    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Reject" }).disabled).toBe(true);
   });
 
   it("lets a supervisor decide any ward", async () => {
@@ -204,6 +221,22 @@ describe("My offers with a login", () => {
     expect(screen.queryByText("You have no shift to check in to.")).toBeNull();
     expect(calls.filter((call) => call.path === "/roster?staff_id=201").length).toBeGreaterThan(1);
   }, 12000);
+
+  it("does not say there is no shift while the roster is still loading", async () => {
+    login({ staff_id: 201, role: "staff", home_ward_id: 1 });
+    rosterAnswer = () => new Promise(() => {}) as unknown as never;
+    app(<MyOffers />);
+    expect(await screen.findByText("Loading your shifts…")).toBeTruthy();
+    expect(screen.queryByText("You have no shift to check in to.")).toBeNull();
+  });
+
+  it("says the roster could not be read, not that there is no shift", async () => {
+    login({ staff_id: 201, role: "staff", home_ward_id: 1 });
+    failRoster = true;
+    app(<MyOffers />);
+    expect((await screen.findByText(/Cannot load your shifts/)).textContent).toContain("Cannot load your shifts");
+    expect(screen.queryByText("You have no shift to check in to.")).toBeNull();
+  });
 
   it("takes the shifts to check in to from the roster of the person", async () => {
     login({ staff_id: 201, role: "staff", home_ward_id: 1 });

@@ -304,6 +304,8 @@ function ApprovalsPage() {
    * answers 403 before supervisor_from (workflow.md 6.21).
    */
   function canDecide(row: PendingApproval): boolean {
+    // A nurse who opens the page by its address is offered nothing (the Backend refuses as well)
+    if (me && me.role === "staff") return false;
     const wardId = me
       ? me.role === "supervisor"
         ? null

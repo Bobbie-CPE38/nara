@@ -595,4 +595,8 @@ export const th: Record<MessageKey, string> = {
 
   // ---- password changed ----
   "auth.change.done": "เปลี่ยนรหัสผ่านแล้ว และการเข้าสู่ระบบทุกเครื่องของบัญชีนี้สิ้นสุดแล้ว ให้เข้าสู่ระบบด้วยรหัสผ่านใหม่",
+
+  // ---- check-in roster states ----
+  "me.shiftsLoading": "กำลังโหลดเวรของคุณ…",
+  "me.shiftsFailed": "โหลดเวรของคุณไม่ได้: {error}",
 };

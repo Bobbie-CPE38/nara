@@ -125,8 +125,19 @@ function CheckIn({ staffId, handovers }: { staffId: number; handovers: readonly 
 
   return (
     <Card title={t("me.checkIn")} className="mt-4">
+      {loggedIn && roster.isLoading && roster.data === undefined && (
+        <p role="status" className="mt-2">
+          {t("me.shiftsLoading")}
+        </p>
+      )}
+      {loggedIn && roster.error && roster.data === undefined && (
+        <p role="alert" className="mt-2 text-red-700">
+          {t("me.shiftsFailed", { error: describeError(roster.error, t) })}
+        </p>
+      )}
       {chosen === null ? (
-        <p className="mt-2">{t("me.noShift")}</p>
+        // Not "no shift" while the roster has not arrived or could not be read
+        !(loggedIn && roster.data === undefined) && <p className="mt-2">{t("me.noShift")}</p>
       ) : (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label htmlFor="check-in-shift">{t("common.shift")}</label>

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -29,10 +29,14 @@ export default function ChangePasswordPage() {
   const [problem, setProblem] = useState<MessageKey | null>(null);
   const [failure, setFailure] = useState<unknown>(null);
   const [done, setDone] = useState(false);
+  // Set before the call: the provider turns anonymous the moment the password is changed, and that
+  // must not send the user to /login before this page has said so. A ref, not state, so it is
+  // already true in the very render the provider's change causes
+  const changing = useRef(false);
 
   useEffect(() => {
-    // Not logged in and not just changed: there is nothing to change here
-    if (state.status === "anonymous" && !done) router.replace("/login");
+    // Not logged in and not changing or just changed: there is nothing to change here
+    if (state.status === "anonymous" && !done && !changing.current) router.replace("/login");
   }, [state.status, done, router]);
 
   async function submit(event: FormEvent) {
@@ -42,16 +46,20 @@ export default function ChangePasswordPage() {
     setFailure(null);
     if (found !== null) return;
     setBusy(true);
+    changing.current = true;
     try {
       await changePassword(current, next);
       setDone(true);
-    } catch (cause) {
-      setFailure(cause);
-    } finally {
-      setBusy(false);
+      // The fields are cleared only when the change worked
       setCurrent("");
       setNext("");
       setRepeat("");
+    } catch (cause) {
+      changing.current = false;
+      // A wrong current password or a rate limit keeps what the user typed
+      setFailure(cause);
+    } finally {
+      setBusy(false);
     }
   }
 
