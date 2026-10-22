@@ -11,8 +11,23 @@ The ledger tables are locked exclusively before they are copied and until the co
 a gateway write is either in the copy or waits and then lands in the rebuilt tables: none
 is lost. A write that holds another table's lock while it waits can deadlock with the
 DROP; PostgreSQL ends one side, and the reset starts over (a few times).
+
+Web accounts and the permanent people behind them survive too (round 6 PR AU1,
+docs/workflow.md 6.33.7): every STAFF row with its auth_subject, their USER actors and
+every AUTH_ACCOUNT with its password hash, closed flag, must-change flag and credential
+version. Every AUTH_SESSION is gone, so everyone logs in again. Before copying anything
+the reset takes the exclusive side of the Auth reset gate (auth_service), which every
+auth write and session check takes shared: a login or a password change is either in
+the copy or waits and runs on the rebuilt tables.
+
+A seeded staff ID gets back the subject, role, home ward and status it had, so a reset
+never changes what an account may do; the rest of the Golden Case is reloaded as usual.
+A kept staff row that the seed does not create is put back as it was. If any kept
+person's role or ward no longer exists, the whole reset fails and rolls back rather
+than drop that person or their account.
 """
 
+import uuid
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -26,8 +41,9 @@ from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.db.session import SessionLocal, engine
-from app.domain.enums import LlmWorkType
+from app.domain.enums import ActorType, LlmWorkType
 from app.seed import load
+from app.services import auth_service
 
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 _reset_lock = Lock()
@@ -41,6 +57,10 @@ LLM_LEDGER_TABLES = ("llm_daily_usage", "llm_trial_usage", "llm_call_log")
 # kept log rows lose them and record when instead (detached_at). A model trial refers to
 # no demo row and keeps everything
 _DEMO_REFERENCES = ("explanation_id", "case_id", "plan_id", "subject_id")
+
+
+class IdentityConflictError(RuntimeError):
+    """A kept person or account cannot be put back, so the reset rolled back."""
 
 
 def reset_demo() -> datetime:
@@ -72,7 +92,10 @@ def _reset_demo() -> datetime:
     config = Config(str(ALEMBIC_INI))
 
     with engine.begin() as connection:
+        # Before any table lock: auth transactions take this gate before their row locks
+        auth_service.take_reset_gate(connection)
         held = _hold_llm_ledger(connection)
+        subjects = _hold_identities(connection)
         # Dropping the schema also removes alembic_version and resets every sequence
         connection.execute(text("DROP SCHEMA public CASCADE"))
         connection.execute(text("CREATE SCHEMA public"))
@@ -83,9 +106,11 @@ def _reset_demo() -> datetime:
         clock.set_time(demo_time)
         options = {key: SessionLocal.kw[key] for key in ("autoflush", "expire_on_commit")}
         with Session(bind=connection, **options) as db:
-            load(db)
+            load(db, preserved_subjects=subjects)
             db.flush()
         # After the seed: load() refuses to seed a table that already has rows
+        if subjects is not None:
+            _restore_identities(connection)
         _restore_llm_ledger(connection, held, reset_at)
     engine.dispose()
 
@@ -112,6 +137,92 @@ def _hold_llm_ledger(connection: Connection) -> list[str]:
             text(f"CREATE TEMPORARY TABLE {_held(table)} ON COMMIT DROP AS TABLE {table}")
         )
     return existing
+
+
+def _hold_identities(connection: Connection) -> dict[int, uuid.UUID] | None:
+    """Copy every staff row, the USER actors and the accounts, and return each staff
+    ID's subject. None for a schema from before PR AU1, which has nothing to keep."""
+    if "auth_subject" not in _columns(connection, "public.staff"):
+        return None
+    connection.execute(text("CREATE TEMPORARY TABLE held_staff ON COMMIT DROP AS TABLE staff"))
+    connection.execute(
+        text(
+            "CREATE TEMPORARY TABLE held_user_actors ON COMMIT DROP AS"
+            " SELECT name, actor_type, staff_id FROM actors WHERE actor_type = :user"
+        ),
+        {"user": ActorType.USER.value},
+    )
+    # The account table arrived in the same migration as the subject column
+    connection.execute(
+        text("CREATE TEMPORARY TABLE held_auth_account ON COMMIT DROP AS TABLE auth_account")
+    )
+    rows = connection.execute(text("SELECT id, auth_subject FROM held_staff"))
+    return {staff_id: subject for staff_id, subject in rows}
+
+
+def _restore_identities(connection: Connection) -> None:
+    """Put back every person's authorization metadata, their actors, and every account.
+
+    Runs after the seed, which already gave each seeded staff ID its old subject. A
+    seeded person also gets back the role, home ward and status they had: the seed's
+    values would otherwise change what an existing account may do, for example make a
+    closed-out head nurse ACTIVE again (6.33.7). Their name and the scenario rows come
+    from the seed. A person the seed did not create comes back as the whole old row."""
+    changed = connection.scalars(
+        text(
+            "SELECT h.id FROM held_staff h JOIN staff s ON s.id = h.id"
+            " WHERE s.auth_subject <> h.auth_subject"
+        )
+    ).all()
+    if changed:
+        raise IdentityConflictError(f"Seeded staff {sorted(changed)} lost their subject")
+    orphans = connection.scalars(
+        text(
+            "SELECT h.id FROM held_staff h"
+            " WHERE NOT EXISTS (SELECT 1 FROM role r WHERE r.id = h.role_id)"
+            " OR NOT EXISTS (SELECT 1 FROM ward w WHERE w.id = h.home_ward_id)"
+        )
+    ).all()
+    if orphans:
+        raise IdentityConflictError(
+            f"Staff {sorted(orphans)} refer to a role or ward the demo no longer has"
+        )
+
+    connection.execute(
+        text(
+            "UPDATE staff s SET role_id = h.role_id, home_ward_id = h.home_ward_id,"
+            " status = h.status FROM held_staff h WHERE s.id = h.id"
+        )
+    )
+
+    for table, held_rows in (("staff", "held_staff"), ("auth_account", "held_auth_account")):
+        kept = set(_columns(connection, f"pg_temp.{held_rows}"))
+        columns = ", ".join(c for c in _columns(connection, f"public.{table}") if c in kept)
+        # Only staff rows the seed did not create; every account
+        missing = (
+            " WHERE NOT EXISTS (SELECT 1 FROM staff s WHERE s.id = h.id)"
+            if table == "staff"
+            else ""
+        )
+        connection.execute(
+            text(f"INSERT INTO {table} ({columns}) SELECT {columns} FROM {held_rows} h{missing}")
+        )
+        if table == "staff":
+            # Seeded people already have their actor. A kept one gets a new actor ID
+            connection.execute(
+                text(
+                    "INSERT INTO actors (name, actor_type, staff_id)"
+                    " SELECT name, actor_type, staff_id FROM held_user_actors a"
+                    " WHERE NOT EXISTS (SELECT 1 FROM actors x WHERE x.staff_id = a.staff_id)"
+                )
+            )
+    # Kept staff IDs can be above what the seed synced
+    connection.execute(
+        text(
+            "SELECT setval(pg_get_serial_sequence('staff', 'id'), max(id))"
+            " FROM staff HAVING max(id) IS NOT NULL"
+        )
+    )
 
 
 def _columns(connection: Connection, relation: str) -> list[str]:

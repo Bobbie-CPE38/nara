@@ -7,11 +7,16 @@ its own clock. The work happens in app.seed.reset.reset_demo().
 import urllib.error
 import urllib.request
 
+from app.core.config import settings
+
 RESET_URL = "http://localhost:8000/demo/reset"
 
 
 def main() -> None:
-    request = urllib.request.Request(RESET_URL, method="POST")
+    # With AUTH_MODE=session every POST needs an allowed Origin (docs/workflow.md 6.33.3)
+    request = urllib.request.Request(
+        RESET_URL, method="POST", headers={"Origin": settings.cors_origins[0]}
+    )
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             print(response.read().decode())

@@ -27,6 +27,9 @@ services:
       # The pages and the API share one origin; this only covers direct calls
       CORS_ORIGINS: '["https://${SITE_DOMAIN:?SITE_DOMAIN must be set in the deployment env file}"]'
       INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must be set in the deployment env file}
+      # HTTPS through Caddy: the session cookie is always Secure here, whatever the main
+      # file's local default (round 6 PR AU1). AU4 pins APP_ENV=aws and AUTH_MODE=session
+      AUTH_COOKIE_SECURE: "true"
 
   job:
     environment:

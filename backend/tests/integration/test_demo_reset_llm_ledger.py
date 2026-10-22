@@ -173,7 +173,7 @@ def test_a_failed_reset_changes_nothing(spent, monkeypatch: pytest.MonkeyPatch) 
             select(func.count()).select_from(explanation_service.RankExplanation)
         )
 
-    def broken(db: Session) -> None:
+    def broken(db: Session, **kwargs: object) -> None:
         raise RuntimeError("seed failed")
 
     monkeypatch.setattr(reset_module, "load", broken)

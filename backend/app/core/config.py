@@ -2,7 +2,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, SecretStr, ValidationInfo, field_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.constants import (
@@ -49,6 +49,24 @@ class Settings(BaseSettings):
     llm_max_input_tokens: int = Field(LLM_MAX_INPUT_TOKENS, ge=1)
     llm_max_attempts_per_row: int = Field(LLM_MAX_ATTEMPTS_PER_ROW, ge=1)
     llm_trial_call_cap: int = Field(LLM_TRIAL_CALL_CAP, ge=0)
+    # Round 6 PR AU1 (docs/workflow.md 6.33). Any other value stops startup: an unknown
+    # mode must never fall back to demo, where X-Demo-User names anyone
+    app_env: Literal["dev", "aws"] = "dev"
+    auth_mode: Literal["demo", "session"] = "demo"
+    # Only APP_ENV=dev may turn it off, for a browser on plain-HTTP localhost
+    auth_cookie_secure: bool = True
+    auth_session_max_age_seconds: int = Field(43200, gt=0)
+    auth_session_idle_seconds: int = Field(1800, gt=0)
+
+    @model_validator(mode="after")
+    def _auth_settings_agree(self) -> "Settings":
+        if self.app_env == "aws" and not self.auth_cookie_secure:
+            raise ValueError("AUTH_COOKIE_SECURE=false is allowed only with APP_ENV=dev")
+        if self.auth_session_idle_seconds > self.auth_session_max_age_seconds:
+            raise ValueError(
+                "AUTH_SESSION_IDLE_SECONDS must not exceed AUTH_SESSION_MAX_AGE_SECONDS"
+            )
+        return self
 
     @field_validator(
         "llm_input_price_per_mtok_usd",

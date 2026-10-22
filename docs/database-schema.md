@@ -1125,11 +1125,13 @@ Snapshot นิรนามหนึ่งฉบับต่อ (`case_id`, `inp
 Partial index บน `id` เมื่อ PENDING; UNIQUE (`case_id`, `input_hash`, `prompt_version`) การเรียก LLM บันทึกใน `LLM_CALL_LOG` ชนิด CASE_SUMMARY โดย `subject_id` = id นี้ (ไม่มี FK ตาม B1) Reset/Downgrade ถอดอ้างอิงและคงค่าใช้จ่าย/โควตา
 
 
-## AU0: Schema ที่วางแผนสำหรับบัญชีและ session (AU1/AU5 ยังไม่ Implement)
+## AU0: Schema สำหรับบัญชีและ session (AU1 Implement แล้ว; AU5 ยังไม่ Implement)
 
 กติกาฝั่ง API/สิทธิ์อยู่ `workflow.md` 6.33; AU0 เพิ่มเฉพาะสัญญา ไม่เปลี่ยนจำนวนตารางที่ migrate แล้ว ไม่กำหนด revision ล่วงหน้า AU1 เพิ่ม Migration ต่อ head ปัจจุบันและทดสอบให้มี head เดียว AU5 เพิ่มตาราง registration code ภายหลังต่อ AU1 ใช้ UUID เฉพาะ permanent staff subject; ID ธุรกิจและ surrogate ID เดิมเป็น bigint ตามเดิม
 
 ### STAFF.auth_subject (AU1)
+
+**AU1:** Migration `a7e2c4f9b1d3` ต่อ `f9a1c3e5b7d2` ใส่ subject สุ่มให้แถวเดิมด้วย `gen_random_uuid()` แล้วเอา default ออก (แอปสร้างเอง) และเพิ่ม trigger `staff_auth_subject_immutable` ที่ปฏิเสธ UPDATE ที่เปลี่ยนค่า จำนวนตารางเป็น 47
 
 เพิ่ม `auth_subject uuid NOT NULL UNIQUE` สุ่ม UUIDv4 ครั้งเดียวให้แต่ละแถวที่มีอยู่และตอนสร้าง staff ใหม่ immutable: ห้ามเปลี่ยน/นำกลับไปให้บุคคลใหม่ Reset ที่รักษาบัญชีต้องรักษา Staff row/subject ต้นฉบับและแก้ seed loader ตาม workflow 6.33.7 ไม่ใช้ชื่อ/email/staff_id ที่สร้างใหม่มาตัดสินว่าเป็นบุคคลเดิม `STAFF.password_hash` เดิมยังคงเพื่อ compatibility (seed `!`) แต่ auth ใหม่ไม่อ่านค่านี้ ไม่ migrate เป็นรหัสที่เปิดใช้โดยอัตโนมัติ
 

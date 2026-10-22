@@ -1,9 +1,12 @@
 """
 Shared FastAPI dependencies.
 
-The skeleton has no login (docs/workflow.md, D9). A request says who is acting
-with the header `X-Demo-User: <staff_id>`, for example 105 to report leave,
-201 to accept an offer and 900 to approve.
+Who is acting comes from one dependency, get_current_user (docs/workflow.md D9, 6.33.2):
+  * AUTH_MODE=demo: the header `X-Demo-User: <staff_id>`, for example 105 to report
+    leave, 201 to accept an offer and 900 to approve. No password.
+  * AUTH_MODE=session: the `nara_session` cookie of a login, checked in the database on
+    every request. X-Demo-User is never read, whatever it says.
+`DemoUser` is the old name of the same dependency, kept so routes need no change.
 """
 
 import re
@@ -11,16 +14,22 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Annotated
 
-from fastapi import BackgroundTasks, Depends, Header, HTTPException, status
+from fastapi import BackgroundTasks, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.constants import MAX_BIGINT
 from app.db.models import Actor, Staff
 from app.db.session import SessionLocal
 from app.domain.enums import StaffStatus
+from app.services import auth_service
 
 DEMO_USER_HEADER = "X-Demo-User"
+SESSION_COOKIE = "nara_session"
+# Error codes of docs/workflow.md 6.33.3; the web page translates them
+AUTH_REQUIRED = "AUTH_REQUIRED"
+AUTH_PASSWORD_CHANGE_REQUIRED = "AUTH_PASSWORD_CHANGE_REQUIRED"
 
 # Positive integer without sign, spaces or leading zero. 19 digits can still
 # exceed STAFF.id (bigint), so the value is also checked against MAX_STAFF_ID
@@ -61,6 +70,8 @@ class CurrentUser:
     staff: Staff
     # ACTORS.id of this staff member, ready for audit_service.log(actor_id=...)
     actor_id: int
+    # AUTH_SESSION.id in session mode, None in demo mode
+    session_id: int | None = None
 
 
 def get_demo_user(
@@ -95,4 +106,44 @@ def get_demo_user(
     return CurrentUser(staff=staff, actor_id=actor_id)
 
 
-DemoUser = Annotated[CurrentUser, Depends(get_demo_user)]
+def _auth_required() -> HTTPException:
+    # No WWW-Authenticate: neither Basic nor X-Demo-User is a way in (6.33.3)
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=AUTH_REQUIRED)
+
+
+def get_session_user(request: Request, db: DbSession) -> auth_service.SessionUser:
+    """The live session of the request's cookie, or 401 AUTH_REQUIRED, in either mode.
+
+    Allows a user who must still change their password: /auth/me, /auth/logout and
+    /auth/change-password use this one. Other routes use get_current_user.
+    The check commits (it moves last_seen_at), so it adds nothing to the route's
+    transaction except the Staff row it loads afterwards.
+    """
+    token = request.cookies.get(SESSION_COOKIE)
+    user = auth_service.resolve(db, token) if token else None
+    if user is None:
+        raise _auth_required()
+    return user
+
+
+SessionUserDep = Annotated[auth_service.SessionUser, Depends(get_session_user)]
+
+
+def get_current_user(
+    request: Request,
+    db: DbSession,
+    x_demo_user: Annotated[str | None, Header(alias=DEMO_USER_HEADER)] = None,
+) -> CurrentUser:
+    """The one current-user dependency. See the module docstring for the two modes."""
+    if settings.auth_mode != "session":
+        return get_demo_user(db, x_demo_user)
+    user = get_session_user(request, db)
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=AUTH_PASSWORD_CHANGE_REQUIRED
+        )
+    return CurrentUser(staff=user.staff, actor_id=user.actor_id, session_id=user.session_id)
+
+
+CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
+DemoUser = CurrentUserDep
