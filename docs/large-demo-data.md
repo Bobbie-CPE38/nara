@@ -56,8 +56,8 @@ dc up -d --wait postgres redis
 dc run --rm -T --interactive=false --no-deps backend sh -c 'pip install --no-cache-dir -e ".[dev]" && alembic upgrade head' < /dev/null
 dc up -d --wait backend
 # Caddy/Job ยังไม่เริ่ม ไม่มี traffic เข้าหรือ due work ระหว่างโหลด
-dc exec -T backend python -m app.mock_data
-dc exec -T backend python -m app.mock_data --apply
+dc exec -T --interactive=false backend python -m app.mock_data < /dev/null
+dc exec -T --interactive=false backend python -m app.mock_data --apply < /dev/null
 systemctl start nara
 dc ps
 ```
@@ -73,3 +73,15 @@ dc ps
 ## ตรวจผล
 
 ตรวจ preview หลัง apply ต้อง `already_loaded=true`, namespace `{staff:500, wards:20, shifts:1200}` รัน apply ซ้ำจำนวนเดิม ใช้ supervisor 950 ดู Dashboard/Gap และประวัติเคส เลือก RN ของหอใหม่เพื่อทดลองแจ้งลาตัวเองตาม flow จริงได้ ห้ามใช้ประวัติ synthetic เป็นหลักฐานว่า LINE/LLM/Solver จริงผ่าน AU4 ยังต้องตรวจตาม live checklist เดิม
+
+## AWS import evidence (operator-reported, 2026-10-23 Bangkok)
+
+ผู้ใช้ส่ง terminal output จาก EC2 ไม่ใช่ผลที่ผู้เขียนเอกสารรันบน AWS เอง:
+
+- Checkout แสดง `c28e46756f39d7e72f4d5701b2236803ba7d63b4`; migration แสดง `b8f3d5a0c2e4 -> f2c9a1d6e8b4`.
+- ก่อน import: `already_loaded=false`, namespace ทั้งสามเป็น 0.
+- Apply: `loaded={staff:500, wards:20, shifts:1200}` และ preview หลัง start service แสดง `already_loaded=true` พร้อมจำนวนเดิม.
+- Compose แสดง Backend/Frontend/PostgreSQL/Redis healthy; Caddy และ Job Up หลัง `systemctl start nara`.
+- Backup ก่อน deploy ขนาด 161 KB สิทธิ์ 600; ผู้ใช้รายงานว่าสร้างและ login supervisor 950 ได้ก่อน import.
+
+ยังไม่แนบ image ID และยังไม่ได้ยืนยันหน้า Dashboard/Gap ด้วย 950 หลัง import หรือทำ live Reset ของชุดใหญ่ ไม่ใช้ข้อมูลนี้ปิด AU4 acceptance หรืออ้างว่า workflow จริงผ่าน.
