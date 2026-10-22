@@ -2,7 +2,7 @@
 // The pages that used to ask "who are you acting as" in session mode (round 6 PR AU3,
 // docs/workflow.md 6.33): the person is the one logged in, the choice is gone, and no
 // X-Demo-User travels. The Backend is a stub of fetch; the pages and the API layer are real.
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Approvals from "@/app/approvals/page";
@@ -20,7 +20,11 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-const calls: { path: string; headers: Headers; credentials?: RequestCredentials }[] = [];
+const calls: { path: string; method: string; body: unknown; headers: Headers; credentials?: RequestCredentials }[] = [];
+
+// What the stub answers for the two reads a test changes; set again before each test
+let approvalRows: unknown[] = [];
+let rosterAnswer: () => unknown = () => ({ staff: {}, assignments: [] });
 
 const PENDING = {
   id: 4,
@@ -44,7 +48,13 @@ function login(me: { staff_id: number; role: string; home_ward_id: number }) {
     "fetch",
     vi.fn(async (input: string, init: RequestInit = {}) => {
       const url = new URL(input);
-      calls.push({ path: url.pathname + url.search, headers: new Headers(init.headers), credentials: init.credentials });
+      calls.push({
+        path: url.pathname + url.search,
+        method: init.method ?? "GET",
+        body: init.body ? JSON.parse(String(init.body)) : undefined,
+        headers: new Headers(init.headers),
+        credentials: init.credentials,
+      });
       const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
       if (url.pathname === "/auth/config") return json({ auth_mode: "session" });
       if (url.pathname === "/auth/me") return json({ ...me, must_change_password: false });
@@ -53,11 +63,14 @@ function login(me: { staff_id: number; role: string; home_ward_id: number }) {
       if (url.pathname === "/dashboard") {
         return json(dashboard({ wards: [me.home_ward_id], cases_by_status: withCounts({}), pending_approvals: [] }));
       }
-      if (url.pathname === "/approvals") return json([PENDING]);
+      if (url.pathname === "/approvals") return json(approvalRows);
+      if (/^\/approvals\/\d+\/decision$/.test(url.pathname)) {
+        return json({ approval_id: 4, is_approved: null, case_id: 7, case_status: "WAITING_APPROVAL", outcome: "WAITING_OTHER_WARD", reason: null, failed_rules: [] });
+      }
       if (url.pathname === "/approvals/auto") return json([]);
       if (/^\/cases\/\d+$/.test(url.pathname)) return json({ id: 7, gap: { headcount_gap: 2 }, assigned_count: 1 });
       if (url.pathname === "/me/handovers") return json({ active: [], history: [], next_cursor: null });
-      if (url.pathname === "/roster") return json({ staff: {}, assignments: [] });
+      if (url.pathname === "/roster") return json(rosterAnswer());
       return json([]);
     }),
   );
@@ -76,6 +89,8 @@ function app(element: ReactElement) {
 
 beforeEach(() => {
   calls.length = 0;
+  approvalRows = [PENDING];
+  rosterAnswer = () => ({ staff: {}, assignments: [] });
 });
 afterEach(() => {
   cleanup();
@@ -119,6 +134,44 @@ describe("Approvals with a login", () => {
     const approve = await screen.findByRole<HTMLButtonElement>("button", { name: "Approve" });
     expect(approve.disabled).toBe(false);
   });
+
+  // The Supervisor is the role, not staff ID 950 (the demo's own supervisor)
+  it.each([950, 951, 777])("lets supervisor %i pick a side when both wards wait and sends it", async (staffId) => {
+    approvalRows = [
+      {
+        ...PENDING,
+        wards: [
+          { ward_id: 1, side: "DESTINATION", status: "PENDING" },
+          { ward_id: 2, side: "SOURCE", status: "PENDING" },
+        ],
+      },
+    ];
+    login({ staff_id: staffId, role: "supervisor", home_ward_id: 3 });
+    app(<Approvals />);
+    const side = await screen.findByLabelText<HTMLSelectElement>("Side for approval 4");
+    fireEvent.change(side, { target: { value: "SOURCE" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await screen.findByText("Approval 4: ward approved; waiting for the other ward.");
+    const decision = calls.find((call) => call.method === "POST")!;
+    expect(decision.body).toEqual({ approved: true, side: "SOURCE" });
+    expect(decision.headers.has("X-Demo-User")).toBe(false);
+  });
+
+  it("gives a head nurse no side to pick, even with 950 as the staff ID", async () => {
+    approvalRows = [
+      {
+        ...PENDING,
+        wards: [
+          { ward_id: 1, side: "DESTINATION", status: "PENDING" },
+          { ward_id: 2, side: "SOURCE", status: "PENDING" },
+        ],
+      },
+    ];
+    login({ staff_id: 950, role: "head_nurse", home_ward_id: 1 });
+    app(<Approvals />);
+    await screen.findByRole("button", { name: "Approve" });
+    expect(screen.queryByLabelText("Side for approval 4")).toBeNull();
+  });
 });
 
 describe("My offers with a login", () => {
@@ -130,6 +183,27 @@ describe("My offers with a login", () => {
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
     for (const call of pageCalls()) expect(call.headers.has("X-Demo-User")).toBe(false);
   });
+
+  const ASSIGNED = {
+    staff: {},
+    assignments: [
+      { id: 1, status: "ASSIGNED", assignment_type: "REPLACEMENT", is_unavailable: false, shift: { id: 21, ward_id: 2, ward_name: "Medicine", shift_type: "NIGHT", start_at: "2026-10-22T20:00:00+07:00", end_at: "2026-10-23T08:00:00+07:00", is_active: true } },
+    ],
+  };
+
+  it("shows a shift assigned while the page stays open, without a reload", async () => {
+    login({ staff_id: 201, role: "staff", home_ward_id: 1 });
+    let assigned = false;
+    rosterAnswer = () => (assigned ? ASSIGNED : { staff: {}, assignments: [] });
+    app(<MyOffers />);
+    expect(await screen.findByText("You have no shift to check in to.")).toBeTruthy();
+    // An offer was accepted and approved on the Backend while the nurse looked at this page
+    assigned = true;
+    const select = await screen.findByLabelText<HTMLSelectElement>("Shift", {}, { timeout: 6000 });
+    expect(select.options).toHaveLength(1);
+    expect(screen.queryByText("You have no shift to check in to.")).toBeNull();
+    expect(calls.filter((call) => call.path === "/roster?staff_id=201").length).toBeGreaterThan(1);
+  }, 12000);
 
   it("takes the shifts to check in to from the roster of the person", async () => {
     login({ staff_id: 201, role: "staff", home_ward_id: 1 });

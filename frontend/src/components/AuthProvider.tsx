@@ -53,15 +53,29 @@ export function useSessionUser(): AuthMe | undefined {
   return state.status === "authenticated" ? state.me : undefined;
 }
 
+/** Only used to resolve a path: the check is that the result stays on this origin. */
+const SAFE_BASE = "http://nara.invalid";
+
 /**
- * Where a page may send the user after a login: a path inside this web app only. A link that
- * names another site, a protocol-relative link or one with a backslash falls back to the
- * Dashboard, so the login page cannot be used to send people elsewhere.
+ * Where a page may send the user after a login: a path inside this web app only. It is checked as
+ * the browser will read it, not as it is written: a browser drops a tab or a newline inside a URL,
+ * so `/<tab>/evil.example` is `//evil.example`. A control character, a backslash, a path that
+ * resolves to another origin, and one that resolves to the login or register page fall back to the
+ * Dashboard, so the login page cannot be used to send people elsewhere. What comes back is the
+ * resolved path, not the text that came in.
  */
 export function safeNext(value: string | null | undefined): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/";
-  if (/^\/(login|register)(\/|\?|$)/.test(value)) return "/";
-  return value;
+  if (!value || !value.startsWith("/") || value.includes("\\")) return "/";
+  if ([...value].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) return "/";
+  let url: URL;
+  try {
+    url = new URL(value, SAFE_BASE);
+  } catch {
+    return "/";
+  }
+  if (url.origin !== SAFE_BASE) return "/";
+  if (/^\/(login|register)\/?$/.test(url.pathname)) return "/";
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 /** Pages that work without an account: the login ones, and the Demo control behind Basic Auth. */

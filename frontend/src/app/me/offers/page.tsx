@@ -93,7 +93,8 @@ function CheckIn({ staffId, handovers }: { staffId: number; handovers: readonly 
     (signal: AbortSignal) => apiRequest<StaffRoster>(`/roster?staff_id=${staffId}`, { signal }),
     [staffId],
   );
-  const roster = usePolling(loadRoster, { enabled: loggedIn, stopOnData: () => true });
+  // Polled like the offers: an offer accepted on this page can become an assignment while it is open
+  const roster = usePolling(loadRoster, { enabled: loggedIn });
   const shifts = loggedIn
     ? (roster.data?.assignments ?? []).filter((row) => row.status === "ASSIGNED").map((row) => row.shift.id)
     : shiftsOf(staffId, handovers);

@@ -22,7 +22,8 @@ function LeaveForm({ staffId }: { staffId: number }) {
     (signal: AbortSignal) => apiRequest<StaffRoster>(`/roster?staff_id=${staffId}`, { signal }),
     [staffId],
   );
-  const { data, error, isLoading } = usePolling(load, { stopOnData: () => true });
+  // Polled: a shift assigned while the page is open must appear without a reload
+  const { data, error, isLoading } = usePolling(load);
   const shifts = (data?.assignments ?? []).filter((row) => row.status === "ASSIGNED");
   const [chosen, setChosen] = useState<number | null>(null);
   const shiftId = chosen !== null && shifts.some((row) => row.shift.id === chosen) ? chosen : (shifts[0]?.shift.id ?? null);

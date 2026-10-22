@@ -104,6 +104,18 @@ describe("safeNext", () => {
     [null, "/"],
     ["/login?next=/gap", "/"],
     ["/register", "/"],
+    // A browser drops a tab or a newline inside a URL: these are //evil.example
+    ["/\t/evil.example", "/"],
+    ["/\n/evil.example", "/"],
+    ["/\r/evil.example", "/"],
+    ["/\u0000/evil.example", "/"],
+    ["/\u007f/gap", "/"],
+    // The same loops by another spelling of the path
+    ["/./login", "/"],
+    ["/foo/../register", "/"],
+    ["/login/", "/"],
+    ["/gap/../me/offers", "/me/offers"],
+    ["/gap#top", "/gap#top"],
   ])("%s becomes %s", (value, expected) => {
     expect(safeNext(value)).toBe(expected);
   });

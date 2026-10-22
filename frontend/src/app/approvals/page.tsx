@@ -289,7 +289,9 @@ function ApprovalsPage() {
   /** The side to send: only the Supervisor with more than one waiting ward picks one */
   function sideFor(row: PendingApproval): ApprovalSide | undefined {
     const open = pendingSides(row);
-    if (actorId !== SUPERVISOR_ID || open.length < 2) return undefined;
+    // With a login the role says who the Supervisor is; the seeded ID is only the demo's way
+    const isSupervisor = me ? me.role === "supervisor" : actorId === SUPERVISOR_ID;
+    if (!isSupervisor || open.length < 2) return undefined;
     // A side another approver decided since the pick is no longer offered
     const picked = sides[requestKey(row)];
     return picked && open.includes(picked) ? picked : open[0];
