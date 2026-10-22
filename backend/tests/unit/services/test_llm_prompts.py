@@ -40,6 +40,23 @@ def test_the_explanation_prompt_keeps_its_earlier_rules() -> None:
     assert "Never claim that a rank comes from the total points." in prompt
 
 
+def test_the_explanation_prompt_ties_reserve_to_the_first_wave_field() -> None:
+    """Live run: all three candidates were first_wave true and the answer called them reserves."""
+    prompt = explanation_service.SYSTEM_PROMPT
+    assert "first_wave: true means" in prompt
+    assert "only from that field" in prompt
+    assert "never call any of them a reserve" in prompt
+    assert "name that item and both values" in prompt
+
+
+def test_the_summary_prompt_copies_timestamps_and_forbids_other_calendars() -> None:
+    """Live run: the model wrote 2566 for 2026, which the number check rightly rejected."""
+    prompt = case_summary_service.SYSTEM_PROMPT
+    assert "Copy every date and time exactly as it is written" in prompt
+    assert "no Buddhist-era year" in prompt
+    assert "เวร" in prompt
+
+
 def test_the_summary_prompt_keeps_its_earlier_rules_and_names_a_shortage() -> None:
     prompt = case_summary_service.SYSTEM_PROMPT
     assert "unless case_status is RESOLVED" in prompt
@@ -52,8 +69,8 @@ def test_the_summary_prompt_keeps_its_earlier_rules_and_names_a_shortage() -> No
 def test_the_prompt_versions_changed_with_the_wording() -> None:
     """A new version makes a plan or case ask again, so an answer written under the old
     wording is not shown as the current one."""
-    assert explanation_service.PROMPT_VERSION == "rank-explanation-v3"
-    assert case_summary_service.PROMPT_VERSION == "case-summary-v2"
+    assert explanation_service.PROMPT_VERSION == "rank-explanation-v4"
+    assert case_summary_service.PROMPT_VERSION == "case-summary-v3"
 
 
 def test_the_longer_prompts_leave_room_under_the_input_limit() -> None:

@@ -742,7 +742,7 @@ CHECK `used_at IS NULL OR revoked_at IS NULL`; รหัสที่ใช้แ
 | `id` | bigint | NOT NULL | PK |
 | `case_id` | bigint | NOT NULL | FK STAFFING_CASES |
 | `plan_id` | bigint | NOT NULL | FK CANDIDATE_PLANS |
-| `prompt_version` | text | NOT NULL | เช่น `rank-explanation-v3` |
+| `prompt_version` | text | NOT NULL | เช่น `rank-explanation-v4` |
 | `status` | text | NOT NULL | `ExplanationStatus` (ไม่มี CHECK ตาม D8) |
 | `input_hash` | text | NULL | SHA-256 hex ของ `input_payload` แบบ Canonical |
 | `input_payload` | jsonb | NULL | ที่ส่งให้ LLM จริง มีแต่ตัวเลข อันดับ ชื่อพจน์ ไม่มีชื่อหรือ `staff_id` |
@@ -1111,7 +1111,7 @@ Snapshot นิรนามหนึ่งฉบับต่อ (`case_id`, `inp
 | `case_id` | bigint | NOT NULL | FK STAFFING_CASES; index |
 | `input_hash` | text | NOT NULL | SHA-256 ของ Canonical JSON |
 | `input_payload` | jsonb | NOT NULL | Snapshot ไม่แก้ไข ไม่มี Staff ID/ชื่อบุคคล/LINE ID |
-| `prompt_version` | text | NOT NULL | `case-summary-v2` |
+| `prompt_version` | text | NOT NULL | `case-summary-v3` |
 | `status` | text | NOT NULL | ExplanationStatus: PENDING, READY, FAILED, SKIPPED |
 | `text` | text | NULL | ข้อความที่ผ่านตัวตรวจรูปแบบ/ตัวเลขแล้ว |
 | `attempts` | integer | NOT NULL | default 0 ไม่ถูกล้าง |
