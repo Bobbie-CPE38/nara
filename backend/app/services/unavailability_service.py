@@ -16,7 +16,7 @@ from sqlalchemy import ColumnElement, DateTime, and_, literal, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.core import clock
-from app.core.constants import HEAD_NURSE_ROLE
+from app.core.constants import HEAD_NURSE_ROLE, SUPERVISOR_ROLE
 from app.db.models import (
     CandidateItem,
     CandidateOutreach,
@@ -151,8 +151,10 @@ def update_end_at(
     """Change when a leave period ends, write UNAVAILABILITY_UPDATED, then commit.
 
     Check order: 404 period → 403 role, then ward of the person (the ward rule
-    of approvals, R2-Q21) → 422 end not after start. The route answers 401 for
-    the header and 422 for the shape of the body before this runs. The STAFF row is locked
+    of approvals, R2-Q21) → 422 end not after start. A supervisor changes the leave of
+    any ward (6.33.4, round 6 PR AU2, from R6 AUTH-Q9); a head nurse only their own.
+    The route answers 401 for the header and 422 for the shape of the body before this
+    runs. The STAFF row is locked
     first, so a plan of the same person sees the period before or after the
     change, never half of it. Nothing else changes: roster rows and offers the
     new period overlaps stay as they are and are only reported. GET /roster
@@ -161,11 +163,15 @@ def update_end_at(
     period = db.get(StaffUnavailability, unavailability_id)
     if period is None:
         raise UnavailabilityNotFoundError(f"No unavailability {unavailability_id}")
-    head_nurse = db.scalar(select(Role.id).where(Role.name == HEAD_NURSE_ROLE))
-    if head_nurse is None or role_id != head_nurse:
-        raise UnavailabilityForbiddenError("Only a head nurse can change a leave period")
+    role = db.scalar(select(Role.name).where(Role.id == role_id))
+    if role not in {HEAD_NURSE_ROLE, SUPERVISOR_ROLE}:
+        raise UnavailabilityForbiddenError(
+            "Only a head nurse or supervisor can change a leave period"
+        )
     staff_ward = db.scalar(select(Staff.home_ward_id).where(Staff.id == period.staff_id))
-    if staff_ward is None or not manages_ward(home_ward_id=home_ward_id, ward_id=staff_ward):
+    if staff_ward is None or (
+        role == HEAD_NURSE_ROLE and not manages_ward(home_ward_id=home_ward_id, ward_id=staff_ward)
+    ):
         raise UnavailabilityForbiddenError(
             "Only the head nurse of the person's ward can change a leave period"
         )

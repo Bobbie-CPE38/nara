@@ -1,13 +1,25 @@
-"""Case status and timeline (docs/workflow.md, section 9.3), read without X-Demo-User,
-the request for the ranking explanation (section 9.8), and the manual exits of
-MANUAL_HANDOFF (sections 6.12 and 9.4), which need a head nurse."""
+"""Case status and timeline (docs/workflow.md, section 9.3), the request for the ranking
+explanation (section 9.8), and the manual exits of MANUAL_HANDOFF (sections 6.12 and 9.4),
+which need a head nurse.
+
+Demo mode reads a case without X-Demo-User. Session mode needs a signed-in user who may
+see the case (6.33.4, round 6 PR AU2): 401, then 404 for an unknown case, then 403.
+"""
 
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BeforeValidator
 
-from app.api.dependencies import DbSession, DemoUser
+from app.api.dependencies import (
+    CurrentUser,
+    DbSession,
+    DemoUser,
+    Reader,
+    access_viewer,
+    forbidden,
+    session_mode,
+)
 from app.domain.enums import CaseStatus, ExplanationBlock
 from app.domain.errors import CaseNotFoundError
 from app.schemas.case import AuditEntry, CaseDetail, RankExplanationView
@@ -22,6 +34,7 @@ from app.schemas.handoff import (
 )
 from app.schemas.types import MAX_BIGINT
 from app.services import (
+    access_service,
     case_service,
     case_summary_service,
     explanation_service,
@@ -49,26 +62,42 @@ StatusFilter = Annotated[
 ]
 
 
+def _check_case(db: DbSession, reader: CurrentUser | None, case_id: int) -> None:
+    """403 in session mode for a case the user may not see. An unknown case passes, so the
+    route answers its own 404. Demo mode (no reader) checks nothing."""
+    if (
+        reader is not None
+        and access_service.sees_case(db, access_viewer(db, reader), case_id) is False
+    ):
+        raise forbidden()
+
+
 @router.get("")
 def list_cases(db: DbSession, user: DemoUser, statuses: StatusFilter) -> list[HandoffCase]:
     """Cases of the caller's ward in the given statuses (`status` is required).
 
-    For the head nurse's handoff list: `?status=MANUAL_HANDOFF,FAILED`.
+    For the head nurse's handoff list: `?status=MANUAL_HANDOFF,FAILED`. In session mode a
+    staff member gets only the cases they are part of (6.33.4), filtered in the query.
     """
+    viewer = access_viewer(db, user) if session_mode() else None
     try:
         return handoff_service.list_cases(
             db,
             role_id=user.staff.role_id,
             home_ward_id=user.staff.home_ward_id,
             statuses=statuses,
+            condition=access_service.case_condition(viewer)
+            if viewer is not None and viewer.role == "staff"
+            else None,
         )
     except handoff_service.HandoffForbiddenError as error:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(error)) from error
 
 
 @router.get("/{case_id}")
-def get_case(case_id: CaseId, db: DbSession) -> CaseDetail:
+def get_case(case_id: CaseId, db: DbSession, reader: Reader) -> CaseDetail:
     """Status of the case with its latest gap and candidates. 404 for an unknown case."""
+    _check_case(db, reader, case_id)
     return case_service.get_case_detail(db, case_id)
 
 
@@ -91,10 +120,11 @@ _EXPLANATION_MESSAGES: dict[ExplanationBlock, str] = {
 
 
 @router.post("/{case_id}/explanation")
-def request_explanation(case_id: CaseId, db: DbSession) -> RankExplanationView:
+def request_explanation(case_id: CaseId, db: DbSession, reader: Reader) -> RankExplanationView:
     """Ask for the LLM explanation of the latest plan. Never calls the LLM itself: the Job
     makes the sentence later. An answered request returns the row unchanged; a refused
     one changes nothing and uses no quota (section 9.8)."""
+    _check_case(db, reader, case_id)
     try:
         return explanation_service.request(db, case_id)
     except CaseNotFoundError as error:
@@ -109,8 +139,9 @@ def request_explanation(case_id: CaseId, db: DbSession) -> RankExplanationView:
 
 
 @router.post("/{case_id}/summary")
-def request_summary(case_id: CaseId, db: DbSession) -> CaseSummaryView:
+def request_summary(case_id: CaseId, db: DbSession, reader: Reader) -> CaseSummaryView:
     """Queue the current anonymous snapshot. No model call in this request."""
+    _check_case(db, reader, case_id)
     try:
         return case_summary_service.request(db, case_id)
     except CaseNotFoundError as error:
@@ -125,8 +156,9 @@ def request_summary(case_id: CaseId, db: DbSession) -> CaseSummaryView:
 
 
 @router.get("/{case_id}/audit")
-def get_case_audit(case_id: CaseId, db: DbSession) -> list[AuditEntry]:
+def get_case_audit(case_id: CaseId, db: DbSession, reader: Reader) -> list[AuditEntry]:
     """Timeline of the case as a plain list, oldest first. 404 for an unknown case."""
+    _check_case(db, reader, case_id)
     return case_service.get_case_timeline(db, case_id)
 
 

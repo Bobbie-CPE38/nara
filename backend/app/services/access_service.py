@@ -1,0 +1,142 @@
+"""Which cases, events, wards and rosters a signed-in user may read (docs/workflow.md 6.33.4).
+
+Round 6 PR AU2. The routes ask this module in AUTH_MODE=session only: demo mode keeps the
+reads of section 9 (anonymous case reads, any roster). Every scope comes from the
+database, never from the client:
+
+  supervisor  every ward and every case
+  head_nurse  their home ward, plus a case whose two-ward approval request has its
+              SOURCE side in their ward (6.21): they decide that side, so they read it
+  staff       their home ward for rosters and gaps, and only the cases they are part
+              of: an offer to them, an event about them, or a roster row the case gave
+              them by hand. An approval always follows an offer, so it needs no rule
+
+Lists and counts take `case_condition()` into their own query, so rows a user may not
+see are never loaded and then hidden.
+"""
+
+from dataclasses import dataclass
+
+from sqlalchemy import ColumnElement, exists, or_, select, true
+from sqlalchemy.orm import Session, aliased
+
+from app.db.models import (
+    ApprovalRequest,
+    CandidateItem,
+    CandidateOutreach,
+    ManualAssignment,
+    Role,
+    RosterAssignment,
+    Shift,
+    Staff,
+    StaffingCase,
+    StaffingEvent,
+)
+from app.services.auth_service import API_ROLES, ApiRole
+
+
+@dataclass(frozen=True)
+class Viewer:
+    """The signed-in user as this module needs them."""
+
+    staff_id: int
+    home_ward_id: int
+    role: ApiRole
+
+
+def viewer(db: Session, staff: Staff, role: ApiRole | None = None) -> Viewer:
+    """`role` from the session when it has one; a role outside API_ROLES gets least rights."""
+    if role is None:
+        name = db.scalar(select(Role.name).where(Role.id == staff.role_id))
+        role = API_ROLES.get(name or "", "staff")
+    return Viewer(staff_id=staff.id, home_ward_id=staff.home_ward_id, role=role)
+
+
+def sees_ward(viewer: Viewer, ward_id: int) -> bool:
+    return viewer.role == "supervisor" or ward_id == viewer.home_ward_id
+
+
+def case_condition(viewer: Viewer) -> ColumnElement[bool]:
+    """The STAFFING_CASES rows this viewer may read. The query must join SHIFT on
+    StaffingCase.shift_id (the ward of a case is the ward of its shift)."""
+    if viewer.role == "supervisor":
+        return true()
+    if viewer.role == "head_nurse":
+        return or_(Shift.ward_id == viewer.home_ward_id, _source_side_in(viewer.home_ward_id))
+    return _part_of(viewer.staff_id)
+
+
+def _source_side_in(ward_id: int) -> ColumnElement[bool]:
+    """A request of the case moves someone out of `ward_id`: that ward decides its SOURCE side."""
+    source = aliased(RosterAssignment)
+    source_shift = aliased(Shift)
+    return exists(
+        select(ApprovalRequest.id)
+        .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
+        .join(source, source.id == CandidateItem.source_assignment_id)
+        .join(source_shift, source_shift.id == source.shift_id)
+        .where(ApprovalRequest.case_id == StaffingCase.id, source_shift.ward_id == ward_id)
+    )
+
+
+def _part_of(staff_id: int) -> ColumnElement[bool]:
+    offered = exists(
+        select(CandidateOutreach.id)
+        .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+        .where(CandidateOutreach.case_id == StaffingCase.id, CandidateItem.staff_id == staff_id)
+    )
+    reported = exists(
+        select(StaffingEvent.id).where(
+            StaffingEvent.case_id == StaffingCase.id, StaffingEvent.staff_id == staff_id
+        )
+    )
+    assigned = exists(
+        select(ManualAssignment.id)
+        .join(RosterAssignment, RosterAssignment.id == ManualAssignment.roster_assignment_id)
+        .where(ManualAssignment.case_id == StaffingCase.id, RosterAssignment.staff_id == staff_id)
+    )
+    return or_(offered, reported, assigned)
+
+
+def sees_case(db: Session, viewer: Viewer, case_id: int) -> bool | None:
+    """True or False for a case that exists, None for an unknown case (the route's 404)."""
+    if db.get(StaffingCase, case_id) is None:
+        return None
+    return (
+        db.scalar(
+            select(StaffingCase.id)
+            .join(Shift, Shift.id == StaffingCase.shift_id)
+            .where(StaffingCase.id == case_id, case_condition(viewer))
+        )
+        is not None
+    )
+
+
+def sees_event(db: Session, viewer: Viewer, event: StaffingEvent) -> bool:
+    """The event's own person, a reader of its ward (head nurse, supervisor) or of its case.
+
+    An event of a shift that has no case yet is read only by the person it is about and by
+    the managers of the shift's ward (6.33.4).
+    """
+    if viewer.role == "supervisor" or event.staff_id == viewer.staff_id:
+        return True
+    if viewer.role == "head_nurse":
+        ward_id = db.scalar(select(Shift.ward_id).where(Shift.id == event.shift_id))
+        if ward_id == viewer.home_ward_id:
+            return True
+    return event.case_id is not None and bool(sees_case(db, viewer, event.case_id))
+
+
+def roster_shift_condition(viewer: Viewer) -> ColumnElement[bool]:
+    """SHIFT rows whose roster this viewer reads when it is not their own row."""
+    return true() if viewer.role == "supervisor" else Shift.ward_id == viewer.home_ward_id
+
+
+def sees_staff_roster(db: Session, viewer: Viewer, staff_id: int) -> bool | None:
+    """Someone else's roster: their home ward must be visible. None for unknown staff."""
+    if staff_id == viewer.staff_id:
+        return True
+    home_ward_id = db.scalar(select(Staff.home_ward_id).where(Staff.id == staff_id))
+    if home_ward_id is None:
+        return None
+    return sees_ward(viewer, home_ward_id)

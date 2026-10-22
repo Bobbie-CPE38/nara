@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import AfterValidator
 
-from app.api.dependencies import DbSession, DemoUser
+from app.api.dependencies import DbSession, DemoUser, access_viewer, forbidden, session_mode
 from app.core.constants import MAX_BIGINT
 from app.schemas.approval import (
     ApprovalDecision,
@@ -68,8 +68,21 @@ PendingFilter = Annotated[bool, Query(), AfterValidator(_pending_only)]
 def pending_approvals(
     db: DbSession, user: DemoUser, pending: PendingFilter = True
 ) -> list[PendingApproval]:
-    """Return the pending list to an authenticated demo user, without writing."""
-    return approval_service.list_pending(db)
+    """The pending list, without writing.
+
+    Demo mode: any demo user reads every request. Session mode (6.33.4): a staff member
+    may not read it (403), a head nurse gets the requests with a side in their own ward,
+    a supervisor every request.
+    """
+    if not session_mode():
+        return approval_service.list_pending(db)
+    viewer = access_viewer(db, user)
+    if viewer.role == "staff":
+        raise forbidden()
+    requests = approval_service.list_pending(db)
+    if viewer.role == "supervisor":
+        return requests
+    return [item for item in requests if any(w.ward_id == viewer.home_ward_id for w in item.wards)]
 
 
 @router.get("/auto")

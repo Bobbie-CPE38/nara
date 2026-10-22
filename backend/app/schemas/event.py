@@ -1,6 +1,6 @@
 from typing import Self
 
-from pydantic import AwareDatetime, BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from app.core.constants import MAX_BIGINT, MAX_EVENT_REASON_LENGTH
 from app.domain.enums import CaseStatus, EventStatus, EventType
@@ -71,6 +71,23 @@ class EventCreate(BaseModel):
             if len(set(role_ids)) != len(role_ids) or len(set(skill_ids)) != len(skill_ids):
                 raise ValueError("A role or skill may appear only once")
         return self
+
+
+class DemoEventCreate(EventCreate):
+    """Body of POST /demo/events (6.33.4): an EventCreate plus the demo character who
+    reports it. The person on leave for STAFF_UNAVAILABLE, a head nurse for the others."""
+
+    reporter_staff_id: int = Field(gt=0, le=MAX_BIGINT)
+
+
+class SelfLeave(BaseModel):
+    """Body of POST /me/unavailability (6.33.3-4). The person, the event type and the actor
+    come from the session; a body that names any of them is refused (422)."""
+
+    model_config = ConfigDict(extra="forbid")
+    shift_id: int = Field(gt=0, le=MAX_BIGINT)
+    # The return time, under the rules of EventCreate.end_at. Omitted = until the shift ends
+    end_at: AwareDatetime | None = None
 
 
 class EventResult(BaseModel):

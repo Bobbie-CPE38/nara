@@ -631,7 +631,7 @@ Body ที่เพิ่ม การตรวจตอนรับ และ 
 
 ### 3.5 Request และการตรวจตอนรับ Event
 
-**[AU2]** ใน session ไม่เปิด POST `/events` ทั่วไปแก่ผู้ใช้ ใช้ POST `/me/unavailability` สำหรับแจ้งลาตัวเองแบบไม่รออนุมัติการลา ตามข้อ 6.33.4; Demo ใช้ `/demo/events` และ System Job ใช้ service ทางเดิม รายละเอียด `X-Demo-User` ข้างล่างใช้เฉพาะ demo เมื่อ AU2 เสร็จ
+**[AU2 ทำแล้ว]** ใน session ไม่เปิด POST `/events` ทั่วไปแก่ผู้ใช้ ใช้ POST `/me/unavailability` สำหรับแจ้งลาตัวเองแบบไม่รออนุมัติการลา ตามข้อ 6.33.4; Demo ใช้ `/demo/events` และ System Job ใช้ service ทางเดิม รายละเอียด `X-Demo-User` ข้างล่างใช้เฉพาะ demo เมื่อ AU2 เสร็จ
 
 * Request: `POST /events` พร้อม `X-Demo-User` และ Body `{event_type, shift_id, ...}` ตาม Field ของแต่ละชนิดในข้อ 3.4 ผู้แจ้งคือ `user.staff.id`
 * `end_at` ของ `STAFF_UNAVAILABLE` คือเวลากลับที่แจ้ง ต้องมี Timezone และอยู่หลัง `SHIFT.start_at` ไม่ส่งมา = ถึง `SHIFT.end_at`
@@ -2063,7 +2063,7 @@ Tests: `test_offer_outcome_notifications.py` (เหตุผล, ทางอ�
 * **เกณฑ์ผ่านของแต่ละ PR** `tsc`, `vitest`, `next build` ผ่าน `deploy/aws/test_frontend.py` ผ่าน (โลโก้ ไอคอน และภาษาตาม cookie ใน image) และตรวจในเบราว์เซอร์ทั้งสองภาษากับสองขนาดจอ (1280 และ 390 พิกเซล) ไม่ล้นแนวนอน ไม่มี Error ใน Console หลัง UI2 ตรวจครบทุกหน้า
 * **Test** `tests/unit/lib/i18n.test.ts` (สองภาษามีคีย์และ `{ชื่อ}` ตรงกัน ข้อความไทยเป็นไทย ไม่มีประโยคอังกฤษหลุดในไฟล์ไทย `parseLang`), `tests/unit/components/language.test.tsx` (สวิตช์ cookie เมนูมือถือ หน้าเคสสองภาษา ข้อความ Backend ไม่ถูกแปล), Dashboard ภาษาไทยใน `tests/unit/app/dashboard.test.tsx`
 
-### 6.33 ล็อกอิน ตัวตน และสิทธิ์ [รอบ 6 · AU0 เป็น Contract; AU1 Implement แล้ว; AU2–AU5 ยังต้อง Implement]
+### 6.33 ล็อกอิน ตัวตน และสิทธิ์ [รอบ 6 · AU0 เป็น Contract; AU1 และ AU2 Implement แล้ว; AU3–AU5 ยังต้อง Implement]
 
 AU0 รับร่างข้อ 5C ของ PR #120 เป็นกติกาสำหรับงาน AU ไม่ใช่ประกาศว่าโค้ดหรือเครื่อง AWS เปลี่ยนแล้ว ก่อน AU4 ตรวจรับ เครื่องยังใช้ด่าน PR D/W เดิม ข้อความเดิมของข้อ 3, 6.17, 6.27 และ 9 ที่บอก `X-Demo-User` หรืออ่านโดยไม่ระบุตัว ใช้กับ `AUTH_MODE=demo` เท่านั้นเมื่อ AU1/AU2 ทำเสร็จ โหมด `session` ยึดข้อนี้เหนือข้อเดิม ส่วนกฎจัดเวร, Hard Rules, Lock, Timeout, โควตา และลายเซ็น LINE คงเดิม
 
@@ -2149,6 +2149,17 @@ Roster แยก query ชัดเจน: `shift_id` ตรวจหอขอ�
 เพิ่มปุ่มแจ้งลาตัวเองบนหน้าพยาบาลและแสดง EventResult/สถานะให้ชัด ไม่ reuse หน้าควบคุมที่เลือก staff_id ได้ Backend ใช้ body ที่จำกัดข้างต้นและตรวจความเป็นเจ้าของที่ API ตรงๆ; คำขอซ้ำใช้กฎ Event เดิม ไม่สร้างระบบ idempotency ใหม่โดยไม่จำเป็น ผู้ใช้ทั่วไปยังสร้าง PATIENT_SURGE/REQUIREMENT_CHANGED/ASSIGNMENT_CANCELLED ไม่ได้
 
 System Job/NO_SHOW เรียก service เดิมโดย SYSTEM actor ไม่ผ่าน user cookie; ปุ่ม Demo จำลองเหตุอื่นให้เพิ่ม `POST /demo/events` ที่กัน Basic Auth/Origin ตามข้อ 6.33.5 และใช้ SYSTEM actor พร้อม payload source=SIMULATED ของ Demo โดยไม่อ้างว่าเป็นการแจ้งของบัญชีผู้ใช้ รับ staff เป้าหมายได้เฉพาะขอบเขต Demo Endpoint นี้แยกจาก `/events` ที่ถูกปฏิเสธใน session AU2 ต้องระบุ adapter ที่ใช้ event/Domain validation เดิม และ AU3 เปลี่ยนปุ่ม Demo มาเรียก adapter นี้ ไม่เปิด `/events` กลับเพื่อให้ Demo ใช้ได้
+
+**AU2 Implement แล้ว (ส่วนที่ AU3–AU5 ต้องรู้):**
+
+- กติกาสิทธิ์ทั้งหมดใช้เฉพาะ `AUTH_MODE=session`; โหมด demo ทำงานเหมือนก่อน AU2 ทุก route (อ่านเคสโดยไม่ส่ง X-Demo-User ได้, POST `/events` ใช้ได้, Roster อ่านได้ทุกหอ) ตามย่อหน้าแรกของข้อ 6.33 ยกเว้นสองอย่างที่ใช้ทั้งสองโหมด: PATCH `/unavailability/{id}` เปิดให้ Supervisor ทุกหอ และ route ใหม่สองตัวข้างล่าง
+- โค้ด: `app/services/access_service.py` (ขอบเขตเคส/Event/หอ/Roster เป็นเงื่อนไข SQL ใช้ใน query ของ list และ count ไม่โหลดแล้วซ่อน), `app/api/dependencies.py` (`Reader` สำหรับ route ที่ demo อ่านได้โดยไม่ระบุตัว: demo คืน None, session ต้องมี session ไม่งั้น 401; `forbidden()` ตอบ 403 `AUTH_FORBIDDEN`; `deny_in_session`; `CurrentUser.role` จาก session)
+- ลำดับคำตอบ: 401 `AUTH_REQUIRED` → 403 `AUTH_PASSWORD_CHANGE_REQUIRED` → 404 ของ ID ที่ไม่มี → 403 `AUTH_FORBIDDEN` → 409/422 เดิม; 403 จากกติกาเดิมของ service (handoff, approval, auto approval) ยังตอบข้อความเดิม ไม่ใช่ code
+- staff: GET `/cases` คืนเฉพาะเคสที่เกี่ยวข้อง (ไม่ใช่ 403); Dashboard นับเฉพาะเคสที่เกี่ยวข้อง Offer ของตัวเอง NO_SHOW ของตัวเอง และไม่มีจำนวน Approval ส่วน shortage ยังตามหอแต่ไม่ลิงก์เคสที่อ่านไม่ได้; GET `/approvals` และ `/approvals/auto` 403; หัวหน้าเห็น Approval ที่มีฝั่งในหอตัวเอง
+- GET `/roster?staff_id=` ของคนอื่นกรองแถวหลังโหลดของคนเดียวนั้น (ไม่มี pagination); simulator GET `/demo/line-sim/offers` ใน session ต้อง `staff_id` เท่าผู้ล็อกอิน
+- POST `/me/unavailability`: ไม่มีแถว Roster ของตนในเวรเลย 403; มีแถวแต่ถูกยกเลิกแล้ว (แจ้งซ้ำหลัง window ปิด) 409 ตามกติกา POST `/events` เดิม; เวรไม่มี 404; เวรยังไม่มี requirement 409; field อื่นนอก `shift_id`, `end_at` 422; ทำงานใน demo ด้วย X-Demo-User เช่นกัน
+- POST `/demo/events`: Body เดียวกับ POST `/events` บวก `reporter_staff_id` (ตัวละครที่แจ้ง: คนที่ลาสำหรับ STAFF_UNAVAILABLE, หัวหน้าสำหรับชนิดอื่น) Audit ใช้ SYSTEM actor และ `payload.source = "SIMULATED"`; ไม่ต้องมี session; ใน session ต้องมี Origin ที่อนุญาต; error เดิมของ POST `/events` บวก 404 ตัวละครไม่มี/ไม่ ACTIVE **AU3 ต้องเปลี่ยนปุ่มของหน้า Demo control มาเรียก route นี้**
+- ยังไม่ใช่งาน AU2: ปิด `/docs`, `/redoc`, `/openapi.json` บน AWS (AU4) และหน้าเว็บทั้งหมด (AU3); inventory ของ route และผลทดสอบอยู่ใน `docs/round6/pr-AU2-handoff.md`
 
 #### 6.33.5 ด่าน AWS และการเปลี่ยนโหมด (AU4)
 
@@ -2850,7 +2861,7 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 
 ---
 
-### 9.9 API ล็อกอินและแจ้งลาตัวเอง [AU1 ทำแล้ว; AU2/AU5 ยังไม่ Implement]
+### 9.9 API ล็อกอินและแจ้งลาตัวเอง [AU1 และ AU2 ทำแล้ว; AU5 ยังไม่ Implement]
 
 รูป request/response/error ที่ใช้ร่วมกันกำหนดในข้อ 6.33.3: AU1 ทำ `/auth/config`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/change-password`; AU2 ทำ self-only POST `/me/unavailability` และ trusted Demo POST `/demo/events`; AU5 ทำ `/auth/register` และคำสั่ง LINE REGISTER ไม่มี API admin เพิ่ม รูป API เดิมของข้อ 9.1–9.8 ยังคงข้อมูลธุรกิจ แต่เงื่อนไข session/สิทธิ์ต้องใช้ matrix ข้อ 6.33.4 หลัง AU2 ทำเสร็จ ไม่อ้างคำว่า "อ่านได้โดยไม่ส่ง X-Demo-User" เดิมเพื่อเปิด endpoint โดยไม่มี session
 
@@ -3147,3 +3158,4 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-22 | รอบ 6 PR B2: ลอง Bedrock จริงกับ Amazon Nova 2 Lite ผ่านตัวห่อของ B1 เพิ่มเครื่องมือ `app/trial/` (ชุดเคสสังเคราะห์ 30 เคสที่ตรึงด้วย `input_hash`, ตัวให้คะแนนสี่เกณฑ์ด้วยโค้ด, คำสั่ง `python -m app.trial.run generate/run/report`) ที่เรียก LLM ผ่าน `llm_gateway.call()` แบบ `MODEL_TRIAL` เท่านั้น ปฏิเสธไฟล์ผลที่อยู่ในโฟลเดอร์โค้ดหรือ repo (หาจาก marker `.git` และโฟลเดอร์ `backend` ไม่ใช้ความลึกโฟลเดอร์ตายตัว ใช้ได้ใน container ที่ mount เฉพาะ `./backend`) และปฏิเสธการรันจริงถ้า provider ไม่ใช่ `bedrock` เขียน manifest ข้างไฟล์ผล (run, ชุดเคส, prompt, provider, model ID และราคา, เพดานค่าใช้จ่ายต่อ Plan) `run` ต่อไฟล์ผลได้เฉพาะเมื่อ manifest และทุกแถวตรงกับการทดลองปัจจุบัน `report` ตัดสินจาก manifest (เพดานเปลี่ยนตอนรายงานไม่ได้) และตัดสินทุกโมเดลกับทุกเคสของชุดที่ตรึง เคสที่ไม่มีผลนับเป็น incomplete ค่าตั้งต้น: เพดานต่อ Plan 0.00552136 USD และงบชุดทดลอง 3.43592 USD ตามข้อ 6.28 (แก้ตามรีวิว PR B2) ผลและข้อจำกัด (โมเดลเดียว, รันจาก CloudShell, ยังไม่มี IAM Role ของเครื่อง) อยู่ในตาราง fake กับของจริง ไม่มี Migration และไม่ตั้ง `LLM_ENABLED=true` | คน 2 |
 | 2026-10-22 | รอบ 6 AU0: รับร่าง #120 เป็น Contract ข้อ 6.33 และ planned schema; เปลี่ยน D9 เป็น demo/session เมื่อ AU Implement, เพิ่ม self-leave ของตัวเองแบบไม่รออนุมัติการลาตามผู้ใช้ แยกจาก Event ทั่วไป, กำหนด auth API/สิทธิ์/Origin/rate limit/REGISTER/permanent identity และ reset, เจ้าของ AU1–AU5 กับเกณฑ์ production; ไม่เปลี่ยนโค้ด Migration หรือเครื่อง AWS และไม่เปิด LLM | คน 3 ทำแทนคน 1 |
 | 2026-10-22 | รอบ 6 AU1: Migration `a7e2c4f9b1d3` เพิ่ม `STAFF.auth_subject` (immutable ด้วย trigger), AUTH_ACCOUNT และ AUTH_SESSION; Argon2id, session cookie `nara_session`, `/auth/config|login|me|logout|change-password`, Origin guard, rate limit ใน process, `get_current_user` สองโหมด, script `app.auth_accounts`, reset รักษา subject/บัญชีและล้าง session ภายใต้ advisory lock `(6210, 1)`; ไม่เปลี่ยนโหมดบนเครื่อง AWS นอกจากตรึง cookie Secure และไม่เปิด LLM | คน 2 |
+| 2026-10-22 | รอบ 6 PR AU2: ตรวจสิทธิ์ทุก route ใน `AUTH_MODE=session` ตามข้อ 6.33.4 (`access_service` เป็นเงื่อนไข SQL ใน list/count, `Reader` สำหรับ route ที่ demo อ่านได้โดยไม่ระบุตัว), POST `/events` 403 ทุกบัญชีใน session, เพิ่ม POST `/me/unavailability` (แจ้งลาตัวเองผ่าน flow เดิม) และ POST `/demo/events` (SYSTEM actor, source SIMULATED), PATCH `/unavailability/{id}` เปิดให้ Supervisor ทุกหอ; demo mode ไม่เปลี่ยน; inventory 42 method/path พร้อมเทสต์ 401/403/เจ้าของผิด และแจ้งลาซ้ำทั้งต่อเนื่องและพร้อมกัน ไม่มี Migration | คน 2 |

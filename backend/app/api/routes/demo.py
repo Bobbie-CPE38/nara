@@ -1,3 +1,6 @@
+"""Demo control (docs/workflow.md 6.17, 6.33.5). On AWS the whole prefix is behind its own
+Basic Auth, and in session mode every POST also needs an allowed Origin (6.33.3)."""
+
 from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, status
@@ -5,18 +8,24 @@ from fastapi import APIRouter, HTTPException, status
 from app.api.dependencies import DbSession
 from app.core import clock
 from app.db.models import Staff
-from app.domain.enums import ActorName, CheckInSource
+from app.domain.enums import ActorName, CheckInSource, StaffStatus
 from app.domain.errors import ShiftNotFoundError, StaffNotFoundError
 from app.schemas.attendance import CheckInResponse, SimulatedCheckIn
 from app.schemas.clock import ClockView
+from app.schemas.event import DemoEventCreate, EventResult
 from app.schemas.job import ClockAdvance, ClockAdvanceResult
 from app.seed.reset import reset_demo
 from app.services import (
     actor_service,
     attendance_service,
+    event_service,
     job_service,
     unavailability_service,
 )
+from app.services.requirement_service import RequirementNotFoundError
+
+# payload.source of an event the Demo control simulates (6.33.4)
+SIMULATED_SOURCE = CheckInSource.SIMULATED.value
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -88,3 +97,59 @@ def simulate_check_in(body: SimulatedCheckIn, db: DbSession) -> CheckInResponse:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
     return CheckInResponse(**vars(result))
+
+
+@router.post("/events", status_code=status.HTTP_201_CREATED)
+def simulate_event(body: DemoEventCreate, db: DbSession) -> EventResult:
+    """The Demo control's events, now that POST /events refuses web accounts (6.33.4).
+
+    The same validation and service as POST /events, as the demo character in
+    `reporter_staff_id`, but recorded by the SYSTEM actor with payload.source SIMULATED:
+    never a report of a signed-in user. No session is needed; on AWS this path is behind
+    the Demo Basic Auth (6.33.5). Answers as POST /events, plus 404 for an unknown or
+    inactive character. None of the errors writes anything.
+    """
+    reporter = db.get(Staff, body.reporter_staff_id)
+    if reporter is None or reporter.status != StaffStatus.ACTIVE:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No active staff {body.reporter_staff_id}")
+    try:
+        outcome = event_service.receive_event(
+            db,
+            staff_id=reporter.id,
+            actor_id=actor_service.component_id(db, ActorName.SYSTEM),
+            role_id=reporter.role_id,
+            event_type=body.event_type,
+            shift_id=body.shift_id,
+            end_at=body.end_at,
+            target_staff_id=body.staff_id,
+            reason=body.reason,
+            patient_count=body.patient_count,
+            roles=None
+            if body.roles is None
+            else {item.role_id: item.required_count for item in body.roles},
+            skills=None
+            if body.skills is None
+            else {item.skill_id: item.required_count for item in body.skills},
+            source=SIMULATED_SOURCE,
+        )
+    except event_service.ShiftNotFoundError as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
+    except RequirementNotFoundError as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    except event_service.NotHeadNurseError as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(error)) from error
+    except unavailability_service.NoAssignedRosterError as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    except (event_service.InvalidEventDetailsError, event_service.InvalidLeaveEndError) as error:
+        db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
+    return EventResult(
+        event_id=outcome.event_id,
+        event_status=outcome.event_status,
+        case_id=outcome.case_id,
+        case_status=outcome.case_status,
+    )
