@@ -22,12 +22,12 @@ from app.api.dependencies import get_db, get_reader
 from app.api.routes import line_sim
 from app.core import clock
 from app.core.config import settings
-from app.db.models import AuditLog, Shift, StaffingCase, StaffUnavailability
+from app.db.models import AuditLog, CandidateItem, Shift, StaffingCase, StaffUnavailability
 from app.domain.enums import ActorName, AuditAction, CaseStatus
 from app.main import app
 from app.services import access_service, actor_service, auth_service, job_service
 from app.services import unavailability_service as unavailability
-from tests.integration.case_rows import make_plan, offer
+from tests.integration.case_rows import approval, make_plan, offer
 from tests.integration.test_approval_two_wards import build
 
 PASSWORD = "review points test password"
@@ -174,6 +174,35 @@ def test_a_head_nurse_gets_only_the_side_of_their_own_ward(scene: Scene) -> None
     assert _sides(everyone) == [sorted([1, source_ward[0]])]
     assert client_of(902).get("/approvals?pending=true").json() == []
     assert client_of(105).get("/approvals?pending=true").status_code == 403
+
+
+def test_another_request_of_the_same_case_is_not_in_a_source_head_nurses_queue(
+    scene: Scene,
+) -> None:
+    """The source head nurse may read the case (a request moves someone out of their ward), but
+    a second pending request of the same case that only involves the ICU is not theirs."""
+    db = scene.db
+    case = db.get(StaffingCase, scene.case_id)
+    assert case is not None
+    item_202 = db.scalars(select(CandidateItem).where(CandidateItem.staff_id == 202)).one()
+    other = approval(db, case, item_202)
+    db.commit()
+
+    def ids(staff_id: int) -> list[int]:
+        rows = client_of(staff_id).get("/approvals?pending=true").json()
+        return [row["id"] for row in rows]
+
+    # The source head nurse reads the case, and sees only the request that involves their ward
+    source_nurse = client_of(scene.source_head)
+    assert source_nurse.get(f"/cases/{scene.case_id}").status_code == 200
+    assert ids(scene.source_head) == [scene.request_id]
+    assert other.id not in ids(scene.source_head)
+    assert all(row["wards"] for row in source_nurse.get("/approvals?pending=true").json())
+    # The ICU head nurse has a side in both, and a supervisor sees both
+    assert ids(900) == sorted([scene.request_id, other.id])
+    assert ids(scene.supervisor) == sorted([scene.request_id, other.id])
+    # The head nurse of a ward with no side in either sees none
+    assert ids(902) == []
 
 
 def test_the_pending_list_is_filtered_by_the_query_not_after_loading(scene: Scene) -> None:

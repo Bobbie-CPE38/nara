@@ -8,7 +8,7 @@ from datetime import timedelta
 from fractions import Fraction
 from typing import Any
 
-from sqlalchemy import or_, select, true
+from sqlalchemy import or_, select
 from sqlalchemy.engine import Connection, RowMapping, Transaction
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql import ColumnElement, Select
@@ -628,9 +628,9 @@ def list_pending(db: Session, viewer: access_service.Viewer | None = None) -> li
     are excluded here, including requests left behind by D11 failures. Pending
     requests whose offers were cancelled are also excluded on running cases.
 
-    With a viewer (session mode, a manager) the requests are those of the cases they may read,
-    filtered in the query, and a head nurse gets only the approval sides of their own ward: the
-    other ward's side and its status are not theirs to read (6.33.4).
+    With a viewer (session mode, a manager) the requests are those that have a side in their ward
+    (a supervisor: all), filtered in the query, and a head nurse gets only the approval sides of
+    their own ward: the other ward's side and its status are not theirs to read (6.33.4).
     """
     with db.no_autoflush:
         rows = db.execute(
@@ -648,10 +648,11 @@ def list_pending(db: Session, viewer: access_service.Viewer | None = None) -> li
             )
             .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
             .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
-            .join(Shift, Shift.id == StaffingCase.shift_id)
             .where(
                 *actionable_pending(),
-                true() if viewer is None else access_service.case_condition(viewer),
+                # By request, not by case: a request without a side in the reader's ward is not
+                # in their queue even when they may read its case
+                access_service.approval_request_condition(viewer),
             )
             .order_by(ApprovalRequest.id)
         ).mappings()

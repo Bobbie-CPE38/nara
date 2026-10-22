@@ -17,7 +17,7 @@ see are never loaded and then hidden.
 
 from dataclasses import dataclass
 
-from sqlalchemy import ColumnElement, exists, or_, select, true
+from sqlalchemy import ColumnElement, exists, false, or_, select, true
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
@@ -96,6 +96,33 @@ def _part_of(staff_id: int) -> ColumnElement[bool]:
         .where(ManualAssignment.case_id == StaffingCase.id, RosterAssignment.staff_id == staff_id)
     )
     return or_(offered, reported, assigned)
+
+
+def approval_request_condition(viewer: Viewer | None) -> ColumnElement[bool]:
+    """The pending approval REQUESTS this viewer may read, one by one (not by case).
+
+    Reading a case is wider: a source head nurse reads the whole case when one of its requests
+    moves someone out of their ward. Their queue of approvals is only the requests that have a
+    side in their ward, as destination or as source, so another request of the same case that
+    involves other wards stays out of it. The query must join CANDIDATE_ITEMS. A supervisor, and
+    no viewer (demo mode), is not limited; a nurse has no approval queue (the route refuses).
+    """
+    if viewer is None or viewer.role == "supervisor":
+        return true()
+    if viewer.role != "head_nurse":
+        return false()
+    ward_shift = aliased(Shift)
+    source_row = aliased(RosterAssignment)
+    source_shift = aliased(Shift)
+    destination = CandidateItem.proposed_shift_id.in_(
+        select(ward_shift.id).where(ward_shift.ward_id == viewer.home_ward_id)
+    )
+    source = CandidateItem.source_assignment_id.in_(
+        select(source_row.id)
+        .join(source_shift, source_shift.id == source_row.shift_id)
+        .where(source_shift.ward_id == viewer.home_ward_id)
+    )
+    return or_(destination, source)
 
 
 def sees_case(db: Session, viewer: Viewer, case_id: int) -> bool:
