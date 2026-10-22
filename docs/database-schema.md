@@ -1125,7 +1125,9 @@ Snapshot นิรนามหนึ่งฉบับต่อ (`case_id`, `inp
 Partial index บน `id` เมื่อ PENDING; UNIQUE (`case_id`, `input_hash`, `prompt_version`) การเรียก LLM บันทึกใน `LLM_CALL_LOG` ชนิด CASE_SUMMARY โดย `subject_id` = id นี้ (ไม่มี FK ตาม B1) Reset/Downgrade ถอดอ้างอิงและคงค่าใช้จ่าย/โควตา
 
 
-## AU0: Schema สำหรับบัญชีและ session (AU1 Implement แล้ว; AU5 ยังไม่ Implement)
+## AU0: Schema สำหรับบัญชีและ session (AU1/AU5 Implement แล้ว)
+
+AU5 เพิ่ม Migration `b8f3d5a0c2e4` ต่อ `a7e2c4f9b1d3` หนึ่ง head รวม 48 ตาราง application; upgrade สร้าง registration table ว่าง ไม่สร้างบัญชีหรือแก้ binding เดิม downgrade ลบเฉพาะรหัสสมัคร ไม่ลบบัญชี/session ที่ AU1 มีอยู่
 
 กติกาฝั่ง API/สิทธิ์อยู่ `workflow.md` 6.33; AU0 เพิ่มเฉพาะสัญญา ไม่เปลี่ยนจำนวนตารางที่ migrate แล้ว ไม่กำหนด revision ล่วงหน้า AU1 เพิ่ม Migration ต่อ head ปัจจุบันและทดสอบให้มี head เดียว AU5 เพิ่มตาราง registration code ภายหลังต่อ AU1 ใช้ UUID เฉพาะ permanent staff subject; ID ธุรกิจและ surrogate ID เดิมเป็น bigint ตามเดิม
 
@@ -1161,7 +1163,7 @@ Partial index บน `id` เมื่อ PENDING; UNIQUE (`case_id`, `input_has
 
 Valid เมื่อ real now ยังไม่ถึง absolute/idle expiry, ไม่ revoke, generation ตรง, account ไม่ disabled, Staff ACTIVE และมี USER actor เงื่อนไขต้องถูกอ่านจาก DB ไม่ cache ใน cookie อัปเดต last_seen แบบไม่ย้อนเวลาและไม่ยืด expires_at; request ที่หมดอายุห้ามปลุก session กลับมา Reset สำเร็จไม่คืน session ใดๆ แม้ bigint id เริ่มใหม่
 
-### AUTH_REGISTRATION_CODE (AU5)
+### AUTH_REGISTRATION_CODE (AU5 · Migration `b8f3d5a0c2e4`)
 
 | Field | Type / Constraint | ความหมาย |
 |---|---|---|
@@ -1169,7 +1171,7 @@ Valid เมื่อ real now ยังไม่ถึง absolute/idle expiry,
 | staff_subject | uuid NOT NULL FK STAFF.auth_subject ON DELETE RESTRICT; INDEX | staff ที่ยังไม่มี AUTH_ACCOUNT |
 | code_hash | text NOT NULL UNIQUE CHECK SHA-256 lowercase hex 64 ตัว | SHA-256 ของ domain `AUTH_REGISTER` กับโค้ดสุ่ม >=192 bit; ไม่ reuse LINK token/table |
 | contact_id | bigint NOT NULL FK contacts.id | binding ที่ออก code ให้; schema จริงชื่อ table คือ contacts |
-| line_uid_hash | text NOT NULL | digest ของ UID ขณะออก ใช้เทียบกับ binding ปัจจุบัน ไม่เก็บ raw code/UID เพิ่ม |
+| line_uid_hash | text NOT NULL CHECK SHA-256 lowercase hex 64 ตัว | digest ของ UID ขณะออก ใช้เทียบกับ binding ปัจจุบัน ไม่เก็บ raw code/UID เพิ่ม |
 | created_at, expires_at | timestamptz NOT NULL CHECK expires_at > created_at | real UTC อายุ 600 วินาที ไม่ใช่ Demo clock |
 | used_at, revoked_at | timestamptz NULL | consume ครั้งเดียว หรือ revoke เมื่อออก code ใหม่/reset |
 
