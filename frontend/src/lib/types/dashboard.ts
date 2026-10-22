@@ -6,7 +6,7 @@ import type { GapIntervalView } from "@/lib/types/case";
  */
 export type DashboardModes = {
   line_mode: "simulation" | "real";
-  llm_provider: "fake" | "bedrock";
+  llm_provider: "fake" | "bedrock" | "lambda";
   llm_enabled: boolean;
 };
 

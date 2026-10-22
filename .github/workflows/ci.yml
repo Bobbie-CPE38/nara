@@ -128,3 +128,5 @@ jobs:
         run: python3 deploy/aws/test_manual_env.py
       - name: Test the production frontend image of the machine
         run: python3 deploy/aws/test_frontend.py
+      - name: Test the Bedrock proxy Lambda without AWS
+        run: python3 deploy/aws/test_lambda_proxy.py

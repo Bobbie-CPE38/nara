@@ -153,8 +153,8 @@ def run_trial(
 
     if dry_run and settings.llm_provider != "fake":
         raise SystemExit("--dry-run is only for LLM_PROVIDER=fake; this would call the real model")
-    if not dry_run and settings.llm_provider != "bedrock":
-        raise SystemExit("a real run needs LLM_PROVIDER=bedrock (or --dry-run with fake)")
+    if not dry_run and settings.llm_provider not in {"bedrock", "lambda"}:
+        raise SystemExit("a real run needs LLM_PROVIDER=bedrock or lambda (or --dry-run with fake)")
     ensure_outside_repo(out)
     worst = worst_case_usd(cases, models)
     print(f"worst case {worst:.4f} USD for the whole run, budget {budget_usd} USD")
@@ -240,6 +240,13 @@ def run_pair(
             )  # fmt: skip
             _append(out, refused)
             return result != LlmRefusal.QUOTA_EXHAUSTED
+        if result.model_id is not None and result.model_id != model.model_id:
+            # Through the Lambda proxy the model is the proxy's own: a different one would
+            # put results under the wrong model in the manifest
+            raise SystemExit(
+                f"the provider called {result.model_id}, not {model.model_id}: "
+                "give --model the proxy's model ID"
+            )
         row = _row(
             manifest, case, model, attempt,
             status=result.status.value, text=result.text, error_type=result.error_type,

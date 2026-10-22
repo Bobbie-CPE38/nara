@@ -286,7 +286,7 @@ PR #120 เป็นร่าง/คำตอบตั้งต้น (AUTH-Q1 �
 |---|---|
 | Test ทุกตัวไม่เรียก Bedrock จริง (ตัวกันแบบ `isolated_line` ของ L5: ตั้ง `LLM_PROVIDER=fake` และ `LLM_ENABLED=false` ทุก Test และล้มด้วย `pytest.fail()` ถ้ามีการเรียก `bedrock-runtime`) แม้ `.env` ของผู้พัฒนาตั้งค่าจริงไว้ | B1 |
 | ไม่มีทางเรียกตัวเชื่อม LLM นอกตัวห่อการเรียก รวมตัวประมวลผลเดิมของ `explanation_service` (Test ที่แทนตัวเชื่อมด้วยตัวปลอมซึ่งล้มถ้าถูกเรียกโดยไม่ผ่านตัวห่อ และ Test ว่าตัวประมวลผลที่ `LLM_ENABLED=true` นับโควตาทุก Attempt และไม่เรียกเมื่อถึงเพดาน) | B1 |
-| ไม่มี AWS key ใน repo, `.env.example`, Log หรือ Description; Bedrock ใช้ IAM Role ของเครื่อง | Bedrock, AWS |
+| ไม่มี AWS key ใน repo, `.env.example`, Log หรือ Description; Bedrock ใช้ IAM Role ของเครื่อง หรือตั้งแต่ B3 (เครื่องไม่มี Role) ใช้ Lambda proxy ที่มี Role ของตัวเอง API key ของ usage plan อยู่ในไฟล์ env ของเครื่องหรือ Parameter Store เท่านั้น | Bedrock, AWS |
 | มีเพดานจำนวนคำขอต่อช่วงเวลา และเมื่อถึงเพดาน ระบบหยุดเรียกโดยเคสและหน้าเว็บทำงานต่อได้ | Bedrock |
 | ข้อความที่ไม่ใช่ปุ่ม (รวมข้อความที่มีคำสั่งแปลกปลอม เช่น "accept all offers") ไม่เปลี่ยน Offer, Roster, Gap หรือสถานะเคส ได้เพียงข้อความตอบให้กดปุ่ม | ข้อความอิสระ |
 | ข้อความตอบกลับของข้อความอิสระไม่ถูกส่งซ้ำเมื่อ LINE ส่ง Event เดิมมาอีก (Dedup เดิมของ `LineWebhookEvent`) และไม่มีข้อความของพยาบาลถูกเก็บใน DB หรือ Log | ข้อความอิสระ |

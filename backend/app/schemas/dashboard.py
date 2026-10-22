@@ -14,7 +14,7 @@ class DashboardModes(BaseModel):
     """What is real in this demo: LINE simulation or real, LLM fake or Bedrock."""
 
     line_mode: Literal["simulation", "real"]
-    llm_provider: Literal["fake", "bedrock"]
+    llm_provider: Literal["fake", "bedrock", "lambda"]
     llm_enabled: bool
 
 

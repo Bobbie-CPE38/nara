@@ -10,7 +10,7 @@ from decimal import Decimal
 from app.core.config import settings
 from app.domain.enums import LlmCallStatus
 from app.domain.llm_numbers import unverified_numbers
-from app.integrations.llm import LlmAttempt, LlmRequest, bedrock, fake
+from app.integrations.llm import LlmAttempt, LlmRequest, bedrock, fake, lambda_proxy
 
 __all__ = [
     "MAX_EXPLANATION_CHARS",
@@ -64,6 +64,8 @@ def generate_explanation(request: LlmRequest) -> LlmAttempt:
     """One attempt. The caller owns retries."""
     if settings.llm_provider == "bedrock":
         attempt = bedrock.generate(request)
+    elif settings.llm_provider == "lambda":
+        attempt = lambda_proxy.generate(request)
     else:
         attempt = fake.generate(request)
     if attempt.status != LlmCallStatus.SUCCEEDED:
