@@ -52,10 +52,12 @@ sudo git checkout --detach <reviewed-AU4-commit-SHA>
 alias dc='sudo env -u AWS_REGION docker compose --env-file /etc/nara/nara.env -f /opt/nara/docker-compose.yml -f /opt/nara/deploy/aws/docker-compose.aws.yml'
 dc down
 dc up -d postgres redis
-dc run --rm --no-deps backend sh -c 'pip install --no-cache-dir -e ".[dev]" && alembic upgrade head'
+dc run --rm -T --interactive=false --no-deps backend sh -c 'pip install --no-cache-dir -e ".[dev]" && alembic upgrade head' < /dev/null
 sudo systemctl start nara
 dc ps
 ```
+
+ปิด stdin ของ migration container โดยตั้ง `--interactive=false` และ redirect จาก `/dev/null` เสมอ โดยเฉพาะเมื่อวางคำสั่งใน heredoc ไม่เช่นนั้น Compose run (interactive เป็นค่าเริ่มต้น) อาจรับคำสั่งถัดไปเป็น stdin ของ container ทำให้ shell ไม่รัน `systemctl start nara` ที่ตามมา
 
 `nara.service` ยังอ่าน env ผ่านวิธีเดิมของเครื่อง (manual-env.conf หรือ Parameter Store) AU4 ไม่สลับวิธีอ่าน env, ไม่เปลี่ยน LINE_MODE/LLM_ENABLED และไม่เพิ่ม AWS keys/สิทธิ์ Bedrock หากมี migration ใหม่จาก PR อื่น ต้องรีวิววิธี upgrade/rollback ของ migration นั้นก่อน
 
