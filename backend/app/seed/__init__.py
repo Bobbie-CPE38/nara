@@ -17,7 +17,12 @@ from app.db.base import Base
 _PRESERVED_SUBJECTS = "seed_preserved_staff_subjects"
 
 
-def load(db: Session, preserved_subjects: Mapping[int, uuid.UUID] | None = None) -> None:
+def load(
+    db: Session,
+    preserved_subjects: Mapping[int, uuid.UUID] | None = None,
+    *,
+    large_profile: bool = False,
+) -> None:
     """Populate empty application tables without deleting data or committing.
 
     preserved_subjects: STAFF.id to the auth_subject that ID had before a demo reset
@@ -41,6 +46,11 @@ def load(db: Session, preserved_subjects: Mapping[int, uuid.UUID] | None = None)
         golden_case.seed(db)
         multi_ward.seed(db)
         check_ins.seed(db)
+        if large_profile:
+            from app.core import clock
+            from app.seed.large_demo import generate
+
+            generate(db, clock.now())
     finally:
         del db.info[_PRESERVED_SUBJECTS]
 

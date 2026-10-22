@@ -41,7 +41,7 @@
 >
 > * `c5f8b0d3e7a1` (Issue #98 ต่อ) accepted_as_reserve และชนิดข้อความ FINAL/RESERVE_PROMOTED
 >
-> **Migration head ปัจจุบัน: `c5f8b0d3e7a1`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> **Migration head ปัจจุบัน: `f2c9a1d6e8b4`** (รอบ 6 auth/LLM และ Demo profile ดูหัวข้อท้ายไฟล์) ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -49,7 +49,7 @@
 
 | เรื่อง | ตัดสินว่า |
 |---|---|
-| จำนวนตาราง | 42 ตาราง รวม `OFFER_OUTCOME_NOTIFICATION` ของ Issue #98 |
+| จำนวนตาราง | 49 ตาราง รวม Auth/LLM และ `DEMO_DATASET` ของ profile แบบ opt-in |
 | ชนิด ID | ตารางที่ Implement แล้วใช้ `bigint`; planned auth subject UUID ของ AU1/AU5 เป็นข้อยกเว้นตามหัวข้อ AU0 ท้ายไฟล์ |
 | เก็บ Enum | Python `StrEnum` → คอลัมน์ `text` ยังไม่ใส่ DB ENUM / CHECK |
 | `created_at` / `updated_at` | ตารางธุรกิจใช้ `core/clock.py`; planned Auth ของ AU1/AU5 ใช้ real UTC ตามข้อ 6.33 ไม่ตาม Demo Clock |
@@ -1178,3 +1178,7 @@ Valid เมื่อ real now ยังไม่ถึง absolute/idle expiry,
 มี account แล้วห้ามสมัครทับ การตรวจ binding ต้องยืนยัน contact ของ subject เดียวกัน ACTIVE และ UID digest ตรง ณ ตอนใช้ ไม่เชื่อ code ที่บอก staff_id จาก client Consume กับ insert account ใน transaction เดียว มี UNIQUE ของ account subject เป็นชั้นกัน race อีกชั้น การออก/consume code ใช้ลำดับ shared Auth reset gate → Staff → registration code → Contacts → AUTH_ACCOUNT ที่เกี่ยวข้อง โดย gate ของ auth write ต้องมาก่อน row lock; การผูก LINK เดิมใช้ Staff → link code → Contacts ตาม PR K ไม่สลับลำดับเดิม; AU5 ทดสอบสอง connection และ rebase migration ถ้า head เปลี่ยน ห้ามออก session อัตโนมัติจากการสมัคร
 
 ไม่มีประวัติ raw password/code/token ใน Audit หรือ DB บัญชี/Session/Registration ใช้ real UTC เป็นข้อยกเว้นจากกติกา `core.clock` เดิม Session/code เก่าถูกล้างเมื่อ Demo reset สำเร็จ บัญชีและ permanent identity คงอยู่; reset rollback ต้องคง session/code เดิมและโควตา LLM ตามเดิม
+
+## DEMO_DATASET — profile ข้อมูลทดสอบแบบ opt-in
+
+Migration `f2c9a1d6e8b4` เพิ่มตารางที่ 49: `id bigint PK`, `profile text UNIQUE NOT NULL`, `reference_at timestamptz NOT NULL` ชื่อ profile ระบุ generator รุ่นคงที่ เช่น `large-500-20-30-v1` ไม่มี password, token หรือข้อมูลติดต่อในตารางนี้ CLI สร้าง marker พร้อมข้อมูลใน transaction เดียว Reset จดจำเฉพาะ profile ที่รู้จักและ replay ก่อนคืน permanent identities; profile ไม่รู้จักทำให้ rollback รายละเอียดปริมาณ/namespace/การนำเข้าอยู่ใน [large-demo-data.md](large-demo-data.md)

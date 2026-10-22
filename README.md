@@ -18,6 +18,8 @@ The stack has four parts:
 
 You don't need to install Python or Node locally, because the containers handle both.
 
+ก่อนทดลอง Demo บน AWS โดยเฉพาะชุดข้อมูล 500 คน อ่าน [Demo runbook และคำเตือน LINE/LLM](docs/demo-runbook.md) ก่อนสร้างเหตุหรือเดินนาฬิกา
+
 ## Quick start
 
 ```bash

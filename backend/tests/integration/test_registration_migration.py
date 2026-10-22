@@ -17,7 +17,8 @@ REVISION = "b8f3d5a0c2e4"
 
 def test_au5_has_one_head_after_au1():
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
-    assert script.get_heads() == [REVISION]
+    assert len(script.get_heads()) == 1
+    assert REVISION in {row.revision for row in script.iterate_revisions("heads", "base")}
     assert script.get_revision(REVISION).down_revision == "a7e2c4f9b1d3"
 
 
