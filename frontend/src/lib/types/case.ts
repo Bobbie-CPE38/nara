@@ -70,7 +70,7 @@ export type RankExplanation = {
   /** Only when READY */
   text: string | null;
   /** Only when READY. "fake" is a test adapter, not a real model */
-  provider: "fake" | "bedrock" | null;
+  provider: "fake" | "bedrock" | "lambda" | null;
   /** Only when READY. null for fake */
   model_id: string | null;
   /** True when POST /cases/{id}/explanation would queue it now */
