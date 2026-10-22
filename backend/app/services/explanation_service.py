@@ -52,7 +52,7 @@ from app.services.llm_service import LlmAttempt, LlmRequest
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "rank-explanation-v3"
+PROMPT_VERSION = "rank-explanation-v4"
 MAX_EXPLAINED_CANDIDATES = 10
 MAX_PER_SWEEP = 3
 _MIN_LEASE_SECONDS = 60
@@ -75,11 +75,13 @@ SYSTEM_PROMPT = (
     "Never write a field name or an id (ranking_key, plan_penalty, first_wave, "
     "hours_this_week, plan or staff ids): say what it means in plain Thai instead. "
     "plan_penalty.meaning says what chose the first wave. "
-    "The first wave is the first group asked (กลุ่มแรกที่ถูกติดต่อ); the other candidates are "
-    "reserves (ตัวสำรอง). "
+    "Each candidate has first_wave: true means the person is in the first group asked "
+    "(กลุ่มแรกที่ถูกติดต่อ), false means a reserve (ตัวสำรอง). Say which only from that field; "
+    "if every candidate is in the first wave, say so and never call any of them a reserve. "
     "ranking_key orders the candidates inside the plan (first wave first, then reserves): "
     "compare two candidates by its items in the order listed, and the first item on which they "
-    "differ decides. Items: candidate_source is where the person comes from "
+    "differ decides: when you explain why one rank is ahead of the next, name that item and "
+    "both values. Items: candidate_source is where the person comes from "
     "(SAME_WARD = ward เดียวกัน, FLOAT_POOL = กลุ่มสำรองกลาง, CROSS_WARD = ต่าง ward), "
     "hours_this_week = ชั่วโมงที่ทำงานในสัปดาห์นี้, "
     "projected_consecutive_shifts = จำนวนเวรติดกันที่จะเกิดขึ้น, "
