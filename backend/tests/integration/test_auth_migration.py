@@ -38,7 +38,7 @@ def _subject_with_account(db: Session, staff_id: int) -> uuid.UUID:
 def test_one_head_after_au1() -> None:
     script = ScriptDirectory.from_config(Config(str(ALEMBIC_INI)))
 
-    assert script.get_heads() == [REVISION]
+    assert len(script.get_heads()) == 1  # AU5 follows AU1
     assert script.get_revision(REVISION).down_revision == "f9a1c3e5b7d2"  # type: ignore[union-attr]
 
 
@@ -47,12 +47,16 @@ def test_upgrade_gives_existing_staff_distinct_subjects_and_no_account(
 ) -> None:
     db = production_seeded
     staff_count = db.scalar(select(func.count()).select_from(Staff))
+    au5 = ScriptDirectory.from_config(Config(str(ALEMBIC_INI))).get_revision("b8f3d5a0c2e4")
+    assert au5 is not None
     with Operations.context(MigrationContext.configure(db.connection())):
+        au5.module.downgrade()
         _migration().downgrade()
         columns = {c["name"] for c in inspect(db.connection()).get_columns("staff")}
         assert "auth_subject" not in columns
         assert "auth_account" not in inspect(db.connection()).get_table_names()
         _migration().upgrade()
+        au5.module.upgrade()
 
     subjects = db.execute(text("SELECT auth_subject FROM staff")).scalars().all()
     assert len(subjects) == staff_count == len(set(subjects))
