@@ -308,11 +308,20 @@ _IDS_NEVER_REUSED = ("candidate_outreach",)
 
 
 def _last_ids(connection: Connection) -> dict[str, int]:
-    """The highest id each of _IDS_NEVER_REUSED has handed out, from its sequence."""
+    """The highest id each of _IDS_NEVER_REUSED has handed out, from its sequence.
+
+    The table is locked first and stays locked until the reset commits (re-review of #145):
+    an INSERT takes its table lock before its default calls nextval(), so a writer in
+    progress commits before the read, and a later one waits for the rebuilt table. Without
+    the lock, an offer written between this read and the DROP kept an id the rebuilt
+    sequence handed out again. A writer that holds other locks while it waits can deadlock
+    with the DROP; PostgreSQL ends one side and reset_demo() starts over, as for the ledger.
+    """
     last: dict[str, int] = {}
     for table in _IDS_NEVER_REUSED:
         if not _columns(connection, f"public.{table}"):
             continue
+        connection.execute(text(f"LOCK TABLE {table} IN ACCESS EXCLUSIVE MODE"))
         sequence = connection.scalar(
             text("SELECT pg_get_serial_sequence(:table, 'id')"), {"table": table}
         )

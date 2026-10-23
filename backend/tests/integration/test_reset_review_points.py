@@ -5,7 +5,9 @@ the new one: an old offer button, or a session the account no longer allows. The
 commit, like test_demo_reset.
 """
 
+import threading
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,10 +25,11 @@ from app.db.models import (
     StaffingEvent,
     Ward,
 )
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, engine
 from app.domain.enums import AssignmentType, CandidateResponse, RosterStatus
 from app.main import app
 from app.seed import hospital_demo
+from app.seed import reset as reset_module
 from app.seed.reset import reset_demo
 from app.services import auth_service, job_service, outreach_service
 
@@ -75,6 +78,60 @@ def test_an_old_offer_button_never_names_an_offer_after_the_reset() -> None:
         db.rollback()
         new = db.get(CandidateOutreach, new_offer)
         assert new is not None and new.status.value == "SENT"
+
+
+def _outreach_sequence_next() -> int:
+    with engine.connect() as connection:
+        value = connection.scalar(
+            text("SELECT nextval(pg_get_serial_sequence('candidate_outreach', 'id'))")
+        )
+        connection.rollback()
+    assert value is not None
+    return int(value)
+
+
+def _write_an_offer_id(ids: list[object]) -> None:
+    """What an offer INSERT does to the table and its sequence, then commit."""
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SET lock_timeout = '20s'"))
+            connection.execute(text("LOCK TABLE candidate_outreach IN ROW EXCLUSIVE MODE"))
+            ids.append(
+                connection.scalar(
+                    text("SELECT nextval(pg_get_serial_sequence('candidate_outreach', 'id'))")
+                )
+            )
+            connection.commit()
+    except BaseException as error:  # the table was dropped under the waiting writer
+        ids.append(error)
+
+
+def test_an_offer_written_while_the_reset_starts_keeps_its_id_to_itself(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Re-review of #145, the reviewer's interleaving: an offer committed between the reset's
+    read of the sequence and the DROP kept an id the rebuilt sequence handed out again. The
+    writer starts right after the read; with the table locked it can only wait."""
+    reset_demo()
+    real_last_ids = reset_module._last_ids
+    ids: list[object] = []
+    writer = threading.Thread(target=_write_an_offer_id, args=(ids,))
+
+    def read_then_let_a_writer_in(connection: Any) -> dict[str, int]:
+        last = real_last_ids(connection)
+        writer.start()
+        writer.join(2)
+        return last
+
+    monkeypatch.setattr(reset_module, "_last_ids", read_then_let_a_writer_in)
+    reset_demo()
+    writer.join(30)
+
+    assert not writer.is_alive() and len(ids) == 1
+    written = ids[0]
+    if not isinstance(written, BaseException):
+        # The writer got in: its id must stay its own
+        assert written is not None and _outreach_sequence_next() > int(written)
 
 
 def test_only_sessions_the_account_still_allows_survive() -> None:
