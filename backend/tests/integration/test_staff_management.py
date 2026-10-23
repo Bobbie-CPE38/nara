@@ -47,7 +47,11 @@ def test_only_real_supervisor_session_can_read_or_issue(directory, monkeypatch, 
     monkeypatch.setattr(settings, "auth_mode", mode)
     if staff_id is not None:
         login(client, staff_id)
-    for method, path in [("GET", "/admin/staff"), ("POST", "/admin/staff/201/line-code")]:
+    for method, path in [
+        ("GET", "/admin/staff"),
+        ("POST", "/admin/staff/201/line-code"),
+        ("POST", "/admin/staff/201/line-unlink"),
+    ]:
         response = client.request(method, path, headers={"X-Demo-User": "950"})
         assert response.status_code == (401 if staff_id is None else 403)
         assert response.headers["cache-control"] == "no-store"
@@ -190,3 +194,73 @@ def test_code_issuance_is_bounded_per_supervisor(directory):
     assert int(response.headers["retry-after"]) > 0
     assert response.headers["cache-control"] == "no-store"
     assert db.scalar(select(func.count()).select_from(LineAccountLinkCode)) == 20
+
+
+@pytest.mark.parametrize("confirmation", [None, "", "202", 201, "0201", "201 "])
+def test_unlink_requires_exact_typed_staff_id(directory, confirmation):
+    client, db = directory
+    db.add(Contact(staff_id=201, line_uid="U201", is_active=True))
+    db.commit()
+    login(client, 950)
+    body = {} if confirmation is None else {"confirm_staff_id": confirmation}
+    response = client.post("/admin/staff/201/line-unlink", json=body)
+    assert response.status_code == (400 if confirmation == "202" else 422)
+    assert response.headers["cache-control"] == "no-store"
+    assert db.scalar(select(Contact.line_uid).where(Contact.staff_id == 201)) == "U201"
+
+
+def test_unlink_revokes_proofs_preserves_account_and_audits_real_admin(directory, real_line):
+    from app.db.models import AuditLog, AuthAccount, AuthRegistrationCode
+    from app.domain.enums import AuditAction
+    from app.services import actor_service, registration_service
+
+    client, db = directory
+    pending = line_account_service.issue_code(db, 201)
+    db.add(Contact(staff_id=201, line_uid="U201", is_active=True))
+    db.commit()
+    registration_service.issue(db, "U201")
+    db.commit()
+    auth_service.create_account(db, 201, PASSWORD, must_change_password=False)
+    # Inactive staff can still have their binding removed.
+    db.get(Staff, 201).status = StaffStatus.INACTIVE
+    db.commit()
+    login(client, 950)
+    response = client.post("/admin/staff/201/line-unlink", json={"confirm_staff_id": "201"})
+    assert response.status_code == 200
+    assert response.json() == {"unlinked_contacts": 1}
+    assert response.headers["cache-control"] == "no-store"
+    assert db.scalar(select(Contact.line_uid).where(Contact.staff_id == 201)) is None
+    assert db.scalars(select(LineAccountLinkCode)).one().revoked_at is not None
+    assert db.scalars(select(AuthRegistrationCode)).one().revoked_at is not None
+    subject = db.get(Staff, 201).auth_subject
+    assert db.get(AuthAccount, subject) is not None
+    audit = db.scalars(
+        select(AuditLog).where(AuditLog.action == AuditAction.LINE_ACCOUNT_UNLINKED)
+    ).one()
+    assert audit.actor_id == actor_service.user_id(db, 950)
+    assert "U201" not in str(audit.payload)
+    assert pending.code.get_secret_value() not in str(audit.payload)
+    assert client.get("/admin/staff?q=201").json()["items"][0]["line_linked"] is False
+    assert client.post("/admin/staff/201/line-unlink", json={"confirm_staff_id": "201"}).json() == {
+        "unlinked_contacts": 0
+    }
+    item = link_event("unused")
+    item["message"]["text"] = "MYID"
+    assert post(client, item).status_code == 200
+    real_line[1].assert_called_once_with("reply-test", line_webhook_service._LINK_GUIDANCE)
+
+
+@pytest.mark.parametrize("mode", ["demo", "session"])
+def test_unlink_rejects_foreign_origin_before_writing(directory, monkeypatch, mode):
+    client, db = directory
+    monkeypatch.setattr(settings, "auth_mode", mode)
+    db.add(Contact(staff_id=201, line_uid="U201", is_active=True))
+    db.commit()
+    login(client, 950)
+    response = client.post(
+        "/admin/staff/201/line-unlink",
+        json={"confirm_staff_id": "201"},
+        headers={"Origin": "https://untrusted.example"},
+    )
+    assert response.status_code == 403
+    assert db.scalar(select(Contact.line_uid).where(Contact.staff_id == 201)) == "U201"

@@ -186,7 +186,7 @@ def link(db: Session, code: str, uid: str) -> Contact:
     return contact
 
 
-def unlink(db: Session, staff_id: int) -> int:
+def unlink(db: Session, staff_id: int, *, actor_id: int | None = None) -> int:
     auth_service.hold_auth_gate(db)
     staff = _lock_staff(db, staff_id, require_active=False)
     registration_service.revoke_codes(db, staff.auth_subject)
@@ -208,7 +208,11 @@ def unlink(db: Session, staff_id: int) -> int:
         audit_service.log(
             db,
             case_id=None,
-            actor_id=actor_service.component_id(db, ActorName.SYSTEM),
+            actor_id=(
+                actor_id
+                if actor_id is not None
+                else actor_service.component_id(db, ActorName.SYSTEM)
+            ),
             action=AuditAction.LINE_ACCOUNT_UNLINKED,
             entity_type=EntityType.CONTACTS,
             entity_id=contact.id,

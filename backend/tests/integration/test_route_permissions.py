@@ -126,6 +126,7 @@ def _count(db: Session, model: type) -> int:
 # own Basic Auth on AWS (6.33.5), no session. session: a signed-in user (401 otherwise)
 INVENTORY: dict[tuple[str, str], str] = {
     ("GET", "/admin/staff"): "session",
+    ("POST", "/admin/staff/{staff_id}/line-unlink"): "session",
     ("POST", "/admin/staff/{staff_id}/line-code"): "session",
     ("GET", "/health"): "public",
     ("GET", "/clock"): "public",

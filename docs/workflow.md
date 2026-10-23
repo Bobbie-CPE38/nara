@@ -2132,7 +2132,7 @@ login/register: ก่อน hash password ให้ตรวจหน้าต�
 
 | ความสามารถ | staff | head_nurse | supervisor |
 |---|---|---|---|
-| หน้าจัดการพนักงาน / ค้นหารายชื่อ / ออกโค้ด LINE (`/admin/staff`) | ไม่ได้ | ไม่ได้ | ใช้ session จริงและเปลี่ยนรหัสเริ่มต้นแล้ว ทั้ง demo/session; ดู `docs/demo-runbook.md` |
+| หน้าจัดการพนักงาน / ค้นหารายชื่อ / ออกโค้ดและปลด LINE พร้อมพิมพ์ Staff ID ยืนยัน (`/admin/staff`) | ไม่ได้ | ไม่ได้ | ใช้ session จริงและเปลี่ยนรหัสเริ่มต้นแล้ว ทั้ง demo/session; ดู `docs/demo-runbook.md` |
 | My offers / Handovers / ตอบ Offer / check-in | ตัวเอง | ตัวเอง | ตัวเอง |
 | แจ้งลา POST `/me/unavailability` | ตัวเองที่มี Roster ในเวร | ตัวเองที่มี Roster ในเวร | ตัวเองที่มี Roster ในเวร |
 | Roster / Gap | หอของตัวเอง; Roster ตัวเองอ่านเวรที่ถูกย้ายไปหออื่นได้ | หอของตัวเอง; Roster ตัวเองเช่นเดียวกัน | ทุกหอ |
@@ -2274,7 +2274,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 | `OFFER_CANCELLED_BY_ASSIGNMENT` | ตัวยกเลิก Offer ที่ขัดกับเวรใหม่ เขียนใน**เคสที่เสีย Offer** หนึ่งแถวต่อ Offer | ผู้กระทำของการจัดนั้น | CANDIDATE_OUTREACH | `cancelled_outreach_id` (เอกพจน์), `staff_id`, `by_case_id` (เคสที่เอาคนไป), `assignment_id` (Roster ที่ทำให้ขัด), `source` (`MANUAL_ASSIGNMENT` หรือ `APPROVAL`) |
 | `OFFER_DELIVERY_FAILED` | ตัวส่ง Offer ของ LINE เมื่อตั้ง Offer เป็น `FAILED` (ข้อ 6.16) | `outreach_agent` | CANDIDATE_OUTREACH | `outreach_id`, `staff_id`, `attempts` (จำนวนครั้งที่นับ), `last_result` (รหัส HTTP เป็นข้อความ หรือ `TIMEOUT`) |
 | `LINE_ACCOUNT_LINKED` | Webhook เมื่อรับ `LINK <รหัส>` ที่ใช้ได้ ใน Transaction เดียวกับการผูก | user (พนักงานที่ผูก) | CONTACTS | `contact_id`, `staff_id` |
-| `LINE_ACCOUNT_UNLINKED` | คำสั่งปลดการผูกของผู้ดูแล | `system` | CONTACTS | `contact_id`, `staff_id` |
+| `LINE_ACCOUNT_UNLINKED` | คำสั่งปลดการผูกของผู้ดูแล | `system` สำหรับ CLI; user ของ Supervisor ที่กดยืนยันผ่านเว็บ | CONTACTS | `contact_id`, `staff_id` |
 | `ASSIGNMENT_TRANSFERRED` | การย้ายคนจริง เขียนแทน `ASSIGNMENT_CREATED` ของรายการที่มีเวรต้นทาง ใน Transaction เดียวกับการแก้แถวต้นทางและสร้างแถวปลายทาง (ข้อ 6.19) | `workflow_orchestrator` | ROSTER_ASSIGNMENT (แถวปลายทาง) | `assignment_id`, `from_assignment_id`, `staff_id`, `from_shift_id`, `to_shift_id`, `transfer_at`, `from_status` (`RosterStatus` ของแถวต้นทางหลังย้าย: `CANCELLED` เมื่อย้ายตั้งแต่เวลาเริ่มของเวรต้นทาง หรือ `ASSIGNED` เมื่อแถวต้นทางยังอยู่และจบที่ `transfer_at`, R4-Q40; C2 เขียนแต่ `CANCELLED`), `cancelled_outreach_ids` (Offer ของเคสอื่นที่ขัดกับเวรใหม่ ว่างได้ เหมือน `ASSIGNMENT_CREATED`) |
 | `TRANSFER_CHECK_FAILED` | การตรวจตอนย้ายจริงไม่ผ่าน คำขอจบและ Offer ถูกยกเลิก (ข้อ 6.19) | `workflow_orchestrator` | APPROVAL_REQUEST | `approval_id`, `outreach_id`, `staff_id`, `reason` (`TransferFailureReason`), `failed_rules` (ว่างได้) |
 | `APPROVAL_WARD_APPROVED` (PR S) | Head Nurse หรือ Supervisor อนุมัติฝั่งหนึ่งของคำขอสองหอ ขณะอีกฝั่งยังไม่ตัดสิน (ข้อ 6.21) | user (คนกด) | APPROVAL_REQUEST | `approval_id`, `ward_id`, `side`, `decided_as` |
@@ -2892,7 +2892,7 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 
 ### 9.9 API ล็อกอินและแจ้งลาตัวเอง [AU1, AU2 และ AU5 ทำแล้ว]
 
-รูป request/response/error ที่ใช้ร่วมกันกำหนดในข้อ 6.33.3: AU1 ทำ `/auth/config`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/change-password`; AU2 ทำ self-only POST `/me/unavailability` และ trusted Demo POST `/demo/events`; AU5 ทำ `/auth/register` และคำสั่ง LINE REGISTER; ส่วนขยายจัดการพนักงานเพิ่ม `GET /admin/staff` และ `POST /admin/staff/{staff_id}/line-code` ใช้ session จริงของ Supervisor เท่านั้นในทั้งสองโหมด พร้อม allowed Origin/no-store และคำสั่ง LINE `MYID` สำหรับรหัสของผู้ส่งที่ผูกไว้ ดู `docs/demo-runbook.md` รูป API เดิมของข้อ 9.1–9.8 ยังคงข้อมูลธุรกิจ แต่เงื่อนไข session/สิทธิ์ต้องใช้ matrix ข้อ 6.33.4 หลัง AU2 ทำเสร็จ ไม่อ้างคำว่า "อ่านได้โดยไม่ส่ง X-Demo-User" เดิมเพื่อเปิด endpoint โดยไม่มี session
+รูป request/response/error ที่ใช้ร่วมกันกำหนดในข้อ 6.33.3: AU1 ทำ `/auth/config`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/change-password`; AU2 ทำ self-only POST `/me/unavailability` และ trusted Demo POST `/demo/events`; AU5 ทำ `/auth/register` และคำสั่ง LINE REGISTER; ส่วนขยายจัดการพนักงานเพิ่ม `GET /admin/staff`, `POST /admin/staff/{staff_id}/line-code` และ `POST /admin/staff/{staff_id}/line-unlink` (ต้องกรอก Staff ID ยืนยันให้ตรง) ใช้ session จริงของ Supervisor เท่านั้นในทั้งสองโหมด พร้อม allowed Origin/no-store และคำสั่ง LINE `MYID` สำหรับรหัสของผู้ส่งที่ผูกไว้ ดู `docs/demo-runbook.md` รูป API เดิมของข้อ 9.1–9.8 ยังคงข้อมูลธุรกิจ แต่เงื่อนไข session/สิทธิ์ต้องใช้ matrix ข้อ 6.33.4 หลัง AU2 ทำเสร็จ ไม่อ้างคำว่า "อ่านได้โดยไม่ส่ง X-Demo-User" เดิมเพื่อเปิด endpoint โดยไม่มี session
 
 ## 10. Golden Case
 

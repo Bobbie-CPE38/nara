@@ -8,6 +8,14 @@
  * wrote are shown as the Backend sent them.
  */
 export const en = {
+  "staff.unlink": "Unlink LINE",
+  "staff.unlinkTitle": "Unlink LINE for staff {id}: {name}",
+  "staff.unlinkWarning": "This removes the LINE binding and revokes outstanding linking and registration codes. The web account remains. Check the employee’s name and ID before confirming.",
+  "staff.confirmId": "Type staff ID {id} to confirm",
+  "staff.confirmUnlink": "Confirm unlink",
+  "staff.cancelUnlink": "Cancel",
+  "staff.unlinkedSuccess": "LINE unlinked for staff {id}.",
+  "staff.unlinkFailed": "Unable to unlink LINE: {error}",
   "nav.staff": "Staff management",
   "staff.title": "Staff management",
   "staff.description": "Create a LINE linking code for a staff member. Send it privately to the intended person.",
@@ -29,7 +37,7 @@ export const en = {
   "staff.issue": "Create LINE code",
   "staff.issuing": "Creating…",
   "staff.issueFailed": "Unable to create code: {error}",
-  "staff.alreadyLinked": "This staff member already has a LINE binding. Contact the system administrator to unlink it.",
+  "staff.alreadyLinked": "This staff member already has a LINE binding. Use Unlink LINE first if it needs to be replaced.",
   "staff.unavailable": "This staff member is inactive or cannot receive a linking code.",
   "staff.codeFor": "LINE code for staff {id}: {name}",
   "staff.expires": "Expires at {time} (backend clock). Single use.",

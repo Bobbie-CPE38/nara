@@ -28,6 +28,10 @@ function Directory() {
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<unknown>(null);
   const [busy, setBusy] = useState<number | null>(null);
+  const [unlinkTarget, setUnlinkTarget] = useState<Staff | null>(null);
+  const [confirmation, setConfirmation] = useState("");
+  const [unlinkedId, setUnlinkedId] = useState<number | null>(null);
+  const [unlinkFailure, setUnlinkFailure] = useState<unknown>(null);
   const [issueFailure, setIssueFailure] = useState<unknown>(null);
   // Codes stay in component memory only: never localStorage, URLs, or console logs.
   const [issued, setIssued] = useState<{ staff: Staff; result: Code } | null>(null);
@@ -39,6 +43,8 @@ function Directory() {
     setFailure(null);
     setData(null);
     setIssued(null);
+    setUnlinkTarget(null);
+    setConfirmation("");
     void apiRequest<StaffPage>(`/admin/staff?q=${encodeURIComponent(query.q)}&offset=${query.offset}&limit=${PAGE_SIZE}`, { signal: controller.signal })
       .then((result) => { if (!controller.signal.aborted) setData(result); })
       .catch((error: unknown) => { if (!controller.signal.aborted) setFailure(error); })
@@ -54,6 +60,9 @@ function Directory() {
 
   async function issue(staff: Staff) {
     setBusy(staff.id);
+    setUnlinkTarget(null);
+    setUnlinkedId(null);
+    setUnlinkFailure(null);
     setIssued(null);
     setIssueFailure(null);
     setCopyStatus("idle");
@@ -62,6 +71,36 @@ function Directory() {
       setIssued({ staff, result });
     } catch (error) {
       setIssueFailure(error);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function requestUnlink(staff: Staff) {
+    setUnlinkTarget(staff);
+    setConfirmation("");
+    setUnlinkFailure(null);
+    setUnlinkedId(null);
+    setIssued(null);
+    setIssueFailure(null);
+  }
+
+  async function unlink(event: FormEvent) {
+    event.preventDefault();
+    if (!unlinkTarget || confirmation !== String(unlinkTarget.id) || busy !== null) return;
+    const id = unlinkTarget.id;
+    setBusy(id);
+    setUnlinkFailure(null);
+    try {
+      await apiRequest<{ unlinked_contacts: number }>(`/admin/staff/${id}/line-unlink`, {
+        method: "POST", json: { confirm_staff_id: confirmation },
+      });
+      setUnlinkTarget(null);
+      setConfirmation("");
+      setUnlinkedId(id);
+      setQuery((value) => ({ ...value, revision: value.revision + 1 }));
+    } catch (error) {
+      setUnlinkFailure(error);
     } finally {
       setBusy(null);
     }
@@ -90,6 +129,20 @@ function Directory() {
         </form>
       </Card>
       {issueFailure !== null && <Notice kind="error" role="alert">{detail === "LINE_ALREADY_LINKED" ? t("staff.alreadyLinked") : detail === "LINE_STAFF_UNAVAILABLE" ? t("staff.unavailable") : t("staff.issueFailed", { error: describeError(issueFailure, t) })}</Notice>}
+      {unlinkedId !== null && <Notice role="status">{t("staff.unlinkedSuccess", { id: unlinkedId })}</Notice>}
+      {unlinkTarget && <Card>
+        <form onSubmit={(event) => void unlink(event)} aria-labelledby="unlink-title" className="space-y-3">
+          <h2 id="unlink-title" className="font-semibold">{t("staff.unlinkTitle", { id: unlinkTarget.id, name: `${unlinkTarget.first_name} ${unlinkTarget.last_name}` })}</h2>
+          <p>{t("staff.unlinkWarning")}</p>
+          <label htmlFor="unlink-confirm" className="block">{t("staff.confirmId", { id: unlinkTarget.id })}</label>
+          <input id="unlink-confirm" type="text" inputMode="numeric" autoComplete="off" maxLength={19} value={confirmation} disabled={busy !== null} onChange={(event) => setConfirmation(event.target.value)} />
+          {unlinkFailure !== null && <Notice kind="error" role="alert">{t("staff.unlinkFailed", { error: describeError(unlinkFailure, t) })}</Notice>}
+          <div className="flex flex-wrap gap-3">
+            <Button type="submit" className="border-red-300 text-red-700" disabled={busy !== null || confirmation !== String(unlinkTarget.id)}>{t("staff.confirmUnlink")}</Button>
+            <Button type="button" disabled={busy !== null} onClick={() => { setUnlinkTarget(null); setConfirmation(""); }}>{t("staff.cancelUnlink")}</Button>
+          </div>
+        </form>
+      </Card>}
       {issued && (
         <Card>
           <h2 className="font-semibold">{t("staff.codeFor", { id: issued.staff.id, name: `${issued.staff.first_name} ${issued.staff.last_name}` })}</h2>
@@ -112,7 +165,10 @@ function Directory() {
           <tbody>{data.items.map((staff) => <tr key={staff.id} className="border-t border-slate-200">
             <td className="p-2">{staff.id}</td><td className="p-2">{staff.first_name} {staff.last_name}</td><td className="p-2">{staff.ward_name}</td>
             <td className="p-2">{t(staff.status === "ACTIVE" ? "staff.active" : "staff.inactive")}</td><td className="p-2">{t(staff.line_linked ? "staff.linked" : "staff.unlinked")}</td>
-            <td className="p-2"><Button disabled={busy !== null || staff.line_linked || staff.status !== "ACTIVE"} onClick={() => void issue(staff)}>{t(busy === staff.id ? "staff.issuing" : "staff.issue")}</Button></td>
+            <td className="p-2"><div className="flex flex-wrap gap-2">
+              <Button disabled={busy !== null || staff.line_linked || staff.status !== "ACTIVE"} onClick={() => void issue(staff)}>{t(busy === staff.id && unlinkTarget === null ? "staff.issuing" : "staff.issue")}</Button>
+              {staff.line_linked && <Button disabled={busy !== null} onClick={() => requestUnlink(staff)}>{t("staff.unlink")}</Button>}
+            </div></td>
           </tr>)}</tbody>
         </table></ScrollX>}
         <div className="mt-3 flex gap-3">

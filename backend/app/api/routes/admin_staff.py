@@ -7,7 +7,7 @@ Demo Basic credential never grant staff-administration rights.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, exists, func, or_, select
 
 from app.api.dependencies import (
@@ -20,7 +20,7 @@ from app.core.constants import MAX_BIGINT
 from app.core.rate_limit import Limit, limiter
 from app.db.models import Contact, Role, Staff, Ward
 from app.domain.enums import StaffStatus
-from app.schemas.line_account import IssuedLineCode
+from app.schemas.line_account import IssuedLineCode, UnlinkedLineAccount
 from app.services import auth_service, line_account_service
 
 router = APIRouter(prefix="/admin/staff", tags=["staff administration"])
@@ -115,3 +115,26 @@ def issue_line_code(
         db.rollback()
         raise HTTPException(409, "LINE_STAFF_UNAVAILABLE") from None
     return IssuedLineCode(code=issued.code.get_secret_value(), expires_at=issued.expires_at)
+
+
+class UnlinkConfirmation(BaseModel):
+    confirm_staff_id: str = Field(strict=True, pattern=r"^[1-9][0-9]{0,18}$")
+
+
+@router.post("/{staff_id}/line-unlink")
+def unlink_line_account(
+    staff_id: Annotated[int, Path(ge=1, le=MAX_BIGINT)],
+    body: UnlinkConfirmation,
+    db: DbSession,
+    user: Supervisor,
+) -> UnlinkedLineAccount:
+    # Check on the server too: a browser's disabled button is not authorization.
+    if body.confirm_staff_id != str(staff_id):
+        raise HTTPException(400, "LINE_CONFIRMATION_MISMATCH")
+    try:
+        count = line_account_service.unlink(db, staff_id, actor_id=user.actor_id)
+        db.commit()
+    except line_account_service.LinkStaffUnavailableError:
+        db.rollback()
+        raise HTTPException(409, "LINE_STAFF_UNAVAILABLE") from None
+    return UnlinkedLineAccount(unlinked_contacts=count)

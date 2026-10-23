@@ -7,6 +7,14 @@ import type { MessageKey } from "./en";
  * LINE, Roster, Wave).
  */
 export const th: Record<MessageKey, string> = {
+  "staff.unlink": "ยกเลิกการผูก LINE",
+  "staff.unlinkTitle": "ยกเลิกการผูก LINE ของพนักงาน {id}: {name}",
+  "staff.unlinkWarning": "การยกเลิกจะปลด LINE และยกเลิกโค้ดผูกบัญชีและรหัสสมัครเว็บที่ยังไม่ได้ใช้ โดยบัญชีเว็บยังอยู่ กรุณาตรวจชื่อและรหัสพนักงานก่อนยืนยัน",
+  "staff.confirmId": "พิมพ์รหัสพนักงาน {id} เพื่อยืนยัน",
+  "staff.confirmUnlink": "ยืนยันยกเลิกการผูก",
+  "staff.cancelUnlink": "ยกเลิก",
+  "staff.unlinkedSuccess": "ยกเลิกการผูก LINE ของพนักงาน {id} แล้ว",
+  "staff.unlinkFailed": "ยกเลิกการผูก LINE ไม่ได้: {error}",
   "nav.staff": "จัดการพนักงาน",
   "staff.title": "จัดการพนักงาน",
   "staff.description": "สร้างโค้ดผูก LINE ให้พนักงาน แล้วส่งให้เจ้าตัวเป็นการส่วนตัว",
@@ -28,7 +36,7 @@ export const th: Record<MessageKey, string> = {
   "staff.issue": "สร้างโค้ดผูก LINE",
   "staff.issuing": "กำลังสร้าง…",
   "staff.issueFailed": "สร้างโค้ดไม่ได้: {error}",
-  "staff.alreadyLinked": "พนักงานนี้ผูก LINE อยู่แล้ว หากต้องการปลดการผูก กรุณาติดต่อผู้ดูแลระบบ",
+  "staff.alreadyLinked": "พนักงานนี้ผูก LINE อยู่แล้ว หากต้องการเปลี่ยนบัญชี ให้ยกเลิกการผูก LINE ก่อน",
   "staff.unavailable": "พนักงานนี้ไม่พร้อมใช้งานหรือไม่สามารถออกโค้ดให้ได้",
   "staff.codeFor": "โค้ดผูก LINE ของพนักงาน {id}: {name}",
   "staff.expires": "หมดอายุ {time} (ตามนาฬิการะบบ) ใช้ได้ครั้งเดียว",
