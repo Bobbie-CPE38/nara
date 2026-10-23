@@ -14,11 +14,16 @@ import logging
 from collections.abc import Collection
 from typing import NamedTuple
 
-from sqlalchemy import ColumnElement, func, select, true
+from sqlalchemy import ColumnElement, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.constants import HEAD_NURSE_ROLE, MAX_APPROVAL_REASON_LENGTH, SUPERVISOR_ROLE
+from app.core.constants import (
+    HEAD_NURSE_ROLE,
+    MAX_APPROVAL_REASON_LENGTH,
+    MAX_BIGINT,
+    SUPERVISOR_ROLE,
+)
 from app.db.models import (
     CandidateItem,
     CandidateOutreach,
@@ -29,6 +34,7 @@ from app.db.models import (
     Staff,
     StaffingCase,
     StaffingGap,
+    Ward,
 )
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
@@ -44,7 +50,7 @@ from app.domain.enums import (
 )
 from app.domain.errors import CaseNotFoundError
 from app.domain.staffing.ward_authority import can_decide, manages_ward
-from app.schemas.handoff import HandoffCandidate, HandoffCase
+from app.schemas.handoff import CaseListItem, CasePage, HandoffCandidate, HandoffCase
 from app.services import (
     actor_service,
     audit_service,
@@ -145,6 +151,76 @@ def list_cases(
             .where(StaffingCase.status.in_(list(statuses)), condition)
             .order_by(StaffingCase.id)
         ).all()
+        return _handoff_cases(db, [(case, ward_id) for case, ward_id in rows])
+
+
+def search_cases(
+    db: Session,
+    *,
+    role_id: int,
+    home_ward_id: int,
+    condition: ColumnElement[bool] | None = None,
+    statuses: Collection[CaseStatus] | None = None,
+    ward_id: int | None = None,
+    query: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    oldest_first: bool = False,
+) -> CasePage:
+    """One page of the cases the caller may read (round 6 PR EV6, 6.36.6). Read-only.
+
+    The same rows as list_cases(): a Head Nurse's own ward, every ward for a Supervisor, or
+    `condition` for a session-mode staff member. Filters: statuses (all when None), one
+    ward, and `query`, which matches part of the ward name (case-insensitive), and also the
+    case ID or shift ID when it is a number. Newest first unless `oldest_first`.
+    """
+    if condition is None:
+        supervisor = _require_manager_role(db, role_id) == SUPERVISOR_ROLE
+        condition = true() if supervisor else Shift.ward_id == home_ward_id
+    filters: list[ColumnElement[bool]] = [condition]
+    if statuses:
+        filters.append(StaffingCase.status.in_(list(statuses)))
+    if ward_id is not None:
+        filters.append(Shift.ward_id == ward_id)
+    text = (query or "").strip()
+    if text:
+        escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        matches: list[ColumnElement[bool]] = [Ward.name.ilike(f"%{escaped}%", escape="\\")]
+        # A number is also a case or shift ID while it fits a bigint: a longer one made
+        # PostgreSQL fail the query (review of #145). A ward named with digits still matches
+        if text.isascii() and text.isdecimal() and int(text) <= MAX_BIGINT:
+            number = int(text)
+            matches += [StaffingCase.id == number, StaffingCase.shift_id == number]
+        filters.append(or_(*matches))
+    base = (
+        select(StaffingCase, Shift, Ward.name)
+        .join(Shift, Shift.id == StaffingCase.shift_id)
+        .join(Ward, Ward.id == Shift.ward_id)
+        .where(*filters)
+    )
+    with db.no_autoflush:
+        total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
+        rows = db.execute(
+            base.order_by(StaffingCase.id if oldest_first else StaffingCase.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+        views = _handoff_cases(db, [(case, shift.ward_id) for case, shift, _ in rows])
+    items = [
+        CaseListItem(
+            **view.model_dump(),
+            ward_name=ward_name,
+            shift_type=shift.shift_type,
+            shift_start_at=shift.start_at,
+        )
+        for view, (_, shift, ward_name) in zip(views, rows, strict=True)
+    ]
+    return CasePage(items=items, total=total, page=page, page_size=page_size)
+
+
+def _handoff_cases(db: Session, rows: list[tuple[StaffingCase, int]]) -> list[HandoffCase]:
+    """The HandoffCase of each (case, ward ID), in the same order. Read-only."""
+    with db.no_autoflush:
         case_ids = [case.id for case, _ in rows]
         # Batched for the polling page: two queries, not two per case
         assigned = case_facts_service.assigned_staff_ids_by_case(db, case_ids)

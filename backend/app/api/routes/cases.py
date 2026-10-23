@@ -6,7 +6,7 @@ Demo mode reads a case without X-Demo-User. Session mode needs a signed-in user 
 see the case (6.33.4, round 6 PR AU2): 401, then 404 for an unknown case, then 403.
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BeforeValidator
@@ -25,6 +25,7 @@ from app.domain.errors import CaseNotFoundError
 from app.schemas.case import AuditEntry, CaseDetail, RankExplanationView
 from app.schemas.case_summary import CaseSummaryView
 from app.schemas.handoff import (
+    CasePage,
     CloseCaseRequest,
     CloseCaseResult,
     HandoffCandidate,
@@ -93,6 +94,46 @@ def list_cases(db: DbSession, user: DemoUser, statuses: StatusFilter) -> list[Ha
             condition=access_service.case_condition(viewer)
             if viewer is not None and viewer.role == "staff"
             else None,
+        )
+    except handoff_service.HandoffForbiddenError as error:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(error)) from error
+
+
+OptionalStatusFilter = Annotated[
+    list[CaseStatus] | None, BeforeValidator(_split_statuses), Query(alias="status")
+]
+CASE_PAGE_SIZE_MAX = 100
+
+
+@router.get("/search")
+def search_cases(
+    db: DbSession,
+    user: DemoUser,
+    statuses: OptionalStatusFilter = None,
+    ward_id: Annotated[int | None, Query(ge=1, le=MAX_BIGINT)] = None,
+    q: Annotated[str | None, Query(max_length=100)] = None,
+    page: Annotated[int, Query(ge=1, le=100_000)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=CASE_PAGE_SIZE_MAX)] = 20,
+    sort: Annotated[Literal["newest", "oldest"], Query()] = "newest",
+) -> CasePage:
+    """One page of the cases the caller may read, for the case list and the handoff page
+    (round 6 PR EV6, 6.36.6). The same rows as GET /cases, any status unless `status`
+    names some; `q` is a case or shift ID, or part of a ward name."""
+    viewer = access_viewer(db, user) if session_mode() else None
+    try:
+        return handoff_service.search_cases(
+            db,
+            role_id=user.staff.role_id,
+            home_ward_id=user.staff.home_ward_id,
+            condition=access_service.case_condition(viewer)
+            if viewer is not None and viewer.role == "staff"
+            else None,
+            statuses=statuses,
+            ward_id=ward_id,
+            query=q,
+            page=page,
+            page_size=page_size,
+            oldest_first=sort == "oldest",
         )
     except handoff_service.HandoffForbiddenError as error:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail=str(error)) from error

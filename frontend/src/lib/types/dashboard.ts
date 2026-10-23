@@ -49,8 +49,10 @@ export type LlmUsage = {
 export type Dashboard = {
   now: string;
   modes: DashboardModes;
-  /** The wards the numbers cover */
+  /** The wards the numbers cover: every visible ward, or the one of ?ward_id= */
   wards: number[];
+  /** Every ward the user may see, by name, for the ward filter (round 6 PR EV6) */
+  ward_options: WardOption[];
   cases_by_status: CaseStatusCount[];
   shortages: Shortage[];
   pending_approvals: WardCount[];
@@ -59,6 +61,9 @@ export type Dashboard = {
   /** null while LLM_ENABLED is false */
   llm_usage: LlmUsage | null;
 };
+
+/** is_active is false for a paused ward, which only a Supervisor is offered (review of #145) */
+export type WardOption = { id: number; name: string; is_active?: boolean };
 
 /** One item of GET /gap/shifts */
 export type GapShiftSummary = {

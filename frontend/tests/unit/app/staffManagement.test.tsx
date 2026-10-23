@@ -44,6 +44,20 @@ it("creates and copies LINK with session credentials then hides the secret", asy
   fireEvent.click(screen.getByRole("button", { name: "Hide code" }));
   expect(screen.queryByText("LINK test-secret-code")).toBeNull();
 });
+it("brings the new code into view at once (round 6 PR EV6)", async () => {
+  const scroll = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+  try {
+    view();
+    fireEvent.click(within((await screen.findByText("Arunee Demo")).closest("tr")!).getByRole("button"));
+    const heading = await screen.findByRole("heading", { name: /Arunee Demo/ });
+    await waitFor(() => expect(scroll).toHaveBeenCalledWith({ behavior: "smooth", block: "start" }));
+    expect(scroll.mock.contexts[0]).toBe(heading);
+    expect(document.activeElement).toBe(heading);
+  } finally {
+    delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+  }
+});
 it("searches and paginates; linked and inactive staff cannot request codes", async () => {
   view(); await screen.findByText("Arunee Demo");
   for (const name of ["Phanu Demo", "Chonthicha Demo"]) expect(within(screen.getByText(name).closest("tr")!).getByRole("button", { name: "Create LINE code" }).hasAttribute("disabled")).toBe(true);

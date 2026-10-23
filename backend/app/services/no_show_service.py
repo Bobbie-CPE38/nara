@@ -15,7 +15,14 @@ from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.core.constants import NO_SHOW_GRACE_SECONDS
-from app.db.models import Attendance, RosterAssignment, Shift, StaffingEvent, StaffUnavailability
+from app.db.models import (
+    Attendance,
+    RosterAssignment,
+    Shift,
+    StaffingEvent,
+    StaffUnavailability,
+    Ward,
+)
 from app.domain.enums import STAFF_EVENT_TYPES, EventStatus, RosterStatus
 from app.services import (
     attendance_service,
@@ -126,12 +133,16 @@ def _candidates(db: Session) -> dict[int, list[int]]:
     The effective start plus the grace period must have passed, and the effective
     end must not have. It is necessary, not enough: a REPLACEMENT counts from
     max(start, created_at), and the check-in, the leave and the move are not read.
+    A paused ward (inactive, like the hospital demo during a test run) has nobody to
+    miss (round 6 PR EV6 review of #145).
     """
     now = clock.now()
     rows = db.execute(
         select(RosterAssignment.shift_id, RosterAssignment.id)
         .join(Shift, Shift.id == RosterAssignment.shift_id)
+        .join(Ward, Ward.id == Shift.ward_id)
         .where(
+            Ward.is_active.is_(True),
             RosterAssignment.status == RosterStatus.ASSIGNED,
             roster_time_service.end_at() > now,
             roster_time_service.start_at() + timedelta(seconds=NO_SHOW_GRACE_SECONDS) < now,

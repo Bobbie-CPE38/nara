@@ -16,9 +16,12 @@ import type { AuthRole } from "@/lib/types/auth";
 const NAV_ITEMS: readonly { href: string; label: MessageKey; roles: readonly AuthRole[]; demo: boolean }[] = [
   { href: "/", label: "nav.dashboard", roles: ["staff", "head_nurse", "supervisor"], demo: true },
   { href: "/gap", label: "nav.gap", roles: ["staff", "head_nurse", "supervisor"], demo: true },
-  { href: "/demo/control", label: "nav.demoControl", roles: [], demo: true },
+  // Head nurses and supervisors run the demo: its events need their login (round 6 PR EV6)
+  { href: "/demo/control", label: "nav.demoControl", roles: ["head_nurse", "supervisor"], demo: true },
   { href: "/approvals", label: "nav.approvals", roles: ["head_nurse", "supervisor"], demo: true },
   { href: "/handoff", label: "nav.handoff", roles: ["head_nurse", "supervisor"], demo: true },
+  // Every case the user may read (round 6 PR EV6); a nurse sees the cases they are part of
+  { href: "/cases", label: "nav.cases", roles: ["staff", "head_nurse", "supervisor"], demo: true },
   { href: "/demo/line-sim", label: "nav.lineSim", roles: [], demo: true },
   { href: "/demo/test-runs", label: "nav.testRuns", roles: [], demo: true },
   { href: "/roster", label: "nav.roster", roles: ["staff", "head_nurse", "supervisor"], demo: true },
@@ -29,8 +32,9 @@ const NAV_ITEMS: readonly { href: string; label: MessageKey; roles: readonly Aut
 
 /**
  * The menu follows the Backend's answer: demo mode shows what it always showed, a login shows
- * the pages of the role (the Demo pages stay out of the menu, their address still works behind
- * the Basic Auth of AWS), and a visitor sees none. The Backend checks every right again.
+ * the pages of the role (the Demo control for a head nurse or a supervisor; the other Demo
+ * pages stay out of the menu, their address still works behind the Basic Auth of AWS), and a
+ * visitor sees none. The Backend checks every right again.
  */
 function useNavItems() {
   const { state } = useAuth();

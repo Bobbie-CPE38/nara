@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ScrollX } from "@/components/ScrollX";
+import { WardFilter } from "@/components/dashboard/WardFilter";
 import { Card } from "@/components/ui/Card";
 import { CASE_STATUS_INFO, TONE_CLASS } from "@/lib/constants";
 import { wardName, withActor } from "@/lib/demo";
@@ -26,6 +27,11 @@ const ATTENTION_TILE: Record<string, string> = {
   ok: "border-green-200 bg-green-50",
   neutral: "border-slate-200 bg-white",
 };
+
+/** The ward's name from the Dashboard's own list; the seed's table for an older Backend. */
+function nameOf(data: Dashboard, wardId: number): string {
+  return data.ward_options?.find((option) => option.id === wardId)?.name ?? wardName(wardId);
+}
 
 function gapsText(gaps: NamedGap[]): string {
   return gaps.length === 0 ? "—" : gaps.map((gap) => `${gap.gap_count} ${gap.name}`).join(", ");
@@ -103,7 +109,7 @@ function Shortages({ data, actorId }: { data: Dashboard; actorId: number }) {
               {data.shortages.map((row) => (
                 <tr key={row.shift_id}>
                   <td>{row.shift_id}</td>
-                  <td>{wardName(row.ward_id)}</td>
+                  <td>{nameOf(data, row.ward_id)}</td>
                   <td>{formatDateTime(row.start_at)}</td>
                   <td>{formatDateTime(row.end_at)}</td>
                   <td className="font-semibold text-red-700">{row.headcount_gap}</td>
@@ -134,7 +140,7 @@ function Waiting({ data, actorId }: { data: Dashboard; actorId: number }) {
         <ul className="mt-1">
           {data.pending_approvals.map((row) => (
             <li key={row.ward_id}>
-              {wardName(row.ward_id)}:{" "}
+              {nameOf(data, row.ward_id)}:{" "}
               <Link className="underline" href={withActor("/approvals", actorId)}>
                 {row.count}
               </Link>
@@ -203,19 +209,29 @@ function LlmUsageSection({ data }: { data: Dashboard }) {
   );
 }
 
-/** `actorId` is the user the numbers are for: the links open the next page for the same user. */
-export function DashboardView({ data, actorId }: { data: Dashboard; actorId: number }) {
-  const t = useT();
+/**
+ * `actorId` is the user the numbers are for: the links open the next page for the same user.
+ * `wardId` is the ward the numbers are narrowed to, null for every ward (round 6 PR EV6).
+ * The clock is in the top bar and the modes are no business of a nurse: neither shows here.
+ */
+export function DashboardView({
+  data,
+  actorId,
+  wardId = null,
+  onWardChange,
+}: {
+  data: Dashboard;
+  actorId: number;
+  wardId?: number | null;
+  onWardChange?: (wardId: number | null) => void;
+}) {
   return (
     <div className="space-y-4">
-      <p className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-900">
-        {t("dash.header", {
-          time: formatDateTime(data.now),
-          line: data.modes.line_mode,
-          llm: data.modes.llm_enabled ? data.modes.llm_provider : t("dash.llmOff"),
-          wards: data.wards.map(wardName).join(", "),
-        })}
-      </p>
+      <WardFilter
+        options={data.ward_options ?? data.wards.map((id) => ({ id, name: wardName(id) }))}
+        value={wardId}
+        onChange={(id) => onWardChange?.(id)}
+      />
       <Counts data={data} actorId={actorId} />
       <Shortages data={data} actorId={actorId} />
       <div className="grid gap-4 lg:grid-cols-2">

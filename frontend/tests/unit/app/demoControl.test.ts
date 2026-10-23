@@ -16,19 +16,57 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// The page also reads GET /clock every second (to enable the right freeze button) and the list
-// of test runs (round 6 PR EV5b). Those reads are answered here and kept out of the mock, so the
-// tests count only the calls they care about.
+// The page also reads GET /clock every second (to enable the right freeze button), the list
+// of test runs (round 6 PR EV5b), and the wards and shifts to pick from (round 6 PR EV6). Those
+// reads are answered here and kept out of the mock, so the tests count only the calls they
+// care about.
 const CLOCK_ANSWER = { now: "2026-10-09T21:00:00+07:00", frozen: true };
 
+const WARDS = [
+  { id: 1, name: "ICU", is_active: true, is_float_pool: false },
+  { id: 2, name: "Medicine", is_active: true, is_float_pool: false },
+  { id: 3, name: "Float Pool", is_active: true, is_float_pool: true },
+];
+const person = (staff_id: number, checked_in = false) => ({
+  staff_id,
+  first_name: `Name${staff_id}`,
+  last_name: "Demo",
+  status: "ASSIGNED",
+  checked_in,
+});
+const shift = (id: number, wardId: number, start: string, staffIds: number[]) => ({
+  id,
+  ward_id: wardId,
+  shift_type: start.endsWith("23:00:00+07:00") ? "NIGHT" : "DAY",
+  start_at: start,
+  end_at: start,
+  people: staffIds.map((staffId) => person(staffId)),
+});
+/** The shifts of the seed by ward and day, as GET /demo/shifts answers them */
+const SHIFTS: Record<string, unknown[]> = {
+  "1/2026-10-09": [shift(1, 1, "2026-10-09T23:00:00+07:00", [101, 102, 103, 104, 105])],
+  "1/2026-10-11": [shift(2, 1, "2026-10-11T07:00:00+07:00", [202, 203])],
+  "2/2026-10-09": [shift(21, 2, "2026-10-09T23:00:00+07:00", [301, 302, 401, 902, 950])],
+  "2/2026-10-11": [shift(22, 2, "2026-10-11T07:00:00+07:00", [301, 302, 401, 902, 950])],
+};
+
+/** The answer of a picker read, or null for any other request */
+function pickerAnswer(url: string): Response | null {
+  if (/\/demo\/wards$/.test(url)) return new Response(JSON.stringify(WARDS));
+  const match = url.match(/\/demo\/shifts\?ward_id=(\d+)&date=([\d-]+)/);
+  return match ? new Response(JSON.stringify(SHIFTS[`${match[1]}/${match[2]}`] ?? [])) : null;
+}
+
 function answerClock(fetchMock: (url: string, init?: RequestInit) => unknown) {
-  vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
-    /\/clock$/.test(url)
+  vi.stubGlobal("fetch", (url: string, init?: RequestInit) => {
+    const picked = pickerAnswer(url);
+    if (picked) return Promise.resolve(picked);
+    return /\/clock$/.test(url)
       ? Promise.resolve(new Response(JSON.stringify(CLOCK_ANSWER)))
       : /\/demo\/test-runs$/.test(url) && (init?.method ?? "GET") === "GET"
         ? Promise.resolve(new Response("[]"))
-        : (fetchMock(url, init) as Promise<Response>),
-  );
+        : (fetchMock(url, init) as Promise<Response>);
+  });
 }
 
 function stubFetch(body: unknown, status = 200) {
@@ -282,10 +320,12 @@ describe("demo control page", () => {
         "105 reports leave (shift 1): Staff 105 has no assigned roster on shift 1 (HTTP 409)",
       ),
     ).toBeTruthy();
-    // the two clock buttons follow the state of the clock, the others only the running request.
-    // Starting a test run waits for a tester code (round 6 PR EV5b)
+    // the clock buttons follow the state of the clock, the others only the running request.
+    // Starting a test run waits for a tester code (round 6 PR EV5b), a leave or a check-in
+    // for a person picked on a shift of the clock's day (round 6 PR EV6)
     for (const button of screen.getAllByRole<HTMLButtonElement>("button")) {
-      if (/^(Freeze|Unfreeze) clock|^Start test run/.test(button.textContent ?? "")) continue;
+      const name = button.textContent ?? "";
+      if (/^(Freeze|Unfreeze) clock|^Run on from|^Set and |^Start test run|^Report leave|^Simulate check-in/.test(name)) continue;
       expect(button.disabled).toBe(false);
     }
   });
@@ -586,13 +626,31 @@ describe("demo control live case status", () => {
     expect(fetchMock).toHaveBeenCalledTimes(count);
   });
 
-  it("reports a leave on the chosen ward, shift and person (PR U)", async () => {
+  /** The Demo control inside the clock the picker reads its day from */
+  function renderWithClock() {
+    render(createElement(ClockProvider, { children: createElement(DemoControl) }));
+  }
+
+  async function optionsOf(label: string, expected: string[]) {
+    await vi.waitFor(() =>
+      expect(
+        Array.from(screen.getByLabelText<HTMLSelectElement>(label).options).map((item) => item.value),
+      ).toEqual(expected),
+    );
+  }
+
+  it("reports a leave on the chosen ward, day, shift and person (PR U, round 6 PR EV6)", async () => {
     const fetchMock = stubFetch(
       { event_id: 5, event_status: "PROCESSED", case_id: 8, case_status: "WAITING_RESPONSE" },
     );
-    render(createElement(DemoControl));
+    renderWithClock();
+    await optionsOf("Ward", ["1", "2"]);
     fireEvent.change(screen.getByLabelText("Ward"), { target: { value: "2" } });
-    fireEvent.change(screen.getByLabelText("Shift"), { target: { value: "22" } });
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText<HTMLInputElement>("Day the shift starts").value).toBe("2026-10-09"),
+    );
+    fireEvent.change(screen.getByLabelText("Day the shift starts"), { target: { value: "2026-10-11" } });
+    await optionsOf("Shift", ["22"]);
     fireEvent.change(screen.getByLabelText("Staff on the shift"), { target: { value: "401" } });
     click("Report leave");
 
@@ -607,15 +665,16 @@ describe("demo control live case status", () => {
     });
   });
 
-  it("offers only the shifts and people of the chosen ward (PR U)", async () => {
+  it("offers the wards of the database and the shifts and people of the chosen day (round 6 PR EV6)", async () => {
     stubFetch({});
-    render(createElement(DemoControl));
+    renderWithClock();
+    // A Float Pool has no shifts of its own
+    await optionsOf("Ward", ["1", "2"]);
     fireEvent.change(screen.getByLabelText("Ward"), { target: { value: "2" } });
 
-    const options = (label: string) =>
-      Array.from(screen.getByLabelText<HTMLSelectElement>(label).options).map((item) => item.value);
-    expect(options("Shift")).toEqual(["21", "22"]);
-    expect(options("Staff on the shift")).toEqual(["301", "302", "401", "902", "950"]);
+    await optionsOf("Shift", ["21"]);
+    await optionsOf("Staff on the shift", ["301", "302", "401", "902", "950"]);
+    expect(screen.getByRole("option", { name: /^301 — Name301 Demo · ASSIGNED$/ })).toBeTruthy();
   });
 
   it("simulates the check-in of the chosen staff member through the demo route", async () => {
@@ -626,7 +685,8 @@ describe("demo control live case status", () => {
       on_time: true,
       deadline: "2026-10-09T23:15:00+07:00",
     });
-    render(createElement(DemoControl));
+    renderWithClock();
+    await optionsOf("Staff on the shift", ["101", "102", "103", "104", "105"]);
     click("Simulate check-in (demo)");
 
     expect(
@@ -773,5 +833,102 @@ describe("demo control language switch", () => {
 
     expect(screen.getByText(/Reset demo: API request failed \(500\)/)).toBeTruthy();
     expect(screen.queryByText(/คำขอไปยัง API ไม่สำเร็จ/)).toBeNull();
+  });
+});
+
+describe("demo control clock of round 6 PR EV6", () => {
+  /** The Backend clock; a POST answers with `answer` and is kept with its body */
+  function serve(answer: Record<string, unknown>) {
+    const posts: { path: string; body: unknown }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const picked = pickerAnswer(url);
+      if (picked) return picked;
+      const path = new URL(url).pathname;
+      if (path === "/demo/test-runs") return new Response("[]");
+      if (init?.method === "POST") {
+        posts.push({ path, body: init.body ? JSON.parse(String(init.body)) : undefined });
+        return new Response(JSON.stringify(answer));
+      }
+      return new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true, mode: "frozen" }));
+    });
+    render(createElement(ClockProvider, null, createElement(DemoControl)));
+    return posts;
+  }
+
+  it("sets the clock to the time picked and lets it run on from there", async () => {
+    const posts = serve({ now: "2026-10-12T08:30:00+07:00", frozen: false, mode: "running" });
+    const time = screen.getByLabelText<HTMLInputElement>("Time");
+    // It starts at the time the clock shows, in Bangkok time
+    await vi.waitFor(() => expect(time.value).toBe("2026-10-09T21:00"));
+
+    fireEvent.change(time, { target: { value: "2026-10-12T08:30" } });
+    await clickWhenReady("Set and run on");
+
+    expect(await screen.findByText("Clock runs on at real speed. Now: 2026-10-12 08:30:00")).toBeTruthy();
+    expect(posts).toEqual([
+      { path: "/demo/clock/set", body: { at: "2026-10-12T08:30:00+07:00", running: true } },
+    ]);
+  });
+
+  it("sets the clock and keeps it frozen there", async () => {
+    const posts = serve({ now: "2026-10-10T06:45:00+07:00", frozen: true, mode: "frozen" });
+    const time = screen.getByLabelText<HTMLInputElement>("Time");
+    await vi.waitFor(() => expect(time.value).toBe("2026-10-09T21:00"));
+
+    fireEvent.change(time, { target: { value: "2026-10-10T06:45" } });
+    await clickWhenReady("Set and freeze");
+
+    expect(await screen.findByText("Clock frozen at 2026-10-10 06:45:00")).toBeTruthy();
+    expect(posts[0].body).toEqual({ at: "2026-10-10T06:45:00+07:00", running: false });
+  });
+
+  it("runs on from the time shown instead of going back to real time", async () => {
+    const posts = serve({ now: "2026-10-09T21:00:00+07:00", frozen: false, mode: "running" });
+
+    await clickWhenReady("Run on from the time shown");
+
+    expect(await screen.findByText("Clock runs on at real speed. Now: 2026-10-09 21:00:00")).toBeTruthy();
+    expect(posts.map((post) => post.path)).toEqual(["/demo/clock/resume"]);
+  });
+
+  it("resets with the hospital demo unless it is unticked", async () => {
+    const posts = serve({ status: "ok", clock: "2026-10-09T21:00:00+07:00" });
+
+    await clickWhenReady("Reset demo");
+    await screen.findByText(/Demo reset/);
+    fireEvent.click(screen.getByLabelText("Load the hospital demo (5 more wards for a week)"));
+    await clickWhenReady("Reset demo");
+
+    await vi.waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts.map((post) => post.body)).toEqual([{ hospital: true }, { hospital: false }]);
+  });
+});
+
+describe("demo control picker after a reset (review of #145)", () => {
+  it("reads the wards again, so the hospital wards appear without a page reload", async () => {
+    let hospital = false;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path === "/demo/wards") {
+        const surgery = { id: 20001, name: "Surgery", is_active: true, is_float_pool: false };
+        return new Response(JSON.stringify(hospital ? [...WARDS, surgery] : WARDS));
+      }
+      const picked = pickerAnswer(url);
+      if (picked) return picked;
+      if (path === "/demo/test-runs") return new Response("[]");
+      if (init?.method === "POST" && path === "/demo/reset") {
+        hospital = true;
+        return new Response(JSON.stringify({ status: "ok", clock: "2026-10-09T21:00:00+07:00" }));
+      }
+      return new Response(JSON.stringify(CLOCK_ANSWER));
+    });
+    render(createElement(ClockProvider, null, createElement(DemoControl)));
+    const wards = () =>
+      Array.from(screen.getByLabelText<HTMLSelectElement>("Ward").options).map((item) => item.textContent);
+    await vi.waitFor(() => expect(wards()).toEqual(["ICU", "Medicine"]));
+
+    await clickWhenReady("Reset demo");
+
+    await vi.waitFor(() => expect(wards()).toEqual(["ICU", "Medicine", "Surgery"]));
   });
 });

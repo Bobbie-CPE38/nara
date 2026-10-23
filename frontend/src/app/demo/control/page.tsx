@@ -5,15 +5,14 @@ import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { useAuth } from "@/components/AuthProvider";
 import { useBackendClock } from "@/components/ClockProvider";
 import { TestRunPanel } from "@/components/demo/TestRunPanel";
 import { Notice } from "@/components/ui/Notice";
 import { usePolling } from "@/hooks/usePolling";
+import { useShiftPicker } from "@/hooks/useShiftPicker";
 import { useTestRuns } from "@/hooks/useTestRuns";
 import { ApiError, apiRequest } from "@/lib/api";
 import { POLL_INTERVAL_MS, TERMINAL_CASE_STATUSES } from "@/lib/constants";
-import { DEMO_WARDS } from "@/lib/demo";
 import { describeError } from "@/lib/errors";
 import { openRun } from "@/lib/testRuns";
 import { formatDateTime } from "@/lib/format";
@@ -69,13 +68,28 @@ const ADVANCE_SECONDS = 600;
 /** A text of the page (a key and its values, in the language of the user) or the words of the API. */
 type Message = { key: MessageKey; params?: Params } | { failure: unknown };
 
+type ClockMode = NonNullable<ClockView["mode"]>;
+
 type Outcome =
   | { kind: "reset"; clock: string }
-  | { kind: "clockMode"; frozen: boolean; clock: string }
+  | { kind: "clockMode"; mode: ClockMode; clock: string }
   | { kind: "clock"; result: ClockAdvanceResult }
   | { kind: "event"; label: Message; result: EventResult }
   | { kind: "checkIn"; label: Message; result: CheckInResult }
   | { kind: "error"; label: Message; message: Message };
+
+/** What the clock does after a clock button, in the words of the page (round 6 PR EV6). */
+const CLOCK_MODE_TEXT: Record<ClockMode, MessageKey> = {
+  frozen: "ctl.frozenAt",
+  real: "ctl.unfrozen",
+  running: "ctl.runningFrom",
+  scenario: "ctl.runningFrom",
+};
+
+/** The Backend Clock as the value of a datetime-local field, in Bangkok time */
+function localInput(iso: string | undefined): string {
+  return iso ? formatDateTime(iso).slice(0, 16).replace(" ", "T") : "";
+}
 
 /** An error as the user reads it; called when the page renders, so a switch of language also reaches it. */
 function errorText(cause: unknown, t: Translate): string {
@@ -153,30 +167,16 @@ export default function DemoControl() {
   // Off until the first list has come: the Backend would refuse them during a run anyway
   const runsKnown = testRuns.data !== undefined || testRuns.error !== null;
   const runBlocks = runOpen !== undefined || !runsKnown;
-  const auth = useAuth();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
-  // A leave on any seeded ward and shift (docs/workflow.md 9.6, round 4 PR U)
-  const [wardId, setWardId] = useState<number>(DEMO_WARDS[0].id);
-  const ward = DEMO_WARDS.find((item) => item.id === wardId) ?? DEMO_WARDS[0];
-  const [shiftId, setShiftId] = useState<number>(ward.shifts[0].id);
-  const shift = ward.shifts.find((item) => item.id === shiftId) ?? ward.shifts[0];
-  const [staffId, setStaffId] = useState<number>(shift.staffIds[0]);
-  const leaveStaffId = shift.staffIds.includes(staffId) ? staffId : shift.staffIds[0];
+  // A leave or a check-in of anyone on any ward, day and shift (round 6 PR EV6, 6.36.5)
+  const picker = useShiftPicker();
+  // The time the clock is set to; empty until the user types one, then the field keeps it
+  const [clockInput, setClockInput] = useState<string | null>(null);
+  const clockValue = clockInput ?? localInput(clockView?.now);
+  // The hospital demo of 6.36.3: five more wards for a week; ticked by default
+  const [withHospital, setWithHospital] = useState(true);
 
   const text = (message: Message) => ("failure" in message ? errorText(message.failure, t) : t(message.key, message.params));
-
-  function pickWard(id: number) {
-    const next = DEMO_WARDS.find((item) => item.id === id) ?? DEMO_WARDS[0];
-    setWardId(next.id);
-    setShiftId(next.shifts[0].id);
-    setStaffId(next.shifts[0].staffIds[0]);
-  }
-
-  function pickShift(id: number) {
-    const next = ward.shifts.find((item) => item.id === id) ?? ward.shifts[0];
-    setShiftId(next.id);
-    setStaffId(next.staffIds[0]);
-  }
 
   async function run(label: Message, action: () => Promise<Outcome>) {
     setBusy(true);
@@ -194,17 +194,42 @@ export default function DemoControl() {
     run({ key: "ctl.reset" }, async () => {
       const { clock } = await apiRequest<{ status: string; clock: string }>(
         "/demo/reset",
-        { method: "POST" },
+        { method: "POST", json: { hospital: withHospital } },
       );
+      setClockInput(null);
+      void picker.reload();
       return { kind: "reset", clock };
     });
 
-  const setClockMode = (frozen: boolean) =>
-    run({ key: frozen ? "ctl.freezeClock" : "ctl.unfreezeClock" }, async () => {
-      const view = await apiRequest<ClockView>(frozen ? "/demo/clock/freeze" : "/demo/clock/unfreeze", {
+  /** Freeze where it is, run on from where it is (6.36.1), or follow real time again */
+  const CLOCK_BUTTONS = {
+    freeze: { path: "/demo/clock/freeze", label: "ctl.freezeClock" },
+    resume: { path: "/demo/clock/resume", label: "ctl.resumeClock" },
+    unfreeze: { path: "/demo/clock/unfreeze", label: "ctl.unfreezeClock" },
+  } as const;
+
+  const clockOutcome = (view: ClockView): Outcome => ({
+    kind: "clockMode",
+    mode: view.mode ?? (view.frozen ? "frozen" : "real"),
+    clock: formatDateTime(view.now),
+  });
+
+  const setClockMode = (button: keyof typeof CLOCK_BUTTONS) =>
+    run({ key: CLOCK_BUTTONS[button].label }, async () => {
+      const view = await apiRequest<ClockView>(CLOCK_BUTTONS[button].path, { method: "POST" });
+      setClockInput(null);
+      return clockOutcome(view);
+    });
+
+  // Any time within a year of real time, in Bangkok time, frozen there or running on (6.36.1)
+  const setClock = (running: boolean) =>
+    run({ key: running ? "ctl.setRunning" : "ctl.setFrozen" }, async () => {
+      const view = await apiRequest<ClockView>("/demo/clock/set", {
         method: "POST",
+        json: { at: `${clockValue}:00+07:00`, running },
       });
-      return { kind: "clockMode", frozen: view.frozen, clock: formatDateTime(view.now) };
+      setClockInput(null);
+      return clockOutcome(view);
     });
 
   const advanceClock = () =>
@@ -231,68 +256,65 @@ export default function DemoControl() {
     });
   };
 
+  const { ward, shift, person } = picker;
+  const chosen = ward !== undefined && shift !== undefined && person !== undefined;
+
   const reportLeave = () => {
+    if (!chosen) return;
     const name: Message = {
       key: "ctl.leaveLabel",
-      params: { staff: leaveStaffId, ward: ward.name, shift: shift.id },
+      params: { staff: person.staff_id, ward: ward.name, shift: shift.id },
     };
     return run(name, async () => {
-      const result = await apiRequest<EventResult>("/demo/events", {
-        method: "POST",
-        json: { event_type: "STAFF_UNAVAILABLE", shift_id: shift.id, reporter_staff_id: leaveStaffId },
-      });
-      return { kind: "event", label: name, result };
+      try {
+        const result = await apiRequest<EventResult>("/demo/events", {
+          method: "POST",
+          json: { event_type: "STAFF_UNAVAILABLE", shift_id: shift.id, reporter_staff_id: person.staff_id },
+        });
+        return { kind: "event", label: name, result };
+      } finally {
+        void picker.refresh();
+      }
     });
   };
 
   // Not the nurse's own check-in: the demo plays a character arriving (R5-Q23)
   const simulateCheckIn = () => {
+    if (!chosen) return;
     const label: Message = {
       key: "ctl.checkInLabel",
-      params: { staff: leaveStaffId, ward: ward.name, shift: shift.id },
+      params: { staff: person.staff_id, ward: ward.name, shift: shift.id },
     };
     return run(label, async () => {
-      const result = await apiRequest<CheckInResult>("/demo/attendance/check-in", {
-        method: "POST",
-        json: { staff_id: leaveStaffId, shift_id: shift.id },
-      });
-      return { kind: "checkIn", label, result };
+      try {
+        const result = await apiRequest<CheckInResult>("/demo/attendance/check-in", {
+          method: "POST",
+          json: { staff_id: person.staff_id, shift_id: shift.id },
+        });
+        return { kind: "checkIn", label, result };
+      } finally {
+        void picker.refresh();
+      }
     });
   };
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
       <PageHeader title={t("ctl.title")} />
-      {/* Reset demo ends every login of a server that uses logins */}
-      {auth.state.status !== "demo" && (
-        <div className="mb-4">
-          <Notice kind="warning" role="status">
-            {t("auth.note.sessionReset")}
-          </Notice>
-        </div>
-      )}
       <Card>
         <div className="grid gap-2 sm:grid-cols-2">
           <Button className="text-left" disabled={working || runBlocks} onClick={reset}>
             {t("ctl.reset")}
           </Button>
-          <Button className="text-left" disabled={working || !canAdvance} onClick={advanceClock}>
-            {t("ctl.advance")}
-          </Button>
-          <Button
-            className="text-left"
-            disabled={working || clockFrozen === true || runBlocks}
-            onClick={() => setClockMode(true)}
-          >
-            {t("ctl.freezeClock")}
-          </Button>
-          <Button
-            className="text-left"
-            disabled={working || clockFrozen === false || runBlocks}
-            onClick={() => setClockMode(false)}
-          >
-            {t("ctl.unfreezeClock")}
-          </Button>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={withHospital}
+              disabled={working}
+              onChange={(event) => setWithHospital(event.target.checked)}
+            />
+            {t("ctl.withHospital")}
+          </label>
           {EVENTS.map((event) => (
             <Button
               key={event.label}
@@ -313,66 +335,148 @@ export default function DemoControl() {
         )}
       </Card>
 
+      {/* The clock: set it to any time, frozen there or running on (round 6 PR EV6, 6.36.1) */}
+      <fieldset className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-md">
+        <legend className="px-1 font-semibold text-brand-800">{t("ctl.clockTitle")}</legend>
+        <p className="text-sm text-slate-600">{t("ctl.clockIntro")}</p>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm font-medium" htmlFor="clock-at">
+            {t("ctl.clockAt")}{" "}
+            <input
+              id="clock-at"
+              type="datetime-local"
+              step={60}
+              value={clockValue}
+              disabled={working || runBlocks}
+              onChange={(event) => setClockInput(event.target.value)}
+            />
+          </label>
+          <Button disabled={working || runBlocks || clockValue === ""} onClick={() => setClock(false)}>
+            {t("ctl.setFrozen")}
+          </Button>
+          <Button variant="primary" disabled={working || runBlocks || clockValue === ""} onClick={() => setClock(true)}>
+            {t("ctl.setRunning")}
+          </Button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Button className="text-left" disabled={working || !canAdvance} onClick={advanceClock}>
+            {t("ctl.advance")}
+          </Button>
+          <Button
+            className="text-left"
+            disabled={working || clockFrozen === true || runBlocks}
+            onClick={() => setClockMode("freeze")}
+          >
+            {t("ctl.freezeClock")}
+          </Button>
+          <Button
+            className="text-left"
+            disabled={working || clockView?.mode === "running" || runBlocks}
+            onClick={() => setClockMode("resume")}
+          >
+            {t("ctl.resumeClock")}
+          </Button>
+          <Button
+            className="text-left"
+            disabled={working || (clockFrozen === false && clockView?.mode !== "running") || runBlocks}
+            onClick={() => setClockMode("unfreeze")}
+          >
+            {t("ctl.unfreezeClock")}
+          </Button>
+        </div>
+      </fieldset>
+
       <TestRunPanel
         open={runOpen}
         runsError={testRuns.error}
         blocked={busy}
         onBusyChange={setPanelBusy}
-        onChange={() => void testRuns.refresh()}
+        onChange={() => {
+          void testRuns.refresh();
+          // Starting or ending a run resets the demo or pauses wards: what the picker lists changes
+          void picker.reload();
+        }}
       />
 
       <fieldset className="mt-4 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-md">
         <legend className="px-1 font-semibold text-brand-800">{t("ctl.fieldset")}</legend>
+        {picker.error && (
+          <Notice kind="warning" role="status">
+            {t("ctl.pickerFailed", { error: errorText(picker.error, t) })}
+          </Notice>
+        )}
         <label htmlFor="leave-ward">
           {t("common.ward")}{" "}
           <select
             id="leave-ward"
-            value={ward.id}
-            disabled={working}
-            onChange={(event) => pickWard(Number(event.target.value))}
+            value={ward?.id ?? ""}
+            disabled={working || picker.wards.length === 0}
+            onChange={(event) => picker.pickWard(Number(event.target.value))}
           >
-            {DEMO_WARDS.map((item) => (
+            {picker.wards.map((item) => (
               <option key={item.id} value={item.id}>
-                {item.name}
+                {item.is_active ? item.name : t("ctl.wardPaused", { ward: item.name })}
               </option>
             ))}
           </select>
+        </label>
+        <label htmlFor="leave-date">
+          {t("gapPage.day")}{" "}
+          <input
+            id="leave-date"
+            type="date"
+            min="2000-01-01"
+            max="2999-12-31"
+            value={picker.date}
+            disabled={working}
+            onChange={(event) => picker.pickDate(event.target.value)}
+          />
         </label>
         <label htmlFor="leave-shift">
           {t("common.shift")}{" "}
           <select
             id="leave-shift"
-            value={shift.id}
-            disabled={working}
-            onChange={(event) => pickShift(Number(event.target.value))}
+            value={shift?.id ?? ""}
+            disabled={working || picker.shifts.length === 0}
+            onChange={(event) => picker.pickShift(Number(event.target.value))}
           >
-            {ward.shifts.map((item) => (
+            {picker.shifts.map((item) => (
               <option key={item.id} value={item.id}>
-                {`${t("roster.shiftOption", { id: item.id })} (${t(item.kind === "night" ? "ctl.night" : "ctl.day")})`}
+                {t("ctl.shiftOption", {
+                  id: item.id,
+                  type: item.shift_type,
+                  from: formatDateTime(item.start_at).slice(11, 16),
+                  until: formatDateTime(item.end_at).slice(11, 16),
+                })}
               </option>
             ))}
           </select>
         </label>
+        {ward !== undefined && picker.date !== "" && picker.shifts.length === 0 && (
+          <p className="text-sm text-slate-600">{t("gapPage.noShifts")}</p>
+        )}
         <label htmlFor="leave-staff">
           {t("ctl.staffOnShift")}{" "}
           <select
             id="leave-staff"
-            value={leaveStaffId}
-            disabled={working}
-            onChange={(event) => setStaffId(Number(event.target.value))}
+            value={person?.staff_id ?? ""}
+            disabled={working || picker.people.length === 0}
+            onChange={(event) => picker.pickPerson(Number(event.target.value))}
           >
-            {shift.staffIds.map((id) => (
-              <option key={id} value={id}>
-                {id}
+            {picker.people.map((item) => (
+              <option key={item.staff_id} value={item.staff_id}>
+                {`${item.staff_id} — ${item.first_name} ${item.last_name} · ${item.status}${
+                  item.checked_in ? ` · ${t("ctl.checkedIn")}` : ""
+                }`}
               </option>
             ))}
           </select>
         </label>
         <div className="flex flex-wrap gap-2">
-          <Button disabled={working} onClick={reportLeave}>
+          <Button disabled={working || !chosen} onClick={reportLeave}>
             {t("ctl.reportLeave")}
           </Button>
-          <Button disabled={working} onClick={simulateCheckIn}>
+          <Button disabled={working || !chosen} onClick={simulateCheckIn}>
             {t("ctl.simCheckIn")}
           </Button>
         </div>
@@ -384,7 +488,7 @@ export default function DemoControl() {
       )}
       {outcome?.kind === "clockMode" && (
         <p className="mt-4 font-medium text-green-700">
-          {t(outcome.frozen ? "ctl.frozenAt" : "ctl.unfrozen", { clock: outcome.clock })}
+          {t(CLOCK_MODE_TEXT[outcome.mode], { clock: outcome.clock })}
         </p>
       )}
       {outcome?.kind === "error" && (

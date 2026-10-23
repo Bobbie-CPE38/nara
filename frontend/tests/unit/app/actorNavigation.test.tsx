@@ -40,6 +40,9 @@ const HANDED_OFF = {
   can_manage: true,
 };
 
+/** The first page of the handoff list (round 6 PR EV6) */
+const HANDOFF_LIST = "/cases/search?page=1&page_size=10&sort=oldest&status=MANUAL_HANDOFF%2CFAILED";
+
 beforeEach(() => {
   request.mockReset();
   params = new URLSearchParams();
@@ -52,7 +55,10 @@ beforeEach(() => {
         pending_approvals: [{ ward_id: 2, count: 1 }],
       }) as T;
     }
-    if (path.startsWith("/cases?")) return [HANDED_OFF] as T;
+    if (path.startsWith("/cases/search?")) {
+      const item = { ...HANDED_OFF, ward_name: "Medicine", shift_type: "NIGHT", shift_start_at: HANDED_OFF.required_replacement_time };
+      return { items: [item], total: 1, page: 1, page_size: 10 } as T;
+    }
     return [] as T;
   });
 });
@@ -106,7 +112,7 @@ describe("Dashboard links keep the user they were opened for", () => {
       expect(new Set(users), `${path} for ${actorId}`).toEqual(new Set([actorId]));
       if (path === "/handoff") {
         expect(request).toHaveBeenCalledWith(
-          "/cases?status=MANUAL_HANDOFF,FAILED",
+          HANDOFF_LIST,
           expect.objectContaining({ demoUser: actorId }),
         );
       }
@@ -126,7 +132,7 @@ describe("Dashboard links keep the user they were opened for", () => {
       render(<Handoff />);
       await waitFor(() =>
         expect(request).toHaveBeenCalledWith(
-          "/cases?status=MANUAL_HANDOFF,FAILED",
+          HANDOFF_LIST,
           expect.objectContaining({ demoUser: actorId }),
         ),
       );
@@ -137,18 +143,18 @@ describe("Dashboard links keep the user they were opened for", () => {
     params = new URLSearchParams("?as=902");
     render(<Handoff />);
     fireEvent.click(await screen.findByRole("button", { name: "Manage" }));
-    expect(await screen.findByRole("region", { name: "Manage case 7" })).toBeTruthy();
+    expect(await screen.findByRole("dialog", { name: "Manage case 7" })).toBeTruthy();
 
     request.mockClear();
     fireEvent.change(screen.getByLabelText(/Viewing as/), { target: { value: "950" } });
 
     await waitFor(() =>
       expect(request).toHaveBeenCalledWith(
-        "/cases?status=MANUAL_HANDOFF,FAILED",
+        HANDOFF_LIST,
         expect.objectContaining({ demoUser: 950 }),
       ),
     );
-    expect(screen.queryByRole("region", { name: "Manage case 7" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Manage case 7" })).toBeNull();
     // Nothing of the first user's case is asked for as the new user
     expect(request.mock.calls.some(([path]) => String(path).includes("/handoff/"))).toBe(false);
   });

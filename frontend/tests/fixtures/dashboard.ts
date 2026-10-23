@@ -21,6 +21,7 @@ export function dashboard(overrides: Partial<Dashboard> = {}): Dashboard {
     now: "2026-10-17T21:00:00+07:00",
     modes: { line_mode: "simulation", llm_provider: "fake", llm_enabled: false },
     wards: [1],
+    ward_options: [{ id: 1, name: "ICU" }],
     cases_by_status: STATUSES.map((status) => ({ status, count: 0 })),
     shortages: [],
     pending_approvals: [],

@@ -181,7 +181,7 @@ def test_writes_one_optimal_plan(seeded: Session) -> None:
     assert plan.solver_status is SolverStatus.OPTIMAL
     assert plan.solver_version == "cp-sat-v1"
     assert plan.execution_time_ms >= 0
-    assert plan.objective_score == 2023
+    assert plan.objective_score == 81011
     assert plan.hard_constraint_policy_id == 1
     assert plan.soft_constraint_policy_id == 1
     assert plan.generated_at == DEMO_NOW
@@ -195,11 +195,11 @@ def test_writes_one_optimal_plan(seeded: Session) -> None:
     }
     assert [row["staff_id"] for row in snapshot["candidates"]] == [201, 202, 203]
     assert [row["first_wave"] for row in snapshot["candidates"]] == [True, True, False]
-    assert [row["penalty"] for row in snapshot["candidates"]] == [1005, 1018, 1018]
+    assert [row["penalty"] for row in snapshot["candidates"]] == [40017, 40994, 40994]
     assert [row["penalty_exact"] for row in snapshot["candidates"]] == [
-        "1005/1",
-        "1018/1",
-        "1018/1",
+        "40017/1",
+        "40994/1",
+        "40994/1",
     ]
     # Round 4 T1: the pool has no transfers, so every candidate covers the whole shift
     for row in snapshot["candidates"]:
@@ -211,12 +211,12 @@ def test_writes_one_optimal_plan(seeded: Session) -> None:
         assert item.cover_end_at is None
         assert item.source_assignment_id is None
     assert snapshot["weights"] == {
-        "candidate_count": "1000/1",
-        "consecutive_shift": "5/1",
-        "workload_imbalance": "1/1",
-        "projected_overtime": "2/1",
-        "roster_change": "300/1",
-        "candidate_source": "200/1",
+        "candidate_count": "40000/1",
+        "consecutive_shift": "17/1",
+        "workload_imbalance": "120/1",
+        "projected_overtime": "1/1",
+        "roster_change": "20000/1",
+        "candidate_source": "6400/1",
         "source_order": [source.value for source in CandidateSource],
     }
     assert snapshot["skipped"] == [

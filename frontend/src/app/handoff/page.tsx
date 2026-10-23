@@ -4,10 +4,13 @@ import Link from "next/link";
 import { type FormEvent, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollX } from "@/components/ScrollX";
 import { ActingAs } from "@/components/ActingAs";
+import { CaseFilters, type CaseQuery, searchPath } from "@/components/case/CaseFilters";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Modal } from "@/components/ui/Modal";
 import { Notice } from "@/components/ui/Notice";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { Pager } from "@/components/ui/Pager";
 import { useActor } from "@/hooks/useActor";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, createDemoApi } from "@/lib/api";
@@ -17,6 +20,7 @@ import { formatDateTime } from "@/lib/format";
 import type { MessageKey, Params, Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import type {
+  CasePage,
   CloseCaseResult,
   HandoffCandidate,
   HandoffCase,
@@ -26,6 +30,14 @@ import type {
 
 // Same limit as the API (R2-Q20)
 const MAX_REASON_LENGTH = 500;
+const PAGE_SIZE = 10;
+
+/** Handed off and failed cases, or one of the two (round 6 PR EV6, docs/workflow.md 6.36.6) */
+const HANDOFF_STATUS_FILTERS = [
+  { value: "MANUAL_HANDOFF,FAILED", label: "cases.filter.attention" },
+  { value: "MANUAL_HANDOFF", label: "hand.filter.manual" },
+  { value: "FAILED", label: "hand.filter.failed" },
+] as const;
 
 function shortByText(row: HandoffCase): string {
   if (row.headcount_gap === null) return "—";
@@ -74,11 +86,14 @@ function HandoffPage() {
   // nurse (docs/workflow.md, section 10). The API shows each one their own ward
   const [actorId, setActorId] = useActor();
   const api = useMemo(() => createDemoApi(actorId), [actorId]);
+  // Search, filter and pages of round 6 PR EV6; the oldest case first, as it waits the longest
+  const [query, setQuery] = useState<CaseQuery>({ q: "", status: HANDOFF_STATUS_FILTERS[0].value, page: 1 });
   const loadCases = useCallback(
-    (signal: AbortSignal) => api<HandoffCase[]>("/cases?status=MANUAL_HANDOFF,FAILED", { signal }),
-    [api],
+    (signal: AbortSignal) => api<CasePage>(searchPath(query, PAGE_SIZE, "oldest"), { signal }),
+    [api, query],
   );
-  const { data: cases, error, isLoading, refresh } = usePolling(loadCases);
+  const { data: page, error, isLoading, refresh } = usePolling(loadCases);
+  const cases = page?.items;
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [candidates, setCandidates] = useState<HandoffCandidate[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -133,10 +148,20 @@ function HandoffPage() {
     if (selectedId !== null) void loadCandidates(selectedId);
   }, [selectedId, loadCandidates]);
 
+  function closeModal() {
+    listedFor.current = null;
+    setSelectedId(null);
+    setCandidates(null);
+    setPendingConfirm(null);
+    setNote("");
+    setCloseReason("");
+  }
+
   function changeActor(id: number) {
     // Nothing of the previous user's case may stay open: it belongs to another ward's list
     listedFor.current = null;
     setActorId(id);
+    setQuery((value) => ({ ...value, page: 1 }));
     setSelectedId(null);
     setCandidates(null);
     setOutcome(null);
@@ -243,29 +268,44 @@ function HandoffPage() {
     }
   }
 
+  const outcomeView = (
+    <>
+      {outcome?.kind === "ok" && <p className="font-medium text-green-700">{text(outcome.message)}</p>}
+      {outcome?.kind === "info" && (
+        <Notice kind="warning" role="status">
+          {text(outcome.message)}
+        </Notice>
+      )}
+      {outcome?.kind === "error" && (
+        <Notice kind="error" role="alert">
+          {text(outcome.message)}
+        </Notice>
+      )}
+    </>
+  );
+
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
       <PageHeader title={t("hand.title")} description={t("hand.intro")}>
         <ActingAs id="handoff-acting-as" value={actorId} onChange={changeActor} />
       </PageHeader>
 
-      <div className="space-y-3">
+      <Card>
+        <CaseFilters
+          query={query}
+          statuses={HANDOFF_STATUS_FILTERS}
+          disabled={busy}
+          onChange={setQuery}
+        />
+      </Card>
+      <div className="mt-4 space-y-3">
         {error && <p className="text-red-700">{describeError(error, t)}</p>}
-        {outcome?.kind === "ok" && <p className="font-medium text-green-700">{text(outcome.message)}</p>}
-        {outcome?.kind === "info" && (
-          <Notice kind="warning" role="status">
-            {text(outcome.message)}
-          </Notice>
-        )}
-        {outcome?.kind === "error" && (
-          <Notice kind="error" role="alert">
-            {text(outcome.message)}
-          </Notice>
-        )}
+        {/* With the dialog open its own answers show in it */}
+        {!selected && outcomeView}
       </div>
       {isLoading && <p className="mt-4">{t("common.loading")}</p>}
       {cases && cases.length === 0 && <p className="mt-4">{t("hand.noCases")}</p>}
-      {cases && cases.length > 0 && (
+      {page && cases && cases.length > 0 && (
         <Card className="mt-4">
           <ScrollX>
             <table>
@@ -273,6 +313,7 @@ function HandoffPage() {
                 <tr>
                   <th>{t("common.case")}</th>
                   <th>{t("cand.status")}</th>
+                  <th>{t("common.ward")}</th>
                   <th>{t("common.shift")}</th>
                   <th>{t("hand.stillShort")}</th>
                   <th>{t("hand.openedAt")}</th>
@@ -288,6 +329,7 @@ function HandoffPage() {
                       </Link>
                     </td>
                     <td>{row.status}</td>
+                    <td>{row.ward_name}</td>
                     <td>{row.shift_id}</td>
                     <td>{shortByText(row)}</td>
                     <td>{formatDateTime(row.created_at)}</td>
@@ -306,11 +348,20 @@ function HandoffPage() {
               </tbody>
             </table>
           </ScrollX>
+          <Pager
+            page={page.page}
+            pageSize={page.page_size}
+            total={page.total}
+            disabled={busy}
+            onPage={(next) => setQuery((value) => ({ ...value, page: next }))}
+          />
         </Card>
       )}
 
+      {/* Managing a case is a dialog over the list (round 6 PR EV6): the list stays put */}
       {selected && (
-        <Card label={t("hand.manageLabel", { id: selected.id })} title={t("case.title", { id: selected.id })} className="mt-6">
+        <Modal title={t("hand.manageLabel", { id: selected.id })} onClose={closeModal} closeDisabled={busy}>
+          <div className="space-y-3">{outcomeView}</div>
           <p className="mt-1 text-sm">{t("hand.assignHelp")}</p>
 
           <label className="mt-4 block" htmlFor="assignment-note">
@@ -411,7 +462,7 @@ function HandoffPage() {
               {t("hand.closeButton")}
             </Button>
           </form>
-        </Card>
+        </Modal>
       )}
     </main>
   );

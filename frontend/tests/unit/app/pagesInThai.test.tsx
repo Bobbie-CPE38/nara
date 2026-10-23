@@ -10,6 +10,7 @@ import GapCheck from "../../../src/app/gap/page";
 import Handoff from "../../../src/app/handoff/page";
 import MyOffers from "../../../src/app/me/offers/page";
 import Roster from "../../../src/app/roster/page";
+import { ClockProvider } from "../../../src/components/ClockProvider";
 import { LanguageProvider } from "../../../src/lib/i18n/LanguageProvider";
 import { dashboard } from "../../fixtures/dashboard";
 
@@ -26,12 +27,26 @@ const ROSTER = {
   assignments: [],
 };
 
+const SHIFT_OF_THE_DAY = {
+  shift_id: 1, ward_id: 1, start_at: ROSTER.shift.start_at, end_at: ROSTER.shift.end_at,
+  required_staff: 5, rostered_count: 0, headcount_gap: 5, case_id: null,
+};
+/** What GET /gap/shifts answers: none for the gap check, shift 1 for the roster */
+let gapShifts: unknown[] = [];
+
 /** What the API answers to each read of these pages: nothing to list. */
 function answer(url: string): unknown {
   const { pathname, search } = new URL(url);
   if (pathname === "/roster") return ROSTER;
   if (pathname === "/dashboard") return dashboard();
   if (pathname === "/clock") return { now: "2026-10-17T23:00:00+07:00", frozen: true };
+  if (pathname === "/gap/shifts") return gapShifts;
+  // Round 6 PR EV6: the case search, and what the Demo control picks from
+  if (pathname === "/cases/search") return { items: [], total: 0, page: 1, page_size: 10 };
+  if (pathname === "/demo/wards") return [{ id: 1, name: "ICU", is_active: true, is_float_pool: false }];
+  if (pathname === "/demo/shifts") {
+    return [{ id: 1, ward_id: 1, shift_type: "NIGHT", start_at: ROSTER.shift.start_at, end_at: ROSTER.shift.end_at, people: [] }];
+  }
   return pathname.startsWith("/gap/shifts") || search.includes("status=") || pathname.startsWith("/approvals") || pathname.includes("offers")
     ? []
     : {};
@@ -39,6 +54,7 @@ function answer(url: string): unknown {
 
 beforeEach(() => {
   window.localStorage.clear();
+  gapShifts = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string) => new Response(JSON.stringify(answer(url)))),
@@ -58,10 +74,11 @@ const title = () => screen.getByRole("heading", { level: 1 }).textContent;
 
 describe("the pages in Thai", () => {
   it("Roster", async () => {
+    gapShifts = [SHIFT_OF_THE_DAY];
     await show(<Roster />, "th");
     expect(title()).toBe("ตารางเวร");
-    expect(screen.getByText(/ดูตารางเวรของ Demo ในฐานะพนักงาน 900/)).toBeTruthy();
-    expect(screen.getByRole("option", { name: "เวร 2" })).toBeTruthy();
+    expect(screen.getByText(/เวรของหอที่คุณมีสิทธิ์ดู/)).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "เวร 1 · 23:00–07:00" })).toBeTruthy();
     expect(await screen.findByText("เวรนี้ไม่มีการจัดคนเข้าเวร")).toBeTruthy();
     expect(screen.getByText("ICU · เวร 1 · NIGHT")).toBeTruthy();
     expect(screen.queryByText("No assignments for this shift.")).toBeNull();
@@ -114,13 +131,14 @@ describe("the pages in Thai", () => {
   });
 
   it("Demo control", async () => {
-    await show(<DemoControl />, "th");
+    await show(<ClockProvider><DemoControl /></ClockProvider>, "th");
     expect(title()).toBe("ควบคุม Demo");
     expect(screen.getByRole("button", { name: "รีเซ็ต Demo" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "เดินนาฬิกาไป 10 นาที" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "105 แจ้งลา (เวร 1)" })).toBeTruthy();
-    expect(screen.getByText("แจ้งลาหรือจำลองการเช็คอินในหอใดก็ได้")).toBeTruthy();
-    expect(screen.getByRole("option", { name: "เวร 1 (กลางคืน)" })).toBeTruthy();
+    expect(screen.getByText("แจ้งลาหรือจำลองการเช็คอิน เลือกหอ วัน เวร และคนได้อิสระ")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "ตั้งเวลาแล้วเดินต่อ" })).toBeTruthy();
+    expect(await screen.findByRole("option", { name: "เวร 1 · NIGHT · 23:00–07:00" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "จำลองการเช็คอิน (Demo)" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Reset demo" })).toBeNull();
   });
@@ -128,6 +146,7 @@ describe("the pages in Thai", () => {
 
 describe("the same pages in English", () => {
   it("keep the texts they had before the language switch", async () => {
+    gapShifts = [SHIFT_OF_THE_DAY];
     await show(<Roster />, "en");
     expect(title()).toBe("Shift roster");
     expect(await screen.findByText("No assignments for this shift.")).toBeTruthy();
@@ -136,7 +155,7 @@ describe("the same pages in English", () => {
     expect(title()).toBe("Pending approvals");
     expect(await screen.findByText("No pending approvals.")).toBeTruthy();
     cleanup();
-    await show(<DemoControl />, "en");
-    expect(screen.getByRole("option", { name: "Shift 1 (night)" })).toBeTruthy();
+    await show(<ClockProvider><DemoControl /></ClockProvider>, "en");
+    expect(await screen.findByRole("option", { name: "Shift 1 · NIGHT · 23:00–07:00" })).toBeTruthy();
   });
 });

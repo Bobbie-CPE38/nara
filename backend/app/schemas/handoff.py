@@ -3,7 +3,7 @@
 from pydantic import BaseModel, Field
 
 from app.core.constants import MAX_BIGINT
-from app.domain.enums import CaseStatus
+from app.domain.enums import CaseStatus, ShiftType
 from app.schemas.types import AppDatetime
 
 
@@ -21,6 +21,24 @@ class HandoffCase(BaseModel):
     assigned_count: int
     # Only a MANUAL_HANDOFF case can be staffed or closed by hand. FAILED is listed, not managed
     can_manage: bool
+
+
+class CaseListItem(HandoffCase):
+    """One item of GET /cases/search (round 6 PR EV6, 6.36.6): a HandoffCase with what the
+    list shows of its shift."""
+
+    ward_name: str
+    shift_type: ShiftType
+    shift_start_at: AppDatetime
+
+
+class CasePage(BaseModel):
+    """GET /cases/search: one page of the cases the user may read, and how many there are."""
+
+    items: list[CaseListItem]
+    total: int
+    page: int
+    page_size: int
 
 
 class HandoffCandidate(BaseModel):

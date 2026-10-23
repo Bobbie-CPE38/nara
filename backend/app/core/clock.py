@@ -12,6 +12,8 @@ Rules:
   * A test run (6.35.1) puts the clock in scenario mode with `run_from()`: it runs at
     real speed from the scenario time, and `advance()` adds to a recorded offset.
     `set_time()`, `freeze_now()` and `reset()` leave scenario mode.
+  * The Demo control (round 6 PR EV6, 6.36.1) runs the clock the same way without a test
+    run, `run_from(start)`: running mode, real speed from a time the user picked.
   * The frozen time and the scenario live in process memory. They are lost when the
     backend restarts, and `POST /demo/reset` sets the time again.
 """
@@ -30,6 +32,8 @@ class ClockMode(StrEnum):
     FROZEN = "frozen"
     REAL = "real"
     SCENARIO = "scenario"
+    # Real speed from a time picked on the Demo control, no test run (6.36.1)
+    RUNNING = "running"
 
 
 @dataclass(frozen=True)
@@ -38,7 +42,8 @@ class _Scenario:
     # time.monotonic() when run_from() was called: wall-clock jumps do not move the run
     started_monotonic: float
     advanced: timedelta
-    test_run_id: int
+    # None in running mode
+    test_run_id: int | None
 
 
 # Replaced in tests to let real time pass without sleeping
@@ -74,8 +79,9 @@ def set_time(frozen_at: datetime) -> None:
         _scenario = None
 
 
-def run_from(start: datetime, test_run_id: int) -> None:
-    """Enter scenario mode: run at real speed from `start` for this test run (6.35.1)."""
+def run_from(start: datetime, test_run_id: int | None = None) -> None:
+    """Run at real speed from `start`: scenario mode for this test run (6.35.1), or
+    running mode without one (6.36.1)."""
     global _frozen_at, _scenario
     if start.utcoffset() is None:
         raise ValueError("clock time must be timezone-aware")
@@ -136,11 +142,13 @@ def mode() -> ClockMode:
     with _lock:
         if _frozen_at is not None:
             return ClockMode.FROZEN
-        return ClockMode.SCENARIO if _scenario is not None else ClockMode.REAL
+        if _scenario is None:
+            return ClockMode.REAL
+        return ClockMode.RUNNING if _scenario.test_run_id is None else ClockMode.SCENARIO
 
 
 def advanced_seconds() -> float:
-    """Seconds added by advance() in scenario mode; 0 in the other modes."""
+    """Seconds added by advance() in scenario or running mode; 0 in the other modes."""
     with _lock:
         return _scenario.advanced.total_seconds() if _scenario is not None else 0.0
 

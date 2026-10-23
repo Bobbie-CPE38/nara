@@ -28,9 +28,11 @@ from app.domain.enums import CandidateSource
 class SoftMetrics:
     """The values the Solver scores one candidate with.
 
-    hours_this_week and overtime_hours come from the candidate's working-time
-    snapshot. projected_consecutive_shifts is not in the snapshot: it is counted
-    from the roster with the proposed shift inserted (context.py).
+    hours_this_week comes from the candidate's working-time snapshot.
+    projected_consecutive_shifts is not in the snapshot: it is counted from the roster
+    with the proposed shift inserted (context.py). Since round 6 PR EV6 (6.36.7)
+    overtime_hours is the projected overtime of the week if the person takes this
+    shift (projected_overtime_hours()), not only the overtime already worked.
     """
 
     staff_id: int
@@ -38,6 +40,20 @@ class SoftMetrics:
     hours_this_week: Fraction
     projected_consecutive_shifts: int
     overtime_hours: Fraction
+
+
+# Hours of a week before the work counts as overtime (round 6 PR EV6, 6.36.7)
+REGULAR_WEEKLY_HOURS = Fraction(40)
+
+
+def projected_overtime_hours(
+    *, overtime_worked: Fraction, hours_this_week: Fraction, added_hours: Fraction
+) -> Fraction:
+    """The week's overtime if the person takes the shift: what they already worked over
+    their shifts (ATTENDANCE), plus the scheduled hours above REGULAR_WEEKLY_HOURS once
+    `added_hours` join the week. Never below the overtime already worked."""
+    over = hours_this_week + added_hours - REGULAR_WEEKLY_HOURS
+    return overtime_worked + max(Fraction(0), over)
 
 
 def source_priority(source: CandidateSource, order: Sequence[CandidateSource]) -> int:

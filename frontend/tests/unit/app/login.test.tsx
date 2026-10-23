@@ -517,15 +517,16 @@ describe("the menu follows the role", () => {
 
   it("shows a staff nurse the pages of a nurse and no approvals, handoff or Demo pages", async () => {
     const links = await menuOf(ME);
-    expect(links).toEqual(["Dashboard", "Gap check", "Roster", "My offers", "Report leave"]);
+    expect(links).toEqual(["Dashboard", "Gap check", "Cases", "Roster", "My offers", "Report leave"]);
   });
 
-  it("adds Approvals and Handoff for a head nurse and a supervisor, never the Demo pages", async () => {
+  it("adds Demo control, Approvals and Handoff for a head nurse and a supervisor, no other Demo page", async () => {
+    // Round 6 PR EV6: the Demo control is in the menu of the people who run the demo
     for (const me of [HEAD, SUPERVISOR]) {
       cleanup();
       const links = await menuOf(me);
       expect(links).toEqual([
-        "Dashboard", "Gap check", "Approvals", "Handoff", "Roster", "My offers",
+        "Dashboard", "Gap check", "Demo control", "Approvals", "Handoff", "Cases", "Roster", "My offers",
         ...(me === SUPERVISOR ? ["Staff management"] : []), "Report leave",
       ]);
     }
@@ -579,6 +580,7 @@ describe("the menu follows the role", () => {
       "Demo control",
       "Approvals",
       "Handoff",
+      "Cases",
       "LINE simulator",
       "Test runs",
       "Roster",
