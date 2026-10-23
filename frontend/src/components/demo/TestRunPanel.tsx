@@ -42,11 +42,17 @@ type Outcome =
 export function TestRunPanel({
   open,
   runsError,
+  blocked = false,
+  onBusyChange,
   onChange,
 }: {
   /** The open run, read from GET /demo/test-runs; undefined when there is none */
   open: TestRunView | undefined;
   runsError: Error | null;
+  /** Another request of the page is running, for example an advance of the clock */
+  blocked?: boolean;
+  /** Tell the page while a request of this panel runs, so its own buttons wait too */
+  onBusyChange?: (busy: boolean) => void;
   /** Read the list again after a start, a finish or an abort */
   onChange: () => void;
 }) {
@@ -59,9 +65,11 @@ export function TestRunPanel({
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const codeValid = TESTER_CODE_PATTERN.test(code);
+  const waiting = busy || blocked;
 
   async function act(action: () => Promise<Outcome>) {
     setBusy(true);
+    onBusyChange?.(true);
     setOutcome(null);
     try {
       setOutcome(await action());
@@ -69,6 +77,7 @@ export function TestRunPanel({
       setOutcome({ kind: "error", cause });
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
       onChange();
     }
   }
@@ -111,7 +120,7 @@ export function TestRunPanel({
               id="run-code"
               value={code}
               maxLength={16}
-              disabled={busy}
+              disabled={waiting}
               aria-invalid={code !== "" && !codeValid}
               onChange={(event) => setCode(event.target.value)}
             />
@@ -122,7 +131,7 @@ export function TestRunPanel({
             <select
               id="run-scenario"
               value={scenario}
-              disabled={busy}
+              disabled={waiting}
               onChange={(event) => setScenario(event.target.value as TestRunScenario)}
             >
               {TEST_RUN_SCENARIOS.map((item) => (
@@ -136,13 +145,13 @@ export function TestRunPanel({
             <input
               type="checkbox"
               checked={autoNurses}
-              disabled={busy}
+              disabled={waiting}
               onChange={(event) => setAutoNurses(event.target.checked)}
             />
             {t("run.autoNurses")}
           </label>
           <div>
-            <Button variant="primary" disabled={busy || !codeValid} onClick={start}>
+            <Button variant="primary" disabled={waiting || !codeValid} onClick={start}>
               {t("run.start")}
             </Button>
           </div>
@@ -170,7 +179,7 @@ export function TestRunPanel({
             </p>
           )}
           <div className="flex flex-wrap items-end gap-2">
-            <Button variant="primary" disabled={busy} onClick={() => close("finish")}>
+            <Button variant="primary" disabled={waiting} onClick={() => close("finish")}>
               {t("run.finish")}
             </Button>
             <label htmlFor="run-reason">
@@ -179,11 +188,11 @@ export function TestRunPanel({
                 id="run-reason"
                 value={reason}
                 maxLength={100}
-                disabled={busy}
+                disabled={waiting}
                 onChange={(event) => setReason(event.target.value)}
               />
             </label>
-            <Button disabled={busy} onClick={() => close("abort")}>
+            <Button disabled={waiting} onClick={() => close("abort")}>
               {t("run.abort")}
             </Button>
           </div>

@@ -4,12 +4,15 @@ Rows of the silent-failure table of 6.35.6. Every run starts with a real demo re
 so these tests commit, like test_demo_reset.
 """
 
+import threading
+import time
 from collections.abc import Iterator
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.db.models import Actor, AuditLog, CandidateItem, Ward
@@ -348,3 +351,65 @@ def test_a_test_run_clock_moves_at_most_to_its_shift(client: TestClient) -> None
 
     assert too_far.status_code == 422
     assert client.get("/clock").json()["advanced_seconds"] == 0
+
+
+def test_the_two_hours_count_every_advance_of_the_run(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #144: the limit is for the whole run, not for one call."""
+    monkeypatch.setattr(test_run_service, "SCENARIO_MAX_ADVANCE_SECONDS", 90)
+    _start(client)
+
+    assert client.post("/demo/clock/advance", json={"seconds": 60}).status_code == 200
+    refused = client.post("/demo/clock/advance", json={"seconds": 60})
+
+    assert refused.status_code == 422
+    assert "60 are used" in refused.json()["detail"]
+    assert client.get("/clock").json()["advanced_seconds"] == 60
+    assert client.post("/demo/clock/advance", json={"seconds": 30}).status_code == 200
+
+
+@pytest.mark.parametrize("close", ["finish", "abort"])
+def test_finish_and_abort_wait_for_an_advance_in_progress(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, close: str
+) -> None:
+    """Review of #144: closing the run between two steps of an advance left the advance
+    moving a clock that no longer belonged to the run. The close now waits for it."""
+    run = _start(client)
+    first_step = threading.Event()
+    real_due_work = test_run_service.job_service.run_due_work
+
+    def slow_due_work(db: Session) -> Any:
+        first_step.set()
+        time.sleep(0.05)
+        return real_due_work(db)
+
+    monkeypatch.setattr(test_run_service.job_service, "run_due_work", slow_due_work)
+    answers: dict[str, Any] = {}
+
+    def advance() -> None:
+        answers["advance"] = TestClient(app).post("/demo/clock/advance", json={"seconds": 300})
+
+    mover = threading.Thread(target=advance)
+    mover.start()
+    assert first_step.wait(10)
+    closed = TestClient(app).post(f"/demo/test-runs/{run['test_run_id']}/{close}")
+    mover.join(30)
+
+    assert answers["advance"].status_code == 200
+    assert closed.status_code == 200
+    with SessionLocal() as db:
+        rows = db.scalars(
+            select(AuditLog)
+            .where(AuditLog.entity_type == EntityType.TEST_RUN)
+            .order_by(AuditLog.id)
+        ).all()
+    # Every step of the advance came before the close, none after it
+    assert [row.action for row in rows] == [
+        AuditAction.TEST_RUN_STARTED,
+        *[AuditAction.TEST_RUN_CLOCK_ADVANCED] * 10,
+        AuditAction.TEST_RUN_FINISHED,
+    ]
+    if close == "finish":
+        assert closed.json()["result"]["advanced_seconds"] == 300
+    assert clock.mode() == clock.ClockMode.FROZEN

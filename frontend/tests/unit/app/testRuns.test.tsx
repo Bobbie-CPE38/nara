@@ -159,6 +159,73 @@ describe("the test run on the Demo control", () => {
     expect(button("Finish run").disabled).toBe(false);
   });
 
+  it("keeps Reset, Freeze and Unfreeze off until the list of runs has come", async () => {
+    let answerList!: () => void;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === "/clock") return new Response(JSON.stringify({ now: "2026-10-23T21:00:00+07:00", frozen: true }));
+      if (path === "/demo/test-runs") {
+        await new Promise<void>((resolve) => { answerList = resolve; });
+        return new Response("[]");
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    control();
+
+    await waitFor(() => expect(answerList).toBeTypeOf("function"));
+    expect(button("Reset demo").disabled).toBe(true);
+    expect(button("Freeze clock").disabled).toBe(true);
+    answerList();
+    await waitFor(() => expect(button("Reset demo").disabled).toBe(false));
+  });
+
+  it("keeps Finish and Abort off while the clock is advancing", async () => {
+    let finishAdvance!: () => void;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path === "/clock") return new Response(JSON.stringify({ now: "2026-10-23T21:00:00+07:00", frozen: false, mode: "scenario" }));
+      if (path === "/demo/test-runs") return new Response(JSON.stringify([OPEN]));
+      if (init?.method === "POST" && path === "/demo/clock/advance") {
+        await new Promise<void>((resolve) => { finishAdvance = resolve; });
+        return new Response(JSON.stringify({
+          clock: "2026-10-23T21:10:00+07:00", closed_windows: [], auto_approved_request_ids: [],
+          failed_auto_approval_ward_ids: [], no_show_event_ids: [], timed_out_outreach_ids: [],
+          timed_out_approval_request_ids: [], recovered_case_ids: [],
+        }));
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    control();
+    await waitFor(() => expect(button("Advance clock 10 minutes").disabled).toBe(false));
+
+    fireEvent.click(button("Advance clock 10 minutes"));
+
+    await waitFor(() => expect(button("Finish run").disabled).toBe(true));
+    expect(button("Abort run").disabled).toBe(true);
+    finishAdvance();
+    await waitFor(() => expect(button("Finish run").disabled).toBe(false));
+  });
+
+  it("keeps the Advance button off while the panel finishes a run", async () => {
+    let finishRun!: () => void;
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path === "/clock") return new Response(JSON.stringify({ now: "2026-10-23T21:00:00+07:00", frozen: false, mode: "scenario" }));
+      if (path === "/demo/test-runs") return new Response(JSON.stringify([OPEN]));
+      if (init?.method === "POST" && path === "/demo/test-runs/7/finish") {
+        await new Promise<void>((resolve) => { finishRun = resolve; });
+        return new Response(JSON.stringify({ test_run_id: 7, result: { invalid: false, ...kpi(30) } }));
+      }
+      return new Response("{}", { status: 404 });
+    }));
+    control();
+    fireEvent.click(await screen.findByRole("button", { name: "Finish run" }));
+
+    await waitFor(() => expect(button("Advance clock 10 minutes").disabled).toBe(true));
+    finishRun();
+    expect(await screen.findByText("Run 7 finished. Time to fill: 30 s.")).toBeTruthy();
+  });
+
   it("is in Thai", async () => {
     backend([]);
     control("th");

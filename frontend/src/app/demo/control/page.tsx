@@ -138,6 +138,10 @@ function CaseLink({ id, status }: { id: number; status: string | null }) {
 export default function DemoControl() {
   const t = useT();
   const [busy, setBusy] = useState(false);
+  // One request at a time on the whole page: an advance and a Finish or Abort of the test-run
+  // panel never overlap (review of #144; the Backend also serializes them)
+  const [panelBusy, setPanelBusy] = useState(false);
+  const working = busy || panelBusy;
   // The buttons that need a frozen clock, or a running one, follow the one shared read of /clock
   const clockView = useBackendClock().data;
   const clockFrozen = clockView?.frozen;
@@ -146,6 +150,9 @@ export default function DemoControl() {
   // While a test run is open, Reset and the clock buttons would spoil it (6.35.2)
   const testRuns = useTestRuns();
   const runOpen = openRun(testRuns.data);
+  // Off until the first list has come: the Backend would refuse them during a run anyway
+  const runsKnown = testRuns.data !== undefined || testRuns.error !== null;
+  const runBlocks = runOpen !== undefined || !runsKnown;
   const auth = useAuth();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // A leave on any seeded ward and shift (docs/workflow.md 9.6, round 4 PR U)
@@ -266,22 +273,22 @@ export default function DemoControl() {
       )}
       <Card>
         <div className="grid gap-2 sm:grid-cols-2">
-          <Button className="text-left" disabled={busy || runOpen !== undefined} onClick={reset}>
+          <Button className="text-left" disabled={working || runBlocks} onClick={reset}>
             {t("ctl.reset")}
           </Button>
-          <Button className="text-left" disabled={busy || !canAdvance} onClick={advanceClock}>
+          <Button className="text-left" disabled={working || !canAdvance} onClick={advanceClock}>
             {t("ctl.advance")}
           </Button>
           <Button
             className="text-left"
-            disabled={busy || clockFrozen === true || runOpen !== undefined}
+            disabled={working || clockFrozen === true || runBlocks}
             onClick={() => setClockMode(true)}
           >
             {t("ctl.freezeClock")}
           </Button>
           <Button
             className="text-left"
-            disabled={busy || clockFrozen === false || runOpen !== undefined}
+            disabled={working || clockFrozen === false || runBlocks}
             onClick={() => setClockMode(false)}
           >
             {t("ctl.unfreezeClock")}
@@ -290,7 +297,7 @@ export default function DemoControl() {
             <Button
               key={event.label}
               className="text-left"
-              disabled={busy}
+              disabled={working}
               onClick={() => reportEvent(event)}
             >
               {t(event.label)}
@@ -306,7 +313,13 @@ export default function DemoControl() {
         )}
       </Card>
 
-      <TestRunPanel open={runOpen} runsError={testRuns.error} onChange={() => void testRuns.refresh()} />
+      <TestRunPanel
+        open={runOpen}
+        runsError={testRuns.error}
+        blocked={busy}
+        onBusyChange={setPanelBusy}
+        onChange={() => void testRuns.refresh()}
+      />
 
       <fieldset className="mt-4 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-md">
         <legend className="px-1 font-semibold text-brand-800">{t("ctl.fieldset")}</legend>
@@ -315,7 +328,7 @@ export default function DemoControl() {
           <select
             id="leave-ward"
             value={ward.id}
-            disabled={busy}
+            disabled={working}
             onChange={(event) => pickWard(Number(event.target.value))}
           >
             {DEMO_WARDS.map((item) => (
@@ -330,7 +343,7 @@ export default function DemoControl() {
           <select
             id="leave-shift"
             value={shift.id}
-            disabled={busy}
+            disabled={working}
             onChange={(event) => pickShift(Number(event.target.value))}
           >
             {ward.shifts.map((item) => (
@@ -345,7 +358,7 @@ export default function DemoControl() {
           <select
             id="leave-staff"
             value={leaveStaffId}
-            disabled={busy}
+            disabled={working}
             onChange={(event) => setStaffId(Number(event.target.value))}
           >
             {shift.staffIds.map((id) => (
@@ -356,10 +369,10 @@ export default function DemoControl() {
           </select>
         </label>
         <div className="flex flex-wrap gap-2">
-          <Button disabled={busy} onClick={reportLeave}>
+          <Button disabled={working} onClick={reportLeave}>
             {t("ctl.reportLeave")}
           </Button>
-          <Button disabled={busy} onClick={simulateCheckIn}>
+          <Button disabled={working} onClick={simulateCheckIn}>
             {t("ctl.simCheckIn")}
           </Button>
         </div>

@@ -49,6 +49,13 @@ function click(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
 }
 
+/** Reset, Freeze and Unfreeze wait for the first list of test runs (review of #144). */
+async function clickWhenReady(name: string) {
+  const button = screen.getByRole<HTMLButtonElement>("button", { name });
+  await vi.waitFor(() => expect(button.disabled).toBe(false));
+  fireEvent.click(button);
+}
+
 // Read the action's own text separately from nested live-status controls.
 function directText(element: Element) {
   return Array.from(element.childNodes)
@@ -256,7 +263,7 @@ describe("demo control page", () => {
   it("resets the demo without a demo user and shows the new clock", async () => {
     const fetchMock = stubFetch({ status: "ok", clock: "2026-10-09T21:00:00+07:00" });
     render(createElement(DemoControl));
-    click("Reset demo");
+    await clickWhenReady("Reset demo");
 
     expect(await screen.findByText("Demo reset. Clock: 2026-10-09T21:00:00+07:00")).toBeTruthy();
     const [url, request] = fetchMock.mock.calls[0];
@@ -286,7 +293,7 @@ describe("demo control page", () => {
   it("says so when the API cannot be reached", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     render(createElement(DemoControl));
-    click("Reset demo");
+    await clickWhenReady("Reset demo");
 
     expect(
       await screen.findByText(
@@ -299,10 +306,14 @@ describe("demo control page", () => {
     let respond!: (response: Response) => void;
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => new Promise<Response>((resolve) => { respond = resolve; })),
+      vi.fn((url: string) =>
+        /\/demo\/test-runs$/.test(url)
+          ? Promise.resolve(new Response("[]"))
+          : new Promise<Response>((resolve) => { respond = resolve; }),
+      ),
     );
     render(createElement(DemoControl));
-    click("Reset demo");
+    await clickWhenReady("Reset demo");
 
     expect(await screen.findByText("Working…")).toBeTruthy();
     for (const button of screen.getAllByRole<HTMLButtonElement>("button")) {
@@ -654,6 +665,7 @@ describe("demo control clock buttons", () => {
         calls.push(path);
         isFrozen = path.endsWith("/freeze");
       }
+      if (path === "/demo/test-runs") return new Response("[]");
       return new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: isFrozen }));
     });
     return calls;
@@ -681,6 +693,7 @@ describe("demo control clock buttons", () => {
     await vi.waitFor(() =>
       expect((screen.getByRole("button", { name: "Unfreeze clock (real time)" }) as HTMLButtonElement).disabled).toBe(true),
     );
+    await vi.waitFor(() => expect((freeze as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(freeze);
     expect(await screen.findByText(/Clock frozen at/)).toBeTruthy();
     expect(calls).toEqual(["/demo/clock/freeze"]);
@@ -728,12 +741,12 @@ describe("demo control clock reads", () => {
     const view = render(
       createElement(LanguageProvider, { initial: "th", children: createElement(DemoControl) }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "รีเซ็ต Demo" }));
+    await clickWhenReady("รีเซ็ต Demo");
     expect(await screen.findByText(/คำขอไปยัง API ไม่สำเร็จ \(500\)/)).toBeTruthy();
     view.unmount();
     // the same failure shown in English: the sentence is ours, so it follows the language
     render(createElement(LanguageProvider, { initial: "en", children: createElement(DemoControl) }));
-    fireEvent.click(screen.getByRole("button", { name: "Reset demo" }));
+    await clickWhenReady("Reset demo");
     expect(await screen.findByText(/API request failed \(500\)/)).toBeTruthy();
   });
 });
@@ -753,7 +766,7 @@ describe("demo control language switch", () => {
         children: [createElement(LanguageSwitch, { key: "switch" }), createElement(DemoControl, { key: "page" })],
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "รีเซ็ต Demo" }));
+    await clickWhenReady("รีเซ็ต Demo");
     expect(await screen.findByText(/คำขอไปยัง API ไม่สำเร็จ \(500\)/)).toBeTruthy();
 
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "EN" })); });
