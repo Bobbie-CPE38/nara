@@ -52,6 +52,8 @@ class WardOption(BaseModel):
 
     id: int
     name: str
+    # False for a paused ward, which only a Supervisor is offered (review of #145)
+    is_active: bool = True
 
 
 class OpenOffers(BaseModel):

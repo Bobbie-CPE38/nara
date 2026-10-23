@@ -121,6 +121,7 @@ export const th: Record<MessageKey, string> = {
   "dash.wardCount": "ทั้งหมด {count} หอ",
   "dash.allWards": "ทุกหอ",
   "dash.wardFilter": "แสดงหอ",
+  "dash.wardPaused": "{ward} (พักไว้)",
   "dash.casesByStatus": "เคสตามสถานะ",
   "dash.shortShifts": "เวรที่ขาดคน",
   "dash.shortShiftsHelpBefore":

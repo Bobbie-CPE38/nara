@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_db
 from app.core import clock
 from app.core.config import settings
-from app.db.models import LlmCallLog, LlmDailyUsage, Shift, StaffingEvent
+from app.db.models import LlmCallLog, LlmDailyUsage, Shift, StaffingEvent, Ward
 from app.domain.enums import (
     CaseStatus,
     EventStatus,
@@ -84,11 +84,11 @@ def test_each_user_sees_their_ward_and_a_supervisor_sees_all(
 def test_the_ward_options_name_every_visible_ward(client: TestClient) -> None:
     """Round 6 PR EV6 (6.36.4): the filter lists the wards by name, not a joined string."""
     assert _dashboard(client, SUPERVISOR)["ward_options"] == [
-        {"id": 1, "name": "ICU"},
-        {"id": 2, "name": "Medicine"},
-        {"id": 3, "name": "Float Pool"},
+        {"id": 1, "name": "ICU", "is_active": True},
+        {"id": 2, "name": "Medicine", "is_active": True},
+        {"id": 3, "name": "Float Pool", "is_active": True},
     ]
-    assert _dashboard(client)["ward_options"] == [{"id": 1, "name": "ICU"}]
+    assert _dashboard(client)["ward_options"] == [{"id": 1, "name": "ICU", "is_active": True}]
 
 
 def test_a_ward_filter_narrows_every_number_to_that_ward(
@@ -370,3 +370,25 @@ def test_a_shift_without_a_requirement_does_not_break_the_dashboard(
     body = _dashboard(client)
 
     assert [row["shift_id"] for row in body["shortages"]] == [NIGHT_SHIFT]
+
+
+def test_a_supervisor_may_pick_a_paused_ward(client: TestClient, seeded: Session) -> None:
+    """Review of #145: a test run pauses the hospital wards, and their links gave 403."""
+    medicine = seeded.get(Ward, 2)
+    assert medicine is not None
+    medicine.is_active = False
+    seeded.flush()
+
+    every = _dashboard(client, SUPERVISOR)
+    paused = client.get(
+        "/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": str(SUPERVISOR)}
+    )
+
+    # The numbers still cover the active wards; the paused one is offered after them
+    assert every["wards"] == [1, 3]
+    assert every["ward_options"][-1] == {"id": 2, "name": "Medicine", "is_active": False}
+    assert paused.status_code == 200 and paused.json()["wards"] == [2]
+    assert (
+        client.get("/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": "900"}).status_code
+        == 403
+    )

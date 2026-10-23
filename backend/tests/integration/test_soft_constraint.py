@@ -54,7 +54,7 @@ def test_seeded_weights_prefer_the_rested_staff(seeded: Session) -> None:
 
     assert [item.staff_id for item in items] == [202, 203, 201]
     assert _targeted(seeded, items) == {202, 203}
-    assert plan.objective_score == 20400
+    assert plan.objective_score == 81988
     busy = next(item for item in items if item.staff_id == 201)
     assert busy.working_time_snapshot_id is not None
     snapshot = seeded.get(StaffWorkingTimeSnapshot, busy.working_time_snapshot_id)
@@ -72,7 +72,7 @@ def test_without_the_workload_weight_rank_still_follows_ranking_key(seeded: Sess
 
     assert [item.staff_id for item in items] == [202, 201, 203]
     assert _targeted(seeded, items) == {201, 202}
-    assert plan.objective_score == 20060
+    assert plan.objective_score == 80051
 
 
 def test_the_scenario_needs_thursday_or_later(seeded: Session) -> None:

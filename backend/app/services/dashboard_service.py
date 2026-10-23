@@ -64,12 +64,19 @@ def build(
     ward_id: int | None = None,
 ) -> Dashboard:
     """`viewer` is given in session mode only; demo mode keeps the ward view of F1.
-    `ward_id` narrows every number to one of the user's wards (round 6 PR EV6, 6.36.4)."""
+    `ward_id` narrows every number to one of the user's wards (round 6 PR EV6, 6.36.4).
+
+    Without `ward_id` the numbers cover the active wards a user sees, as before. A Supervisor
+    may also pick a paused ward, for example the hospital demo during a test run (review of
+    #145): it is listed after the active ones with is_active false."""
     visible = gap_check_service.ward_scope(db, staff)
-    if ward_id is not None and not visible.sees(ward_id):
+    wards = db.execute(select(Ward.id, Ward.name, Ward.is_active).order_by(Ward.id)).all()
+    listed = [row for row in wards if row.id in visible.ward_ids]
+    if gap_check_service.is_supervisor(db, staff):
+        listed += [row for row in wards if not row.is_active]
+    if ward_id is not None and ward_id not in {row.id for row in listed}:
         raise WardNotVisibleError(f"Ward {ward_id} is not one of your wards")
     scope = visible if ward_id is None else WardScope(ward_ids=(ward_id,))
-    names = dict(db.execute(select(Ward.id, Ward.name).where(Ward.id.in_(visible.ward_ids))).all())
     now = clock.now()
     own = viewer if viewer is not None and viewer.role == "staff" else None
     # A nurse's counts follow what concerns them, in any ward (the same condition as the case
@@ -85,8 +92,7 @@ def build(
             ),
             wards=list(scope.ward_ids),
             ward_options=[
-                WardOption(id=ward, name=names.get(ward, f"Ward {ward}"))
-                for ward in visible.ward_ids
+                WardOption(id=row.id, name=row.name, is_active=row.is_active) for row in listed
             ],
             cases_by_status=_cases_by_status(db, scope, cases),
             shortages=_shortages(db, scope, now, cases),

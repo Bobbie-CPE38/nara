@@ -75,16 +75,16 @@ def test_the_golden_case_explains_the_rank(client: TestClient, seeded: Session) 
     assert [c["staff_id"] for c in candidates] == [201, 202, 203]
     assert [c["score"]["first_wave"] for c in candidates] == [True, True, False]
     first = candidates[0]["score"]
-    assert first["total"] == 10020
+    assert first["total"] == 40017
     assert [term["name"] for term in first["terms"]] == TERM_NAMES
     assert [(t["value"], t["weight"], t["points"]) for t in first["terms"]] == [
-        (1, 10000, 10000),
-        (1, 20, 20),
-        (0, 20, 0),
+        (1, 40000, 40000),
+        (1, 17, 17),
+        (0, 120, 0),
         (0, 1, 0),
-        (0, 1500, 0),
+        (0, 6400, 0),
     ]
-    assert [c["score"]["total"] for c in candidates] == [10020, 10200, 10200]
+    assert [c["score"]["total"] for c in candidates] == [40017, 40994, 40994]
 
 
 def test_a_policy_edit_after_planning_does_not_change_the_score(

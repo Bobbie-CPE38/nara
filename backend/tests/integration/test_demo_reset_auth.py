@@ -86,6 +86,7 @@ def accounts() -> dict[str, Any]:
             "subjects": _subjects(db),
             "accounts": _accounts(db),
             "token": login[0],
+            "extra_token": extra_login[0],
             "extra_actor": db.scalars(select(Actor.id).where(Actor.staff_id == EXTRA_STAFF)).one(),
         }
 
@@ -101,10 +102,14 @@ def test_reset_keeps_every_person_account_and_session(
     with SessionLocal() as db:
         assert _subjects(db) == accounts["subjects"]
         assert _accounts(db) == accounts["accounts"]
-        # Round 6 PR EV6: nobody is logged out by a reset
-        assert db.scalar(select(func.count()).select_from(AuthSession)) == sessions == 2
-        kept = auth_service.resolve(db, accounts["token"])
-        assert kept is not None and kept.staff.id == 105
+        # Round 6 PR EV6: a reset logs out nobody who may still use their session. 105's
+        # password was reset by an administrator, so a change waits and the session goes
+        # (review of #145); the kept person's session stays
+        assert sessions == 2
+        assert db.scalar(select(func.count()).select_from(AuthSession)) == 1
+        assert auth_service.resolve(db, accounts["token"]) is None
+        kept = auth_service.resolve(db, accounts["extra_token"])
+        assert kept is not None and kept.staff.id == EXTRA_STAFF
         db.rollback()
         # The kept person has a USER actor again, so they can log in
         actor = db.scalars(select(Actor).where(Actor.staff_id == EXTRA_STAFF)).one()

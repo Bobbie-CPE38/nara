@@ -46,6 +46,18 @@ def _person(
 WORST = {"hours": MAX_WEEK, "consecutive": MAX_CONSECUTIVE, "overtime": MAX_OVERTIME}
 
 
+def test_a_moved_assignment_costs_more_than_any_source_week_run_or_overtime(
+    weights: SoftWeights,
+) -> None:
+    """Review of #145: roster_change sits above the source in 6.36.7."""
+    farthest_and_tired = candidate_penalty(
+        _person(source=CandidateSource.CROSS_WARD, **WORST), weights
+    )
+    closest_and_rested = candidate_penalty(_person(consecutive=0), weights)
+
+    assert farthest_and_tired - closest_and_rested < weights.roster_change
+
+
 def test_one_person_at_worst_costs_less_than_two_at_best(weights: SoftWeights) -> None:
     worst = candidate_penalty(_person(source=CandidateSource.CROSS_WARD, **WORST), weights)
     worst += weights.roster_change
@@ -57,6 +69,7 @@ def test_one_person_at_worst_costs_less_than_two_at_best(weights: SoftWeights) -
 def test_the_same_ward_wins_over_any_week_consecutive_run_or_overtime(
     weights: SoftWeights,
 ) -> None:
+    assert len(weights.source_order) == len(CandidateSource)
     for closer, farther in (
         (CandidateSource.SAME_WARD, CandidateSource.FLOAT_POOL),
         (CandidateSource.FLOAT_POOL, CandidateSource.CROSS_WARD),
@@ -66,11 +79,12 @@ def test_the_same_ward_wins_over_any_week_consecutive_run_or_overtime(
         assert tired_but_close < rested_but_far
 
 
-def test_one_shift_less_this_week_wins_over_any_consecutive_run_or_overtime(
+def test_one_hour_less_this_week_wins_over_any_consecutive_run_or_overtime(
     weights: SoftWeights,
 ) -> None:
+    """Review of #145: with 20 and 20 an hour of the week and a consecutive shift traded."""
     lighter_week = candidate_penalty(
-        _person(hours=Fraction(32), consecutive=MAX_CONSECUTIVE, overtime=MAX_OVERTIME), weights
+        _person(hours=Fraction(39), consecutive=MAX_CONSECUTIVE, overtime=MAX_OVERTIME), weights
     )
     heavier_week = candidate_penalty(_person(hours=Fraction(40), consecutive=1), weights)
 

@@ -197,6 +197,7 @@ export default function DemoControl() {
         { method: "POST", json: { hospital: withHospital } },
       );
       setClockInput(null);
+      void picker.reload();
       return { kind: "reset", clock };
     });
 
@@ -390,7 +391,11 @@ export default function DemoControl() {
         runsError={testRuns.error}
         blocked={busy}
         onBusyChange={setPanelBusy}
-        onChange={() => void testRuns.refresh()}
+        onChange={() => {
+          void testRuns.refresh();
+          // Starting or ending a run resets the demo or pauses wards: what the picker lists changes
+          void picker.reload();
+        }}
       />
 
       <fieldset className="mt-4 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-md">

@@ -14,7 +14,6 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from app.seed import hospital_demo
 from app.services import (
     approval_timeout_service,
     auto_approval_service,
@@ -25,6 +24,7 @@ from app.services import (
     roster_completion_service,
     simulated_replies_service,
 )
+from app.services.hospital_arrival_service import check_in_arrivals
 from app.services.merge_window_service import ClosedWindow
 
 
@@ -78,7 +78,7 @@ def run_due_work(db: Session) -> DueWork:
     # Scripted people of a test run (6.35.3); nothing outside a run that asked for them
     simulated_replies_service.answer_due(db)
     # The people of the hospital demo come to work, before NO_SHOW looks for them (6.36.3)
-    hospital_demo.check_in_arrivals(db)
+    check_in_arrivals(db)
     # Stage 1 of NO_SHOW writes only events; the windows below apply them (6.24)
     no_shows = no_show_service.detect_due_no_shows(db)
     closed = merge_window_service.close_due_windows(db)

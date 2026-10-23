@@ -49,12 +49,18 @@ export function WardFilter({
 
   const items: { id: number | null; label: string }[] = [
     { id: null, label: t("dash.allWards") },
-    ...options.map((option) => ({ id: option.id, label: option.name })),
+    ...options.map((option) => ({
+      id: option.id,
+      label: option.is_active === false ? t("dash.wardPaused", { ward: option.name }) : option.name,
+    })),
   ];
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg bg-brand-50 px-3 py-2 text-sm text-brand-900">
-      <span className="font-medium">{t("dash.wardCount", { count: options.length })}</span>
+      {/* The wards that run; a paused one is offered in the list only */}
+      <span className="font-medium">
+        {t("dash.wardCount", { count: options.filter((option) => option.is_active !== false).length })}
+      </span>
       <div ref={box} className="relative">
         <button
           type="button"
@@ -65,7 +71,7 @@ export function WardFilter({
           aria-label={t("dash.wardFilter")}
           onClick={() => setOpen((value) => !value)}
         >
-          {chosen?.name ?? t("dash.allWards")}
+          {chosen ? items.find((item) => item.id === chosen.id)?.label : t("dash.allWards")}
           <span aria-hidden="true" className="ml-2 text-slate-500">
             ▾
           </span>

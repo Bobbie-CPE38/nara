@@ -289,9 +289,9 @@ def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
     "Latest" is the highest id (seam 1). A case without a plan has nobody to contact, and
     neither has a case past an outreach limit (round 6 PR EV6, 6.36.8): it only waits for
     the offers it already sent.
+    The limit is read only when someone is left to contact, so a case with nobody left
+    pays nothing for it (review of #145).
     """
-    if outreach_limit_service.stop_reason(db, case_id) is not None:
-        return False
     plan_id = db.scalar(
         select(CandidatePlan.id)
         .where(CandidatePlan.case_id == case_id)
@@ -300,7 +300,7 @@ def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
     )
     if plan_id is None:
         return False
-    return (
+    contactable = (
         db.scalar(
             select(CandidateItem.id)
             .where(CandidateItem.plan_id == plan_id, contactable_item(case_id))
@@ -308,6 +308,7 @@ def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
         )
         is not None
     )
+    return contactable and outreach_limit_service.stop_reason(db, case_id) is None
 
 
 def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:

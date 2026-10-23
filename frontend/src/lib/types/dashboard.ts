@@ -62,7 +62,8 @@ export type Dashboard = {
   llm_usage: LlmUsage | null;
 };
 
-export type WardOption = { id: number; name: string };
+/** is_active is false for a paused ward, which only a Supervisor is offered (review of #145) */
+export type WardOption = { id: number; name: string; is_active?: boolean };
 
 /** One item of GET /gap/shifts */
 export type GapShiftSummary = {

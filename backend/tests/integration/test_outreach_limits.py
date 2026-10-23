@@ -19,9 +19,10 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_db
 from app.core import clock
 from app.db.models import AuditLog, CandidateItem, CandidateOutreach, OutreachPolicy
-from app.domain.enums import AuditAction
+from app.domain.enums import AuditAction, CaseStatus
 from app.main import app
 from app.services import outreach_limit_service
+from tests.integration import case_rows
 from tests.integration.test_orchestrator_graph_parity import Driver
 
 
@@ -137,3 +138,12 @@ def test_the_policy_limits_must_be_positive(seeded: Session, column: str, constr
         assert policy is not None
         setattr(policy, column, 0)
         seeded.flush()
+
+
+def test_the_first_wave_is_never_stopped(seeded: Session) -> None:
+    """Review of #145: a clock moved past the deadline before wave 1 handed the case off
+    with nobody asked. Before its first wave a case has no limit."""
+    case = case_rows.make_case(seeded, CaseStatus.OPTIMIZING)
+    clock.advance(timedelta(days=1))
+
+    assert outreach_limit_service.stop_reason(seeded, case.id) is None

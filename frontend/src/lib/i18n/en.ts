@@ -122,6 +122,7 @@ export const en = {
   "dash.wardCount": "{count} wards",
   "dash.allWards": "All wards",
   "dash.wardFilter": "Show ward",
+  "dash.wardPaused": "{ward} (paused)",
   "dash.casesByStatus": "Cases by status",
   "dash.shortShifts": "Short shifts",
   "dash.shortShiftsHelpBefore":

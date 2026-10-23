@@ -17,39 +17,33 @@ D-3 to D+3, so the week's hours and the consecutive shifts differ from person to
 which the ranking reads. Shifts that ended before the reset are COMPLETED; the evening
 shift of D is running and its people are checked in by seed.check_ins.
 
-The people of these wards check in on time by themselves (check_in_arrivals(), from the
-due-work job): without it, every shift start would turn 20 people into NO_SHOW cases.
-Someone with a leave or a reported absence for the shift does not arrive. A test run
-pauses these wards (6.35.3), so they then neither arrive nor join a pool.
+The people of these wards check in on time by themselves
+(services/hospital_arrival_service.py, from the due-work job): without it, every shift start
+would turn 20 people into NO_SHOW cases. A test run pauses these wards (6.35.3), so they then
+neither arrive, join a pool, nor become a NO_SHOW. STAFF_LAST is the last staff ID of the
+profile: only its own people arrive by themselves.
 """
 
 from datetime import datetime, timedelta
 
-from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.db.models import (
     Actor,
-    Attendance,
     DemoDataset,
     RosterAssignment,
     Shift,
     Staff,
-    StaffingEvent,
     StaffingRequirement,
     StaffingRequirementRole,
     StaffingRequirementSkill,
     StaffSkill,
-    StaffUnavailability,
     Ward,
 )
 from app.domain.enums import (
-    STAFF_EVENT_TYPES,
-    ActorName,
     ActorType,
     AssignmentType,
-    CheckInSource,
     RosterStatus,
     ShiftType,
     StaffStatus,
@@ -64,6 +58,8 @@ PROFILES = (PROFILE, PAUSED_PROFILE)
 WARD_BASE, STAFF_BASE, SHIFT_BASE = 20_000, 200_000, 3_000_000
 WARD_NAMES = ("Surgery", "Pediatrics", "Emergency", "Orthopedics", "Cardiology")
 FLOAT_POOL_WARD = WARD_BASE + len(WARD_NAMES) + 1
+# Ward n's people are STAFF_BASE + 100 * n + 1..16; the Float Pool's STAFF_BASE + 91..94
+STAFF_LAST = STAFF_BASE + 100 * len(WARD_NAMES)
 TEAM_SIZE, FLOAT_POOL_SIZE = 5, 4
 DAYS_BEFORE, DAYS_AFTER = 3, 3
 PATIENTS_PER_SHIFT, REQUIRED_STAFF, MINIMUM_STAFF, REQUIRED_BLS = 8, 4, 3, 2
@@ -275,84 +271,3 @@ def _add_shift(
             staffing_requirement_id=shift_id, skill_id=BLS_SKILL, required_count=REQUIRED_BLS
         )
     )
-
-
-def check_in_arrivals(db: Session) -> list[int]:
-    """Check in, on time, the people of the profile whose shift has begun. Commits.
-
-    Only ASSIGNED rows of active profile wards, from the required arrival until the
-    effective end, without a check-in, a leave that overlaps the shift, or a reported
-    absence still waiting for its window. Returns the new ATTENDANCE IDs.
-    """
-    # Imported here: the seed loaders stay free of service imports until the job calls this
-    from app.services import actor_service, attendance_service, merge_window_service
-
-    now = clock.now()
-    reported = exists().where(
-        StaffingEvent.shift_id == RosterAssignment.shift_id,
-        StaffingEvent.staff_id == RosterAssignment.staff_id,
-        StaffingEvent.event_type.in_(list(STAFF_EVENT_TYPES)),
-    )
-    checked_in = exists().where(
-        Attendance.shift_id == RosterAssignment.shift_id,
-        Attendance.staff_id == RosterAssignment.staff_id,
-    )
-    on_leave = exists().where(
-        StaffUnavailability.staff_id == RosterAssignment.staff_id,
-        StaffUnavailability.start_at < Shift.end_at,
-        (StaffUnavailability.end_at.is_(None)) | (StaffUnavailability.end_at > Shift.start_at),
-    )
-    due = db.execute(
-        select(RosterAssignment.shift_id, RosterAssignment.id)
-        .join(Shift, Shift.id == RosterAssignment.shift_id)
-        .join(Ward, Ward.id == Shift.ward_id)
-        .where(
-            Ward.id > WARD_BASE,
-            Ward.id <= FLOAT_POOL_WARD,
-            Ward.is_active.is_(True),
-            Shift.start_at <= now,
-            Shift.end_at > now,
-            RosterAssignment.status == RosterStatus.ASSIGNED,
-            ~checked_in,
-            ~reported,
-            ~on_leave,
-        )
-        .order_by(RosterAssignment.shift_id, RosterAssignment.id)
-    ).all()
-    if not due:
-        return []
-    actor_id = actor_service.component_id(db, ActorName.SYSTEM)
-    by_shift: dict[int, list[int]] = {}
-    for shift_id, row_id in due:
-        by_shift.setdefault(shift_id, []).append(row_id)
-    attendance_ids: list[int] = []
-    for shift_id, row_ids in by_shift.items():
-        # Shift, then its roster rows: the lock order of a check-in (6.11)
-        shift = merge_window_service.lock_shift(db, shift_id)
-        rows = db.scalars(
-            select(RosterAssignment)
-            .where(RosterAssignment.id.in_(row_ids))
-            .order_by(RosterAssignment.id)
-            .with_for_update(key_share=True)
-            .execution_options(populate_existing=True)
-        ).all()
-        for roster in rows:
-            arrival = attendance_service.required_arrival_at(roster, shift)
-            already = db.scalar(
-                select(Attendance.id).where(
-                    Attendance.shift_id == shift.id, Attendance.staff_id == roster.staff_id
-                )
-            )
-            if roster.status != RosterStatus.ASSIGNED or already is not None or arrival > now:
-                continue
-            result = attendance_service.record(
-                db,
-                roster=roster,
-                shift=shift,
-                check_in_at=arrival,
-                source=CheckInSource.SIMULATED,
-                actor_id=actor_id,
-            )
-            attendance_ids.append(result.attendance_id)
-        db.commit()
-    return attendance_ids

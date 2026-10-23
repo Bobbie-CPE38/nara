@@ -166,18 +166,21 @@ def list_shifts(
 ) -> list[DemoShift]:
     """Shifts of any ward starting on `date` (Asia/Bangkok), each with every roster row and
     whether the person has checked in: whom the Demo control can check in or report on
-    leave (6.36.5). An unknown ward has none."""
+    leave (6.36.5). Active shifts only, like the gap check; an unknown ward has none."""
     _manager_only(db, reader)
     start = datetime.combine(day, time(), tzinfo=clock.APP_TIMEZONE)
     shifts = db.scalars(
         select(Shift)
         .where(
             Shift.ward_id == ward_id,
+            Shift.is_active.is_(True),
             Shift.start_at >= start,
             Shift.start_at < start + timedelta(days=1),
         )
         .order_by(Shift.start_at, Shift.id)
     ).all()
+    if not shifts:
+        return []
     rows = db.execute(
         select(RosterAssignment, Staff)
         .join(Staff, Staff.id == RosterAssignment.staff_id)

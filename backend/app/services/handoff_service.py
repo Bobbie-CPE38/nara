@@ -18,7 +18,12 @@ from sqlalchemy import ColumnElement, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.core import clock
-from app.core.constants import HEAD_NURSE_ROLE, MAX_APPROVAL_REASON_LENGTH, SUPERVISOR_ROLE
+from app.core.constants import (
+    HEAD_NURSE_ROLE,
+    MAX_APPROVAL_REASON_LENGTH,
+    MAX_BIGINT,
+    SUPERVISOR_ROLE,
+)
 from app.db.models import (
     CandidateItem,
     CandidateOutreach,
@@ -166,8 +171,8 @@ def search_cases(
 
     The same rows as list_cases(): a Head Nurse's own ward, every ward for a Supervisor, or
     `condition` for a session-mode staff member. Filters: statuses (all when None), one
-    ward, and `query`, which matches the case ID or shift ID when it is a number, else
-    the ward name (case-insensitive). Newest first unless `oldest_first`.
+    ward, and `query`, which matches part of the ward name (case-insensitive), and also the
+    case ID or shift ID when it is a number. Newest first unless `oldest_first`.
     """
     if condition is None:
         supervisor = _require_manager_role(db, role_id) == SUPERVISOR_ROLE
@@ -178,12 +183,15 @@ def search_cases(
     if ward_id is not None:
         filters.append(Shift.ward_id == ward_id)
     text = (query or "").strip()
-    if text.isdigit():
-        number = int(text)
-        filters.append(or_(StaffingCase.id == number, StaffingCase.shift_id == number))
-    elif text:
+    if text:
         escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        filters.append(Ward.name.ilike(f"%{escaped}%", escape="\\"))
+        matches: list[ColumnElement[bool]] = [Ward.name.ilike(f"%{escaped}%", escape="\\")]
+        # A number is also a case or shift ID while it fits a bigint: a longer one made
+        # PostgreSQL fail the query (review of #145). A ward named with digits still matches
+        if text.isascii() and text.isdecimal() and int(text) <= MAX_BIGINT:
+            number = int(text)
+            matches += [StaffingCase.id == number, StaffingCase.shift_id == number]
+        filters.append(or_(*matches))
     base = (
         select(StaffingCase, Shift, Ward.name)
         .join(Shift, Shift.id == StaffingCase.shift_id)

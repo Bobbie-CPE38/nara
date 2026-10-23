@@ -115,6 +115,7 @@ def _reset_demo(scenario: Callable[[Session], None] | None, hospital: bool | Non
         held = _hold_llm_ledger(connection)
         subjects = _hold_identities(connection)
         last_test_run_row = _hold_test_runs(connection)
+        last_ids = _last_ids(connection)
         large_profile = False
         had_hospital: Literal["active", "paused"] | None = None
         if _columns(connection, "public.demo_dataset"):
@@ -159,6 +160,7 @@ def _reset_demo(scenario: Callable[[Session], None] | None, hospital: bool | Non
         _restore_llm_ledger(connection, held, reset_at)
         if last_test_run_row is not None:
             _restore_test_runs(connection)
+        _continue_ids(connection, last_ids)
     engine.dispose()
 
     return demo_time
@@ -259,12 +261,7 @@ def _restore_identities(connection: Connection) -> None:
         held_rows = _held(table)
         kept = set(_columns(connection, f"pg_temp.{held_rows}"))
         columns = ", ".join(c for c in _columns(connection, f"public.{table}") if c in kept)
-        # Only staff rows the seed did not create; every account
-        missing = (
-            " WHERE NOT EXISTS (SELECT 1 FROM staff s WHERE s.id = h.id)"
-            if table == "staff"
-            else ""
-        )
+        missing = _KEPT_ROWS.get(table, "")
         connection.execute(
             text(f"INSERT INTO {table} ({columns}) SELECT {columns} FROM {held_rows} h{missing}")
         )
@@ -285,6 +282,55 @@ def _restore_identities(connection: Connection) -> None:
                 f" FROM {table} HAVING max(id) IS NOT NULL"
             )
         )
+
+
+# Which held rows go back (round 6 PR EV6 review of #145). Staff: only the rows the seed did
+# not create. Sessions: only live ones of an account that may still use them (open, no
+# password change waiting, same credential version, ACTIVE person), so a reset never revives
+# what a session check would refuse. Contacts: only of a person who is back. Accounts: all
+_KEPT_ROWS = {
+    "staff": " WHERE NOT EXISTS (SELECT 1 FROM staff s WHERE s.id = h.id)",
+    "auth_session": (
+        " WHERE h.revoked_at IS NULL AND h.expires_at > now() AND EXISTS ("
+        "SELECT 1 FROM auth_account a JOIN staff s ON s.auth_subject = a.staff_subject"
+        " WHERE a.staff_subject = h.account_subject AND a.disabled_at IS NULL"
+        " AND NOT a.must_change_password AND a.credential_version = h.credential_version"
+        " AND s.status = 'ACTIVE')"
+    ),
+    "contacts": " WHERE EXISTS (SELECT 1 FROM staff s WHERE s.id = h.staff_id)",
+}
+
+# Tables whose ids leave the database in a LINE button (outreach_id=...): their ids go on
+# from the highest one before the reset, so an old button never names a new row (review of
+# #145). A CHECK_IN button names a shift, whose seeded ids are fixed: it can do no more than
+# the same person typing CHECKIN with that number, inside the check-in window
+_IDS_NEVER_REUSED = ("candidate_outreach",)
+
+
+def _last_ids(connection: Connection) -> dict[str, int]:
+    """The highest id each of _IDS_NEVER_REUSED has handed out, from its sequence."""
+    last: dict[str, int] = {}
+    for table in _IDS_NEVER_REUSED:
+        if not _columns(connection, f"public.{table}"):
+            continue
+        sequence = connection.scalar(
+            text("SELECT pg_get_serial_sequence(:table, 'id')"), {"table": table}
+        )
+        row = connection.execute(text(f"SELECT last_value, is_called FROM {sequence}")).one()
+        last[table] = int(row.last_value) if row.is_called else int(row.last_value) - 1
+    return last
+
+
+def _continue_ids(connection: Connection, last: dict[str, int]) -> None:
+    for table, value in last.items():
+        if value > 0:
+            connection.execute(
+                text(
+                    "SELECT setval(pg_get_serial_sequence(:table, 'id'),"
+                    f" greatest(:value, (SELECT coalesce(max(id), 0) FROM {table})))"
+                ),
+                {"table": table, "value": value},
+            )
 
 
 def _hold_test_runs(connection: Connection) -> int | None:

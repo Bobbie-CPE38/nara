@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
+from app.db.models import Shift
 from app.main import app
 from tests.integration.conftest import DEMO_NOW
 
@@ -67,3 +68,17 @@ def test_another_day_and_an_unknown_ward_have_their_own_shifts_or_none(
         (2, [202, 203])
     ]
     assert unknown.status_code == 200 and unknown.json() == []
+
+
+def test_an_inactive_shift_is_not_offered(client: TestClient, seeded: Session) -> None:
+    """Review of #145: the picker listed shifts the gap check leaves out."""
+    shift = seeded.get(Shift, 1)
+    assert shift is not None
+    shift.is_active = False
+    seeded.flush()
+
+    shifts = client.get(
+        "/demo/shifts", params={"ward_id": 1, "date": DEMO_NOW.date().isoformat()}
+    ).json()
+
+    assert shifts == []

@@ -73,6 +73,22 @@ describe("Dashboard page", () => {
     expect(screen.getByRole("button", { name: "Show ward" }).textContent).toContain("Medicine");
   });
 
+  it("offers a paused ward by name with a mark, and counts only the wards that run", async () => {
+    replies(() =>
+      dashboard({
+        wards: [1],
+        ward_options: [
+          { id: 1, name: "ICU", is_active: true },
+          { id: 20001, name: "Surgery", is_active: false },
+        ],
+      }),
+    );
+    render(<Home />);
+    expect(await screen.findByText("1 wards")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show ward" }));
+    expect(screen.getByRole("button", { name: "Surgery (paused)" })).toBeTruthy();
+  });
+
   it("lists every status, and links the ones that have a page", async () => {
     replies(() =>
       dashboard({

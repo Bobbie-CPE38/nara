@@ -118,3 +118,13 @@ def test_bad_paging_is_a_422(client: TestClient) -> None:
     assert client.get("/cases/search?page_size=101", headers=headers).status_code == 422
     assert client.get("/cases/search?sort=random", headers=headers).status_code == 422
     assert client.get("/cases/search?status=NOPE", headers=headers).status_code == 422
+
+
+@pytest.mark.parametrize("digits", [19, 100])
+def test_a_number_too_big_for_an_id_finds_nothing_instead_of_failing(
+    client: TestClient, cases: list[int], digits: int
+) -> None:
+    """Review of #145: 100 nines made PostgreSQL fail with bigint out of range (500)."""
+    body = _search(client, q="9" * digits)
+
+    assert body["total"] == 0 and body["items"] == []

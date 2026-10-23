@@ -70,5 +70,11 @@ export function useShiftPicker() {
     pickPerson: setStaffChoice,
     /** Read the shifts again, after a check-in or a leave changed them */
     refresh: shiftsRead.refresh,
+    /**
+     * Read the wards and the shifts again, after a reset or a test run changed them (review of
+     * #145): the ward list is read once, and a reset no longer reloads the page. A picked ward,
+     * shift or person that is gone falls back to the first one
+     */
+    reload: () => Promise.all([wardsRead.refresh(), shiftsRead.refresh()]),
   };
 }

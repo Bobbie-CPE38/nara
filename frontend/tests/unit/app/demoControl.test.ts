@@ -903,3 +903,32 @@ describe("demo control clock of round 6 PR EV6", () => {
     expect(posts.map((post) => post.body)).toEqual([{ hospital: true }, { hospital: false }]);
   });
 });
+
+describe("demo control picker after a reset (review of #145)", () => {
+  it("reads the wards again, so the hospital wards appear without a page reload", async () => {
+    let hospital = false;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path === "/demo/wards") {
+        const surgery = { id: 20001, name: "Surgery", is_active: true, is_float_pool: false };
+        return new Response(JSON.stringify(hospital ? [...WARDS, surgery] : WARDS));
+      }
+      const picked = pickerAnswer(url);
+      if (picked) return picked;
+      if (path === "/demo/test-runs") return new Response("[]");
+      if (init?.method === "POST" && path === "/demo/reset") {
+        hospital = true;
+        return new Response(JSON.stringify({ status: "ok", clock: "2026-10-09T21:00:00+07:00" }));
+      }
+      return new Response(JSON.stringify(CLOCK_ANSWER));
+    });
+    render(createElement(ClockProvider, null, createElement(DemoControl)));
+    const wards = () =>
+      Array.from(screen.getByLabelText<HTMLSelectElement>("Ward").options).map((item) => item.textContent);
+    await vi.waitFor(() => expect(wards()).toEqual(["ICU", "Medicine"]));
+
+    await clickWhenReady("Reset demo");
+
+    await vi.waitFor(() => expect(wards()).toEqual(["ICU", "Medicine", "Surgery"]));
+  });
+});
