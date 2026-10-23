@@ -8,6 +8,10 @@ through outreach_service.record_response() (the LINE simulator's path), the sour
 ward head nurse's through approval_service.decide() (the Approvals page's path), in
 that person's name and with payload.source SIMULATED. The time resolution is one job
 tick (30 s) unless the clock is advanced.
+
+An answer the service refuses is logged once and not tried again in that run: the
+offer or request then waits for its timeout like an unanswered one, instead of a
+new traceback on every tick.
 """
 
 import logging
@@ -38,6 +42,10 @@ from app.domain.enums import (
 from app.services import actor_service, approval_service, approval_wards, outreach_service
 
 logger = logging.getLogger(__name__)
+
+# (run ID, "offer" or "approval", row ID) of answers that failed. Process memory, like
+# the clock that owns the run
+_failed: set[tuple[int, str, int]] = set()
 
 SIMULATED_SOURCE = CheckInSource.SIMULATED.value
 
@@ -74,8 +82,9 @@ SCRIPTS: dict[str, Script] = {
 }
 
 
-def _scripted_run(db: Session) -> tuple[int, Script] | None:
-    """The case and script of the open run that owns the clock, if it wants simulated people."""
+def _scripted_run(db: Session) -> tuple[int, int, Script] | None:
+    """The run, case and script of the open run that owns the clock, if it wants
+    simulated people."""
     run_id = clock.test_run_id()
     if run_id is None:
         return None
@@ -99,7 +108,7 @@ def _scripted_run(db: Session) -> tuple[int, Script] | None:
     )
     if script is None or case_id is None:
         return None
-    return case_id, script
+    return run_id, case_id, script
 
 
 def answer_due(db: Session) -> list[int]:
@@ -108,7 +117,7 @@ def answer_due(db: Session) -> list[int]:
     scripted = _scripted_run(db)
     if scripted is None:
         return []
-    case_id, script = scripted
+    run_id, case_id, script = scripted
     answered: list[int] = []
     now = clock.now()
     offers = db.execute(
@@ -125,7 +134,7 @@ def answer_due(db: Session) -> list[int]:
         if line is None or sent_at is None:
             continue
         response, delay = line
-        if sent_at + timedelta(seconds=delay) > now:
+        if sent_at + timedelta(seconds=delay) > now or (run_id, "offer", outreach_id) in _failed:
             continue
         try:
             outreach_service.record_response(
@@ -139,13 +148,16 @@ def answer_due(db: Session) -> list[int]:
             answered.append(outreach_id)
         except Exception:
             db.rollback()
-            logger.exception("Simulated answer of offer %s failed", outreach_id)
+            _failed.add((run_id, "offer", outreach_id))
+            logger.exception("Simulated answer of offer %s failed; not tried again", outreach_id)
     if script.source_head_nurse is not None:
-        answered += _approve_source_side(db, case_id, *script.source_head_nurse)
+        answered += _approve_source_side(db, run_id, case_id, *script.source_head_nurse)
     return answered
 
 
-def _approve_source_side(db: Session, case_id: int, head_nurse_id: int, delay: int) -> list[int]:
+def _approve_source_side(
+    db: Session, run_id: int, case_id: int, head_nurse_id: int, delay: int
+) -> list[int]:
     head_nurse = db.get(Staff, head_nurse_id)
     if head_nurse is None:
         return []
@@ -173,6 +185,8 @@ def _approve_source_side(db: Session, case_id: int, head_nurse_id: int, delay: i
         if wards.get(ApprovalSide.SOURCE) != head_nurse.home_ward_id:
             continue
         request_id = request.id
+        if (run_id, "approval", request_id) in _failed:
+            continue
         try:
             approval_service.decide(
                 db,
@@ -188,5 +202,8 @@ def _approve_source_side(db: Session, case_id: int, head_nurse_id: int, delay: i
             answered.append(request_id)
         except Exception:
             db.rollback()
-            logger.exception("Simulated source approval of request %s failed", request_id)
+            _failed.add((run_id, "approval", request_id))
+            logger.exception(
+                "Simulated source approval of request %s failed; not tried again", request_id
+            )
     return answered

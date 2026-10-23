@@ -65,7 +65,11 @@ def advance_clock(body: ClockAdvance, db: DbSession) -> ClockAdvanceResult:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "The demo clock is not frozen. Call POST /demo/reset first"
         )
-    now = test_run_service.advance(db, timedelta(seconds=body.seconds))
+    try:
+        now = test_run_service.advance(db, timedelta(seconds=body.seconds))
+    except RuntimeError as error:
+        # Unfrozen between the check above and the move
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
     return ClockAdvanceResult.of(now, job_service.run_due_work(db))
 
 

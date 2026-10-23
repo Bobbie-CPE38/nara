@@ -129,9 +129,12 @@ def _reset_demo(scenario: Callable[[Session], None] | None) -> datetime:
         clock.set_time(demo_time)
         options = {key: SessionLocal.kw[key] for key in ("autoflush", "expire_on_commit")}
         with Session(bind=connection, **options) as db:
-            load(db, preserved_subjects=subjects, large_profile=large_profile)
-            if scenario is not None:
-                scenario(db)
+            load(
+                db,
+                preserved_subjects=subjects,
+                large_profile=large_profile,
+                scenario=scenario,
+            )
             db.flush()
         # After the seed: load() refuses to seed a table that already has rows
         if subjects is not None:
@@ -281,6 +284,8 @@ def _restore_test_runs(connection: Connection) -> None:
             "'original_case_id', h.case_id, 'original_event_id', h.event_id)),"
             " h.created_at"
             " FROM held_test_runs h"
+            # Actor names are unique by convention: str(staff_id) for a person, a fixed
+            # ActorName for a component. min() only makes the choice explicit
             " JOIN LATERAL (SELECT min(a.id) AS id FROM actors a WHERE a.name = h.actor_name)"
             " actor ON actor.id IS NOT NULL"
         )

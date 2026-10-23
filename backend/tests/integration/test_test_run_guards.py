@@ -63,10 +63,12 @@ def other_case_offer(production_seeded: Session) -> Iterator[tuple[Session, Cand
     case, items = short_case(db)
     sent = offer(db, case, items[202])
     db.commit()
+    simulated_replies_service._failed.clear()
     try:
         yield db, sent
     finally:
         clock.set_time(DEMO_NOW)
+        simulated_replies_service._failed.clear()
 
 
 def _run_of(db: Session, event_id: int) -> int:
@@ -129,3 +131,30 @@ def test_a_run_answers_when_the_offer_is_in_its_case(
     assert simulated_replies_service.answer_due(db) == [sent.id]
     db.refresh(sent)
     assert sent.status == OutreachStatus.REJECTED
+
+
+def test_a_refused_answer_is_tried_once_per_run(
+    other_case_offer: tuple[Session, CandidateOutreach],
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Review of #143: no new traceback on every tick for the same refused answer."""
+    db, sent = other_case_offer
+    calls: list[int] = []
+
+    def refused(db: Session, **kwargs: object) -> None:
+        calls.append(1)
+        raise RuntimeError("refused")
+
+    monkeypatch.setattr(simulated_replies_service.outreach_service, "record_response", refused)
+    run_id = _run_of(db, _event_of(db, sent.case_id))
+    clock.run_from(DEMO_NOW + timedelta(minutes=2), run_id)
+
+    for _ in range(3):
+        assert simulated_replies_service.answer_due(db) == []
+        clock.advance(timedelta(seconds=30))
+
+    assert calls == [1]
+    assert sum("not tried again" in record.getMessage() for record in caplog.records) == 1
+    db.refresh(sent)
+    assert sent.status == OutreachStatus.SENT

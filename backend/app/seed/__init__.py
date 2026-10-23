@@ -7,7 +7,7 @@ app.seed.reset.reset_demo() does all of this for POST /demo/reset.
 """
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ def load(
     preserved_subjects: Mapping[int, uuid.UUID] | None = None,
     *,
     large_profile: bool = False,
+    scenario: Callable[[Session], None] | None = None,
 ) -> None:
     """Populate empty application tables without deleting data or committing.
 
@@ -29,6 +30,9 @@ def load(
     (docs/workflow.md 6.33.7). A seeded staff member with one of these IDs is the same
     permanent person again, so their web account still belongs to them; any other gets
     a new random subject.
+
+    scenario: extra rows of a test run (6.35.3), loaded last. It runs while the kept
+    subjects are known, so a person it adds keeps their subject across resets too.
     """
     # Imported here: the loaders import sync_sequences from this module
     from app.seed import base_data, check_ins
@@ -51,6 +55,8 @@ def load(
             from app.seed.large_demo import generate
 
             generate(db, clock.now())
+        if scenario is not None:
+            scenario(db)
     finally:
         del db.info[_PRESERVED_SUBJECTS]
 

@@ -15,18 +15,26 @@ The clock and this lock live in one API process (6.35.1): one worker only.
 
 import re
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import exists, select, text
+from sqlalchemy import exists, select, text, update
 from sqlalchemy.orm import Session, aliased
 
 from app.core import clock
-from app.db.models import AuditLog, CandidatePlan, Shift, Staff, StaffingCase, StaffingEvent
+from app.db.models import (
+    AuditLog,
+    CandidatePlan,
+    Shift,
+    Staff,
+    StaffingCase,
+    StaffingEvent,
+    Ward,
+)
 from app.db.session import SessionLocal
 from app.domain.enums import (
     ActorName,
@@ -35,6 +43,7 @@ from app.domain.enums import (
     EntityType,
     EventType,
 )
+from app.seed.large_demo import WARD_BASE
 from app.seed.reset import reset_demo
 from app.seed.scenarios import cross_ward
 from app.services import actor_service, audit_service, event_service, job_service
@@ -47,6 +56,8 @@ NIGHT_SHIFT = 1
 SIMULATED_SOURCE = CheckInSource.SIMULATED.value
 ABORTED = "ABORTED"
 CLOCK_LOST = "CLOCK_LOST"
+# The clock or the first job round failed after the run was written (6.35.2)
+START_FAILED = "START_FAILED"
 REASON_MAX_LENGTH = 100
 
 _lock = threading.Lock()
@@ -90,7 +101,9 @@ class RunView:
     started_at: datetime
     started_real_at: str | None
     open: bool
-    # Open runs: seconds since the start on the scenario clock, if this API still has it
+    # Open runs: seconds since the start on the scenario clock, if this API still has it.
+    # System time: it includes advanced_seconds, so it is not the tester's time (the KPI
+    # subtracts the advances, 6.35.4)
     elapsed_seconds: float | None
     invalid: bool | None
     reason: str | None
@@ -139,6 +152,23 @@ def _system_actor(db: Session) -> int:
     return actor_service.component_id(db, ActorName.SYSTEM)
 
 
+def _load_scenario(scenario: Scenario) -> Callable[[Session], None]:
+    """The rows a run adds after the demo seed (6.35.3).
+
+    The large demo profile stays (its people keep their accounts), but its wards are
+    paused for the run: the pool takes free people only from active wards, so the
+    scripted people are the only candidates and every cross-ward one needs both wards.
+    The next plain reset loads the profile active again.
+    """
+
+    def load(db: Session) -> None:
+        db.execute(update(Ward).where(Ward.id > WARD_BASE).values(is_active=False))
+        if scenario is Scenario.CROSS_WARD:
+            cross_ward.seed(db)
+
+    return load
+
+
 def _starter_actor(db: Session, staff_id: int | None) -> int:
     """The signed-in user who started or closed the run; SYSTEM in demo mode."""
     return _system_actor(db) if staff_id is None else actor_service.user_id(db, staff_id)
@@ -159,7 +189,7 @@ def start(
             run_id = open_run_id(db)
         if run_id is not None:
             raise TestRunOpenError(run_id)
-        demo_time = reset_demo(cross_ward.seed if scenario is Scenario.CROSS_WARD else None)
+        demo_time = reset_demo(_load_scenario(scenario))
         real_start = datetime.now(clock.APP_TIMEZONE)
         with SessionLocal() as db:
             reporter = db.get(Staff, LEAVING_NURSE)
@@ -199,9 +229,17 @@ def start(
             started.entity_id = started.id
             run_id = started.id
             db.commit()
-            clock.run_from(demo_time, run_id)
-            # The Golden Case's window closes at once: open the case now, not at the next tick
-            job_service.run_due_work(db)
+            try:
+                clock.run_from(demo_time, run_id)
+                # The Golden Case's window closes at once: open the case now, not at the
+                # next tick
+                job_service.run_due_work(db)
+            except Exception:
+                # Never leave an open run its starter has no id for
+                db.rollback()
+                clock.freeze_now()
+                _close(db, started, {"invalid": True, "reason": START_FAILED}, staff_id)
+                raise
             case_id = db.scalar(
                 select(StaffingEvent.case_id).where(StaffingEvent.id == outcome.event_id)
             )
@@ -434,8 +472,20 @@ CSV_COLUMNS = (
 )
 
 
+# A spreadsheet runs a cell that starts with one of these as a formula (CSV injection)
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_cell(value: Any) -> Any:
+    """Text that a spreadsheet would read as a formula gets a leading quote."""
+    if isinstance(value, str) and value.startswith(_FORMULA_START):
+        return "'" + value
+    return value
+
+
 def csv_rows(db: Session) -> list[dict[str, Any]]:
-    """One row per closed run, in the CSV_COLUMNS order (6.35.2)."""
+    """One row per closed run, in the CSV_COLUMNS order (6.35.2). Text cells are escaped
+    with csv_cell(): the abort reason is free text."""
     rows = []
     for run in list_runs(db):
         if run.open:
@@ -451,5 +501,5 @@ def csv_rows(db: Session) -> list[dict[str, Any]]:
             "reason": run.reason,
         }
         row |= {name: (run.kpi or {}).get(name) for name in KPI_COLUMNS}
-        rows.append(row)
+        rows.append({name: csv_cell(value) for name, value in row.items()})
     return rows

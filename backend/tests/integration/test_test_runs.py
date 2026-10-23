@@ -12,11 +12,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 from app.core import clock
-from app.db.models import Actor, AuditLog
+from app.db.models import Actor, AuditLog, CandidateItem, Ward
 from app.db.session import SessionLocal
-from app.domain.enums import AuditAction, EntityType
+from app.domain.enums import ApprovalSide, AuditAction, EntityType
 from app.main import app
-from app.services import test_run_service
+from app.seed.large_demo import STAFF_BASE, WARD_BASE, generate
+from app.seed.reset import reset_demo
+from app.services import approval_wards, auth_service, test_run_service
 
 pytestmark = pytest.mark.usefixtures("restore_empty_database")
 
@@ -225,3 +227,99 @@ def test_the_tester_is_a_code_never_a_name(client: TestClient, code: str) -> Non
     assert answer.status_code == 422
     with SessionLocal() as db:
         assert test_run_service.open_run_id(db) is None
+
+
+def test_cross_ward_runs_one_after_another(client: TestClient) -> None:
+    """Review of #143: the scenario's own person (303) keeps their subject across the
+    reset of the next run, so a second run starts."""
+    first = _start(client, "cross_ward")
+    client.post(f"/demo/test-runs/{first['test_run_id']}/abort")
+
+    second = _start(client, "cross_ward")
+    _play(client, 6, side="DESTINATION")
+    kpi = client.post(f"/demo/test-runs/{second['test_run_id']}/finish").json()["result"]
+
+    assert kpi["from_other_ward"] is True
+
+
+def test_with_the_large_profile_the_scenario_stays_the_same(client: TestClient) -> None:
+    """Review of #143: the profile's wards are paused for the run, so only the scripted
+    people are candidates, each needs both wards, and the same playback fills."""
+    reset_demo()
+    with SessionLocal() as db:
+        auth_service.hold_auth_gate(db)
+        generate(db, clock.now())
+        db.commit()
+
+    run = _start(client, "cross_ward")
+
+    with SessionLocal() as db:
+        items = list(
+            db.scalars(
+                select(CandidateItem)
+                .where(CandidateItem.plan_id.is_not(None))
+                .order_by(CandidateItem.id)
+            )
+        )
+        assert items and all(item.staff_id < STAFF_BASE for item in items)
+        for item in items:
+            assert set(approval_wards.required_wards(db, item)) == {
+                ApprovalSide.DESTINATION,
+                ApprovalSide.SOURCE,
+            }
+    _play(client, 6, side="DESTINATION")
+    kpi = client.post(f"/demo/test-runs/{run['test_run_id']}/finish").json()["result"]
+    assert kpi["time_to_fill_s"] is not None and kpi["from_other_ward"] is True
+
+    # A plain reset brings the profile back as it was
+    assert client.post("/demo/reset").status_code == 200
+    with SessionLocal() as db:
+        paused = db.scalar(
+            select(func.count()).select_from(Ward).where(Ward.id > WARD_BASE, ~Ward.is_active)
+        )
+        assert paused == 0
+
+
+def test_a_start_that_fails_after_the_run_is_written_closes_it(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(db: object) -> None:
+        raise RuntimeError("job round failed")
+
+    monkeypatch.setattr(test_run_service.job_service, "run_due_work", broken)
+    with pytest.raises(RuntimeError, match="job round failed"):
+        client.post("/demo/test-runs", json={"tester_code": "T01", "scenario": "golden"})
+    monkeypatch.undo()
+
+    (failed,) = client.get("/demo/test-runs").json()
+    assert failed["open"] is False
+    assert (failed["invalid"], failed["reason"]) == (True, "START_FAILED")
+    assert clock.mode() == clock.ClockMode.FROZEN
+    _start(client)
+
+
+def test_the_csv_never_hands_a_formula_to_a_spreadsheet(client: TestClient) -> None:
+    run = _start(client, tester_code="-T1")
+    client.post(f"/demo/test-runs/{run['test_run_id']}/abort", json={"reason": '=HYPERLINK("x")'})
+
+    (row,) = client.get("/demo/test-runs.csv").text.splitlines()[1:]
+
+    assert ",'-T1," in row
+    assert "'=HYPERLINK" in row
+    assert test_run_service.csv_cell(12.5) == 12.5
+    assert test_run_service.csv_cell("@x") == "'@x"
+
+
+def test_an_advance_after_the_clock_left_its_mode_is_a_conflict(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review of #143: unfrozen between the mode check and the move: 409, not 500."""
+    assert client.post("/demo/reset").status_code == 200
+
+    def unfrozen(delta: object) -> None:
+        raise RuntimeError("clock follows real time")
+
+    monkeypatch.setattr(clock, "advance", unfrozen)
+    answer = client.post("/demo/clock/advance", json={"seconds": 60})
+
+    assert answer.status_code == 409
