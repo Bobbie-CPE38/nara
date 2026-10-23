@@ -11,10 +11,13 @@ export type CheckInResult = {
 /** GET /clock: the time the backend runs on. */
 export type ClockView = {
   now: string;
-  /** true while the demo clock is frozen; false when it follows real time or a test run */
+  /** true while the demo clock is frozen; false when it follows real time, a test run or a picked time */
   frozen: boolean;
-  /** Round 6 PR EV5a (6.35.1): a test run's clock runs at real speed from the scenario time */
-  mode?: "frozen" | "real" | "scenario";
+  /**
+   * Round 6 PR EV5a (6.35.1): a test run's clock runs at real speed from the scenario time.
+   * PR EV6 (6.36.1): "running" runs at real speed from a time picked on the Demo control
+   */
+  mode?: "frozen" | "real" | "scenario" | "running";
   advanced_seconds?: number;
   test_run_id?: number | null;
 };

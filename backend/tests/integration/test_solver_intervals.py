@@ -191,7 +191,7 @@ def test_the_golden_case_plan_is_unchanged_and_credits_cover_the_shift(seeded: S
 
     plan = _plan(seeded, case)
     assert plan.solver_status is SolverStatus.OPTIMAL
-    assert plan.objective_score == 2023
+    assert plan.objective_score == 20220
     snapshot = plan.input_snapshot
     assert snapshot["partial_plan"] is False
     assert len(snapshot["intervals"]) == 1

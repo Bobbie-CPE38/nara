@@ -42,13 +42,35 @@ const inScrollBox = (table: HTMLElement) =>
   expect(table.parentElement?.className, table.getAttribute("aria-label") ?? "table").toContain("overflow-x-auto");
 
 describe("Dashboard page", () => {
-  it("shows the clock, modes and the wards the numbers cover", async () => {
-    replies(() => dashboard({ wards: [1, 2, 3] }));
+  it("shows how many wards there are and narrows the numbers to the one picked (round 6 PR EV6)", async () => {
+    const options = [
+      { id: 1, name: "ICU" },
+      { id: 2, name: "Medicine" },
+      { id: 3, name: "Float Pool" },
+    ];
+    replies(() => dashboard({ wards: [1, 2, 3], ward_options: options }));
     render(<Home />);
-    expect(await screen.findByText(/Backend Clock 2026-10-17 21:00:00/)).toBeTruthy();
-    expect(screen.getByText(/LINE: simulation/)).toBeTruthy();
-    expect(screen.getByText(/LLM: off/)).toBeTruthy();
-    expect(screen.getByText(/Wards: ICU, Medicine, Float Pool/)).toBeTruthy();
+    expect(await screen.findByText("3 wards")).toBeTruthy();
+    // The clock is in the top bar, and the modes are not for this page
+    expect(screen.queryByText(/Backend Clock|LINE:|LLM:|Wards:/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show ward" }));
+    const list = within(screen.getByRole("listbox", { name: "Show ward" }));
+    // A long list scrolls inside a box of a fixed height
+    expect(screen.getByRole("listbox", { name: "Show ward" }).className).toContain("max-h-60");
+    expect(list.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "All wards",
+      "ICU",
+      "Medicine",
+      "Float Pool",
+    ]);
+    fireEvent.click(list.getByRole("button", { name: "Medicine" }));
+
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith("/dashboard?ward_id=2", expect.objectContaining({ demoUser: 900 })),
+    );
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByRole("button", { name: "Show ward" }).textContent).toContain("Medicine");
   });
 
   it("lists every status, and links the ones that have a page", async () => {
@@ -120,7 +142,7 @@ describe("Dashboard page", () => {
     const shifts = within(screen.getByRole("region", { name: "เวรที่ขาดคน" }));
     expect(shifts.getByRole("link", { name: "เคส 7" }).getAttribute("href")).toBe("/cases/7");
     expect(shifts.getByText("1 RN")).toBeTruthy();
-    expect(screen.getByText(/นาฬิกา Backend 2026-10-17 21:00:00/)).toBeTruthy();
+    expect(screen.getByText("ทั้งหมด 1 หอ")).toBeTruthy();
     expect(screen.getByRole("region", { name: "ตรวจระบบ" })).toBeTruthy();
     // Nothing of the English page is left
     expect(screen.queryByText("Short shifts")).toBeNull();
@@ -218,7 +240,7 @@ describe("Dashboard page", () => {
     expect(usage.getByText(/20\.5 of 20 USD/)).toBeTruthy();
     expect(usage.getByText("Budget reached")).toBeTruthy();
     expect(usage.getByText(/3 calls this month have no known cost/)).toBeTruthy();
-    expect(screen.getByText(/LLM: bedrock/)).toBeTruthy();
+    expect(screen.queryByText(/LLM: bedrock/)).toBeNull();
   });
 
   it("keeps the last numbers and says so when a later read fails", async () => {

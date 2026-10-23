@@ -188,6 +188,8 @@ def test_missing_policy_is_an_error_even_when_no_offers_exist(seeded: Session) -
             version="newer",
             effective_from=DEMO_NOW + timedelta(days=1),
             offer_timeout_seconds=300,
+            maximum_waves_per_case=10,
+            case_outreach_deadline_seconds=5400,
         )
     )
     seeded.flush()
@@ -207,6 +209,8 @@ def test_database_rejects_nonpositive_limit(db: Session, limit: int) -> None:
                 version="test",
                 effective_from=DEMO_NOW,
                 offer_timeout_seconds=300,
+                maximum_waves_per_case=10,
+                case_outreach_deadline_seconds=5400,
             )
         )
         db.flush()

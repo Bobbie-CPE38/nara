@@ -107,7 +107,9 @@ def generate(db: Session, reference_at: datetime) -> dict[str, int]:
     Reset's load() supplies the original subjects through staff_subject(). Replaying
     the profile therefore never attaches a web account to a new permanent person.
     """
-    if set(db.scalars(select(DemoDataset.profile))) - {PROFILE}:
+    from app.seed import hospital_demo
+
+    if set(db.scalars(select(DemoDataset.profile))) - {PROFILE, *hospital_demo.PROFILES}:
         raise ValueError("Unknown demo dataset profile; import refused.")
     existing = db.scalar(select(DemoDataset).where(DemoDataset.profile == PROFILE))
     present = counts(db)

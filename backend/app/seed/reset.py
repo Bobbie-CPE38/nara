@@ -15,7 +15,8 @@ DROP; PostgreSQL ends one side, and the reset starts over (a few times).
 Web accounts and the permanent people behind them survive too (round 6 PR AU1,
 docs/workflow.md 6.33.7): every STAFF row with its auth_subject, their USER actors and
 every AUTH_ACCOUNT with its password hash, closed flag, must-change flag and credential
-version. Every AUTH_SESSION is gone, so everyone logs in again. Before copying anything
+version. Since round 6 PR EV6 (6.36.2) every AUTH_SESSION and every CONTACTS row (the
+LINE bindings) survive as well, so nobody logs in or binds LINE again. Before copying anything
 the reset takes the exclusive side of the Auth reset gate (auth_service), which every
 auth write and session check takes shared: a login or a password change is either in
 the copy or waits and runs on the rebuilt tables.
@@ -37,6 +38,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
+from typing import Literal
 
 import psycopg
 from alembic import command
@@ -63,18 +65,26 @@ LLM_LEDGER_TABLES = ("llm_daily_usage", "llm_trial_usage", "llm_call_log")
 # kept log rows lose them and record when instead (detached_at). A model trial refers to
 # no demo row and keeps everything
 _DEMO_REFERENCES = ("explanation_id", "case_id", "plan_id", "subject_id")
+# Kept with the people, in the order they go back: accounts, then the sessions that refer
+# to them (6.33.7), then the LINE bindings (round 6 PR EV6, 6.36.2). The seed makes none
+# of these rows, so every held row goes back as it was, with its id
+KEPT_PERSON_TABLES = ("auth_account", "auth_session", "contacts")
 
 
 class IdentityConflictError(RuntimeError):
     """A kept person or account cannot be put back, so the reset rolled back."""
 
 
-def reset_demo(scenario: Callable[[Session], None] | None = None) -> datetime:
+def reset_demo(
+    scenario: Callable[[Session], None] | None = None, *, hospital: bool | None = None
+) -> datetime:
     """Drop everything but the LLM ledger, migrate to head, load the Golden Case, freeze
     the clock at D 21:00.
 
     `scenario` loads extra rows after the seed in the same transaction, like
     seed.scenarios.cross_ward.seed for a test run (6.35.3).
+    `hospital` loads the hospital demo on top (round 6 PR EV6, 6.36.3) or leaves it out;
+    None keeps what the database had, as a test run's reset does.
     Safe to call repeatedly in this API process. Concurrent requests wait their turn.
     Returns the frozen demo time.
     """
@@ -83,7 +93,7 @@ def reset_demo(scenario: Callable[[Session], None] | None = None) -> datetime:
     with _reset_lock:
         for attempt in range(_DEADLOCK_RETRIES + 1):
             try:
-                return _reset_demo(scenario)
+                return _reset_demo(scenario, hospital)
             except OperationalError as error:
                 deadlock = isinstance(error.orig, psycopg.errors.DeadlockDetected)
                 if not deadlock or attempt == _DEADLOCK_RETRIES:
@@ -91,7 +101,7 @@ def reset_demo(scenario: Callable[[Session], None] | None = None) -> datetime:
     raise AssertionError("unreachable")
 
 
-def _reset_demo(scenario: Callable[[Session], None] | None) -> datetime:
+def _reset_demo(scenario: Callable[[Session], None] | None, hospital: bool | None) -> datetime:
     # D = today in real time, not whatever an earlier reset froze. The clock is not unfrozen
     # for this: the migration takes seconds, and a clock that followed real time meanwhile
     # showed on the pages as unfrozen and let the job use real time
@@ -106,13 +116,19 @@ def _reset_demo(scenario: Callable[[Session], None] | None) -> datetime:
         subjects = _hold_identities(connection)
         last_test_run_row = _hold_test_runs(connection)
         large_profile = False
+        had_hospital: Literal["active", "paused"] | None = None
         if _columns(connection, "public.demo_dataset"):
             profiles = connection.scalars(text("SELECT profile FROM demo_dataset")).all()
+            from app.seed import hospital_demo
             from app.seed.large_demo import PROFILE
 
-            if any(profile != PROFILE for profile in profiles):
+            if any(profile not in (PROFILE, *hospital_demo.PROFILES) for profile in profiles):
                 raise IdentityConflictError("Unknown demo dataset profile; reset refused.")
             large_profile = PROFILE in profiles
+            if hospital_demo.PROFILE in profiles:
+                had_hospital = "active"
+            elif hospital_demo.PAUSED_PROFILE in profiles:
+                had_hospital = "paused"
         # Dropping the schema also removes alembic_version and resets every sequence
         connection.execute(text("DROP SCHEMA public CASCADE"))
         connection.execute(text("CREATE SCHEMA public"))
@@ -133,6 +149,7 @@ def _reset_demo(scenario: Callable[[Session], None] | None) -> datetime:
                 db,
                 preserved_subjects=subjects,
                 large_profile=large_profile,
+                hospital=_hospital_choice(had_hospital, hospital),
                 scenario=scenario,
             )
             db.flush()
@@ -145,6 +162,18 @@ def _reset_demo(scenario: Callable[[Session], None] | None) -> datetime:
     engine.dispose()
 
     return demo_time
+
+
+def _hospital_choice(
+    had: Literal["active", "paused"] | None, wanted: bool | None
+) -> Literal["active", "paused"] | None:
+    """What the reset loads of the hospital demo (6.36.3). Leaving it out pauses it once it
+    was loaded: its people are kept, so their wards must come back."""
+    if wanted is None:
+        return had
+    if wanted:
+        return "active"
+    return None if had is None else "paused"
 
 
 def _held(table: str) -> str:
@@ -182,10 +211,11 @@ def _hold_identities(connection: Connection) -> dict[int, uuid.UUID] | None:
         ),
         {"user": ActorType.USER.value},
     )
-    # The account table arrived in the same migration as the subject column
-    connection.execute(
-        text("CREATE TEMPORARY TABLE held_auth_account ON COMMIT DROP AS TABLE auth_account")
-    )
+    # The account and session tables arrived in the same migration as the subject column
+    for table in KEPT_PERSON_TABLES:
+        connection.execute(
+            text(f"CREATE TEMPORARY TABLE {_held(table)} ON COMMIT DROP AS TABLE {table}")
+        )
     rows = connection.execute(text("SELECT id, auth_subject FROM held_staff"))
     return {staff_id: subject for staff_id, subject in rows}
 
@@ -225,7 +255,8 @@ def _restore_identities(connection: Connection) -> None:
         )
     )
 
-    for table, held_rows in (("staff", "held_staff"), ("auth_account", "held_auth_account")):
+    for table in ("staff", *KEPT_PERSON_TABLES):
+        held_rows = _held(table)
         kept = set(_columns(connection, f"pg_temp.{held_rows}"))
         columns = ", ".join(c for c in _columns(connection, f"public.{table}") if c in kept)
         # Only staff rows the seed did not create; every account
@@ -246,13 +277,14 @@ def _restore_identities(connection: Connection) -> None:
                     " WHERE NOT EXISTS (SELECT 1 FROM actors x WHERE x.staff_id = a.staff_id)"
                 )
             )
-    # Kept staff IDs can be above what the seed synced
-    connection.execute(
-        text(
-            "SELECT setval(pg_get_serial_sequence('staff', 'id'), max(id))"
-            " FROM staff HAVING max(id) IS NOT NULL"
+    # Kept IDs can be above what the seed synced, and the seed makes no session or contact
+    for table in ("staff", "auth_session", "contacts"):
+        connection.execute(
+            text(
+                f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), max(id))"
+                f" FROM {table} HAVING max(id) IS NOT NULL"
+            )
         )
-    )
 
 
 def _hold_test_runs(connection: Connection) -> int | None:

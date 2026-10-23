@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session, aliased
 from app.core import clock
 from app.db.models import (
     ApprovalRequest,
-    AuditLog,
     CandidateItem,
     CandidateItemTarget,
     CandidateOutreach,
@@ -21,7 +20,11 @@ from app.db.models import (
     Shift,
 )
 from app.domain.constraints.codes import OFFER_LIMIT_REACHED, SOURCE_SHIFT_TAKEN
-from app.domain.enums import COVERING_ROSTER_STATUSES, AuditAction, OutreachStatus
+from app.domain.enums import (
+    COVERING_ROSTER_STATUSES,
+    ManualHandoffReason,
+    OutreachStatus,
+)
 from app.domain.staffing.wave_targets import (
     Slice,
     TargetCredit,
@@ -31,7 +34,13 @@ from app.domain.staffing.wave_targets import (
     is_short,
 )
 from app.domain.workflow.case_status import GapFiller
-from app.services import availability_service, case_facts_service, gap_service, hard_rule_service
+from app.services import (
+    availability_service,
+    case_facts_service,
+    gap_service,
+    hard_rule_service,
+    outreach_limit_service,
+)
 from app.services.optimization_service import record_item_targets
 from app.services.outreach_attempt_service import contactable_item
 
@@ -41,6 +50,8 @@ class WaveSelection:
     items: tuple[CandidateItem, ...]
     skipped: tuple[dict[str, int | str], ...]
     wave: int
+    # Set when an outreach limit of the case stops every new wave (6.36.8); items is empty
+    stopped: ManualHandoffReason | None = None
 
 
 def plan_items(db: Session, case_id: int) -> list[CandidateItem]:
@@ -146,6 +157,10 @@ def _open_gap(
 
 
 def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
+    # Round 6 PR EV6 (6.36.8): past the case's last wave or its deadline nobody is chosen
+    stopped = outreach_limit_service.stop_reason(db, case_id)
+    if stopped is not None:
+        return WaveSelection((), (), outreach_limit_service.waves_sent(db, case_id) + 1, stopped)
     items = plan_items(db, case_id)
     hard_rule_service.lock_staff(db, [item.staff_id for item in items])
     history = list(
@@ -283,16 +298,6 @@ def select_wave(db: Session, *, case_id: int, shift: Shift) -> WaveSelection:
                 record_item_targets(db, item, credits[item.staff_id])
     chosen = [item for item in eligible if item in kept or item.staff_id in credits]
     # Every new wave writes its number on all OFFER_SENT audit rows in the
-    # same transaction as the offers. Legacy history without this field is
-    # wave 1, so the next send is wave 2. Frozen clocks cannot identify waves.
-    previous = list(
-        db.scalars(
-            select(AuditLog.payload).where(
-                AuditLog.case_id == case_id, AuditLog.action == AuditAction.OFFER_SENT
-            )
-        )
-    )
-    wave = (
-        max((int(payload.get("wave", 1)) for payload in previous), default=1 if history else 0) + 1
-    )
+    # same transaction as the offers (outreach_limit_service.waves_sent)
+    wave = outreach_limit_service.waves_sent(db, case_id) + 1
     return WaveSelection(tuple(chosen), tuple(skipped), wave)

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useMemo } from "react";
+import { Suspense, useCallback, useMemo, useState } from "react";
 import { ActingAs } from "@/components/ActingAs";
 import { DashboardView } from "@/components/dashboard/DashboardView";
 import { SystemStatus } from "@/components/dashboard/SystemStatus";
@@ -16,8 +16,15 @@ import type { Dashboard } from "@/lib/types/dashboard";
 function DashboardPage() {
   const t = useT();
   const [actorId, setActorId] = useActor();
+  // One ward of the user's, or every ward (round 6 PR EV6); a new user starts with every ward
+  const [ward, setWard] = useState<{ actorId: number; id: number | null }>({ actorId, id: null });
+  const wardId = ward.actorId === actorId ? ward.id : null;
   const api = useMemo(() => createDemoApi(actorId), [actorId]);
-  const load = useCallback((signal: AbortSignal) => api<Dashboard>("/dashboard", { signal }), [api]);
+  const load = useCallback(
+    (signal: AbortSignal) =>
+      api<Dashboard>(wardId === null ? "/dashboard" : `/dashboard?ward_id=${wardId}`, { signal }),
+    [api, wardId],
+  );
   // Read again every 2 seconds like the approvals page; the read writes nothing
   const { data, error, isLoading } = usePolling(load);
 
@@ -35,7 +42,14 @@ function DashboardPage() {
         </div>
       )}
       {isLoading && !data && <p>{t("common.loading")}</p>}
-      {data && <DashboardView data={data} actorId={actorId} />}
+      {data && (
+        <DashboardView
+          data={data}
+          actorId={actorId}
+          wardId={wardId}
+          onWardChange={(id) => setWard({ actorId, id })}
+        />
+      )}
       <SystemStatus />
     </main>
   );

@@ -7,6 +7,7 @@ so these tests commit, like test_demo_reset.
 import threading
 import time
 from collections.abc import Iterator
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -125,8 +126,15 @@ def test_while_a_run_is_open_the_buttons_that_would_spoil_it_are_refused(
     with SessionLocal() as db:
         rows_before = db.scalar(select(func.count()).select_from(AuditLog))
 
-    for path in ("/demo/reset", "/demo/clock/freeze", "/demo/clock/unfreeze"):
-        refused = client.post(path)
+    soon = (clock.now() + timedelta(hours=1)).isoformat()
+    for path, body in (
+        ("/demo/reset", None),
+        ("/demo/clock/freeze", None),
+        ("/demo/clock/unfreeze", None),
+        ("/demo/clock/resume", None),
+        ("/demo/clock/set", {"at": soon, "running": True}),
+    ):
+        refused = client.post(path, json=body)
         assert refused.status_code == 409, path
         assert f"Test run {run['test_run_id']} is in progress" in refused.json()["detail"]
     another = client.post("/demo/test-runs", json={"tester_code": "T02", "scenario": "golden"})

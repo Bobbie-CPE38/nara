@@ -203,6 +203,10 @@ class ManualHandoffReason(StrEnum):
     NO_FEASIBLE_PLAN = "NO_FEASIBLE_PLAN"  # T6, written by optimize
     # Round 2: the solver hit its time limit without a plan (UNKNOWN), written by optimize
     SOLVER_TIMEOUT = "SOLVER_TIMEOUT"
+    # Round 6 PR EV6 (6.36.8), written by contact_candidate once nothing is left to wait for:
+    # the case sent its last allowed wave, or its time for new waves ran out
+    WAVE_LIMIT_REACHED = "WAVE_LIMIT_REACHED"
+    OUTREACH_DEADLINE_REACHED = "OUTREACH_DEADLINE_REACHED"
 
 
 # --------------------------------------------------------------------------- #

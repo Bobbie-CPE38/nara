@@ -13,6 +13,21 @@ export type HandoffCase = {
   can_manage: boolean;
 };
 
+/** One item of GET /cases/search (round 6 PR EV6, docs/workflow.md 6.36.6). */
+export type CaseListItem = HandoffCase & {
+  ward_name: string;
+  shift_type: string;
+  shift_start_at: string;
+};
+
+/** GET /cases/search: one page and the number of cases in all */
+export type CasePage = {
+  items: CaseListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
 /** One item of GET /cases/{id}/handoff/candidates. */
 export type HandoffCandidate = {
   staff_id: number;

@@ -81,6 +81,41 @@ def test_each_user_sees_their_ward_and_a_supervisor_sees_all(
     assert _dashboard(client, user)["wards"] == wards
 
 
+def test_the_ward_options_name_every_visible_ward(client: TestClient) -> None:
+    """Round 6 PR EV6 (6.36.4): the filter lists the wards by name, not a joined string."""
+    assert _dashboard(client, SUPERVISOR)["ward_options"] == [
+        {"id": 1, "name": "ICU"},
+        {"id": 2, "name": "Medicine"},
+        {"id": 3, "name": "Float Pool"},
+    ]
+    assert _dashboard(client)["ward_options"] == [{"id": 1, "name": "ICU"}]
+
+
+def test_a_ward_filter_narrows_every_number_to_that_ward(
+    client: TestClient, seeded: Session
+) -> None:
+    case_rows.make_case(seeded, CaseStatus.FAILED)
+    case_rows.make_case(seeded, CaseStatus.FAILED, shift_id=MEDICINE_NIGHT)
+
+    medicine = client.get(
+        "/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": str(SUPERVISOR)}
+    ).json()
+
+    assert medicine["wards"] == [2]
+    assert _counts(medicine)["FAILED"] == 1
+    assert {row["ward_id"] for row in medicine["shortages"]} <= {2}
+    # The options still list every ward, so the user can pick another
+    assert len(medicine["ward_options"]) == 3
+
+
+def test_a_ward_outside_the_users_wards_is_refused(client: TestClient) -> None:
+    refused = client.get(
+        "/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": str(HEAD_NURSE)}
+    )
+
+    assert refused.status_code == 403
+
+
 def test_cases_are_counted_by_status_within_the_visible_wards(
     client: TestClient, seeded: Session
 ) -> None:

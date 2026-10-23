@@ -32,6 +32,7 @@ from app.db.models import (
     Staff,
     StaffingCase,
     StaffingEvent,
+    Ward,
 )
 from app.domain.enums import AUTOMATION_STOPPED_STATUSES, CaseStatus, EventType, OutreachStatus
 from app.schemas.dashboard import (
@@ -44,15 +45,31 @@ from app.schemas.dashboard import (
     OpenOffers,
     Shortage,
     WardCount,
+    WardOption,
 )
 from app.services import access_service, approval_service, gap_check_service, llm_gateway
 from app.services.gap_check_service import WardScope
 from app.services.merge_window_service import NO_SHOW_REASON
 
 
-def build(db: Session, staff: Staff, viewer: access_service.Viewer | None = None) -> Dashboard:
-    """`viewer` is given in session mode only; demo mode keeps the ward view of F1."""
-    scope = gap_check_service.ward_scope(db, staff)
+class WardNotVisibleError(ValueError):
+    """?ward_id= names a ward the user does not see (or that does not exist)."""
+
+
+def build(
+    db: Session,
+    staff: Staff,
+    viewer: access_service.Viewer | None = None,
+    *,
+    ward_id: int | None = None,
+) -> Dashboard:
+    """`viewer` is given in session mode only; demo mode keeps the ward view of F1.
+    `ward_id` narrows every number to one of the user's wards (round 6 PR EV6, 6.36.4)."""
+    visible = gap_check_service.ward_scope(db, staff)
+    if ward_id is not None and not visible.sees(ward_id):
+        raise WardNotVisibleError(f"Ward {ward_id} is not one of your wards")
+    scope = visible if ward_id is None else WardScope(ward_ids=(ward_id,))
+    names = dict(db.execute(select(Ward.id, Ward.name).where(Ward.id.in_(visible.ward_ids))).all())
     now = clock.now()
     own = viewer if viewer is not None and viewer.role == "staff" else None
     # A nurse's counts follow what concerns them, in any ward (the same condition as the case
@@ -67,6 +84,10 @@ def build(db: Session, staff: Staff, viewer: access_service.Viewer | None = None
                 llm_enabled=settings.llm_enabled,
             ),
             wards=list(scope.ward_ids),
+            ward_options=[
+                WardOption(id=ward, name=names.get(ward, f"Ward {ward}"))
+                for ward in visible.ward_ids
+            ],
             cases_by_status=_cases_by_status(db, scope, cases),
             shortages=_shortages(db, scope, now, cases),
             pending_approvals=[] if own is not None else _pending_approvals(db, scope),

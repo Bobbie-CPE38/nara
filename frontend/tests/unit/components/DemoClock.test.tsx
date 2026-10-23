@@ -22,6 +22,19 @@ describe("DemoClock", () => {
     expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/clock$/);
   });
 
+  it("says a clock set on the Demo control runs on, not that it is real time (round 6 PR EV6)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(JSON.stringify({ now: "2026-10-24T06:50:03+07:00", frozen: false, mode: "running" })),
+      ),
+    );
+    render(<ClockProvider><DemoClock /></ClockProvider>);
+    const clock = await screen.findByRole("status", { name: "Backend clock" });
+    expect(clock.textContent).toContain("(demo, runs on from a set time)");
+    expect(clock.textContent).not.toContain("real time");
+  });
+
   it("says so when the clock cannot be read", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 500 })));
     render(<ClockProvider><DemoClock /></ClockProvider>);

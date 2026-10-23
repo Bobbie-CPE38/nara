@@ -64,7 +64,7 @@ from app.domain.enums import (
     RosterStatus,
 )
 from app.domain.workflow.case_status import CaseFacts, GapFiller, intervals_closed
-from app.services import gap_service, roster_time_service
+from app.services import gap_service, outreach_limit_service, roster_time_service
 from app.services.outreach_attempt_service import contactable_item
 
 # A replacement keeps counting after its shift ended and the row was closed
@@ -286,8 +286,12 @@ def _sent_staff_ids(db: Session, case_id: int) -> set[int]:
 def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
     """True when the latest plan holds an uncontacted item or an unused timeout retry.
 
-    "Latest" is the highest id (seam 1). A case without a plan has nobody to contact.
+    "Latest" is the highest id (seam 1). A case without a plan has nobody to contact, and
+    neither has a case past an outreach limit (round 6 PR EV6, 6.36.8): it only waits for
+    the offers it already sent.
     """
+    if outreach_limit_service.stop_reason(db, case_id) is not None:
+        return False
     plan_id = db.scalar(
         select(CandidatePlan.id)
         .where(CandidatePlan.case_id == case_id)

@@ -8,6 +8,7 @@ app.seed.reset.reset_demo() does all of this for POST /demo/reset.
 
 import uuid
 from collections.abc import Callable, Mapping
+from typing import Literal
 
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
@@ -22,6 +23,7 @@ def load(
     preserved_subjects: Mapping[int, uuid.UUID] | None = None,
     *,
     large_profile: bool = False,
+    hospital: Literal["active", "paused"] | None = None,
     scenario: Callable[[Session], None] | None = None,
 ) -> None:
     """Populate empty application tables without deleting data or committing.
@@ -30,6 +32,9 @@ def load(
     (docs/workflow.md 6.33.7). A seeded staff member with one of these IDs is the same
     permanent person again, so their web account still belongs to them; any other gets
     a new random subject.
+
+    hospital: also load the hospital demo (round 6 PR EV6, 6.36.3) before the check-ins,
+    active or paused (its wards and people only).
 
     scenario: extra rows of a test run (6.35.3), loaded last. It runs while the kept
     subjects are known, so a person it adds keeps their subject across resets too.
@@ -49,6 +54,10 @@ def load(
         base_data.seed(db)
         golden_case.seed(db)
         multi_ward.seed(db)
+        if hospital is not None:
+            from app.seed import hospital_demo
+
+            hospital_demo.seed(db, active=hospital == "active")
         check_ins.seed(db)
         if large_profile:
             from app.core import clock

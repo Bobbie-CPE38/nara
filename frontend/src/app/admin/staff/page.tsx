@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -36,6 +36,15 @@ function Directory() {
   // Codes stay in component memory only: never localStorage, URLs, or console logs.
   const [issued, setIssued] = useState<{ staff: Staff; result: Code } | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
+  // The code shows above the table: bring it into view at once (round 6 PR EV6)
+  const codeHeading = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    if (!issued) return;
+    const heading = codeHeading.current;
+    heading?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    heading?.focus({ preventScroll: true });
+  }, [issued]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -161,7 +170,7 @@ function Directory() {
       </Card>}
       {issued && (
         <Card>
-          <h2 className="font-semibold">{t("staff.codeFor", { id: issued.staff.id, name: `${issued.staff.first_name} ${issued.staff.last_name}` })}</h2>
+          <h2 ref={codeHeading} tabIndex={-1} className="scroll-mt-28 font-semibold outline-none">{t("staff.codeFor", { id: issued.staff.id, name: `${issued.staff.first_name} ${issued.staff.last_name}` })}</h2>
           <p className="my-3 break-all select-all rounded bg-brand-50 p-3 font-mono">LINK {issued.result.code}</p>
           <p>{t("staff.expires", { time: formatDateTime(issued.result.expires_at) })}</p>
           <p className="my-2">{t("staff.instructions")}</p>

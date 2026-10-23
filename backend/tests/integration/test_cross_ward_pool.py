@@ -153,7 +153,7 @@ def test_a_free_nurse_of_another_ward_is_a_cross_ward_candidate(seeded: Session)
     sources = {item.staff_id: item.source for item in result.items}
     assert sources[lent] is CandidateSource.CROSS_WARD
     assert _entry(result.plan, lent)["source"] == "CROSS_WARD"
-    assert _source_points(result.plan, lent) == 400
+    assert _source_points(result.plan, lent) == 3000
     assert _source_points(result.plan, 201) == 0
     # Equal metrics otherwise: the in-ward peers rank first
     rank = {item.staff_id: item.rank for item in result.items}
@@ -167,7 +167,7 @@ def test_a_free_nurse_of_the_float_pool_is_a_float_pool_candidate(seeded: Sessio
 
     assert {item.staff_id: item.source for item in result.items}[lent] is CandidateSource.FLOAT_POOL
     assert _entry(result.plan, lent)["source"] == "FLOAT_POOL"
-    assert _source_points(result.plan, lent) == 200
+    assert _source_points(result.plan, lent) == 1500
 
 
 def test_someone_on_another_wards_offset_overlapping_shift_is_in_the_pool_with_a_source(

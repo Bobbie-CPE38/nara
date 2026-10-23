@@ -126,7 +126,7 @@ def _failed_reset_then_reset() -> int:
     """Runs in a child process: a reset that raises, then a real one."""
     from app.seed import reset as reset_module
 
-    def fail(scenario: object = None) -> datetime:
+    def fail(scenario: object = None, hospital: object = None) -> datetime:
         raise RuntimeError("Reset failed")
 
     real_reset = reset_module._reset_demo

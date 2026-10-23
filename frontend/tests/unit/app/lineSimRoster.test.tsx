@@ -849,6 +849,47 @@ describe("LINE simulator", () => {
 });
 
 describe("Roster", () => {
+  /**
+   * Round 6 PR EV6: the page reads the user's wards (/dashboard) and the shifts of the day
+   * (/gap/shifts) before the roster; `handler` answers everything else.
+   */
+  function rosterReplies(handler: (path: string) => unknown) {
+    replies((path) => {
+      if (path === "/dashboard") {
+        return { now: "2026-10-09T21:00:00+07:00", wards: [1], ward_options: [{ id: 1, name: "ICU" }] };
+      }
+      if (path.startsWith("/gap/shifts?")) {
+        return [1, 2].map((id) => ({
+          shift_id: id,
+          ward_id: 1,
+          start_at: "2026-10-09T23:00:00+07:00",
+          end_at: "2026-10-10T07:00:00+07:00",
+          required_staff: 5,
+          rostered_count: 5,
+          headcount_gap: 0,
+          case_id: null,
+        }));
+      }
+      return handler(path);
+    });
+  }
+
+  const rosterCalls = () => request.mock.calls.filter(([path]) => path.startsWith("/roster?"));
+
+  it("offers only the shifts the user may see, of the ward and the day picked", async () => {
+    rosterReplies(() => roster);
+    render(<RosterPage />);
+    await screen.findByText("CANCELLED");
+    expect(request).toHaveBeenCalledWith(
+      "/gap/shifts?ward_id=1&date=2026-10-09",
+      expect.objectContaining({ demoUser: 900 }),
+    );
+    expect(
+      Array.from(screen.getByLabelText<HTMLSelectElement>("Shift").options).map((item) => item.textContent),
+    ).toEqual(["Shift 1 · 23:00–07:00", "Shift 2 · 23:00–07:00"]);
+    expect(screen.getByRole("option", { name: "ICU" })).toBeTruthy();
+  });
+
   function cellUnder(table: HTMLElement, row: HTMLElement, heading: string) {
     const headers = within(table).getAllByRole("columnheader");
     const header = within(table).getByRole("columnheader", { name: heading });
@@ -856,7 +897,7 @@ describe("Roster", () => {
   }
 
   it("shows cancellations, replacements and their source", async () => {
-    replies(() => roster);
+    rosterReplies(() => roster);
     render(<RosterPage />);
     await screen.findByText("CANCELLED");
     expect(screen.getByText("REPLACEMENT")).toBeTruthy();
@@ -867,7 +908,7 @@ describe("Roster", () => {
     );
   });
   it("shows actual intervals and transfer links while preserving scheduled shift times", async () => {
-    replies(() => ({
+    rosterReplies(() => ({
       ...roster,
       assignments: [
         {
@@ -891,7 +932,7 @@ describe("Roster", () => {
   });
 
   it("falls back independently when an actual endpoint is null", async () => {
-    replies(() => ({
+    rosterReplies(() => ({
       ...roster,
       assignments: [
         { ...roster.assignments[1], actual_end_at: "2026-10-10T01:00:00+07:00" },
@@ -907,7 +948,7 @@ describe("Roster", () => {
   });
 
   it("preserves duplicate staff and cross-ward inactive entries", async () => {
-    replies(() => ({
+    rosterReplies(() => ({
       ...roster,
       assignments: [
         roster.assignments[0],
@@ -928,7 +969,7 @@ describe("Roster", () => {
     expect(screen.getByText("INACTIVE")).toBeTruthy();
   });
   it("marks only assigned people whose leave overlaps the shift", async () => {
-    replies(() => ({
+    rosterReplies(() => ({
       ...roster,
       assignments: [
         roster.assignments[0],
@@ -942,7 +983,7 @@ describe("Roster", () => {
     expect(within(rows[2]).getByText("On leave")).toBeTruthy();
   });
   it("loads another shift and displays an empty roster", async () => {
-    replies((path) =>
+    rosterReplies((path) =>
       path.includes("shift_id=1")
         ? roster
         : { ...roster, shift: { ...roster.shift, id: 2 }, assignments: [] },
@@ -960,7 +1001,7 @@ describe("Roster", () => {
     );
   });
   it("shows a missing-shift error", async () => {
-    replies(() => {
+    rosterReplies(() => {
       throw new ApiError(404, { detail: "No shift 1" });
     });
     render(<RosterPage />);
@@ -970,18 +1011,20 @@ describe("Roster", () => {
   });
   it("polls every two seconds and stops on unmount", async () => {
     vi.useFakeTimers();
-    replies(() => roster);
+    rosterReplies(() => roster);
     const view = render(<RosterPage />);
-    await act(async () => {});
-    expect(request).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(rosterCalls()).toHaveLength(1);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
     });
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(rosterCalls()).toHaveLength(2);
     view.unmount();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(4000);
     });
-    expect(request).toHaveBeenCalledTimes(2);
+    expect(rosterCalls()).toHaveLength(2);
   });
 });

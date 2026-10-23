@@ -140,8 +140,11 @@ def test_reset_replays_large_profile_preserving_old_and_new_accounts_and_subject
             dict(db.execute(select(AuthAccount.staff_subject, AuthAccount.password_hash)).all())
             == passwords
         )
-        assert db.scalar(select(func.count()).select_from(AuthSession)) == 0
-        assert auth_service.resolve(db, token) is None
+        # Round 6 PR EV6 (6.36.2): the login survives the reset too
+        assert db.scalar(select(func.count()).select_from(AuthSession)) == 1
+        kept = auth_service.resolve(db, token)
+        assert kept is not None and kept.staff.id == STAFF_BASE + 1
+        db.rollback()
         assert db.scalars(select(DemoDataset.profile)).one() == PROFILE
         assert db.scalar(select(func.count()).select_from(RosterAssignment)) > 7200
         assert auth_service.login(db, STAFF_BASE + 1, "a private test password") is not None

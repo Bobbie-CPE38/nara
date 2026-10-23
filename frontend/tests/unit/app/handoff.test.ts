@@ -39,6 +39,21 @@ const OFFERED = { ...FREE, staff_id: 203, first_name: "Chonthicha", other_case_i
 
 type Answer = { body: unknown; status?: number };
 
+/** One page of GET /cases/search with the cases of the old list */
+function page(cases: unknown[], total = cases.length) {
+  return {
+    items: cases.map((row) => ({
+      ward_name: "ICU",
+      shift_type: "NIGHT",
+      shift_start_at: "2026-10-09T23:00:00+07:00",
+      ...(row as object),
+    })),
+    total,
+    page: 1,
+    page_size: 10,
+  };
+}
+
 /** GET answers the case list or the candidates; each POST takes the next answer. */
 function stubFetch(posts: Answer[] = [], cases: unknown[] = [STOPPED, FAILED]) {
   const queue = [...posts];
@@ -50,7 +65,8 @@ function stubFetch(posts: Answer[] = [], cases: unknown[] = [STOPPED, FAILED]) {
     if (/\/handoff\/candidates$/.test(url)) {
       return new Response(JSON.stringify([ON_SHIFT, FREE, TIRED, OFFERED]));
     }
-    return new Response(JSON.stringify(cases));
+    // GET /cases/search answers one page (round 6 PR EV6)
+    return new Response(JSON.stringify(page(cases)));
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -79,13 +95,15 @@ describe("handoff page", () => {
     const link = await screen.findByRole("link", { name: "7" });
     expect(link.getAttribute("href")).toBe("/cases/7");
     const [url, request] = fetchMock.mock.calls[0];
-    expect(url).toMatch(/\/cases\?status=MANUAL_HANDOFF,FAILED$/);
+    // One page of the search of round 6 PR EV6, the oldest case first
+    expect(url).toMatch(/\/cases\/search\?page=1&page_size=10&sort=oldest&status=MANUAL_HANDOFF%2CFAILED$/);
     expect(request.headers.get("X-Demo-User")).toBe("900");
     // A gap of two with one person already assigned: still short of one
     const cells = within(link.closest("tr") as HTMLElement).getAllByRole("cell");
     expect(cells.map((cell) => cell.textContent)).toEqual([
       "7",
       "MANUAL_HANDOFF",
+      "ICU",
       "1",
       "1",
       "2026-10-09 21:00:00",
@@ -154,7 +172,7 @@ describe("handoff page", () => {
     expect(request.headers.get("X-Demo-User")).toBe("900");
     expect(JSON.parse(request.body)).toEqual({ staff_id: 201, reason: "Called in" });
     // A resolved case has nothing left to manage
-    expect(screen.queryByRole("region", { name: "Manage case 7" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Manage case 7" })).toBeNull();
   });
 
   it("asks before cancelling an offer elsewhere, then sends the confirmation", async () => {
@@ -280,7 +298,7 @@ describe("handoff page", () => {
       "fetch",
       vi.fn().mockImplementation(async (url: string) => {
         const match = /\/cases\/(\d+)\/handoff\/candidates$/.exec(url);
-        if (!match) return new Response(JSON.stringify([STOPPED, OTHER]));
+        if (!match) return new Response(JSON.stringify(page([STOPPED, OTHER])));
         // Each case's staff list answers only when the test says so
         const rows = await new Promise<unknown[]>((resolve) => {
           late[Number(match[1])] = resolve;
@@ -297,7 +315,7 @@ describe("handoff page", () => {
     await act(async () => late[9]([{ ...FREE, first_name: "Ninth" }]));
     await act(async () => late[7]([{ ...FREE, first_name: "Seventh" }]));
 
-    expect(screen.getByRole("region", { name: "Manage case 9" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Manage case 9" })).toBeTruthy();
     expect(screen.getByText("Ninth Demo")).toBeTruthy();
     expect(screen.queryByText("Seventh Demo")).toBeNull();
   });
@@ -325,7 +343,7 @@ describe("handoff page", () => {
       "fetch",
       vi.fn().mockImplementation(async (url: string) =>
         new Response(
-          JSON.stringify(/\/handoff\/candidates$/.test(url) ? [FREE] : cases),
+          JSON.stringify(/\/handoff\/candidates$/.test(url) ? [FREE] : page(cases)),
         ),
       ),
     );
@@ -334,15 +352,56 @@ describe("handoff page", () => {
     await tick(0);
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
     await tick(0);
-    expect(screen.getByRole("region", { name: "Manage case 7" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Manage case 7" })).toBeTruthy();
 
     // Another head nurse closed it: the next poll lists it as UNRESOLVED
     cases = [{ ...STOPPED, status: "UNRESOLVED", can_manage: false }];
     await tick(2000);
 
-    expect(screen.queryByRole("region", { name: "Manage case 7" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Manage case 7" })).toBeNull();
     expect(screen.getByRole("status").textContent).toBe(
       "Case 7 can no longer be managed: it is now UNRESOLVED.",
     );
+  });
+});
+
+describe("handoff list of round 6 PR EV6", () => {
+  it("searches, filters by status and pages, oldest case first", async () => {
+    const fetchMock = vi.fn().mockImplementation(async (url: string) => {
+      const pageNumber = Number(new URL(url).searchParams.get("page"));
+      return new Response(JSON.stringify({ ...page([STOPPED], 11), page: pageNumber }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(Handoff));
+    await screen.findByRole("link", { name: "7" });
+    const urls = () => fetchMock.mock.calls.map(([url]) => new URL(url).search);
+
+    expect(screen.getByText("Page 1 of 2 · 11 in all")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await vi.waitFor(() => expect(urls()).toContain("?page=2&page_size=10&sort=oldest&status=MANUAL_HANDOFF%2CFAILED"));
+
+    fireEvent.change(screen.getByLabelText(/^Status/), { target: { value: "FAILED" } });
+    await vi.waitFor(() => expect(urls()).toContain("?page=1&page_size=10&sort=oldest&status=FAILED"));
+
+    fireEvent.change(screen.getByLabelText(/^Search/), { target: { value: "21" } });
+    fireEvent.click(screen.getByRole("button", { name: "Find" }));
+    await vi.waitFor(() => expect(urls()).toContain("?page=1&page_size=10&sort=oldest&q=21&status=FAILED"));
+  });
+
+  it("manages a case in a dialog that closes with its button or Escape", async () => {
+    stubFetch();
+    render(createElement(Handoff));
+    await openCase();
+
+    const dialog = screen.getByRole("dialog", { name: "Manage case 7" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await openCase();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // The list stays where it was
+    expect(screen.getByRole("link", { name: "7" })).toBeTruthy();
   });
 });

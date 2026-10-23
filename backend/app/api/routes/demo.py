@@ -3,19 +3,24 @@ Basic Auth, and in session mode every POST also needs an allowed Origin (6.33.3)
 
 import csv
 import io
+from datetime import date, datetime, time, timedelta
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
+from sqlalchemy import select
 
 from app.api.dependencies import DbSession, Reader, access_viewer, forbidden
 from app.core import clock
-from app.db.models import Staff
+from app.db.models import Attendance, RosterAssignment, Shift, Staff, Ward
 from app.domain.enums import ActorName, CheckInSource, StaffStatus
 from app.domain.errors import ShiftNotFoundError, StaffNotFoundError
 from app.schemas.attendance import CheckInResponse, SimulatedCheckIn
-from app.schemas.clock import ClockView
+from app.schemas.clock import ClockSet, ClockView, DemoReset
+from app.schemas.demo import DemoRosterPerson, DemoShift, DemoWard
 from app.schemas.event import DemoEventCreate, EventResult
 from app.schemas.job import ClockAdvance, ClockAdvanceResult
 from app.schemas.test_run import TestRunAbort, TestRunClosed, TestRunStart, TestRunStarted
+from app.schemas.types import MAX_BIGINT
 from app.seed.reset import reset_demo
 from app.services import (
     actor_service,
@@ -38,14 +43,16 @@ def _run_in_progress(error: test_run_service.TestRunOpenError) -> HTTPException:
 
 
 @router.post("/reset")
-def reset() -> dict[str, str]:
+def reset(body: DemoReset | None = None) -> dict[str, str]:
     """Drop the database, migrate, load the Golden Case and freeze the clock at D 21:00.
 
+    `hospital` adds or leaves out the hospital demo (6.36.3); no body keeps what the
+    database had. Logins and LINE bindings stay (6.36.2).
     409 while a test run is open: it would wipe the run's case (6.35.2).
     """
     try:
         with test_run_service.no_open_run():
-            demo_time = reset_demo()
+            demo_time = reset_demo(hospital=None if body is None else body.hospital)
     except test_run_service.TestRunOpenError as error:
         raise _run_in_progress(error) from error
     return {"status": "ok", "clock": demo_time.isoformat()}
@@ -53,8 +60,8 @@ def reset() -> dict[str, str]:
 
 @router.post("/clock/advance")
 def advance_clock(body: ClockAdvance, db: DbSession) -> ClockAdvanceResult:
-    """Move the frozen demo clock, or a test run's clock, forward, then expire offers,
-    recover cases and close due windows.
+    """Move the frozen demo clock, a running one (6.36.1) or a test run's clock forward,
+    then expire offers, recover cases and close due windows.
 
     Runs the same function as the job service: a frozen clock that moves does
     not wake the job up. 409 when the clock follows real time (no reset yet since
@@ -98,6 +105,115 @@ def unfreeze_clock() -> ClockView:
     except test_run_service.TestRunOpenError as error:
         raise _run_in_progress(error) from error
     return ClockView.current()
+
+
+@router.post("/clock/resume")
+def resume_clock() -> ClockView:
+    """Let the clock run on at real speed from the time it shows now, frozen or not
+    (running mode, 6.36.1). 409 while a test run is open (6.35.2)."""
+    try:
+        with test_run_service.no_open_run():
+            clock.run_from(clock.now())
+    except test_run_service.TestRunOpenError as error:
+        raise _run_in_progress(error) from error
+    return ClockView.current()
+
+
+@router.post("/clock/set")
+def set_clock(body: ClockSet) -> ClockView:
+    """Put the clock at any time within a year of real time, frozen there or running on
+    from it (6.36.1). Back or forward: the job runs what fell due on its next round.
+    409 while a test run is open (6.35.2); 422 for a time out of range."""
+    try:
+        with test_run_service.no_open_run():
+            if body.running:
+                clock.run_from(body.at)
+            else:
+                clock.set_time(body.at)
+    except test_run_service.TestRunOpenError as error:
+        raise _run_in_progress(error) from error
+    return ClockView.current()
+
+
+def _manager_only(db: DbSession, reader: Reader) -> None:
+    """In session mode the Demo control's reads of people need a head nurse or a supervisor,
+    like its events (6.33.4); demo mode asks nobody."""
+    if reader is not None and access_viewer(db, reader).role == "staff":
+        raise forbidden()
+
+
+@router.get("/wards")
+def list_wards(db: DbSession, reader: Reader) -> list[DemoWard]:
+    """Every ward, for the Demo control's choice of shift (round 6 PR EV6, 6.36.5)."""
+    _manager_only(db, reader)
+    return [
+        DemoWard(
+            id=ward.id,
+            name=ward.name,
+            is_active=ward.is_active,
+            is_float_pool=ward.is_float_pool,
+        )
+        for ward in db.scalars(select(Ward).order_by(Ward.id))
+    ]
+
+
+@router.get("/shifts")
+def list_shifts(
+    db: DbSession,
+    reader: Reader,
+    ward_id: Annotated[int, Query(ge=1, le=MAX_BIGINT)],
+    day: Annotated[date, Query(alias="date", ge=date(2000, 1, 1), le=date(2999, 12, 31))],
+) -> list[DemoShift]:
+    """Shifts of any ward starting on `date` (Asia/Bangkok), each with every roster row and
+    whether the person has checked in: whom the Demo control can check in or report on
+    leave (6.36.5). An unknown ward has none."""
+    _manager_only(db, reader)
+    start = datetime.combine(day, time(), tzinfo=clock.APP_TIMEZONE)
+    shifts = db.scalars(
+        select(Shift)
+        .where(
+            Shift.ward_id == ward_id,
+            Shift.start_at >= start,
+            Shift.start_at < start + timedelta(days=1),
+        )
+        .order_by(Shift.start_at, Shift.id)
+    ).all()
+    rows = db.execute(
+        select(RosterAssignment, Staff)
+        .join(Staff, Staff.id == RosterAssignment.staff_id)
+        .where(RosterAssignment.shift_id.in_([shift.id for shift in shifts]))
+        .order_by(RosterAssignment.staff_id, RosterAssignment.id)
+    ).all()
+    arrived = {
+        (shift_id, staff_id)
+        for shift_id, staff_id in db.execute(
+            select(Attendance.shift_id, Attendance.staff_id).where(
+                Attendance.shift_id.in_([shift.id for shift in shifts])
+            )
+        )
+    }
+    people: dict[int, list[DemoRosterPerson]] = {shift.id: [] for shift in shifts}
+    for roster, staff in rows:
+        people[roster.shift_id].append(
+            DemoRosterPerson(
+                staff_id=staff.id,
+                first_name=staff.first_name,
+                last_name=staff.last_name,
+                status=roster.status,
+                checked_in=(roster.shift_id, staff.id) in arrived,
+            )
+        )
+    return [
+        DemoShift(
+            id=shift.id,
+            ward_id=shift.ward_id,
+            shift_type=shift.shift_type,
+            start_at=shift.start_at,
+            end_at=shift.end_at,
+            people=people[shift.id],
+        )
+        for shift in shifts
+    ]
 
 
 @router.post("/attendance/check-in")

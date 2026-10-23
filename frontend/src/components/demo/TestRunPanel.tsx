@@ -36,8 +36,8 @@ type Outcome =
 
 /**
  * The test-run part of the Demo control (round 6 PR EV5b, docs/workflow.md 6.35.5): start a run
- * for a tester code, then finish or abort it. Starting is a demo reset, so in login mode
- * everyone signs in again; the page's next read sends the user to the login page.
+ * for a tester code, then finish or abort it. Starting is a demo reset, which keeps every login
+ * and LINE binding since round 6 PR EV6 (6.36.2).
  */
 export function TestRunPanel({
   open,

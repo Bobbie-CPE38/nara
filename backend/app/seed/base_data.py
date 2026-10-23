@@ -1,7 +1,9 @@
 """System actors and stub policies for the walking skeleton.
 
-Soft weights are the round 1 seed values (round 1 contract, section 8.3): one more
-candidate costs 1000, far more than any workload term, so the smallest group wins.
+Soft weights follow the priorities of round 6 PR EV6 (docs/workflow.md 6.36.7): one more
+candidate costs 10000, more than everything else one person can cost, so the smallest group
+wins; then a moved assignment, the source, the week's hours, the consecutive shifts and
+the projected overtime, each above the whole range of the ones after it.
 The team's approval thresholds are ratio 2 and
 incoming count 10. From round 4, ratio is the number of pending requests one
 active head nurse can handle, and incoming count is the hard cap on a ward's
@@ -63,12 +65,14 @@ def seed(db: Session) -> None:
             SoftConstraintPolicy(
                 id=1,
                 version="demo-stub-v1",
-                candidate_count_weight=Decimal(1000),
-                consecutive_shift_weight=Decimal(5),
-                workload_imbalance_weight=Decimal(1),
-                projected_overtime_weight=Decimal(2),
-                roster_change_weight=Decimal(300),
-                candidate_source_weight=Decimal(200),
+                # Round 6 PR EV6 (6.36.7): each priority outweighs the whole range of the
+                # ones below it for one person
+                candidate_count_weight=Decimal(10000),
+                consecutive_shift_weight=Decimal(20),
+                workload_imbalance_weight=Decimal(20),
+                projected_overtime_weight=Decimal(1),
+                roster_change_weight=Decimal(5000),
+                candidate_source_weight=Decimal(1500),
                 candidate_source_priority=[source.value for source in CandidateSource],
                 optimization_priority=[
                     OptimizationObjective.MIN_CANDIDATE_COUNT.value,
@@ -94,6 +98,9 @@ def seed(db: Session) -> None:
                 id=1,
                 maximum_concurrent_offers_per_staff=3,
                 offer_timeout_seconds=300,
+                # Round 6 PR EV6 (6.36.8): 10 waves, 90 minutes from the opening of the case
+                maximum_waves_per_case=10,
+                case_outreach_deadline_seconds=90 * 60,
                 version="demo-outreach-v1",
                 effective_from=now,
                 created_at=now,

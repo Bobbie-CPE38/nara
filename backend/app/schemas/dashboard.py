@@ -47,6 +47,13 @@ class WardCount(BaseModel):
     count: int
 
 
+class WardOption(BaseModel):
+    """A ward the user may pick on the Dashboard (round 6 PR EV6, 6.36.4)."""
+
+    id: int
+    name: str
+
+
 class OpenOffers(BaseModel):
     count: int
 
@@ -77,8 +84,11 @@ class LlmUsage(BaseModel):
 class Dashboard(BaseModel):
     now: AppDatetime
     modes: DashboardModes
-    # The wards the numbers below cover: own ward, or every active ward for a Supervisor
+    # The wards the numbers below cover: own ward, or every active ward for a Supervisor;
+    # only the ward asked for with ?ward_id= (round 6 PR EV6, 6.36.4)
     wards: list[int]
+    # Every ward the user may see, by name, for the ward filter (6.36.4)
+    ward_options: list[WardOption]
     # Every case status in workflow order, zero counts included
     cases_by_status: list[CaseStatusCount]
     shortages: list[Shortage]

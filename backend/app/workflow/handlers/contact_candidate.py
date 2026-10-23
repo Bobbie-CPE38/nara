@@ -3,7 +3,14 @@ from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.db.models import CandidateOutreach, Shift, StaffingCase
-from app.domain.enums import ActorName, AuditAction, CaseStatus, EntityType, OutreachStatus
+from app.domain.enums import (
+    ActorName,
+    AuditAction,
+    CaseStatus,
+    EntityType,
+    ManualHandoffReason,
+    OutreachStatus,
+)
 from app.services import (
     actor_service,
     audit_service,
@@ -68,7 +75,8 @@ def handle(db: Session, case: StaffingCase) -> HandlerResult:
         entity_type=EntityType.STAFFING_CASES,
         entity_id=case.id,
         payload={
-            "reason": "NO_CANDIDATE_LEFT",
+            # An outreach limit of round 6 PR EV6 (6.36.8), or nobody left to contact
+            "reason": (selected.stopped or ManualHandoffReason.NO_CANDIDATE_LEFT).value,
             "stopped_at": case.status.value,
             "cancelled_outreach_ids": cancelled_ids,
             "skipped": list(selected.skipped),

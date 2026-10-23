@@ -118,6 +118,28 @@ def test_mode_names_each_state() -> None:
     assert clock.mode() == clock.ClockMode.REAL
     clock.set_time(DEMO_TIME)
     assert clock.mode() == clock.ClockMode.FROZEN
+    clock.run_from(DEMO_TIME)
+    assert clock.mode() == clock.ClockMode.RUNNING
+    clock.run_from(DEMO_TIME, test_run_id=3)
+    assert clock.mode() == clock.ClockMode.SCENARIO
+
+
+def test_running_mode_runs_on_from_the_time_picked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Round 6 PR EV6 (6.36.1): no test run, the clock runs at real speed from any time."""
+    real = {"now": 50.0}
+    monkeypatch.setattr(clock, "_monotonic", lambda: real["now"])
+    clock.run_from(DEMO_TIME)
+    real["now"] += 90
+
+    assert clock.now() == DEMO_TIME + timedelta(seconds=90)
+    assert clock.advance(timedelta(hours=1)) == DEMO_TIME + timedelta(hours=1, seconds=90)
+    real["now"] += 30
+    # The advance moved it forward; it still runs on from there
+    assert clock.now() == DEMO_TIME + timedelta(hours=1, seconds=120)
+    assert clock.test_run_id() is None
+    assert not clock.is_frozen()
+    # Freeze keeps the time it shows
+    assert clock.freeze_now() == DEMO_TIME + timedelta(hours=1, seconds=120)
 
 
 def test_run_from_rejects_naive_datetime() -> None:

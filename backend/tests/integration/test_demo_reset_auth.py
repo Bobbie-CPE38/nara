@@ -1,4 +1,5 @@
-"""A demo reset keeps people and accounts, ends sessions (docs/workflow.md 6.33.7, PR AU1).
+"""A demo reset keeps people and accounts (docs/workflow.md 6.33.7, PR AU1), and since round 6
+PR EV6 their sessions and LINE bindings too (6.36.2).
 
 Also the Auth reset gate, and a revoked session that must stay revoked under concurrent
 requests. These tests commit, like test_demo_reset.
@@ -15,7 +16,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core import passwords
-from app.db.models import Actor, AuthAccount, AuthSession, Role, Staff, Ward
+from app.db.models import Actor, AuthAccount, AuthSession, Contact, Role, Staff, Ward
 from app.db.session import SessionLocal, engine
 from app.domain.enums import ActorType, StaffStatus
 from app.seed import reset as reset_module
@@ -89,16 +90,22 @@ def accounts() -> dict[str, Any]:
         }
 
 
-def test_reset_keeps_every_person_and_account_but_ends_every_session(
+def test_reset_keeps_every_person_account_and_session(
     accounts: dict[str, Any],
 ) -> None:
+    with SessionLocal() as db:
+        sessions = db.scalar(select(func.count()).select_from(AuthSession))
+
     reset_demo()
 
     with SessionLocal() as db:
         assert _subjects(db) == accounts["subjects"]
         assert _accounts(db) == accounts["accounts"]
-        assert db.scalar(select(func.count()).select_from(AuthSession)) == 0
-        assert auth_service.resolve(db, accounts["token"]) is None
+        # Round 6 PR EV6: nobody is logged out by a reset
+        assert db.scalar(select(func.count()).select_from(AuthSession)) == sessions == 2
+        kept = auth_service.resolve(db, accounts["token"])
+        assert kept is not None and kept.staff.id == 105
+        db.rollback()
         # The kept person has a USER actor again, so they can log in
         actor = db.scalars(select(Actor).where(Actor.staff_id == EXTRA_STAFF)).one()
         assert actor.actor_type == ActorType.USER and actor.name == str(EXTRA_STAFF)
@@ -114,6 +121,27 @@ def test_reset_keeps_every_person_and_account_but_ends_every_session(
         # A new staff row goes after the kept IDs
         next_id = db.scalar(text("SELECT nextval(pg_get_serial_sequence('staff', 'id'))"))
         assert next_id is not None and next_id > EXTRA_STAFF
+
+
+def test_reset_keeps_the_line_bindings(accounts: dict[str, Any]) -> None:
+    """Round 6 PR EV6 (6.36.2): a bound nurse stays bound, so nobody binds LINE again."""
+    with SessionLocal() as db:
+        db.add(Contact(staff_id=105, line_uid="U" + "a" * 32, is_active=True))
+        db.add(Contact(staff_id=EXTRA_STAFF, line_uid="U" + "b" * 32, is_active=True))
+        db.commit()
+
+    reset_demo()
+    reset_demo()
+
+    with SessionLocal() as db:
+        kept = {
+            (contact.staff_id, contact.line_uid, contact.is_active)
+            for contact in db.scalars(select(Contact))
+        }
+        assert kept == {(105, "U" + "a" * 32, True), (EXTRA_STAFF, "U" + "b" * 32, True)}
+        # New contacts go after the kept ids
+        db.add(Contact(staff_id=201, is_active=True))
+        db.commit()
 
 
 def test_reset_twice_still_keeps_the_same_subjects(accounts: dict[str, Any]) -> None:
