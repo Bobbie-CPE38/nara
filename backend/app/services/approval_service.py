@@ -162,8 +162,12 @@ def decide(
     approved: bool,
     reason: str | None = None,
     side: str | None = None,
+    audit_source: str | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase]:
     """Decide one candidate and execute immediately, then recompute the case.
+
+    `audit_source` is kept as payload.source: the scripted head nurse of a test run
+    sends SIMULATED (round 6 PR EV5a, 6.35.3).
 
     The approver needs the required role and must be of the ward of the shift
     (workflow.md section 6.12). Both refusals come before the pending check.
@@ -186,6 +190,7 @@ def decide(
         approved=approved,
         reason=reason,
         side=side,
+        audit_source=audit_source,
     )
 
 
@@ -232,6 +237,7 @@ def _decide(
     batch: AutoApprovalBatch | None = None,
     side: str | None = None,
     notifications: list[tuple[int, int, tuple[int, ...]]] | None = None,
+    audit_source: str | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase]:
     """Shared lock, validation, assignment and audit path for both decision entry points."""
     request, case, item, offers = lock_approval_attempt(
@@ -345,7 +351,8 @@ def _decide(
                     "ward_id": wards[selected_side],
                     "side": selected_side.value,
                     "decided_as": capacity.value,
-                },
+                }
+                | ({} if audit_source is None else {"source": audit_source}),
             )
             db.commit()
             return request, case
@@ -358,6 +365,8 @@ def _decide(
     request.decided_at = clock.now()
     request.is_pending = False
     payload: dict[str, Any] = {"approval_id": request.id, "reason": request.reason}
+    if audit_source is not None:
+        payload["source"] = audit_source
     if isinstance(batch, AutoApprovalBatch):
         payload |= {
             "approval_mode": ApprovalMode.AUTO.value,

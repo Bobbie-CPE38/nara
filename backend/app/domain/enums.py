@@ -320,6 +320,8 @@ class EntityType(StrEnum):
     CONTACTS = "CONTACTS"
     # Round 5 PR N1: a check-in (docs/workflow.md 6.24)
     ATTENDANCE = "ATTENDANCE"
+    # Round 6 PR EV5a: a test run; entity_id is the id of its TEST_RUN_STARTED row (6.35.2)
+    TEST_RUN = "TEST_RUN"
 
 
 class AuditAction(StrEnum):
@@ -376,6 +378,10 @@ class AuditAction(StrEnum):
     ASSIGNMENT_CANCELLED = "ASSIGNMENT_CANCELLED"
     PATIENT_COUNT_UPDATED = "PATIENT_COUNT_UPDATED"
     REQUIREMENT_UPDATED = "REQUIREMENT_UPDATED"
+    # Round 6 PR EV5a: test runs (docs/workflow.md 6.35.2), kept across a demo reset
+    TEST_RUN_STARTED = "TEST_RUN_STARTED"
+    TEST_RUN_CLOCK_ADVANCED = "TEST_RUN_CLOCK_ADVANCED"
+    TEST_RUN_FINISHED = "TEST_RUN_FINISHED"
 
 
 # Round 3 PR X: LLM ranking explanation
