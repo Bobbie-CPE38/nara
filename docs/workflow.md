@@ -2132,6 +2132,7 @@ login/register: ก่อน hash password ให้ตรวจหน้าต�
 
 | ความสามารถ | staff | head_nurse | supervisor |
 |---|---|---|---|
+| หน้าจัดการพนักงาน / ค้นหารายชื่อ / ออกโค้ด LINE (`/admin/staff`) | ไม่ได้ | ไม่ได้ | ใช้ session จริงและเปลี่ยนรหัสเริ่มต้นแล้ว ทั้ง demo/session; ดู `docs/demo-runbook.md` |
 | My offers / Handovers / ตอบ Offer / check-in | ตัวเอง | ตัวเอง | ตัวเอง |
 | แจ้งลา POST `/me/unavailability` | ตัวเองที่มี Roster ในเวร | ตัวเองที่มี Roster ในเวร | ตัวเองที่มี Roster ในเวร |
 | Roster / Gap | หอของตัวเอง; Roster ตัวเองอ่านเวรที่ถูกย้ายไปหออื่นได้ | หอของตัวเอง; Roster ตัวเองเช่นเดียวกัน | ทุกหอ |
@@ -2891,7 +2892,7 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 
 ### 9.9 API ล็อกอินและแจ้งลาตัวเอง [AU1, AU2 และ AU5 ทำแล้ว]
 
-รูป request/response/error ที่ใช้ร่วมกันกำหนดในข้อ 6.33.3: AU1 ทำ `/auth/config`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/change-password`; AU2 ทำ self-only POST `/me/unavailability` และ trusted Demo POST `/demo/events`; AU5 ทำ `/auth/register` และคำสั่ง LINE REGISTER ไม่มี API admin เพิ่ม รูป API เดิมของข้อ 9.1–9.8 ยังคงข้อมูลธุรกิจ แต่เงื่อนไข session/สิทธิ์ต้องใช้ matrix ข้อ 6.33.4 หลัง AU2 ทำเสร็จ ไม่อ้างคำว่า "อ่านได้โดยไม่ส่ง X-Demo-User" เดิมเพื่อเปิด endpoint โดยไม่มี session
+รูป request/response/error ที่ใช้ร่วมกันกำหนดในข้อ 6.33.3: AU1 ทำ `/auth/config`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/change-password`; AU2 ทำ self-only POST `/me/unavailability` และ trusted Demo POST `/demo/events`; AU5 ทำ `/auth/register` และคำสั่ง LINE REGISTER; ส่วนขยายจัดการพนักงานเพิ่ม `GET /admin/staff` และ `POST /admin/staff/{staff_id}/line-code` ใช้ session จริงของ Supervisor เท่านั้นในทั้งสองโหมด พร้อม allowed Origin/no-store และคำสั่ง LINE `MYID` สำหรับรหัสของผู้ส่งที่ผูกไว้ ดู `docs/demo-runbook.md` รูป API เดิมของข้อ 9.1–9.8 ยังคงข้อมูลธุรกิจ แต่เงื่อนไข session/สิทธิ์ต้องใช้ matrix ข้อ 6.33.4 หลัง AU2 ทำเสร็จ ไม่อ้างคำว่า "อ่านได้โดยไม่ส่ง X-Demo-User" เดิมเพื่อเปิด endpoint โดยไม่มี session
 
 ## 10. Golden Case
 

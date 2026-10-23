@@ -207,6 +207,39 @@ def _check_in_event(db: Session, event: dict[str, Any], event_id: str) -> bool:
     return True
 
 
+def _is_my_id(event: dict[str, Any]) -> bool:
+    message = event.get("message")
+    text = message.get("text") if isinstance(message, dict) else None
+    return bool(
+        event.get("type") == "message"
+        and isinstance(message, dict)
+        and message.get("type") == "text"
+        and isinstance(text, str)
+        and re.fullmatch(r"MYID[ \t\r\n]*", text, re.IGNORECASE | re.ASCII)
+    )
+
+
+def _my_id_event(db: Session, event: dict[str, Any], event_id: str) -> bool:
+    """MYID reveals only the active private sender's own staff ID, never a supplied ID."""
+    if not _is_my_id(event):
+        return False
+    source = event.get("source")
+    # Never disclose staff identity in a group or room.
+    if not isinstance(source, dict) or source.get("type") != "user":
+        _remember(db, event_id)
+        db.commit()
+        return True
+    uid = source.get("userId")
+    staff = (
+        line_contact_service.staff_for_line_uid(db, uid) if isinstance(uid, str) and uid else None
+    )
+    reply = f"รหัสพนักงาน NARA ของคุณคือ {staff[0]}" if staff is not None else _LINK_GUIDANCE
+    _remember(db, event_id)
+    db.commit()
+    _reply(db, event, reply)
+    return True
+
+
 def _is_register(event: dict[str, Any]) -> bool:
     message = event.get("message")
     text = message.get("text") if isinstance(message, dict) else None
@@ -265,7 +298,7 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
     event_id = event.get("webhookEventId")
     if not isinstance(event_id, str) or not event_id or len(event_id) > 256:
         raise ValueError("Missing or invalid webhook event ID")
-    if _is_register(event):
+    if _is_register(event) or _is_my_id(event):
         # Before even the dedup read: reset takes the exclusive gate before table locks.
         auth_service.hold_auth_gate(db)
     if db.get(LineWebhookEvent, event_id) is not None:
@@ -274,6 +307,8 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
     try:
         if _is_register(event):
             _register_event(db, event, event_id)
+            return
+        if _my_id_event(db, event, event_id):
             return
         if _check_in_event(db, event, event_id):
             return

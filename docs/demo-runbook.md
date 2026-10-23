@@ -19,3 +19,13 @@
 ## การตรวจชุดใหญ่
 
 ใช้ supervisor 950 ดู Dashboard และ Gap ของหอ 10001–10020; staff ทั่วไปยังอยู่ภายใต้ scope เดิม. วิธีโหลด/backup และหลักฐาน operator อยู่ใน [คู่มือชุดใหญ่](large-demo-data.md). ประวัติ RESOLVED/UNRESOLVED/FAILED เป็น synthetic ใช้ดูข้อมูล ไม่ใช่ผล live Solver/approval/LINE และไม่ปิด AU4 acceptance.
+
+## ผูก LINE ผ่านหน้าจัดการพนักงาน
+
+ล็อกอินเว็บด้วยบัญชี **SUPERVISOR** ที่เปลี่ยนรหัสผ่านเริ่มต้นแล้ว (เช่น 950) → **จัดการพนักงาน** (`/admin/staff`) → ค้นหาด้วยรหัสหรือชื่อ → ตรวจชื่อ/หอ → **สร้างโค้ดผูก LINE** → **คัดลอกข้อความ**. ส่ง `LINK <รหัส>` ให้เจ้าตัวเป็นการส่วนตัว เพื่อส่งจาก LINE ของตัวเองไปหา NARA. ไม่ต้องเข้า EC2 และไม่ต้องใช้ Demo Basic credential ในหน้านี้. บัญชี Head Nurse/Staff และ X-Demo-User ไม่มีสิทธิ์ออกโค้ด แม้ AUTH_MODE=demo; ต้องใช้ session ของ Supervisor จริง.
+
+โค้ดใช้กลไกเดิม: ใช้ได้ครั้งเดียว อายุ 10 นาทีตาม Backend clock (รวมการ freeze/advance ใน Demo). หน้าจอแสดงเวลาหมดอายุ; ถ้าซ่อน/เปลี่ยนหน้าแล้วจะไม่ดึง raw code เดิมกลับมา. ส่งให้เฉพาะบุคคลที่เลือก; หน้าเว็บไม่เก็บโค้ดใน URL/localStorage. การออกโค้ดใหม่ไม่ยกเลิกโค้ดเก่าที่ยังไม่หมดอายุ ตามพฤติกรรม CLI เดิม. พนักงานที่ไม่ Active/ไม่มี USER actor ออกโค้ดไม่ได้ และคนที่มี LINE binding อยู่แล้ว (รวม inactive contact) ต้องปลดด้วยขั้นตอนผู้ดูแลเดิมก่อน; PR นี้ไม่เพิ่มปุ่มปลด/แก้ข้อมูลพนักงาน.
+
+เมื่อผูกสำเร็จ พนักงานส่ง **`MYID`** ในแชตส่วนตัวกับ NARA เพื่อดูรหัสพนักงานของบัญชีที่ผูกอยู่ เช่น 201. ใช้ได้เฉพาะ active staff + active contact + USER actor ตามการตรวจเดิม; ไม่ตอบรหัสในกลุ่ม/ห้อง และไม่รองรับการระบุรหัสคนอื่น. หากยังไม่ผูก ระบบแนะนำให้ขอโค้ดจากผู้ดูแล. ถ้าต้องสมัครเว็บ พิมพ์ `REGISTER` เพื่อรับรหัสสมัครเว็บอายุ 10 นาที (real UTC) ตาม flow เดิม; MYID ไม่สร้างบัญชีหรือรหัสสมัคร.
+
+API เพิ่ม: `GET /admin/staff?q=&offset=0&limit=25` (สูงสุด 100 ต่อหน้า), `POST /admin/staff/{staff_id}/line-code` → `{code, expires_at}`. ทุก response ใต้ `/admin` เป็น `Cache-Control: no-store`; ทุก write ต้องมี allowed Origin ทั้ง demo/session. ออกโค้ดสูงสุด 20 ครั้งต่อนาทีต่อ Supervisor ใน process เดียว (รีสตาร์ตล้าง limiter). ไม่มี migration และไม่มีการ deploy/live LINE test อัตโนมัติจาก PR.

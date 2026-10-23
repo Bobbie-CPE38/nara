@@ -125,6 +125,8 @@ def _count(db: Session, model: type) -> int:
 # secret, not a session. webhook: the LINE signature. demo: the Demo control, behind its
 # own Basic Auth on AWS (6.33.5), no session. session: a signed-in user (401 otherwise)
 INVENTORY: dict[tuple[str, str], str] = {
+    ("GET", "/admin/staff"): "session",
+    ("POST", "/admin/staff/{staff_id}/line-code"): "session",
     ("GET", "/health"): "public",
     ("GET", "/clock"): "public",
     ("GET", "/auth/config"): "auth",
@@ -207,6 +209,7 @@ def test_session_routes_answer_401_without_a_session(
         shift_id=NIGHT_SHIFT,
         outreach_id=world["outreach"],
         unavailability_id=1,
+        staff_id=201,
     )
     headers = {} if header is None else {"X-Demo-User": header}
     response = anonymous.request(method, url, headers=headers, json={})
