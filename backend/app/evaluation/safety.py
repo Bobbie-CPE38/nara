@@ -14,17 +14,23 @@ Method (all synthetic, seeded, no database):
   * Three manual baselines pick from the head nurse's own ward, seeing only what a
     paper roster shows: name, role, skills, who works a shift that starts on that day
     (the night itself or the day shift before it), and the leave written on the roster.
+    A head nurse who needs an ICU-skilled nurse picks only among those who hold the skill.
       B1 first free nurse in roster order
       B2 the free nurse with the fewest shifts this week on the roster
       B3 a random free nurse
-    "Free" means: an RN, not rostered on any shift that starts on that day, and not on
-    leave written on the roster that day.
+    "Free" means: an RN with the needed skill, not rostered on any shift that starts on
+    that day, and not on leave written on the roster that day.
   * Every pick, and every candidate nara considers, is judged by
     app.domain.constraints.evaluator.evaluate(), the function the Solver, wave
-    selection and Safety use. Ten of the eleven Hard Rules can fail here:
-    SOURCE_WARD_MINIMUM_VIOLATION needs a move out of another shift (a source shift),
-    which these cases do not model. nara takes only candidates that pass every rule, from the
-    ward first and then the other ward.
+    selection and Safety use. nara takes only candidates that pass every rule, from the
+    ward first and then the other ward. Eight of the eleven Hard Rules can fail here
+    (shift already held, unavailability, shift conflict, skill, rest, daily hours, weekly
+    hours, consecutive shifts). STAFF_NOT_ACTIVE and ROLE_MISMATCH cannot, because every
+    nurse is an active RN, and SOURCE_WARD_MINIMUM_VIOLATION cannot, because no case moves
+    anyone out of another shift.
+  * Cases are distinct: each roster gives each (night, nurse who drops out) pair at most
+    once. Cases of one roster are not independent, so the intervals are a bootstrap over
+    rosters; the Wilson interval over cases is reported beside it for comparison.
 
 What this does NOT measure: how often real head nurses make mistakes. The rates depend
 on the synthetic roster and on the baselines written above, and are reported as such.
@@ -83,8 +89,14 @@ ICU_SKILL_SHARE = {1: 0.6, 2: 0.15}
 LEAVE_SHARE = 0.08  # nurses with a written leave of 1-3 days in the two weeks
 DAYS = 14
 BASELINES = ("B1_first_free", "B2_fewest_shifts", "B3_random_free")
-# Needs CandidateContext.source_shift, which no case here sets, so it can never fail
-NOT_MODELLED_RULES = (HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION,)
+# Rules that cannot fail in these cases: every nurse is active and an RN, and no case moves
+# anyone out of another shift (CandidateContext.source_shift is never set)
+NOT_MODELLED_RULES = (
+    HardRuleCode.STAFF_NOT_ACTIVE,
+    HardRuleCode.ROLE_MISMATCH,
+    HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION,
+)
+BOOTSTRAP_RESAMPLES = 2000
 
 
 @dataclass
@@ -203,16 +215,21 @@ def _shifts_this_week(nurse: Nurse, moment: datetime) -> int:
     return sum(1 for shift in nurse.shifts if week_start(shift.start_at) == week)
 
 
-def _free_on_paper(nurse: Nurse, shift: ShiftSlot) -> bool:
-    """What a hurried look at the paper roster calls free for this night."""
+def _free_on_paper(nurse: Nurse, shift: ShiftSlot, target_skills: frozenset[int]) -> bool:
+    """What a hurried look at the paper roster calls free for this night.
+
+    The roster shows skills, so the needed skill is respected; it does not show hours,
+    rest or the run of shifts, which is where a hurried pick goes wrong.
+    """
     day = shift.start_at.astimezone(APP_TIMEZONE).date()
     works_that_day = any(s.start_at.astimezone(APP_TIMEZONE).date() == day for s in nurse.shifts)
-    return not works_that_day and not _on_leave(nurse, shift)
+    return not works_that_day and not _on_leave(nurse, shift) and target_skills <= nurse.skill_ids
 
 
 @dataclass
 class CaseResult:
     case: int
+    roster: int
     shift_id: int
     dropped_staff_id: int
     needs_icu_skill: bool
@@ -226,14 +243,19 @@ class CaseResult:
     nara_broken_rules: tuple[str, ...] = ()
 
 
-def run_case(world: World, rng: random.Random, number: int) -> CaseResult | None:
-    """One drop-out on a random ICU night of the second week, judged for every baseline."""
+def case_pairs(world: World) -> list[tuple[Shift, Nurse]]:
+    """Every distinct case of a roster: an ICU night of the second week and a nurse on it."""
     nights = [s for s in world.shifts if s.ward_id == 1 and s.night and s.day >= 7]
-    shift = rng.choice(nights)
+    return [
+        (shift, nurse) for shift in nights for nurse in world.nurses if shift.slot in nurse.shifts
+    ]
+
+
+def run_case(
+    world: World, rng: random.Random, number: int, roster: int, shift: Shift, dropped: Nurse
+) -> CaseResult:
+    """`dropped` drops out of `shift`; every baseline and nara pick a replacement."""
     rostered = [n for n in world.nurses if shift.slot in n.shifts]
-    if not rostered:
-        return None
-    dropped = rng.choice(rostered)
     staying = [n for n in rostered if n is not dropped]
     _, needed_icu = NEEDED_PER_SHIFT[shift.ward_id]
     icu_left = sum(1 for n in staying if ICU_SKILL in n.skill_ids)
@@ -245,7 +267,7 @@ def run_case(world: World, rng: random.Random, number: int) -> CaseResult | None
     try:
         own = [n for n in world.nurses if n.ward_id == shift.ward_id and n is not dropped]
         other = [n for n in world.nurses if n.ward_id != shift.ward_id]
-        on_paper = [n for n in own if _free_on_paper(n, shift.slot)]
+        on_paper = [n for n in own if _free_on_paper(n, shift.slot, target)]
 
         picks: dict[str, Nurse | None] = {
             "B1_first_free": on_paper[0] if on_paper else None,
@@ -273,6 +295,7 @@ def run_case(world: World, rng: random.Random, number: int) -> CaseResult | None
         nara = min(safe_own, key=fewest, default=None) or min(safe_other, key=fewest, default=None)
         return CaseResult(
             case=number,
+            roster=roster,
             shift_id=shift.slot.shift_id,
             dropped_staff_id=dropped.staff_id,
             needs_icu_skill=needs_skill,
@@ -300,45 +323,82 @@ def wilson(successes: int, total: int, z: float = 1.959964) -> tuple[float, floa
     return (centre - half, centre + half)
 
 
+def cluster_bootstrap(
+    results: Sequence[CaseResult],
+    hit: Callable[[CaseResult], bool | None],
+    rng: random.Random,
+    resamples: int = BOOTSTRAP_RESAMPLES,
+) -> tuple[float, float]:
+    """95% percentile interval of a rate, resampling whole rosters with replacement.
+
+    `hit` says whether a case counts (True), does not (False) or is outside the rate (None).
+    Cases of one roster share nurses and hours, so they are resampled together.
+    """
+    by_roster: dict[int, list[bool]] = {}
+    for result in results:
+        outcome = hit(result)
+        if outcome is not None:
+            by_roster.setdefault(result.roster, []).append(outcome)
+    groups = list(by_roster.values())
+    if not groups:
+        return (math.nan, math.nan)
+    rates = []
+    for _ in range(resamples):
+        sample = [groups[rng.randrange(len(groups))] for _ in groups]
+        total = sum(len(group) for group in sample)
+        rates.append(sum(sum(group) for group in sample) / total)
+    rates.sort()
+    return (rates[int(0.025 * resamples)], rates[int(0.975 * resamples) - 1])
+
+
 def run(
-    cases: int, seed: int, worlds: int = 20, nurses_per_ward: int = NURSES_PER_WARD
+    cases: int, seed: int, worlds: int = 100, nurses_per_ward: int = NURSES_PER_WARD
 ) -> tuple[list[CaseResult], dict[str, object]]:
-    """`cases` cases spread over `worlds` independent rosters."""
+    """`cases` distinct cases spread evenly over `worlds` independent rosters."""
     rng = random.Random(seed)
     results: list[CaseResult] = []
     per_world = math.ceil(cases / worlds)
     number = 0
     loads: list[int] = []
-    while len(results) < cases:
+    for roster in range(worlds):
+        if len(results) >= cases:
+            break
         world = build_world(rng, nurses_per_ward)
         loads.extend(_weekly_loads(world))
-        for _ in range(per_world):
-            if len(results) >= cases:
-                break
-            result = run_case(world, rng, number)
+        pairs = case_pairs(world)
+        rng.shuffle(pairs)
+        # Without replacement: a roster never gives the same case twice
+        for shift, dropped in pairs[: min(per_world, cases - len(results))]:
+            results.append(run_case(world, rng, number, roster, shift, dropped))
             number += 1
-            if result is not None:
-                results.append(result)
-    summary = summarise(results, seed, worlds)
+    summary = summarise(results, seed, worlds, random.Random(seed + 1))
     summary["nurses_per_ward"] = nurses_per_ward
     summary["roster_shifts_per_nurse_week"] = {str(k): v for k, v in sorted(Counter(loads).items())}
     summary["roster_mean_shifts_per_nurse_week"] = round(sum(loads) / len(loads), 2)
     return results, summary
 
 
-def summarise(results: Sequence[CaseResult], seed: int, worlds: int) -> dict[str, object]:
+def summarise(
+    results: Sequence[CaseResult], seed: int, worlds: int, rng: random.Random
+) -> dict[str, object]:
     total = len(results)
+    distinct = {(r.roster, r.shift_id, r.dropped_staff_id) for r in results}
     summary: dict[str, object] = {
         "seed": seed,
-        "rosters": worlds,
+        "rosters": len({r.roster for r in results}),
         "cases": total,
+        "distinct_cases": len(distinct),
+        "interval": "95% percentile bootstrap over rosters "
+        f"({BOOTSTRAP_RESAMPLES} resamples); Wilson over cases beside it",
         "policy": {
             "minimum_rest_hours": 11,
             "maximum_daily_hours": 12,
             "maximum_weekly_hours": 52,
             "maximum_consecutive_shifts": 7,
         },
-        "rules_that_can_fail_here": len(HardRuleCode) - len(NOT_MODELLED_RULES),
+        "rules_that_can_fail_here": [
+            code.value for code in HardRuleCode if code not in NOT_MODELLED_RULES
+        ],
         "rules_not_modelled": [code.value for code in NOT_MODELLED_RULES],
         "avg_free_on_paper": round(sum(r.free_on_paper for r in results) / total, 2),
         "needs_icu_skill_share": round(sum(r.needs_icu_skill for r in results) / total, 4),
@@ -347,22 +407,34 @@ def summarise(results: Sequence[CaseResult], seed: int, worlds: int) -> dict[str
         picked = [r for r in results if r.baseline[name][0] is not None]
         unsafe = [r for r in picked if r.baseline[name][1]]
         low, high = wilson(len(unsafe), len(picked))
+        boot = cluster_bootstrap(
+            results,
+            lambda r, name=name: (
+                None  # type: ignore[misc]
+                if r.baseline[name][0] is None
+                else bool(r.baseline[name][1])
+            ),
+            rng,
+        )
         rules = Counter(code for r in unsafe for code in r.baseline[name][1])
         summary[name] = {
             "picked": len(picked),
             "no_one_free_on_paper": total - len(picked),
             "unsafe": len(unsafe),
             "unsafe_rate": round(len(unsafe) / len(picked), 4) if picked else None,
-            "unsafe_rate_95ci": [round(low, 4), round(high, 4)],
+            "unsafe_rate_95ci": [round(boot[0], 4), round(boot[1], 4)],
+            "unsafe_rate_95ci_wilson_cases": [round(low, 4), round(high, 4)],
             "broken_rules": dict(rules.most_common()),
         }
     filled = [r for r in results if r.nara_pick is not None]
     other = [r for r in filled if r.nara_from_other_ward]
     low, high = wilson(len(filled), total)
+    boot = cluster_bootstrap(results, lambda r: r.nara_pick is not None, rng)
     summary["nara"] = {
         "safe_pick_found": len(filled),
         "safe_pick_rate": round(len(filled) / total, 4),
-        "safe_pick_rate_95ci": [round(low, 4), round(high, 4)],
+        "safe_pick_rate_95ci": [round(boot[0], 4), round(boot[1], 4)],
+        "safe_pick_rate_95ci_wilson_cases": [round(low, 4), round(high, 4)],
         "unsafe_picks": sum(1 for r in filled if r.nara_broken_rules),
         "from_other_ward": len(other),
         "no_safe_person_in_ward": sum(1 for r in results if r.safe_in_ward == 0),
@@ -378,6 +450,7 @@ def write(results: Sequence[CaseResult], summary: dict[str, object], out: Path) 
         writer.writerow(
             [
                 "case",
+                "roster",
                 "shift_id",
                 "dropped_staff_id",
                 "needs_icu_skill",
@@ -395,6 +468,7 @@ def write(results: Sequence[CaseResult], summary: dict[str, object], out: Path) 
             writer.writerow(
                 [
                     r.case,
+                    r.roster,
                     r.shift_id,
                     r.dropped_staff_id,
                     r.needs_icu_skill,
@@ -415,7 +489,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cases", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=20261023)
-    parser.add_argument("--worlds", type=int, default=20)
+    parser.add_argument("--worlds", type=int, default=100, help="independent rosters")
     parser.add_argument("--nurses", type=int, default=NURSES_PER_WARD, help="RNs per ward")
     parser.add_argument("--out", type=Path, default=Path("results"))
     args = parser.parse_args()
