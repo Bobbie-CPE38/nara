@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { POLL_INTERVAL_MS } from "@/lib/constants";
 import { PollTimeoutError } from "@/lib/errors";
 
 /** Default time between reads; pages that say how often they update use this. */
-export const DEFAULT_POLL_INTERVAL_MS = 2000;
+export const DEFAULT_POLL_INTERVAL_MS = POLL_INTERVAL_MS;
 
 export type PollingOptions<T = unknown> = {
   intervalMs?: number;

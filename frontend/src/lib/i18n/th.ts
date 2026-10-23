@@ -134,10 +134,10 @@ export const th: Record<MessageKey, string> = {
   "case.updateFailed": "อัปเดตล่าสุดไม่สำเร็จ: {error} แสดงข้อมูลล่าสุดที่มี กำลังลองใหม่…",
   "case.status": "สถานะ:",
   "case.failedAt": "ล้มเหลวเมื่อ {at}: {error}",
-  "case.live": "อัปเดตทุก 2 วินาที",
-  "case.liveExplanation": "สถานะสิ้นสุดแล้ว ยังอัปเดตทุก 2 วินาทีจนกว่าคำอธิบายจะพร้อม",
-  "case.liveSummary": "สถานะสิ้นสุดแล้ว ยังอัปเดตทุก 2 วินาทีจนกว่าสรุปจะพร้อม",
-  "case.liveHandover": "สถานะสิ้นสุดแล้ว ยังอัปเดตทุก 2 วินาทีขณะที่ Handover ยังใช้งานอยู่",
+  "case.live": "อัปเดตทุก {seconds} วินาที",
+  "case.liveExplanation": "สถานะสิ้นสุดแล้ว ยังอัปเดตทุก {seconds} วินาทีจนกว่าคำอธิบายจะพร้อม",
+  "case.liveSummary": "สถานะสิ้นสุดแล้ว ยังอัปเดตทุก {seconds} วินาทีจนกว่าสรุปจะพร้อม",
+  "case.liveHandover": "สถานะสิ้นสุดแล้ว ยังอัปเดตทุก {seconds} วินาทีขณะที่ Handover ยังใช้งานอยู่",
   "case.stopped": "สถานะสิ้นสุดแล้ว หยุดอัปเดต",
   "case.events": "Event",
   "case.replacementBy": "ต้องได้คนแทนภายใน",
@@ -320,7 +320,7 @@ export const th: Record<MessageKey, string> = {
 
   // ---- roster page ----
   "roster.title": "ตารางเวร",
-  "roster.intro": "ดูตารางเวรของ Demo ในฐานะพนักงาน {id} อัปเดตทุก 2 วินาที",
+  "roster.intro": "ดูตารางเวรของ Demo ในฐานะพนักงาน {id} อัปเดตทุก {seconds} วินาที",
   "roster.shiftOption": "เวร {id}",
   "roster.loading": "กำลังโหลดตารางเวร…",
   "roster.refreshFailed": "รีเฟรชตารางเวรไม่สำเร็จ: {error}",
@@ -342,7 +342,7 @@ export const th: Record<MessageKey, string> = {
 
   // ---- LINE simulator page ----
   "sim.title": "จำลอง LINE สำหรับ Demo",
-  "sim.intro": "ดูข้อเสนอและตอบในฐานะพนักงานที่เลือก อัปเดตทุก 2 วินาที",
+  "sim.intro": "ดูข้อเสนอและตอบในฐานะพนักงานที่เลือก อัปเดตทุก {seconds} วินาที",
   "sim.staffMember": "พนักงาน",
   "sim.staffOption": "พนักงาน {id}",
   "sim.noOffers": "พนักงานคนนี้ไม่มีข้อเสนอ",
@@ -532,7 +532,7 @@ export const th: Record<MessageKey, string> = {
   "ctl.statusOutdated": " — สถานะอาจล้าสมัย: {error}",
   "ctl.checking": " — กำลังตรวจสถานะปัจจุบัน…",
   "ctl.final": " — สถานะสิ้นสุดแล้ว หยุดอัปเดต",
-  "ctl.updating": " — อัปเดตทุก 2 วินาที",
+  "ctl.updating": " — อัปเดตทุก {seconds} วินาที",
   "ctl.refreshCase": "รีเฟรชเคส {id}",
   "ctl.night": "กลางคืน",
   "ctl.day": "กลางวัน",

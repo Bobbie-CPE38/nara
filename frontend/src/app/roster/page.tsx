@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { usePolling } from "@/hooks/usePolling";
 import { createDemoApi } from "@/lib/api";
 import { describeError } from "@/lib/errors";
+import { POLL_INTERVAL_MS } from "@/lib/constants";
 import { DEMO_APPROVER_ID, DEMO_SHIFT_IDS, formatDemoTime } from "@/lib/demo";
 import type { MessageKey } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
@@ -123,7 +124,7 @@ export default function RosterPage() {
   const [shiftId, setShiftId] = useState<number>(DEMO_SHIFT_IDS[0]);
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
-      <PageHeader title={t("roster.title")} description={t("roster.intro", { id: DEMO_APPROVER_ID })}>
+      <PageHeader title={t("roster.title")} description={t("roster.intro", { id: DEMO_APPROVER_ID, seconds: POLL_INTERVAL_MS / 1000 })}>
         <label className="flex flex-wrap items-center gap-2 text-sm font-medium" htmlFor="shift">
           {t("common.shift")}
           <select

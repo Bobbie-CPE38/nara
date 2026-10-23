@@ -135,10 +135,10 @@ export const en = {
   "case.updateFailed": "Last update failed: {error} Showing the last known data. Retrying…",
   "case.status": "Status:",
   "case.failedAt": "Failed at {at}: {error}",
-  "case.live": "Updating every 2 seconds.",
-  "case.liveExplanation": "Final status. Still updating every 2 seconds until the explanation is ready.",
-  "case.liveSummary": "Final status. Still updating every 2 seconds until the summary is ready.",
-  "case.liveHandover": "Final status. Still updating every 2 seconds while a handover is active.",
+  "case.live": "Updating every {seconds} seconds.",
+  "case.liveExplanation": "Final status. Still updating every {seconds} seconds until the explanation is ready.",
+  "case.liveSummary": "Final status. Still updating every {seconds} seconds until the summary is ready.",
+  "case.liveHandover": "Final status. Still updating every {seconds} seconds while a handover is active.",
   "case.stopped": "Final status. Updates stopped.",
   "case.events": "Events",
   "case.replacementBy": "Replacement needed by",
@@ -322,7 +322,7 @@ export const en = {
 
   // ---- roster page ----
   "roster.title": "Shift roster",
-  "roster.intro": "View the demo roster as staff {id}. Updates every 2 seconds.",
+  "roster.intro": "View the demo roster as staff {id}. Updates every {seconds} seconds.",
   "roster.shiftOption": "Shift {id}",
   "roster.loading": "Loading roster…",
   "roster.refreshFailed": "Could not refresh roster: {error}",
@@ -344,7 +344,7 @@ export const en = {
 
   // ---- LINE simulator page ----
   "sim.title": "Demo LINE simulator",
-  "sim.intro": "View offers and respond as the selected staff member. Updates every 2 seconds.",
+  "sim.intro": "View offers and respond as the selected staff member. Updates every {seconds} seconds.",
   "sim.staffMember": "Staff member",
   "sim.staffOption": "Staff {id}",
   "sim.noOffers": "No offers for this staff member.",
@@ -534,7 +534,7 @@ export const en = {
   "ctl.statusOutdated": " — Status may be outdated: {error}",
   "ctl.checking": " — Checking current status…",
   "ctl.final": " — Final status. Updates stopped.",
-  "ctl.updating": " — Updating every 2 seconds.",
+  "ctl.updating": " — Updating every {seconds} seconds.",
   "ctl.refreshCase": "Refresh case {id}",
   "ctl.night": "night",
   "ctl.day": "day",

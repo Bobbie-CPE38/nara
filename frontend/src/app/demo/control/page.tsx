@@ -10,7 +10,7 @@ import { useBackendClock } from "@/components/ClockProvider";
 import { Notice } from "@/components/ui/Notice";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError, apiRequest } from "@/lib/api";
-import { TERMINAL_CASE_STATUSES } from "@/lib/constants";
+import { POLL_INTERVAL_MS, TERMINAL_CASE_STATUSES } from "@/lib/constants";
 import { DEMO_WARDS } from "@/lib/demo";
 import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
@@ -120,7 +120,7 @@ function CaseLink({ id, status }: { id: number; status: string | null }) {
             ? t("ctl.checking")
             : latest !== null && TERMINAL_CASE_STATUSES.has(latest)
               ? t("ctl.final")
-              : t("ctl.updating")}
+              : t("ctl.updating", { seconds: POLL_INTERVAL_MS / 1000 })}
         </span>
       )}
       {!missing && (

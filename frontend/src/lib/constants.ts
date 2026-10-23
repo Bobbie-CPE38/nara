@@ -1,5 +1,6 @@
 import type { MessageKey } from "@/lib/i18n";
 
+/** The one time between reads. usePolling defaults to it and the "updates every N seconds" texts show it. */
 export const POLL_INTERVAL_MS = 2000;
 
 /** Same set as TERMINAL_CASE_STATUSES in backend/app/domain/enums.py. */

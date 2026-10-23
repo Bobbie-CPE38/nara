@@ -85,7 +85,7 @@ function CaseSections({ detail, audit, request, onSummaryRequested }: CaseSnapsh
             {t("case.failedAt", { at: formatValue(failure.payload.failed_at), error: formatValue(failure.payload.error_type) })}
           </p>
         )}
-        <p className="mt-1 text-sm text-slate-500">{t(liveKey({ detail, audit }))}</p>
+        <p className="mt-1 text-sm text-slate-500">{t(liveKey({ detail, audit }), { seconds: POLL_INTERVAL_MS / 1000 })}</p>
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-[max-content_1fr]">
           <dt className="font-medium">{t("common.shift")}</dt>
           <dd>{detail.shift_id}</dd>
