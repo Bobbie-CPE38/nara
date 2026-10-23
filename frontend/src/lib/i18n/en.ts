@@ -8,9 +8,11 @@
  * wrote are shown as the Backend sent them.
  */
 export const en = {
+  "staff.bindingInactive": "Binding inactive — unlink before replacing",
+  "staff.notLinked": "No LINE binding remains. Nothing was changed. Cancel and search again to refresh the status.",
   "staff.unlink": "Unlink LINE",
   "staff.unlinkTitle": "Unlink LINE for staff {id}: {name}",
-  "staff.unlinkWarning": "This removes the LINE binding and revokes outstanding linking and registration codes. The web account remains. Check the employee’s name and ID before confirming.",
+  "staff.unlinkWarning": "This removes the LINE binding and cancels ALL unused LINK codes and web signup codes from REGISTER, including for inactive employees. Old signup codes will no longer work. After fixing the binding, link the correct LINE account and send REGISTER again for a new signup code. The existing web account remains. Check the employee’s name and ID before confirming.",
   "staff.confirmId": "Type staff ID {id} to confirm",
   "staff.confirmUnlink": "Confirm unlink",
   "staff.cancelUnlink": "Cancel",

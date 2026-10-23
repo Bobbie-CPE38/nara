@@ -14,7 +14,7 @@ import { useT } from "@/lib/i18n/LanguageProvider";
 
 type Staff = {
   id: number; first_name: string; last_name: string; role: string;
-  ward_name: string; status: string; line_linked: boolean;
+  ward_name: string; status: string; line_linked: boolean; line_binding_present: boolean;
 };
 type StaffPage = { items: Staff[]; total: number };
 type Code = { code: string; expires_at: string };
@@ -41,10 +41,6 @@ function Directory() {
     const controller = new AbortController();
     setLoading(true);
     setFailure(null);
-    setData(null);
-    setIssued(null);
-    setUnlinkTarget(null);
-    setConfirmation("");
     void apiRequest<StaffPage>(`/admin/staff?q=${encodeURIComponent(query.q)}&offset=${query.offset}&limit=${PAGE_SIZE}`, { signal: controller.signal })
       .then((result) => { if (!controller.signal.aborted) setData(result); })
       .catch((error: unknown) => { if (!controller.signal.aborted) setFailure(error); })
@@ -54,8 +50,23 @@ function Directory() {
 
   function search(event: FormEvent) {
     event.preventDefault();
+    if (busy !== null || unlinkTarget !== null) return;
+    clearResultsNotice();
     setQuery((value) => ({ q: input.trim(), offset: 0, revision: value.revision + 1 }));
     setIssueFailure(null);
+  }
+
+  function clearResultsNotice() {
+    setUnlinkedId(null);
+    setIssued(null);
+    setIssueFailure(null);
+    setUnlinkFailure(null);
+  }
+
+  function changePage(offset: number) {
+    if (busy !== null || unlinkTarget !== null) return;
+    clearResultsNotice();
+    setQuery((value) => ({ ...value, offset }));
   }
 
   async function issue(staff: Staff) {
@@ -98,7 +109,11 @@ function Directory() {
       setUnlinkTarget(null);
       setConfirmation("");
       setUnlinkedId(id);
-      setQuery((value) => ({ ...value, revision: value.revision + 1 }));
+      // Patch the committed result in-place: keep the table and scroll position.
+      setData((previous) => previous === null ? null : ({ ...previous,
+        items: previous.items.map((staff) => staff.id === id
+          ? { ...staff, line_linked: false, line_binding_present: false } : staff),
+      }));
     } catch (error) {
       setUnlinkFailure(error);
     } finally {
@@ -116,6 +131,7 @@ function Directory() {
     }
   }
 
+  const unlinkDetail = unlinkFailure instanceof ApiError && typeof unlinkFailure.body === "object" && unlinkFailure.body !== null && "detail" in unlinkFailure.body ? unlinkFailure.body.detail : null;
   const detail = issueFailure instanceof ApiError && typeof issueFailure.body === "object" && issueFailure.body !== null && "detail" in issueFailure.body ? issueFailure.body.detail : null;
   return (
     <div className="space-y-4">
@@ -123,9 +139,9 @@ function Directory() {
         <form onSubmit={search} className="flex flex-wrap items-end gap-3">
           <div className="flex-1">
             <label htmlFor="staff-search" className="block">{t("staff.search")}</label>
-            <input id="staff-search" className="w-full" maxLength={100} value={input} onChange={(e) => setInput(e.target.value)} disabled={busy !== null} />
+            <input id="staff-search" className="w-full" maxLength={100} value={input} onChange={(e) => setInput(e.target.value)} disabled={busy !== null || unlinkTarget !== null} />
           </div>
-          <Button type="submit" disabled={busy !== null}>{t("staff.find")}</Button>
+          <Button type="submit" disabled={busy !== null || unlinkTarget !== null}>{t("staff.find")}</Button>
         </form>
       </Card>
       {issueFailure !== null && <Notice kind="error" role="alert">{detail === "LINE_ALREADY_LINKED" ? t("staff.alreadyLinked") : detail === "LINE_STAFF_UNAVAILABLE" ? t("staff.unavailable") : t("staff.issueFailed", { error: describeError(issueFailure, t) })}</Notice>}
@@ -136,7 +152,7 @@ function Directory() {
           <p>{t("staff.unlinkWarning")}</p>
           <label htmlFor="unlink-confirm" className="block">{t("staff.confirmId", { id: unlinkTarget.id })}</label>
           <input id="unlink-confirm" type="text" inputMode="numeric" autoComplete="off" maxLength={19} value={confirmation} disabled={busy !== null} onChange={(event) => setConfirmation(event.target.value)} />
-          {unlinkFailure !== null && <Notice kind="error" role="alert">{t("staff.unlinkFailed", { error: describeError(unlinkFailure, t) })}</Notice>}
+          {unlinkFailure !== null && <Notice kind="error" role="alert">{unlinkDetail === "LINE_NOT_LINKED" ? t("staff.notLinked") : t("staff.unlinkFailed", { error: describeError(unlinkFailure, t) })}</Notice>}
           <div className="flex flex-wrap gap-3">
             <Button type="submit" className="border-red-300 text-red-700" disabled={busy !== null || confirmation !== String(unlinkTarget.id)}>{t("staff.confirmUnlink")}</Button>
             <Button type="button" disabled={busy !== null} onClick={() => { setUnlinkTarget(null); setConfirmation(""); }}>{t("staff.cancelUnlink")}</Button>
@@ -164,16 +180,16 @@ function Directory() {
           <thead><tr>{(["staff.id", "staff.name", "staff.ward", "staff.status", "staff.line"] as const).map((key) => <th key={key} className="p-2">{t(key)}</th>)}<th><span className="sr-only">{t("staff.issue")}</span></th></tr></thead>
           <tbody>{data.items.map((staff) => <tr key={staff.id} className="border-t border-slate-200">
             <td className="p-2">{staff.id}</td><td className="p-2">{staff.first_name} {staff.last_name}</td><td className="p-2">{staff.ward_name}</td>
-            <td className="p-2">{t(staff.status === "ACTIVE" ? "staff.active" : "staff.inactive")}</td><td className="p-2">{t(staff.line_linked ? "staff.linked" : "staff.unlinked")}</td>
+            <td className="p-2">{t(staff.status === "ACTIVE" ? "staff.active" : "staff.inactive")}</td><td className="p-2">{t(staff.line_linked ? "staff.linked" : staff.line_binding_present ? "staff.bindingInactive" : "staff.unlinked")}</td>
             <td className="p-2"><div className="flex flex-wrap gap-2">
-              <Button disabled={busy !== null || staff.line_linked || staff.status !== "ACTIVE"} onClick={() => void issue(staff)}>{t(busy === staff.id && unlinkTarget === null ? "staff.issuing" : "staff.issue")}</Button>
-              {staff.line_linked && <Button disabled={busy !== null} onClick={() => requestUnlink(staff)}>{t("staff.unlink")}</Button>}
+              <Button disabled={busy !== null || loading || unlinkTarget !== null || staff.line_binding_present || staff.status !== "ACTIVE"} onClick={() => void issue(staff)}>{t(busy === staff.id && unlinkTarget === null ? "staff.issuing" : "staff.issue")}</Button>
+              {staff.line_binding_present && <Button disabled={busy !== null || loading || unlinkTarget !== null} onClick={() => requestUnlink(staff)}>{t("staff.unlink")}</Button>}
             </div></td>
           </tr>)}</tbody>
         </table></ScrollX>}
         <div className="mt-3 flex gap-3">
-          <Button disabled={busy !== null || query.offset === 0} onClick={() => setQuery((value) => ({ ...value, offset: Math.max(0, value.offset - PAGE_SIZE) }))}>{t("staff.previous")}</Button>
-          <Button disabled={busy !== null || query.offset + PAGE_SIZE >= data.total} onClick={() => setQuery((value) => ({ ...value, offset: value.offset + PAGE_SIZE }))}>{t("staff.next")}</Button>
+          <Button disabled={busy !== null || loading || unlinkTarget !== null || query.offset === 0} onClick={() => changePage(Math.max(0, query.offset - PAGE_SIZE))}>{t("staff.previous")}</Button>
+          <Button disabled={busy !== null || loading || unlinkTarget !== null || query.offset + PAGE_SIZE >= data.total} onClick={() => changePage(query.offset + PAGE_SIZE)}>{t("staff.next")}</Button>
         </div>
       </Card>}
     </div>

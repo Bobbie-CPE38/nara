@@ -38,6 +38,10 @@ class LineAccountAlreadyBoundError(LineAccountError):
     pass
 
 
+class LineAccountNotBoundError(LineAccountError):
+    pass
+
+
 class LinkStaffUnavailableError(LineAccountError):
     pass
 
@@ -186,12 +190,25 @@ def link(db: Session, code: str, uid: str) -> Contact:
     return contact
 
 
-def unlink(db: Session, staff_id: int, *, actor_id: int | None = None) -> int:
+def unlink(
+    db: Session, staff_id: int, *, actor_id: int | None = None, require_binding: bool = False
+) -> int:
     auth_service.hold_auth_gate(db)
     staff = _lock_staff(db, staff_id, require_active=False)
-    registration_service.revoke_codes(db, staff.auth_subject)
+    # Staff lock serializes LINK/issue/unlink; reject a web no-op before any write.
+    if (
+        require_binding
+        and db.scalar(
+            select(Contact.id)
+            .where(Contact.staff_id == staff_id, Contact.line_uid.is_not(None))
+            .limit(1)
+        )
+        is None
+    ):
+        raise LineAccountNotBoundError("No LINE binding to remove")
+    revoked_registration = registration_service.revoke_codes(db, staff.auth_subject)
     # Invalidate unused codes, so a pre-unlink code cannot rebind the old account.
-    db.execute(
+    revoked_links = db.scalars(
         update(LineAccountLinkCode)
         .where(
             LineAccountLinkCode.staff_id == staff_id,
@@ -199,7 +216,8 @@ def unlink(db: Session, staff_id: int, *, actor_id: int | None = None) -> int:
             LineAccountLinkCode.revoked_at.is_(None),
         )
         .values(revoked_at=clock.now())
-    )
+        .returning(LineAccountLinkCode.id)
+    ).all()
     count = 0
     for contact in _contacts(db, staff_id):
         if contact.line_uid is None:
@@ -216,7 +234,12 @@ def unlink(db: Session, staff_id: int, *, actor_id: int | None = None) -> int:
             action=AuditAction.LINE_ACCOUNT_UNLINKED,
             entity_type=EntityType.CONTACTS,
             entity_id=contact.id,
-            payload={"contact_id": contact.id, "staff_id": staff_id},
+            payload={
+                "contact_id": contact.id,
+                "staff_id": staff_id,
+                "revoked_registration_codes": revoked_registration,
+                "revoked_link_codes": len(revoked_links),
+            },
         )
         count += 1
     db.flush()

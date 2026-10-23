@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.core import clock
 from app.core.config import settings
 from app.core.constants import MAX_BIGINT
+from app.core.rate_limit import MYID_PER_SENDER, Limit, RateLimiter
 from app.db.models import LineWebhookEvent
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
@@ -34,6 +35,7 @@ from app.services import (
 )
 
 logger = logging.getLogger(__name__)
+myid_limiter = RateLimiter()
 _LINK_COMMAND = re.compile(r"LINK(?:\s+|$)", re.IGNORECASE | re.ASCII)
 _OFFER_BUTTON_GUIDANCE = (
     "หากต้องการตอบข้อเสนอเข้าเวร กรุณากดปุ่มในข้อความข้อเสนอที่ยังตอบได้ เพื่อบันทึกคำตอบ "
@@ -298,6 +300,21 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
     event_id = event.get("webhookEventId")
     if not isinstance(event_id, str) or not event_id or len(event_id) > 256:
         raise ValueError("Missing or invalid webhook event ID")
+    if _is_my_id(event):
+        source = event.get("source")
+        uid = source.get("userId") if isinstance(source, dict) else None
+        # Limit BEFORE the shared reset gate, dedup read, or LINE reply. Throttled
+        # deliveries are acknowledged silently, without DB work or reply quota.
+        if (
+            isinstance(source, dict)
+            and source.get("type") == "user"
+            and isinstance(uid, str)
+            and 1 <= len(uid) <= 255
+        ):
+            key = hashlib.sha256(uid.encode()).hexdigest()
+            if myid_limiter.hit([Limit(f"myid:{key}", MYID_PER_SENDER)]) is not None:
+                db.rollback()
+                return
     if _is_register(event) or _is_my_id(event):
         # Before even the dedup read: reset takes the exclusive gate before table locks.
         auth_service.hold_auth_gate(db)

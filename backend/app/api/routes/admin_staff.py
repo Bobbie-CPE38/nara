@@ -8,7 +8,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import String, cast, exists, func, or_, select
+from sqlalchemy import exists, false, func, select
 
 from app.api.dependencies import (
     AUTH_PASSWORD_CHANGE_REQUIRED,
@@ -17,8 +17,8 @@ from app.api.dependencies import (
     forbidden,
 )
 from app.core.constants import MAX_BIGINT
-from app.core.rate_limit import Limit, limiter
-from app.db.models import Contact, Role, Staff, Ward
+from app.core.rate_limit import LINE_ADMIN_PER_MINUTE, Limit, limiter
+from app.db.models import Actor, Contact, Role, Staff, Ward
 from app.domain.enums import StaffStatus
 from app.schemas.line_account import IssuedLineCode, UnlinkedLineAccount
 from app.services import auth_service, line_account_service
@@ -45,6 +45,7 @@ class StaffEntry(BaseModel):
     ward_name: str
     status: StaffStatus
     line_linked: bool
+    line_binding_present: bool
 
 
 class StaffPage(BaseModel):
@@ -61,23 +62,37 @@ def list_staff(
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
 ) -> StaffPage:
     term = q.strip()
-    # Escape wildcard characters: search is literal, not an SQL LIKE expression.
-    condition = or_(
-        cast(Staff.id, String).contains(term, autoescape=True),
-        (Staff.first_name + " " + Staff.last_name).icontains(term, autoescape=True),
-    )
-    total = db.scalar(select(func.count()).select_from(Staff).where(condition)) or 0
-    bound = exists(
-        select(Contact.id).where(Contact.staff_id == Staff.id, Contact.line_uid.is_not(None))
-    )
-    rows = db.execute(
-        select(Staff, Role.name, Ward.name, bound)
+    # Numeric searches identify ONE employee, never substring-match other IDs.
+    if term.isascii() and term.isdecimal():
+        condition = (
+            Staff.id == int(term) if len(term) <= 19 and 1 <= int(term) <= MAX_BIGINT else false()
+        )
+    else:
+        condition = (Staff.first_name + " " + Staff.last_name).icontains(term, autoescape=True)
+    directory = (
+        select(Staff, Role.name, Ward.name)
         .join(Role, Role.id == Staff.role_id)
         .join(Ward, Ward.id == Staff.home_ward_id)
         .where(condition)
-        .order_by(Staff.id)
-        .offset(offset)
-        .limit(limit)
+    )
+    # Count exactly the joined/filtered row set used for the page.
+    total = db.scalar(select(func.count()).select_from(directory.subquery())) or 0
+    bound = exists(
+        select(Contact.id).where(Contact.staff_id == Staff.id, Contact.line_uid.is_not(None))
+    )
+    usable = (
+        (Staff.status == StaffStatus.ACTIVE)
+        & exists(select(Actor.id).where(Actor.staff_id == Staff.id))
+        & exists(
+            select(Contact.id).where(
+                Contact.staff_id == Staff.id,
+                Contact.line_uid.is_not(None),
+                Contact.is_active.is_(True),
+            )
+        )
+    )
+    rows = db.execute(
+        directory.add_columns(bound, usable).order_by(Staff.id).offset(offset).limit(limit)
     ).all()
     return StaffPage(
         items=[
@@ -88,9 +103,10 @@ def list_staff(
                 role=role,
                 ward_name=ward,
                 status=staff.status,
-                line_linked=linked,
+                line_linked=usable_binding,
+                line_binding_present=linked,
             )
-            for staff, role, ward, linked in rows
+            for staff, role, ward, linked, usable_binding in rows
         ],
         total=total,
     )
@@ -102,9 +118,7 @@ def issue_line_code(
     db: DbSession,
     user: Supervisor,
 ) -> IssuedLineCode:
-    wait = limiter.hit([Limit(f"line-code:admin:{user.staff.id}", 20)])
-    if wait is not None:
-        raise HTTPException(429, "AUTH_RATE_LIMITED", headers={"Retry-After": str(wait)})
+    _limit_admin(user)
     try:
         issued = line_account_service.issue_code(db, staff_id)
         db.commit()
@@ -128,13 +142,26 @@ def unlink_line_account(
     db: DbSession,
     user: Supervisor,
 ) -> UnlinkedLineAccount:
+    _limit_admin(user)
     # Check on the server too: a browser's disabled button is not authorization.
     if body.confirm_staff_id != str(staff_id):
         raise HTTPException(400, "LINE_CONFIRMATION_MISMATCH")
     try:
-        count = line_account_service.unlink(db, staff_id, actor_id=user.actor_id)
+        count = line_account_service.unlink(
+            db, staff_id, actor_id=user.actor_id, require_binding=True
+        )
         db.commit()
+    except line_account_service.LineAccountNotBoundError:
+        db.rollback()
+        raise HTTPException(409, "LINE_NOT_LINKED") from None
     except line_account_service.LinkStaffUnavailableError:
         db.rollback()
         raise HTTPException(409, "LINE_STAFF_UNAVAILABLE") from None
     return UnlinkedLineAccount(unlinked_contacts=count)
+
+
+def _limit_admin(user: auth_service.SessionUser) -> None:
+    # Shared budget prevents alternating issue/unlink to double the allowed work.
+    wait = limiter.hit([Limit(f"line-admin:{user.staff.id}", LINE_ADMIN_PER_MINUTE)])
+    if wait is not None:
+        raise HTTPException(429, "AUTH_RATE_LIMITED", headers={"Retry-After": str(wait)})

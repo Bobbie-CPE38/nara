@@ -26,6 +26,7 @@ def directory(production_seeded, monkeypatch):
     for staff_id in (950, 900, 105):
         auth_service.create_account(db, staff_id, PASSWORD, must_change_password=False)
     limiter.clear()
+    line_webhook_service.myid_limiter.clear()
     app.dependency_overrides[get_db] = lambda: db
     with TestClient(
         app, base_url="https://testserver", headers={"Origin": settings.cors_origins[0]}
@@ -76,6 +77,7 @@ def test_supervisor_search_pagination_and_minimal_fields(directory):
         "role",
         "status",
         "line_linked",
+        "line_binding_present",
     }
     assert client.get("/admin/staff?q=%25").json()["total"] == 0
     assert client.get("/admin/staff?limit=101").status_code == 422
@@ -241,9 +243,11 @@ def test_unlink_revokes_proofs_preserves_account_and_audits_real_admin(directory
     assert "U201" not in str(audit.payload)
     assert pending.code.get_secret_value() not in str(audit.payload)
     assert client.get("/admin/staff?q=201").json()["items"][0]["line_linked"] is False
-    assert client.post("/admin/staff/201/line-unlink", json={"confirm_staff_id": "201"}).json() == {
-        "unlinked_contacts": 0
-    }
+    again = client.post("/admin/staff/201/line-unlink", json={"confirm_staff_id": "201"})
+    assert again.status_code == 409
+    assert again.json()["detail"] == "LINE_NOT_LINKED"
+    assert audit.payload["revoked_registration_codes"] == 1
+    assert audit.payload["revoked_link_codes"] == 1
     item = link_event("unused")
     item["message"]["text"] = "MYID"
     assert post(client, item).status_code == 200
@@ -264,3 +268,101 @@ def test_unlink_rejects_foreign_origin_before_writing(directory, monkeypatch, mo
     )
     assert response.status_code == 403
     assert db.scalar(select(Contact.line_uid).where(Contact.staff_id == 201)) == "U201"
+
+
+def test_unlink_limit_precedes_gate_and_counts_noop_attempts(directory, monkeypatch):
+    from unittest.mock import Mock
+
+    client, db = directory
+    login(client, 950)
+    original = line_account_service.unlink
+    call = Mock(wraps=original)
+    monkeypatch.setattr(line_account_service, "unlink", call)
+    for _ in range(20):
+        response = client.post("/admin/staff/201/line-unlink", json={"confirm_staff_id": "201"})
+        assert response.status_code == 409
+        assert response.json()["detail"] == "LINE_NOT_LINKED"
+    blocked = client.post("/admin/staff/201/line-unlink", json={"confirm_staff_id": "201"})
+    assert blocked.status_code == 429
+    assert int(blocked.headers["retry-after"]) > 0
+    assert call.call_count == 20
+    # Issue/unlink share the same per-admin budget.
+    assert client.post("/admin/staff/201/line-code").status_code == 429
+
+
+def test_noop_unlink_preserves_outstanding_codes(directory):
+    client, db = directory
+    line_account_service.issue_code(db, 201)
+    db.commit()
+    login(client, 950)
+    assert (
+        client.post("/admin/staff/201/line-unlink", json={"confirm_staff_id": "201"}).status_code
+        == 409
+    )
+    assert db.scalars(select(LineAccountLinkCode)).one().revoked_at is None
+
+
+@pytest.mark.parametrize("inactive", ["contact", "staff"])
+def test_inactive_binding_is_distinct_from_a_usable_line_account(directory, inactive):
+    client, db = directory
+    db.add(Contact(staff_id=201, line_uid="U201", is_active=inactive != "contact"))
+    if inactive == "staff":
+        db.get(Staff, 201).status = StaffStatus.INACTIVE
+    db.commit()
+    login(client, 950)
+    entry = client.get("/admin/staff?q=201").json()["items"][0]
+    assert entry["line_linked"] is False
+    assert entry["line_binding_present"] is True
+    assert client.post("/admin/staff/201/line-code").status_code == 409
+    assert (
+        client.post("/admin/staff/201/line-unlink", json={"confirm_staff_id": "201"}).status_code
+        == 200
+    )
+
+
+def test_numeric_search_is_exact_and_name_search_remains_literal(directory):
+    client, db = directory
+    example = db.get(Staff, 201)
+    for staff_id in (12, 112, 120):
+        db.add(
+            Staff(
+                id=staff_id,
+                first_name="Search12",
+                last_name="Person",
+                email="demo@example.invalid",
+                password_hash="!",
+                role_id=example.role_id,
+                home_ward_id=example.home_ward_id,
+                status=StaffStatus.ACTIVE,
+            )
+        )
+    db.commit()
+    login(client, 950)
+    result = client.get("/admin/staff?q=12").json()
+    assert result["total"] == 1
+    assert [entry["id"] for entry in result["items"]] == [12]
+    assert client.get("/admin/staff?q=Search12").json()["total"] == 3
+    assert client.get("/admin/staff?q=" + "9" * 100).json()["total"] == 0
+
+
+def test_myid_throttle_is_per_sender_and_before_gate(directory, real_line, monkeypatch):
+    from unittest.mock import Mock
+
+    client, db = directory
+    db.add(Contact(staff_id=201, line_uid="U201", is_active=True))
+    db.add(Contact(staff_id=202, line_uid="U202", is_active=True))
+    db.commit()
+    original = auth_service.hold_auth_gate
+    gate = Mock(wraps=original)
+    monkeypatch.setattr(auth_service, "hold_auth_gate", gate)
+    for n in range(7):
+        item = link_event("unused", event_id=f"myid-{n}")
+        item["message"]["text"] = "MYID"
+        assert post(client, item).status_code == 200
+    assert gate.call_count == 5
+    assert real_line[1].call_count == 5
+    item = link_event("unused", event_id="myid-other", uid="U202")
+    item["message"]["text"] = "MYID"
+    assert post(client, item).status_code == 200
+    assert gate.call_count == 6
+    assert real_line[1].call_args.args[1] == "รหัสพนักงาน NARA ของคุณคือ 202"

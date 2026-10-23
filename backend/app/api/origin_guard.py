@@ -1,11 +1,11 @@
-"""Origin check and no-store for the login API (docs/workflow.md 6.33.3).
+"""Origin check and no-store for browser session/admin APIs (docs/workflow.md 6.33.3).
 
 A browser attaches the session cookie and Basic Auth to any request, even one another
 site makes it send. So a state-changing request (POST, PUT, PATCH, DELETE) must carry
 an Origin that is exactly one of CORS_ORIGINS, or it gets 403 AUTH_ORIGIN_FORBIDDEN
 before any route runs: always under /auth and /admin, and on every path when AUTH_MODE=session.
-A missing Origin or "null" is refused too. CORS does not do this: it only stops the
-page from reading the answer, after the write.
+A missing Origin or "null" is refused too, including non-browser admin clients.
+CORS only stops the page from reading the answer, after the write.
 
 Not checked, because no cookie is how they prove who they are: exactly
 POST /line/webhook (the LINE signature; the raw path, so /line/webhook/ or an encoded
@@ -57,18 +57,18 @@ class AuthHttpGuard:
             return
         path: str = scope["path"]
         method: str = scope["method"]
-        auth_path = _is_sensitive_path(path)
+        sensitive_path = _is_sensitive_path(path)
         raw_path: bytes = scope.get("raw_path") or path.encode()
-        checked = auth_path or settings.auth_mode == "session"
+        checked = sensitive_path or settings.auth_mode == "session"
         if (
             checked
             and method in UNSAFE_METHODS
             and not _exempt(method, path, raw_path.split(b"?", 1)[0])
             and _origin(scope) not in settings.cors_origins
         ):
-            await _forbidden(send, no_store=auth_path)
+            await _forbidden(send, no_store=sensitive_path)
             return
-        if not auth_path:
+        if not sensitive_path:
             await self.app(scope, receive, send)
             return
 

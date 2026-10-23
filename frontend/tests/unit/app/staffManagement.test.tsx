@@ -6,12 +6,12 @@ import { AuthProvider } from "@/components/AuthProvider";
 import { setSessionMode } from "@/lib/api";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }), usePathname: () => "/admin/staff" }));
-let role: string, mode: string, failure: boolean, linked: boolean;
+let role: string, mode: string, failure: boolean, linked: boolean, stale: boolean, inactive: boolean;
 let calls: { path: string; method: string; headers: Headers; credentials?: RequestCredentials; body?: unknown }[];
-const staff = { id: 201, first_name: "Arunee", last_name: "Demo", role: "RN", ward_name: "ICU", status: "ACTIVE", line_linked: false };
+const staff = { id: 201, first_name: "Arunee", last_name: "Demo", role: "RN", ward_name: "ICU", status: "ACTIVE", line_linked: false, line_binding_present: false };
 const copy = vi.fn();
 beforeEach(() => {
-  role = "supervisor"; mode = "session"; failure = false; linked = true; calls = []; copy.mockReset();
+  role = "supervisor"; mode = "session"; failure = false; linked = true; stale = false; inactive = false; calls = []; copy.mockReset();
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: copy } });
   vi.stubGlobal("fetch", vi.fn(async (url: string, init: RequestInit = {}) => {
     const path = new URL(url).pathname + new URL(url).search;
@@ -19,9 +19,9 @@ beforeEach(() => {
     const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
     if (path === "/auth/config") return json({ auth_mode: mode });
     if (path === "/auth/me") return json({ staff_id: 950, role, home_ward_id: 1, must_change_password: false });
-    if (path === "/admin/staff/202/line-unlink") { linked = false; return json({ unlinked_contacts: 1 }); }
+    if (path === "/admin/staff/202/line-unlink") { if (stale) return json({ detail: "LINE_NOT_LINKED" }, 409); linked = false; return json({ unlinked_contacts: 1 }); }
     if (path === "/admin/staff/201/line-code") return failure ? json({ detail: "LINE_ALREADY_LINKED" }, 409) : json({ code: "test-secret-code", expires_at: "2026-10-23T12:10:00+07:00" }, 201);
-    if (path.startsWith("/admin/staff?")) return json({ items: [staff, { ...staff, id: 202, first_name: "Phanu", line_linked: linked }, { ...staff, id: 203, first_name: "Chonthicha", status: "INACTIVE" }], total: 30 });
+    if (path.startsWith("/admin/staff?")) return json({ items: [staff, { ...staff, id: 202, first_name: "Phanu", line_linked: linked && !inactive, line_binding_present: linked }, { ...staff, id: 203, first_name: "Chonthicha", status: "INACTIVE" }], total: 30 });
     throw new Error(`Unexpected request: ${path}`);
   }));
 });
@@ -106,4 +106,44 @@ it("cancel does not unlink and clears the confirmation when reopened", async () 
   fireEvent.click(within(row).getByRole("button", { name: "Unlink LINE" }));
   expect((screen.getByLabelText("Type staff ID 202 to confirm") as HTMLInputElement).value).toBe("");
   expect(screen.getByRole("button", { name: "Confirm unlink" }).hasAttribute("disabled")).toBe(true);
+});
+
+it("clears unlink success when searching and preserves the table after unlink", async () => {
+  view();
+  const table = (await screen.findByText("Phanu Demo")).closest("table")!;
+  fireEvent.click(within(table).getByRole("button", { name: "Unlink LINE" }));
+  fireEvent.change(screen.getByLabelText("Type staff ID 202 to confirm"), { target: { value: "202" } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirm unlink" }));
+  await screen.findByText("LINE unlinked for staff 202.");
+  expect(screen.getByText("Phanu Demo").closest("table")).toBe(table);
+  expect(screen.queryByText("Loading staff…")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Search by staff ID or name"), { target: { value: "201" } });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  expect(screen.queryByText("LINE unlinked for staff 202.")).toBeNull();
+});
+it("keeps a typed confirmation and blocks searching or paginating until explicitly cancelled", async () => {
+  view();
+  fireEvent.click(within((await screen.findByText("Phanu Demo")).closest("tr")!).getByRole("button", { name: "Unlink LINE" }));
+  fireEvent.change(screen.getByLabelText("Type staff ID 202 to confirm"), { target: { value: "20" } });
+  expect(screen.getByRole("button", { name: "Search" }).hasAttribute("disabled")).toBe(true);
+  expect(screen.getByRole("button", { name: "Next" }).hasAttribute("disabled")).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  expect((screen.getByLabelText("Type staff ID 202 to confirm") as HTMLInputElement).value).toBe("20");
+  expect(calls.filter((c) => c.path.includes("offset=25"))).toHaveLength(0);
+});
+it("shows an inactive stored binding separately and permits only unlinking it", async () => {
+  inactive = true; view();
+  const row = (await screen.findByText("Phanu Demo")).closest("tr")!;
+  expect(within(row).getByText("Binding inactive — unlink before replacing")).toBeTruthy();
+  expect(within(row).getByRole("button", { name: "Create LINE code" }).hasAttribute("disabled")).toBe(true);
+  expect(within(row).getByRole("button", { name: "Unlink LINE" }).hasAttribute("disabled")).toBe(false);
+});
+it("does not show a success notice for an already-removed binding", async () => {
+  stale = true; view();
+  fireEvent.click(within((await screen.findByText("Phanu Demo")).closest("tr")!).getByRole("button", { name: "Unlink LINE" }));
+  expect(screen.getByText(/Old signup codes will no longer work/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Type staff ID 202 to confirm"), { target: { value: "202" } });
+  fireEvent.click(screen.getByRole("button", { name: "Confirm unlink" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Nothing was changed");
+  expect(screen.queryByText("LINE unlinked for staff 202.")).toBeNull();
 });
