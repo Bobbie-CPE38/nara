@@ -331,6 +331,21 @@ describe("login page", () => {
     expect(sentOf("POST", "/auth/login")).toHaveLength(0);
   });
 
+  it("keeps the button disabled until both the staff ID and the password are filled", async () => {
+    session(null);
+    app(<LoginPage />);
+    await screen.findByLabelText("Staff ID");
+    const button = screen.getByRole("button", { name: "Log in" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Staff ID"), { target: { value: "201" } });
+    expect(button.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Staff ID"), { target: { value: "  " } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "whatever" } });
+    expect(button.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Staff ID"), { target: { value: "201" } });
+    expect(button.disabled).toBe(false);
+  });
+
   it("shows the rate limit as a sentence", async () => {
     session(null, { "POST /auth/login": () => ({ status: 429, body: { detail: "AUTH_RATE_LIMITED" } }) });
     app(<LoginPage />);

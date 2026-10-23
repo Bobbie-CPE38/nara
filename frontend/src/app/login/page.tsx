@@ -100,7 +100,7 @@ function LoginForm() {
             {describeError(failure, t)}
           </Notice>
         )}
-        <Button type="submit" variant="primary" disabled={busy || password === ""}>
+        <Button type="submit" variant="primary" disabled={busy || staffId.trim() === "" || password === ""}>
           {busy ? t("auth.login.busy") : t("auth.login.submit")}
         </Button>
       </form>
