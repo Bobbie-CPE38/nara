@@ -1,9 +1,11 @@
 """Demo control (docs/workflow.md 6.17, 6.33.5). On AWS the whole prefix is behind its own
 Basic Auth, and in session mode every POST also needs an allowed Origin (6.33.3)."""
 
+import csv
+import io
 from datetime import timedelta
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 
 from app.api.dependencies import DbSession, Reader, access_viewer, forbidden
 from app.core import clock
@@ -14,12 +16,14 @@ from app.schemas.attendance import CheckInResponse, SimulatedCheckIn
 from app.schemas.clock import ClockView
 from app.schemas.event import DemoEventCreate, EventResult
 from app.schemas.job import ClockAdvance, ClockAdvanceResult
+from app.schemas.test_run import TestRunAbort, TestRunClosed, TestRunStart, TestRunStarted
 from app.seed.reset import reset_demo
 from app.services import (
     actor_service,
     attendance_service,
     event_service,
     job_service,
+    test_run_service,
     unavailability_service,
 )
 from app.services.requirement_service import RequirementNotFoundError
@@ -30,40 +34,63 @@ SIMULATED_SOURCE = CheckInSource.SIMULATED.value
 router = APIRouter(prefix="/demo", tags=["demo"])
 
 
+def _run_in_progress(error: test_run_service.TestRunOpenError) -> HTTPException:
+    return HTTPException(status.HTTP_409_CONFLICT, str(error))
+
+
 @router.post("/reset")
 def reset() -> dict[str, str]:
-    """Drop the database, migrate, load the Golden Case and freeze the clock at D 21:00."""
-    demo_time = reset_demo()
+    """Drop the database, migrate, load the Golden Case and freeze the clock at D 21:00.
+
+    409 while a test run is open: it would wipe the run's case (6.35.2).
+    """
+    try:
+        with test_run_service.no_open_run():
+            demo_time = reset_demo()
+    except test_run_service.TestRunOpenError as error:
+        raise _run_in_progress(error) from error
     return {"status": "ok", "clock": demo_time.isoformat()}
 
 
 @router.post("/clock/advance")
 def advance_clock(body: ClockAdvance, db: DbSession) -> ClockAdvanceResult:
-    """Move the frozen demo clock forward, then expire offers, recover cases and close due windows.
+    """Move the frozen demo clock, or a test run's clock, forward, then expire offers,
+    recover cases and close due windows.
 
     Runs the same function as the job service: a frozen clock that moves does
-    not wake the job up. 409 when the clock is not frozen (no reset yet since
-    the backend started).
+    not wake the job up. 409 when the clock follows real time (no reset yet since
+    the backend started). In scenario mode the move adds to the run's offset (6.35.1).
     """
-    if not clock.is_frozen():
+    if clock.mode() == clock.ClockMode.REAL:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "The demo clock is not frozen. Call POST /demo/reset first"
         )
-    now = clock.advance(timedelta(seconds=body.seconds))
+    now = test_run_service.advance(db, timedelta(seconds=body.seconds))
     return ClockAdvanceResult.of(now, job_service.run_due_work(db))
 
 
 @router.post("/clock/freeze")
 def freeze_clock() -> ClockView:
-    """Freeze the clock at the time it shows now. Already frozen: nothing changes."""
-    return ClockView(now=clock.freeze_now(), frozen=True)
+    """Freeze the clock at the time it shows now. Already frozen: nothing changes.
+    409 while a test run is open (6.35.2)."""
+    try:
+        with test_run_service.no_open_run():
+            clock.freeze_now()
+    except test_run_service.TestRunOpenError as error:
+        raise _run_in_progress(error) from error
+    return ClockView.current()
 
 
 @router.post("/clock/unfreeze")
 def unfreeze_clock() -> ClockView:
-    """Let the clock follow real time again (POST /demo/reset freezes it once more)."""
-    clock.reset()
-    return ClockView(now=clock.now(), frozen=False)
+    """Let the clock follow real time again (POST /demo/reset freezes it once more).
+    409 while a test run is open (6.35.2)."""
+    try:
+        with test_run_service.no_open_run():
+            clock.reset()
+    except test_run_service.TestRunOpenError as error:
+        raise _run_in_progress(error) from error
+    return ClockView.current()
 
 
 @router.post("/attendance/check-in")
@@ -159,4 +186,87 @@ def simulate_event(body: DemoEventCreate, db: DbSession, reader: Reader) -> Even
         event_status=outcome.event_status,
         case_id=outcome.case_id,
         case_status=outcome.case_status,
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Test runs (round 6 PR EV5a, docs/workflow.md 6.35.2)
+# --------------------------------------------------------------------------- #
+def _manager(db: DbSession, reader: Reader) -> int | None:
+    """As POST /demo/events: a head nurse or supervisor in session mode (401/403), nobody
+    in demo mode. Returns the signed-in staff ID, which the run's rows are written by."""
+    if reader is None:
+        return None
+    if access_viewer(db, reader).role == "staff":
+        raise forbidden()
+    return reader.staff.id
+
+
+@router.post("/test-runs", status_code=status.HTTP_201_CREATED)
+def start_test_run(body: TestRunStart, db: DbSession, reader: Reader) -> TestRunStarted:
+    """Reset, load the scenario, start the scenario clock at D 21:00 and open the case.
+    409 while another run is open."""
+    staff_id = _manager(db, reader)
+    db.close()  # the reset drops the schema: hold no connection of this request
+    try:
+        started = test_run_service.start(
+            tester_code=body.tester_code,
+            scenario=body.scenario,
+            auto_nurses=body.auto_nurses,
+            staff_id=staff_id,
+        )
+    except test_run_service.TestRunOpenError as error:
+        raise _run_in_progress(error) from error
+    return TestRunStarted(**vars(started))
+
+
+def _close_run(
+    db: DbSession, reader: Reader, test_run_id: int, reason: str | None, *, aborted: bool
+) -> TestRunClosed:
+    staff_id = _manager(db, reader)
+    try:
+        if aborted:
+            result = test_run_service.abort(db, test_run_id, reason=reason, staff_id=staff_id)
+        else:
+            result = test_run_service.finish(db, test_run_id, staff_id=staff_id)
+    except test_run_service.TestRunNotFoundError as error:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, str(error)) from error
+    except test_run_service.TestRunClosedError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+    return TestRunClosed(test_run_id=test_run_id, result=result)
+
+
+@router.post("/test-runs/{test_run_id}/finish")
+def finish_test_run(test_run_id: int, db: DbSession, reader: Reader) -> TestRunClosed:
+    """Freeze the clock and store the KPI. After an API restart the run closes as CLOCK_LOST."""
+    return _close_run(db, reader, test_run_id, None, aborted=False)
+
+
+@router.post("/test-runs/{test_run_id}/abort")
+def abort_test_run(
+    test_run_id: int, db: DbSession, reader: Reader, body: TestRunAbort | None = None
+) -> TestRunClosed:
+    """Close the run without KPI (invalid, reason ABORTED or the one given)."""
+    return _close_run(db, reader, test_run_id, None if body is None else body.reason, aborted=True)
+
+
+@router.get("/test-runs")
+def list_test_runs(db: DbSession, reader: Reader) -> list[test_run_service.RunView]:
+    """Every run in start order, open ones with the time so far."""
+    _manager(db, reader)
+    return test_run_service.list_runs(db)
+
+
+@router.get("/test-runs.csv")
+def test_runs_csv(db: DbSession, reader: Reader) -> Response:
+    """One row per closed run (6.35.2)."""
+    _manager(db, reader)
+    out = io.StringIO()
+    writer = csv.DictWriter(out, fieldnames=test_run_service.CSV_COLUMNS, lineterminator="\n")
+    writer.writeheader()
+    writer.writerows(test_run_service.csv_rows(db))
+    return Response(
+        out.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="test-runs.csv"'},
     )

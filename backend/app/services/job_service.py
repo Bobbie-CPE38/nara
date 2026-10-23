@@ -22,6 +22,7 @@ from app.services import (
     no_show_service,
     offer_timeout_service,
     roster_completion_service,
+    simulated_replies_service,
 )
 from app.services.merge_window_service import ClosedWindow
 
@@ -55,6 +56,8 @@ def run_due_work(db: Session) -> DueWork:
     recovered = offer_timeout_service.recover_waiting_cases(
         db, excluded_case_ids=expired.failed_case_ids | approvals.failed_case_ids
     )
+    # Scripted people of a test run (6.35.3); nothing outside a run that asked for them
+    simulated_replies_service.answer_due(db)
     # Stage 1 of NO_SHOW writes only events; the windows below apply them (6.24)
     no_shows = no_show_service.detect_due_no_shows(db)
     closed = merge_window_service.close_due_windows(db)

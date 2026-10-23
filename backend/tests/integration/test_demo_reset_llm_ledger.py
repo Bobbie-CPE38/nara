@@ -358,11 +358,11 @@ def test_a_deadlock_with_a_writer_starts_the_reset_over(
     attempts: list[int] = []
     real = reset_module._reset_demo
 
-    def deadlocked_once():
+    def deadlocked_once(scenario=None):
         attempts.append(1)
         if len(attempts) == 1:
             raise OperationalError("reset", {}, psycopg.errors.DeadlockDetected("deadlock"))
-        return real()
+        return real(scenario)
 
     monkeypatch.setattr(reset_module, "_reset_demo", deadlocked_once)
     reset_demo()
@@ -375,7 +375,7 @@ def test_a_deadlock_with_a_writer_starts_the_reset_over(
 def test_another_database_error_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     attempts: list[int] = []
 
-    def broken():
+    def broken(scenario=None):
         attempts.append(1)
         raise OperationalError("reset", {}, psycopg.errors.QueryCanceled("slow"))
 

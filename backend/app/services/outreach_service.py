@@ -419,8 +419,12 @@ def record_response(
     outreach_id: int,
     response: CandidateResponse,
     after_lock: Callable[[Session], None] | None = None,
+    audit_source: str | None = None,
 ) -> tuple[CandidateOutreach, StaffingCase]:
-    """Answer the authenticated user's selected offer, even if other offers are open."""
+    """Answer the authenticated user's selected offer, even if other offers are open.
+
+    `audit_source` is kept as payload.source: a scripted nurse of a test run sends
+    SIMULATED (round 6 PR EV5a, 6.35.3)."""
     from app.workflow import orchestrator
 
     if not isinstance(response, CandidateResponse):
@@ -478,7 +482,8 @@ def record_response(
         else AuditAction.OFFER_REJECTED,
         entity_type=EntityType.CANDIDATE_OUTREACH,
         entity_id=outreach.id,
-        payload={"outreach_id": outreach.id, "staff_id": staff_id},
+        payload={"outreach_id": outreach.id, "staff_id": staff_id}
+        | ({} if audit_source is None else {"source": audit_source}),
     )
     orchestrator.recompute(db, case.id, prepare=promote_reserves)
     # Save IDs: rollback between independent notifications expires ORM objects.
