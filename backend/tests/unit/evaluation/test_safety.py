@@ -66,9 +66,28 @@ def test_the_baselines_pick_only_from_what_the_paper_roster_shows() -> None:
             assert safety._free_on_paper(nurse, shift)
 
 
-def test_wilson_interval_matches_the_formula() -> None:
-    low, high = safety.wilson(712, 1000)
-    # Checked by hand against the Wilson score formula: 0.6832 to 0.7392
-    assert math.isclose(low, 0.6832, abs_tol=1e-4)
-    assert math.isclose(high, 0.7392, abs_tol=1e-4)
+# 95% Wilson intervals from scipy.stats.binomtest(k, n).proportion_ci(method="wilson"),
+# computed outside the app (scipy is not a dependency of the backend) and frozen here
+SCIPY_WILSON = {
+    (712, 1000): (0.6832, 0.7392),
+    (242, 1000): (0.2165, 0.2695),
+    (742, 1000): (0.7140, 0.7682),
+    (953, 1000): (0.9381, 0.9645),
+}
+
+
+def test_wilson_interval_matches_scipy() -> None:
+    for (successes, total), (low, high) in SCIPY_WILSON.items():
+        ours = safety.wilson(successes, total)
+        assert math.isclose(ours[0], low, abs_tol=1e-4), (successes, ours)
+        assert math.isclose(ours[1], high, abs_tol=1e-4), (successes, ours)
     assert all(math.isnan(x) for x in safety.wilson(0, 0))
+
+
+def test_nara_unsafe_picks_are_counted_and_the_unmodelled_rule_is_reported() -> None:
+    results, summary = safety.run(80, seed=13, worlds=4)
+    nara = summary["nara"]
+    assert isinstance(nara, dict)
+    assert nara["unsafe_picks"] == sum(1 for r in results if r.nara_broken_rules) == 0
+    assert summary["rules_that_can_fail_here"] == 10
+    assert summary["rules_not_modelled"] == ["SOURCE_WARD_MINIMUM_VIOLATION"]

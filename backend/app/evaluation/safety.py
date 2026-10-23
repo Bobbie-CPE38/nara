@@ -12,8 +12,8 @@ Method (all synthetic, seeded, no database):
     The replacement must be an RN, and must hold the ICU skill when the shift is left
     with fewer ICU-skilled nurses than it needs.
   * Three manual baselines pick from the head nurse's own ward, seeing only what a
-    paper roster shows: name, role, skills, who is rostered on the night itself, and
-    the leave written on the roster.
+    paper roster shows: name, role, skills, who works a shift that starts on that day
+    (the night itself or the day shift before it), and the leave written on the roster.
       B1 first free nurse in roster order
       B2 the free nurse with the fewest shifts this week on the roster
       B3 a random free nurse
@@ -21,7 +21,9 @@ Method (all synthetic, seeded, no database):
     leave written on the roster that day.
   * Every pick, and every candidate nara considers, is judged by
     app.domain.constraints.evaluator.evaluate(), the function the Solver, wave
-    selection and Safety use. nara takes only candidates that pass every rule, from the
+    selection and Safety use. Ten of the eleven Hard Rules can fail here:
+    SOURCE_WARD_MINIMUM_VIOLATION needs a move out of another shift (a source shift),
+    which these cases do not model. nara takes only candidates that pass every rule, from the
     ward first and then the other ward.
 
 What this does NOT measure: how often real head nurses make mistakes. The rates depend
@@ -81,6 +83,8 @@ ICU_SKILL_SHARE = {1: 0.6, 2: 0.15}
 LEAVE_SHARE = 0.08  # nurses with a written leave of 1-3 days in the two weeks
 DAYS = 14
 BASELINES = ("B1_first_free", "B2_fewest_shifts", "B3_random_free")
+# Needs CandidateContext.source_shift, which no case here sets, so it can never fail
+NOT_MODELLED_RULES = (HardRuleCode.SOURCE_WARD_MINIMUM_VIOLATION,)
 
 
 @dataclass
@@ -218,6 +222,8 @@ class CaseResult:
     baseline: dict[str, tuple[int | None, tuple[str, ...]]]
     nara_pick: int | None
     nara_from_other_ward: bool
+    # The rules nara's own pick breaks: always empty by design, and counted to show it
+    nara_broken_rules: tuple[str, ...] = ()
 
 
 def run_case(world: World, rng: random.Random, number: int) -> CaseResult | None:
@@ -276,6 +282,9 @@ def run_case(world: World, rng: random.Random, number: int) -> CaseResult | None
             baseline=baseline,
             nara_pick=None if nara is None else nara.staff_id,
             nara_from_other_ward=nara is not None and not safe_own,
+            nara_broken_rules=()
+            if nara is None
+            else tuple(code.value for code in judge(nara, shift.slot, target).failed_rules),
         )
     finally:
         dropped.shifts.append(shift.slot)
@@ -329,7 +338,8 @@ def summarise(results: Sequence[CaseResult], seed: int, worlds: int) -> dict[str
             "maximum_weekly_hours": 52,
             "maximum_consecutive_shifts": 7,
         },
-        "rules_checked_per_candidate": len(HardRuleCode),
+        "rules_that_can_fail_here": len(HardRuleCode) - len(NOT_MODELLED_RULES),
+        "rules_not_modelled": [code.value for code in NOT_MODELLED_RULES],
         "avg_free_on_paper": round(sum(r.free_on_paper for r in results) / total, 2),
         "needs_icu_skill_share": round(sum(r.needs_icu_skill for r in results) / total, 4),
     }
@@ -353,7 +363,7 @@ def summarise(results: Sequence[CaseResult], seed: int, worlds: int) -> dict[str
         "safe_pick_found": len(filled),
         "safe_pick_rate": round(len(filled) / total, 4),
         "safe_pick_rate_95ci": [round(low, 4), round(high, 4)],
-        "unsafe_picks": 0,
+        "unsafe_picks": sum(1 for r in filled if r.nara_broken_rules),
         "from_other_ward": len(other),
         "no_safe_person_in_ward": sum(1 for r in results if r.safe_in_ward == 0),
         "no_safe_person_anywhere": total - len(filled),
@@ -378,6 +388,7 @@ def write(results: Sequence[CaseResult], summary: dict[str, object], out: Path) 
                 *(f"{b}_broken_rules" for b in BASELINES),
                 "nara_pick",
                 "nara_from_other_ward",
+                "nara_broken_rules",
             ]
         )
         for r in results:
@@ -394,6 +405,7 @@ def write(results: Sequence[CaseResult], summary: dict[str, object], out: Path) 
                     *(";".join(r.baseline[b][1]) for b in BASELINES),
                     r.nara_pick,
                     r.nara_from_other_ward,
+                    ";".join(r.nara_broken_rules),
                 ]
             )
     (out / "safety_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
