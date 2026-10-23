@@ -30,6 +30,10 @@ from app.services.requirement_service import RequirementNotFoundError
 
 # payload.source of an event the Demo control simulates (6.33.4)
 SIMULATED_SOURCE = CheckInSource.SIMULATED.value
+# A test run's clock moves one job round at a time (the job's default interval), and at
+# most to the start of the run's shift, two hours after the scenario start (6.35.1)
+SCENARIO_STEP_SECONDS = 30
+SCENARIO_MAX_ADVANCE_SECONDS = 2 * 60 * 60
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -59,18 +63,35 @@ def advance_clock(body: ClockAdvance, db: DbSession) -> ClockAdvanceResult:
 
     Runs the same function as the job service: a frozen clock that moves does
     not wake the job up. 409 when the clock follows real time (no reset yet since
-    the backend started). In scenario mode the move adds to the run's offset (6.35.1).
+    the backend started). In scenario mode the move adds to the run's offset (6.35.1)
+    and goes in steps of one job round, running the due work after each, as the job
+    would while the time passed: one jump of 10 minutes would time the offers out
+    before the scripted answers of 45 and 120 seconds fall due. 422 above
+    SCENARIO_MAX_ADVANCE_SECONDS in that mode.
     """
-    if clock.mode() == clock.ClockMode.REAL:
+    mode = clock.mode()
+    if mode == clock.ClockMode.REAL:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "The demo clock is not frozen. Call POST /demo/reset first"
         )
-    try:
-        now = test_run_service.advance(db, timedelta(seconds=body.seconds))
-    except RuntimeError as error:
-        # Unfrozen between the check above and the move
-        raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
-    return ClockAdvanceResult.of(now, job_service.run_due_work(db))
+    scenario = mode == clock.ClockMode.SCENARIO
+    if scenario and body.seconds > SCENARIO_MAX_ADVANCE_SECONDS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"A test run's clock moves at most {SCENARIO_MAX_ADVANCE_SECONDS} seconds at a time",
+        )
+    step = SCENARIO_STEP_SECONDS if scenario else body.seconds
+    works = []
+    remaining = body.seconds
+    while remaining > 0:
+        try:
+            now = test_run_service.advance(db, timedelta(seconds=min(step, remaining)))
+        except RuntimeError as error:
+            # Unfrozen between the check above and the move
+            raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
+        works.append(job_service.run_due_work(db))
+        remaining -= step
+    return ClockAdvanceResult.of(now, job_service.merge(works))
 
 
 @router.post("/clock/freeze")

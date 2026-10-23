@@ -323,3 +323,28 @@ def test_an_advance_after_the_clock_left_its_mode_is_a_conflict(
     answer = client.post("/demo/clock/advance", json={"seconds": 60})
 
     assert answer.status_code == 409
+
+
+def test_one_long_advance_goes_in_job_rounds(client: TestClient) -> None:
+    """The Demo control's 10-minute button during a run: the scripted answers of 45 and 120
+    seconds come before the offers' 5-minute timeout, as they would with the job ticking."""
+    _start(client)
+
+    answer = client.post("/demo/clock/advance", json={"seconds": 600})
+
+    assert answer.status_code == 200
+    assert answer.json()["timed_out_outreach_ids"] == []
+    assert [name for name, _ in _rows(AuditAction.OFFER_ACCEPTED)] == ["201"]
+    assert len(_rows(AuditAction.APPROVAL_REQUESTED)) == 1
+    advances = _rows(AuditAction.TEST_RUN_CLOCK_ADVANCED)
+    assert [payload["seconds"] for _, payload in advances] == [30.0] * 20
+    assert client.get("/clock").json()["advanced_seconds"] == 600
+
+
+def test_a_test_run_clock_moves_at_most_to_its_shift(client: TestClient) -> None:
+    _start(client)
+
+    too_far = client.post("/demo/clock/advance", json={"seconds": 2 * 60 * 60 + 1})
+
+    assert too_far.status_code == 422
+    assert client.get("/clock").json()["advanced_seconds"] == 0

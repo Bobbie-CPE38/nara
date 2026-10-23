@@ -7,12 +7,15 @@ import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useAuth } from "@/components/AuthProvider";
 import { useBackendClock } from "@/components/ClockProvider";
+import { TestRunPanel } from "@/components/demo/TestRunPanel";
 import { Notice } from "@/components/ui/Notice";
 import { usePolling } from "@/hooks/usePolling";
+import { useTestRuns } from "@/hooks/useTestRuns";
 import { ApiError, apiRequest } from "@/lib/api";
 import { POLL_INTERVAL_MS, TERMINAL_CASE_STATUSES } from "@/lib/constants";
 import { DEMO_WARDS } from "@/lib/demo";
 import { describeError } from "@/lib/errors";
+import { openRun } from "@/lib/testRuns";
 import { formatDateTime } from "@/lib/format";
 import type { MessageKey, Params, Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
@@ -136,7 +139,13 @@ export default function DemoControl() {
   const t = useT();
   const [busy, setBusy] = useState(false);
   // The buttons that need a frozen clock, or a running one, follow the one shared read of /clock
-  const clockFrozen = useBackendClock().data?.frozen;
+  const clockView = useBackendClock().data;
+  const clockFrozen = clockView?.frozen;
+  // A test run's clock can be advanced too (6.35.1); an older Backend sends no mode
+  const canAdvance = clockView === undefined || (clockView.mode ?? (clockView.frozen ? "frozen" : "real")) !== "real";
+  // While a test run is open, Reset and the clock buttons would spoil it (6.35.2)
+  const testRuns = useTestRuns();
+  const runOpen = openRun(testRuns.data);
   const auth = useAuth();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   // A leave on any seeded ward and shift (docs/workflow.md 9.6, round 4 PR U)
@@ -257,16 +266,24 @@ export default function DemoControl() {
       )}
       <Card>
         <div className="grid gap-2 sm:grid-cols-2">
-          <Button className="text-left" disabled={busy} onClick={reset}>
+          <Button className="text-left" disabled={busy || runOpen !== undefined} onClick={reset}>
             {t("ctl.reset")}
           </Button>
-          <Button className="text-left" disabled={busy || clockFrozen === false} onClick={advanceClock}>
+          <Button className="text-left" disabled={busy || !canAdvance} onClick={advanceClock}>
             {t("ctl.advance")}
           </Button>
-          <Button className="text-left" disabled={busy || clockFrozen === true} onClick={() => setClockMode(true)}>
+          <Button
+            className="text-left"
+            disabled={busy || clockFrozen === true || runOpen !== undefined}
+            onClick={() => setClockMode(true)}
+          >
             {t("ctl.freezeClock")}
           </Button>
-          <Button className="text-left" disabled={busy || clockFrozen === false} onClick={() => setClockMode(false)}>
+          <Button
+            className="text-left"
+            disabled={busy || clockFrozen === false || runOpen !== undefined}
+            onClick={() => setClockMode(false)}
+          >
             {t("ctl.unfreezeClock")}
           </Button>
           {EVENTS.map((event) => (
@@ -280,7 +297,16 @@ export default function DemoControl() {
             </Button>
           ))}
         </div>
+        {runOpen !== undefined && (
+          <div className="mt-2">
+            <Notice kind="info" role="status">
+              {t("run.blocked")}
+            </Notice>
+          </div>
+        )}
       </Card>
+
+      <TestRunPanel open={runOpen} runsError={testRuns.error} onChange={() => void testRuns.refresh()} />
 
       <fieldset className="mt-4 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-md">
         <legend className="px-1 font-semibold text-brand-800">{t("ctl.fieldset")}</legend>

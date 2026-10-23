@@ -16,15 +16,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// The page also reads GET /clock every second (to enable the right freeze button). That read
-// is answered here and kept out of the mock, so the tests count only the calls they care about.
+// The page also reads GET /clock every second (to enable the right freeze button) and the list
+// of test runs (round 6 PR EV5b). Those reads are answered here and kept out of the mock, so the
+// tests count only the calls they care about.
 const CLOCK_ANSWER = { now: "2026-10-09T21:00:00+07:00", frozen: true };
 
 function answerClock(fetchMock: (url: string, init?: RequestInit) => unknown) {
   vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
     /\/clock$/.test(url)
       ? Promise.resolve(new Response(JSON.stringify(CLOCK_ANSWER)))
-      : (fetchMock(url, init) as Promise<Response>),
+      : /\/demo\/test-runs$/.test(url) && (init?.method ?? "GET") === "GET"
+        ? Promise.resolve(new Response("[]"))
+        : (fetchMock(url, init) as Promise<Response>),
   );
 }
 
@@ -38,6 +41,9 @@ function stubFetch(body: unknown, status = 200) {
   answerClock(fetchMock);
   return fetchMock;
 }
+
+// A link to a case is named by its ID; the test-run panel's link to its results is not
+const CASE_LINK = /^\d/;
 
 function click(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
@@ -85,7 +91,7 @@ describe("demo control page", () => {
 
     expect(await screen.findByText("No case opened")).toBeTruthy();
     expect(screen.getByText("4 (IGNORED)")).toBeTruthy();
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("link", { name: CASE_LINK })).toBeNull();
     const request = fetchMock.mock.calls[0][1];
     expect(request.headers.has("X-Demo-User")).toBe(false);
     expect(JSON.parse(request.body)).toEqual({
@@ -106,7 +112,7 @@ describe("demo control page", () => {
     expect(await screen.findByText("Not decided yet. The event is waiting.")).toBeTruthy();
     expect(screen.getByText("5 (RECEIVED)")).toBeTruthy();
     expect(screen.queryByText("No case opened")).toBeNull();
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("link", { name: CASE_LINK })).toBeNull();
   });
 
   it.each([
@@ -269,9 +275,10 @@ describe("demo control page", () => {
         "105 reports leave (shift 1): Staff 105 has no assigned roster on shift 1 (HTTP 409)",
       ),
     ).toBeTruthy();
-    // the two clock buttons follow the state of the clock, the others only the running request
+    // the two clock buttons follow the state of the clock, the others only the running request.
+    // Starting a test run waits for a tester code (round 6 PR EV5b)
     for (const button of screen.getAllByRole<HTMLButtonElement>("button")) {
-      if (/^(Freeze|Unfreeze) clock/.test(button.textContent ?? "")) continue;
+      if (/^(Freeze|Unfreeze) clock|^Start test run/.test(button.textContent ?? "")) continue;
       expect(button.disabled).toBe(false);
     }
   });
@@ -485,7 +492,7 @@ describe("demo control live case status", () => {
     finish(json({ id: 7, status: "WAITING_APPROVAL" }));
     await tick();
     expect(screen.getByText("Demo reset. Clock: now")).toBeTruthy();
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("link", { name: CASE_LINK })).toBeNull();
   });
 
   it("updates both merge-window and recovery links after a clock action", async () => {
@@ -711,10 +718,12 @@ describe("demo control clock reads", () => {
   });
 
   it("gives the words of an error in the language of the page", async () => {
-    vi.stubGlobal("fetch", async (url: string) =>
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) =>
       /\/clock$/.test(url)
         ? new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }))
-        : new Response("{}", { status: 500 }),
+        : /\/demo\/test-runs$/.test(url) && (init?.method ?? "GET") === "GET"
+          ? new Response("[]")
+          : new Response("{}", { status: 500 }),
     );
     const view = render(
       createElement(LanguageProvider, { initial: "th", children: createElement(DemoControl) }),
@@ -731,10 +740,12 @@ describe("demo control clock reads", () => {
 
 describe("demo control language switch", () => {
   it("changes an error that stays on the screen from Thai to English without a remount", async () => {
-    vi.stubGlobal("fetch", async (url: string) =>
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) =>
       /\/clock$/.test(url)
         ? new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }))
-        : new Response("{}", { status: 500 }),
+        : /\/demo\/test-runs$/.test(url) && (init?.method ?? "GET") === "GET"
+          ? new Response("[]")
+          : new Response("{}", { status: 500 }),
     );
     render(
       createElement(LanguageProvider, {

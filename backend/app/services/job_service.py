@@ -39,6 +39,24 @@ class DueWork:
     no_show_event_ids: list[int] = field(default_factory=list)
 
 
+def merge(works: list[DueWork]) -> DueWork:
+    """The work of several rounds as one answer, in round order."""
+    return DueWork(
+        closed_windows=[window for work in works for window in work.closed_windows],
+        timed_out_outreach_ids=[i for work in works for i in work.timed_out_outreach_ids],
+        timed_out_approval_request_ids=[
+            i for work in works for i in work.timed_out_approval_request_ids
+        ],
+        recovered_case_ids=[i for work in works for i in work.recovered_case_ids],
+        completed_assignment_ids=[i for work in works for i in work.completed_assignment_ids],
+        auto_approved_request_ids=[i for work in works for i in work.auto_approved_request_ids],
+        failed_auto_approval_ward_ids=sorted(
+            {i for work in works for i in work.failed_auto_approval_ward_ids}
+        ),
+        no_show_event_ids=[i for work in works for i in work.no_show_event_ids],
+    )
+
+
 def run_due_work(db: Session) -> DueWork:
     """Complete shifts, expire offers/approvals, auto-approve, recover, detect NO_SHOW,
     close windows.

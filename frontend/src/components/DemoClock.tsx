@@ -14,7 +14,9 @@ export function DemoClock() {
   return (
     <span role="status" aria-label={t("clock.label")}>
       {t("clock.backend")} {formatDateTime(data.now)}{" "}
-      <span className="text-slate-500">{data.frozen ? t("clock.frozen") : t("clock.real")}</span>
+      <span className="text-slate-500">
+        {data.frozen ? t("clock.frozen") : data.mode === "scenario" ? t("clock.scenario") : t("clock.real")}
+      </span>
       {error && <span className="ml-1 text-amber-700">{t("clock.stale")}</span>}
     </span>
   );
