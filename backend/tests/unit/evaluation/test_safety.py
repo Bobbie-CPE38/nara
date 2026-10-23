@@ -1,4 +1,4 @@
-"""The safety evaluation (round 6 PR E1): repeatable, judged by the real Hard Rules."""
+"""The safety evaluation (round 6 PR EV1): repeatable, judged by the real Hard Rules."""
 
 import math
 import random

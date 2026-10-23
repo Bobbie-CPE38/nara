@@ -1,4 +1,4 @@
-"""Safety of a hurried manual pick against nara's Hard Rules (round 6 PR E1).
+"""Safety of a hurried manual pick against nara's Hard Rules (round 6 PR EV1).
 
 Question: when a nurse drops out of a night shift and the head nurse picks a replacement
 from the paper roster, how often does that pick break a safety rule? And how often can

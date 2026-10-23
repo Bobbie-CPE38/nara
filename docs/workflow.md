@@ -373,7 +373,10 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 | AU3b | คน 1 | ย้ายปุ่มจำลองเหตุของ Demo control จาก `POST /events` ไป `POST /demo/events` (ใน `session` ใช้ได้เมื่อล็อกอินเป็นผู้จัดการ) พร้อมเทสต์ | 6.33.4 | AU2 merge | AU2 | ไม่มี | ทำแล้ว (PR AU3b); ต้องมีก่อนตรวจ production ของ AU4 |
 | AU5 | คน 3 | REGISTER ผ่าน LINE, atomic register code, security/regression tests | 6.33.6 | AU1 | AU1 | มี | AU5 merge แล้ว (#126); live รอ AU4 |
 | AU4 | คน 1 (คน 3 ทำแทน) | ด่าน AWS/Compose/Gate ใหม่หลัง backend และหน้าเว็บพร้อม; LINE smoke | 6.33.5 | AU2, AU3, AU3b | AU2, AU3, AU3b | ไม่มี | โค้ด/เทสต์และคู่มืออยู่ใน PR AU4; production/LINE/register/reset ยัง PENDING ห้ามใช้ผล W แทน |
-| E1 | คน 1 | ทดลองความปลอดภัยแบบออฟไลน์สำหรับสไลด์ before/after: การเลือกคนแทนแบบ manual เทียบกับ nara ตัดสินด้วยตัวตรวจกฎตัวเดียวกับแอป (8 จาก 11 กฎที่เกิดได้ในเคสนี้) | 6.34 | | | ไม่มี | ทำแล้ว (PR E1) |
+| EV1 | คน 1 | ทดลองความปลอดภัยแบบออฟไลน์สำหรับสไลด์ before/after: การเลือกคนแทนแบบ manual เทียบกับ nara ตัดสินด้วยตัวตรวจกฎตัวเดียวกับแอป (8 จาก 11 กฎที่เกิดได้ในเคสนี้) | 6.34 | | | ไม่มี | merge แล้ว (#141) |
+| EV5-0 | ตกลงกัน | สัญญาของโหมดทดสอบและ KPI (ข้อ 6.35) | 6.35 | | | ไม่มี | PR นี้ |
+| EV5a | ตกลงกัน | Backend: นาฬิกาโหมด `scenario`, API รอบทดสอบและยกเลิกรอบ, สถานการณ์ข้ามหอ, ตัวละครจำลอง, KPI จาก audit log, เก็บผลข้าม Reset, เทสต์ | 6.35 | EV5-0 | EV5-0 | ไม่มี | |
+| EV5b | ตกลงกัน | หน้าเว็บ: ส่วนรอบทดสอบใน Demo control, หน้าสรุปผล, CSV, สองภาษา | 6.35 | EV5a (รูป API) | EV5a | ไม่มี | |
 | ปิดรอบ | คน 3 | เอกสารปิดรอบ แล้ว `staging` → `main` และ tag `v0.7-round6`; ต้องครบ AU0–AU5 และผล production session | 6.33 | ทุกตัวรวม AU | ทุกตัวรวม AU | ไม่มี | |
 
 ลำดับ merge: 0 ก่อนทุกตัว, B1 ก่อน E1, S และ B2, E1 ก่อน E2 และ S, F1 ก่อน F2, F2 และ D ก่อน F3, F3 ก่อน UI1, UI1 ก่อน UI2 (UI1 และ UI2 ทำก่อนขั้นที่ 6 เพื่อตรวจช่วง ข กับหน้าตาสุดท้ายครั้งเดียว ไม่เปลี่ยน API จึงเปิดเครื่องก่อนได้ถ้าไม่ทัน), F3 และ D ก่อนขั้นที่ 6, ขั้นที่ 6 ก่อน B2 และ W Migration ของ B1, S และ E1 (ถ้ามี) ต่อจาก `c5f8b0d3e7a1` เป็นเส้นเดียว ตัวที่ merge ทีหลัง Rebase `down_revision` และแก้ Test ของ Migration ตัวก่อนหน้าที่ตรวจ head ผู้ทำของ P1 และการให้คน 3 ปิดรอบเป็นข้อเสนอของร่างรอบ 6 ถ้าทีมเปลี่ยน แก้ตารางนี้ B2 ก่อน B3 และ B3 ก่อนปิดรอบ (B3 ทำให้แอปเรียก Bedrock จริงได้ ไม่ขึ้นกับ AU) Head ของ Migration หลัง AU5 คือ `b8f3d5a0c2e4` ต่อ `a7e2c4f9b1d3` (AU1); PR ถัดไปที่เพิ่ม Migration ต้องต่อ head ล่าสุดให้เป็นเส้นเดียว ส่วน B3 ไม่มี Migration
@@ -2234,7 +2237,9 @@ reset สำเร็จคง password hash/disabled/must_change/password-chang
 **เงื่อนไข AU2 tests:** ทุก method/path ของ business API ต้องมีผู้รับผิดชอบใน inventory ไม่ตรวจเฉพาะ route ที่เคยมี DemoUser; anonymous และ X-Demo-User-only ต้องไม่ผ่านใน session, staff ข้ามคน/หอ/เคสไม่ได้, list/count ไม่รั่ว, session เวลาเป็น real, logout/disable/password-change/reset ใช้ token เดิมไม่ได้, CSRF/Origin และ rate limit ตรวจ server-side, login/register ไม่เปิด role escalation, self-leave เฉพาะ Roster ตนและ no_show/การอนุมัติคนแทนไม่เปลี่ยน; ต้องมี test ส่ง POST `/me/unavailability` ซ้ำทั้งแบบต่อเนื่องและพร้อมกันบนเวรเดียวกัน ตรวจผลตามกฎ Event/merge/dedup เดิม รวมจำนวน Event/Window/Case/Unavailability/Audit และผลข้างเคียงการติดต่อ ไม่สร้าง workflow หรือส่ง Offer ซ้ำเกินกติกาเดิม ทุก mutation ที่ถูกปฏิเสธต้องไม่เขียนข้อมูล
 
 
-### 6.34 ทดลองความปลอดภัยแบบออฟไลน์ (E1) [รอบ 6 · PR E1]
+### 6.34 ทดลองความปลอดภัยแบบออฟไลน์ (EV1) [รอบ 6 · PR EV1, #141]
+
+ชื่อเดิมใน PR #141 คือ E1 ซึ่งซ้ำกับ PR E1 ของคำอธิบายอันดับ จึงเปลี่ยนเป็น EV1 (EValuation) งานวัดผลต่อจากนี้ใช้ EV
 
 เพิ่มเพื่อให้สไลด์ "Before vs. after" มีตัวเลขที่บอกที่มาได้ เพราะยังไม่ได้ใช้ nara ในโรงพยาบาลจริง เป็นสคริปต์ล้วน ไม่มี API ไม่มี Migration ไม่แตะฐานข้อมูล LINE หรือ Bedrock
 
@@ -2249,6 +2254,90 @@ reset สำเร็จคง password hash/disabled/must_change/password-chang
 - **ห้ามอ้าง:** อัตราผิดของ baseline เป็นผลของตารางสังเคราะห์และกติกาการเลือกที่เขียนไว้ข้างบน ไม่ใช่อัตราความผิดพลาดของพยาบาลจริง สไลด์ต้องเขียนว่าเป็นข้อมูลสังเคราะห์
 - **ผลขึ้นกับภาระงานมาก:** อัตรา 69-72% ของ B1 และ B3 เกิดเฉพาะที่หอละ 16 คน (เฉลี่ย 3.5 เวรต่อคนต่อสัปดาห์) ที่หอละ 24 คนเหลือประมาณ 26% และ 99.9% ของ nara ที่ระดับนั้นสะท้อนว่ามีคนว่างเหลือ ไม่ใช่ความสามารถที่เพิ่มขึ้น สไลด์ควรยก B2 (คนที่มีเวรน้อยสุด ซึ่งใกล้วิธีของหัวหน้าที่รอบคอบที่สุด: 3.6-26.7% ตามภาระงาน) เป็นตัวเลขหลัก และต้องบอกภาระงานกับว่าเป็นข้อมูลสังเคราะห์ทุกครั้งที่ยกตัวเลข
 - **Test:** `tests/unit/evaluation/test_safety.py` (seed เดิมได้ผลเดิม, ตารางตั้งต้นถูกกฎทุกแถว, nara เลือกเฉพาะคนที่ผ่านทุกกฎและข้ามหอเฉพาะเมื่อในหอไม่มีใคร, baseline เลือกจากสิ่งที่ตารางกระดาษแสดงเท่านั้น, สูตร Wilson เทียบกับค่าของ scipy, การนับ `unsafe_picks` ของ nara และกฎที่ไม่ได้จำลอง, เคสไม่ซ้ำ, bootstrap สุ่มทั้งตาราง)
+
+### 6.35 โหมดทดสอบและ KPI (EV5) [รอบ 6 · สัญญา PR EV5-0; ยังไม่ Implement]
+
+เพื่อวัด "เวลาจนได้คน" ของคนที่เล่นบทหัวหน้าพยาบาลบน narastaffing.com แบบอัตโนมัติ ให้ผู้ทดสอบทุกคนเริ่มจากจุดเดียวกันและเทียบกันได้ ไม่ต้องจับเวลาด้วยมือฝั่ง nara มติของทีม (2026-10-23): ทำในรอบ 6, ใช้ baseline ตามข้อ 6.34, **เก็บรอบทดสอบเป็นแถว audit (ไม่มี Migration)**, เพิ่มสถานการณ์ข้ามหอ, ผู้ทำแบ่งกันเอง ผู้ทดสอบคือคนที่มาเล่นบทหัวหน้าพยาบาล (ไม่ใช่สมาชิกทีม)
+
+**ปัญหาของนาฬิกาตอนนี้ [ตรวจแล้ว]:** `app/core/clock.py` มีสองสถานะ คือหยุด (`_frozen_at`) หรือเวลาจริงของเครื่อง ปุ่ม Unfreeze เรียก `clock.reset()` ซึ่งกระโดดไปเวลาจริงทันที แต่เวรของสถานการณ์ถูกโหลดตอน Reset รอบ D 21:00 จึงอาจอยู่ในอดีตหรือห่างหลายชั่วโมง เลื่อนเวลาจริงไม่ได้ และถ้าเวรเริ่มก่อนหาคนได้สถานการณ์ก็จบ ทดสอบกับคนจริงไม่ได้
+
+**หลักของข้อนี้:** สิ่งที่ทำให้รอบเสียต้อง **ถูกห้ามขณะมีรอบค้าง** ไม่ใช่ปล่อยให้เกิดแล้วค่อยตรวจย้อน เพราะนาฬิกาอยู่ในหน่วยความจำและ Reset ล้างทุกอย่าง สิ่งเดียวที่ป้องกันไม่ได้คือ API restart ซึ่งตรวจได้ตอนจบรอบ (ข้อ 6.35.2)
+
+#### 6.35.1 นาฬิกาโหมด `scenario`
+
+- สถานะที่สามของ `clock`: `run_from(start, test_run_id)` ตั้งให้ `now() = start + (เวลาจริงตอนนี้ − เวลาจริงตอนเรียก run_from) + advanced` และจำ `test_run_id` ไว้
+- **เลื่อนได้ และเลื่อนแล้วรอบยังใช้ได้:** `advance(delta)` ในโหมดนี้บวก `delta` เข้า `advanced` (ข้ามช่วงรอ เช่นรอ supervisor 10 นาที) KPI หักเวลาที่เลื่อนออกตามช่วง (ข้อ 6.35.4) `POST /demo/clock/advance` ยอมรับโหมด `scenario` ด้วย (ตอนนี้ตอบ 409 ถ้านาฬิกาไม่หยุด **[ตรวจแล้ว]** `demo.py`) และยังเรียก `job_service.run_due_work()` เหมือนเดิม ขณะมีรอบ ทุกการเลื่อนเขียนแถว audit `TEST_RUN_CLOCK_ADVANCED` (`entity_type = TEST_RUN`, `entity_id` = รอบ, payload `seconds` และเวลาระบบก่อนและหลังเลื่อน) เพื่อให้ KPI หักได้ถูกช่วง และรอดการ restart
+- `freeze_now()` หยุดที่ `now()` และออกจากโหมดนี้; `reset()` กลับเวลาจริงของเครื่อง; `set_time()` หยุดที่เวลาที่ให้
+- `GET /clock` เพิ่ม `mode: "frozen" | "real" | "scenario"`, `advanced_seconds` และ `test_run_id` (ของโหมด `scenario` อย่างอื่นเป็น 0 และ null) ช่อง `frozen` เดิมคงไว้
+- **งานตามเวลาในโหมดนี้ [ตรวจแล้ว]:** Job (`app/jobs/ticker.py`, stdlib ล้วน) เรียก `POST /internal/merge-windows/close-due` ทุก 30 วินาที ซึ่งเรียก `job_service.run_due_work()` (หมดอายุ Offer และ Approval, auto-approve, กู้เคส, NO_SHOW, ปิด window, ส่ง LINE) ด้วยนาฬิกาของ API ในโหมด `scenario` เวลาเดินเอง งานเหล่านี้จึงเกิดตามเวลาโดยไม่ต้องกดอะไร ไม่ต้องแก้ ticker
+- ข้อจำกัดเดิมยังอยู่: นาฬิกาอยู่ในหน่วยความจำของ API process เดียว (ห้ามรันหลาย worker) และ restart แล้วกลับเป็นเวลาจริง เวลาที่ใช้ตรวจ session และรหัสลงทะเบียน (`auth_clock`, real UTC) ไม่เกี่ยวกับโหมดนี้
+
+#### 6.35.2 รอบทดสอบ (Test run)
+
+| Method / Path | Body | ผล |
+|---|---|---|
+| POST `/demo/test-runs` | `{tester_code, scenario: "golden" \| "cross_ward", auto_nurses: bool}` | Reset ข้อมูล (เก็บผลรอบก่อนไว้) → โหลดสถานการณ์ → `run_from(D 21:00, id)` → สร้าง Event ของสถานการณ์โดย SYSTEM actor (`source: SIMULATED`) → เขียน `TEST_RUN_STARTED` → 201 `{test_run_id, scenario, started_at, case_id}` มีรอบค้างอยู่ตอบ 409 |
+| POST `/demo/test-runs/{id}/finish` | ไม่มี | คำนวณ KPI จาก audit ของเคสในรอบ หยุดนาฬิกา เขียน `TEST_RUN_FINISHED` พร้อม KPI ทั้งชุด → 200; จบแล้ว 409; ไม่มี 404 |
+| POST `/demo/test-runs/{id}/abort` | `{reason?}` | ปิดรอบโดยไม่คำนวณ KPI: เขียน `TEST_RUN_FINISHED` ที่ `invalid: true`, `reason` (`ABORTED` หรือข้อความสั้นที่ส่งมา) หยุดนาฬิกาถ้ายังเป็นของรอบนี้ → 200; จบแล้ว 409 |
+| GET `/demo/test-runs` | ไม่มี | ทุกรอบเรียงตามเวลาเริ่ม (ที่จบแล้วพร้อม KPI หรือเหตุผลที่ใช้ไม่ได้, ที่ค้างพร้อมเวลาที่ผ่านไป) |
+| GET `/demo/test-runs.csv` | ไม่มี | CSV หนึ่งแถวต่อรอบที่จบแล้ว คอลัมน์ตาม KPI ข้อ 6.35.4 + `tester_code`, `scenario`, `auto_nurses`, `advanced_seconds`, `invalid`, `reason` |
+
+- **รอบที่ค้าง** คือมี `TEST_RUN_STARTED` แต่ยังไม่มี `TEST_RUN_FINISHED` ของรอบเดียวกัน อ่านจากฐานข้อมูล จึงรอดการ restart มีได้ทีละรอบ
+- **ห้ามขณะมีรอบค้าง (409 พร้อมข้อความให้จบหรือยกเลิกรอบก่อน):** `POST /demo/reset`, `POST /demo/clock/freeze`, `POST /demo/clock/unfreeze` และการเริ่มรอบใหม่ การเลื่อนเวลาทำได้ (ข้อ 6.35.1) ไม่มีทางที่ Reset ธรรมดาจะทำให้รอบค้างจนเริ่มรอบใหม่ไม่ได้
+- **API restart ระหว่างรอบ:** นาฬิกากลับเป็นเวลาจริง แต่รอบยังค้างในฐานข้อมูล ตอน `finish` ถ้า `clock.mode` ไม่ใช่ `scenario` ของรอบนี้ ให้จบรอบเป็น `invalid: true`, `reason: CLOCK_LOST` โดยไม่คำนวณ KPI (เวลาในบันทึกหลัง restart ไม่ต่อเนื่อง) หรือกด `abort` ก็ได้ เริ่มรอบใหม่ได้หลังรอบนี้ปิด
+- **ที่เก็บ (มติ: แถว audit ไม่มี Migration):** Action ใหม่ `TEST_RUN_STARTED`, `TEST_RUN_CLOCK_ADVANCED`, `TEST_RUN_FINISHED`, `entity_type` ใหม่ `TEST_RUN`, `entity_id` = id ของแถว `TEST_RUN_STARTED` (คือ `test_run_id`), actor = USER actor ของผู้เริ่ม (ใน demo ใช้ SYSTEM), `case_id` = เคสของสถานการณ์ **[ตรวจแล้ว]** `AUDIT_LOG.action` และ `entity_type` เป็น `StrEnumText` (ข้อความ ไม่มี DB enum หรือ CHECK) จึงเพิ่มค่าได้โดยไม่มี Migration
+- **ผลต้องรอด Reset:** **[ตรวจแล้ว]** `reset_demo()` ทำ `DROP SCHEMA` แล้วคืนเฉพาะบัญชี LLM (`LLM_LEDGER_TABLES`) Reset (ที่ทำได้เมื่อไม่มีรอบค้าง และ Reset ภายในของการเริ่มรอบ) จึงต้องเก็บแถว audit ที่ `entity_type = TEST_RUN` ไว้ในตารางชั่วคราวในทรานแซกชันเดียวกับที่เก็บบัญชี LLM แล้วใส่คืนหลังโหลด: `actor_id` ผูกใหม่ด้วยชื่อ actor (SYSTEM หรือ USER actor ของ staff เดิมที่ AU1 รักษาไว้), **`case_id` และ `event_id` ตั้งเป็น NULL** (ทั้งสองชี้ไปตารางที่ถูกล้าง) โดยเก็บค่าเดิมไว้ใน payload (`original_case_id`, `original_event_id`), คืน sequence ต่อจาก max id เหมือน `llm_call_log` Reset ที่ล้มต้องคืนทุกอย่างตามเดิม KPI ของรอบที่จบแล้วอยู่ใน payload ของ `TEST_RUN_FINISHED` ทั้งชุด ไม่คำนวณใหม่จาก audit ของเคสที่ถูกล้าง
+- **สิทธิ์:** เหมือน `POST /demo/events` (ข้อ 6.33.4): อยู่หลัง Basic Auth ของ Demo บน AWS และใน `AUTH_MODE=session` ต้องมี session ของ head nurse หรือ supervisor (401 ไม่มี session, 403 nurse) POST ต้องมี Origin ที่อนุญาต ทุก route อยู่ในตารางนโยบายของ `test_route_permissions.py`
+- **`tester_code`:** 1-16 ตัวอักษร `[A-Za-z0-9_-]` เช่น `T01` ห้ามเก็บชื่อจริงหรือข้อมูลส่วนตัวของผู้ทดสอบ (422 ถ้าไม่ตรงรูป)
+- **ไม่มีผลต่อ workflow:** รอบทดสอบเริ่มเคสผ่านทางเดิม (Event → merge window → workflow) ไม่มีทางลัด KPI อ่านอย่างเดียว
+
+#### 6.35.3 สถานการณ์ บทบาทของผู้ทดสอบ และพยาบาลกับหัวหน้าจำลอง
+
+- **`golden`:** Golden Case เดิม (พยาบาล ICU ลาเวรดึก) ตามข้อ 10 ผู้ทดสอบเล่นเป็น **หัวหน้าพยาบาล ICU (บัญชี 900)** และอนุมัติคำขอของหอตัวเอง
+- **`cross_ward`:** เวรดึก ICU ขาดคนในแบบที่ในหอไม่มีใครผ่านกฎ แต่มีพยาบาล Medicine หรือ Float Pool ที่ผ่าน จึงต้องค้นข้ามหอและต้องอนุมัติสองหอ (ข้อ 6.21) สร้างจากข้อมูลของ `seed/scenarios/multi_ward.py` ผู้ทดสอบเล่นเป็น **หัวหน้าพยาบาล ICU (900)** ตัดสินฝั่งปลายทาง; **ฝั่งต้นทางตัดสินโดยหัวหน้าหอจำลอง** (บัญชีหัวหน้าหอ Medicine 902 ตามบท ข้างล่าง) ไม่ใช่ supervisor เพื่อไม่ให้ต้องรอ `supervisor_from` 10 นาทีทุกรอบ ผู้ Implement ต้องเขียนในเทสต์ว่าสถานการณ์นี้ทำให้ Plan มีผู้สมัคร `CROSS_WARD` จริง และต้องได้การอนุมัติสองฝั่งจริง
+- **บทของตัวละครจำลอง (`auto_nurses = true`):** ต่อสถานการณ์มีบทคงที่ในโค้ด: พยาบาลแต่ละคนตอบรับ ปฏิเสธ หรือไม่ตอบ หลังกี่วินาทีของนาฬิการะบบนับจาก `OFFER_SENT` ของตัวเอง และ (เฉพาะ `cross_ward`) หัวหน้าหอต้นทางอนุมัติฝั่งของตัวเองหลังกี่วินาทีนับจาก `APPROVAL_REQUESTED`
+- **กลไก:** เพิ่มขั้น "คำตอบจำลองที่ถึงเวลา" ใน `job_service.run_due_work()` (จึงทำงานทั้งจาก Job ทุก 30 วินาทีผ่าน `/internal/merge-windows/close-due` และจาก `POST /demo/clock/advance` ไม่ต้องแก้ ticker ไม่มี internal route ใหม่) ขั้นนี้ทำงานเฉพาะเมื่อมีรอบค้างที่ `auto_nurses = true` และเฉพาะ Offer หรือคำขออนุมัติของเคสในรอบนั้น คำตอบของพยาบาลใช้ service เดียวกับ LINE simulator (`record_response`) ในนามของพยาบาลคนนั้น การอนุมัติของหัวหน้าหอจำลองใช้ `approval_service` เดียวกับหน้า Approvals ในนามบัญชีนั้น ทั้งสองแบบมี payload `source: SIMULATED` ในแถว audit ความละเอียดของเวลาคือรอบของ Job (≤ 30 วินาที) และต้องบอกในผล
+- **`auto_nurses = false`:** คนในทีมตอบผ่าน LINE simulator หรือ LINE จริง และ (ใน `cross_ward`) ล็อกอินเป็นหัวหน้าหอต้นทางเพื่ออนุมัติเอง
+
+#### 6.35.4 KPI (ต่อรอบ จาก audit log ของเคสในรอบ)
+
+ทุกค่าเป็นวินาทีระหว่างสอง Action ของเคสในรอบ คำนวณเป็น **เวลาจริงที่ผู้ทดสอบใช้** = เวลาระบบระหว่างสองจุด − ผลรวม `seconds` ของ `TEST_RUN_CLOCK_ADVANCED` ที่เกิดในช่วงนั้น และแสดงเวลาระบบก่อนหักไว้คู่กัน **[ตรวจแล้ว: ชื่อ Action ทั้งหมดมีใน `AuditAction`]**
+
+| KPI | จาก | ถึง |
+|---|---|---|
+| `detect_s` เวลาตรวจพบ Gap | `EVENT_RECEIVED` แรก | `GAP_ASSESSED` แรก |
+| `shortlist_s` เวลาถึงรายชื่อที่ปลอดภัย | `EVENT_RECEIVED` แรก | `SOLVER_EXECUTED` แรก |
+| `first_offer_s` | `EVENT_RECEIVED` แรก | `OFFER_SENT` แรก |
+| `first_accept_s` | `OFFER_SENT` แรก | `OFFER_ACCEPTED` แรก |
+| `approval_s` | `APPROVAL_REQUESTED` แรก | `APPROVAL_APPROVED` แรก |
+| **`time_to_fill_s`** | `EVENT_RECEIVED` แรก | `ASSIGNMENT_CREATED`, `ASSIGNMENT_TRANSFERRED` หรือ `MANUAL_ASSIGNMENT_CREATED` แรก |
+| `filled_before_shift_start` | เวลาได้คน (เวลาระบบ) เทียบกับ `required_replacement_time` ของเคส | |
+| `offers_sent` | จำนวน `OFFER_SENT` | |
+| `candidates_skipped_by_rules` | จำนวนผู้สมัครที่ Plan ข้ามเพราะกฎ + `SAFETY_FAILED` | |
+| `from_other_ward` | คนที่ได้มาจากหออื่นไหม | |
+
+- ค่าที่ไม่เกิดในรอบ (เช่นไม่มีใครตอบรับ) เป็น `null` ไม่ใช่ 0 และรอบที่ไม่ได้คนนับเป็น "ไม่ได้คน" ในสรุป
+- รอบที่จบเป็น `invalid` (ยกเลิก หรือ `CLOCK_LOST`) ไม่มี KPI และไม่ถูกนับในค่ามัธยฐาน แต่แสดงในรายการพร้อมเหตุผล
+- **ห้ามอ้าง:** KPI ของรอบทดสอบคือเวลาของการเล่นบทบนระบบจริง ไม่ใช่เวลาในโรงพยาบาล สไลด์ต้องบอกจำนวนผู้ทดสอบ สถานการณ์ และว่าใช้ตัวละครจำลองหรือคนจริงตอบ
+
+#### 6.35.5 หน้าเว็บ (EV5b)
+
+- Demo control: ส่วน "รอบทดสอบ" มีช่อง `tester_code`, เลือกสถานการณ์, ติ๊กตัวละครจำลอง, ปุ่มเริ่ม จบ และยกเลิกรอบ, แสดงเวลาที่ผ่านไปของรอบและ `mode` ของนาฬิกา (แถบนาฬิกาด้านบนแสดง "scenario" ด้วย) ขณะมีรอบค้าง ปุ่ม Reset demo, Freeze และ Unfreeze ปิดพร้อมบอกเหตุผล ปุ่มเริ่มปิด
+- หน้าสรุปผล: ตารางทุกรอบ, ค่ามัธยฐานและต่ำสุดถึงสูงสุดของรอบที่ใช้ได้, ป้าย `invalid` พร้อมเหตุผล, ปุ่มดาวน์โหลด CSV สองภาษาตามข้อ 6.32 ใน `session` ซ่อนจากเมนูเหมือนหน้า Demo อื่น
+- รอบ manual (ทำบนกระดาษ) ระบบไม่เห็น ทีมใช้ใบจดผลที่มีคอลัมน์เดียวกับ CSV (นอก repo)
+
+#### 6.35.6 จุดที่เสี่ยงพังเงียบ (ต้องมีเทสต์)
+
+| ข้อกำหนด | PR |
+|---|---|
+| โหมด `scenario` เดินตามเวลาจริงจาก `start`, `advance` บวกยอดเลื่อนและเขียน `TEST_RUN_CLOCK_ADVANCED`, `POST /demo/clock/advance` ใช้ได้ในโหมดนี้, `freeze_now`/`reset`/`set_time` ออกจากโหมดได้ถูกต้อง และงานตามเวลาของ Job ใช้เวลาเดียวกับ API | EV5a |
+| ขณะมีรอบค้าง Reset, Freeze, Unfreeze และการเริ่มรอบใหม่ตอบ 409 และไม่เปลี่ยนอะไร; `abort` ปิดรอบได้; restart ระหว่างรอบทำให้ `finish` จบเป็น `CLOCK_LOST` และเริ่มรอบใหม่ได้หลังจากนั้น | EV5a |
+| Reset เก็บแถว `TEST_RUN` ไว้ ผูก actor ใหม่ถูก ตั้ง `case_id` และ `event_id` เป็น NULL เก็บค่าเดิมใน payload ไม่ชนกับการเก็บบัญชี LLM และ Reset ที่ล้มคืนทุกอย่างตามเดิม | EV5a |
+| KPI หักเวลาที่เลื่อนตามช่วง, ค่าที่ไม่เกิดเป็น null, รอบ `invalid` ไม่มี KPI และไม่ถูกนับ | EV5a |
+| ตัวละครจำลองตอบเฉพาะในรอบค้างที่เปิดตัวเลือก ตามบท ในนามของตัวละคร มี `source: SIMULATED` และไม่แตะ Offer หรือคำขอของเคสอื่น | EV5a |
+| สถานการณ์ `cross_ward` ทำให้มีผู้สมัคร `CROSS_WARD` และต้องได้การอนุมัติสองฝั่งจริง | EV5a |
+| สิทธิ์: 401/403 ใน `session`, Origin, ทุก route อยู่ในตารางนโยบาย, `tester_code` ไม่รับข้อมูลส่วนตัว | EV5a |
+| หน้าเว็บเริ่ม จบ ยกเลิก และแสดงผลสองภาษา ปุ่มที่ห้ามขณะมีรอบค้างปิดอยู่ | EV5b |
 
 ## 7. Audit
 
@@ -3209,4 +3298,5 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-22 | รอบ 6 AU5: REGISTER ผ่าน LINE binding เดิม, รหัสสมัคร 192 bit hash แยก domain/หมดอายุ real UTC 600 วินาที, `/auth/register` atomic ไม่ออก session, Origin/rate limit, invalidate เมื่อออกใหม่/unlink/reset, migration `b8f3d5a0c2e4` ต่อ AU1 และ regression สอง connection; เทสต์ fake LINE ไม่ deploy AWS หรืออ้างผลสมัคร live หน้าเว็บ/ด่านรอ AU3/AU4 | คน 3 |
 | 2026-10-22 | รอบ 6 AU3: หน้าเว็บของล็อกอิน (ไม่มี Backend/Migration): `AuthProvider` กับ `AuthGate` อ่าน `GET /auth/config`, หน้า `/login`, `/register`, `/change-password`, `/me/leave`, เมนูตามบทบาท, `ActingAs` หายและ `useActor` คืนผู้ล็อกอินในโหมด `session`, `lib/api.ts` ส่ง cookie และไม่ส่ง `X-Demo-User` ใน `session`, รหัส `AUTH_*` เป็นประโยคสองภาษา; ปุ่ม Demo ที่เรียก `/events` ยังรอ `POST /demo/events` ของ AU2 |
 | 2026-10-22 | รอบ 6 PR AU2: ตรวจสิทธิ์ทุก route ใน `AUTH_MODE=session` ตามข้อ 6.33.4 (`access_service` เป็นเงื่อนไข SQL ใน list/count, `Reader` สำหรับ route ที่ demo อ่านได้โดยไม่ระบุตัว), POST `/events` 403 ทุกบัญชีใน session, เพิ่ม POST `/me/unavailability` (แจ้งลาตัวเองผ่าน flow เดิม) และ POST `/demo/events` (SYSTEM actor, source SIMULATED), PATCH `/unavailability/{id}` เปิดให้ Supervisor ทุกหอ; demo mode ไม่เปลี่ยน; inventory 42 method/path พร้อมเทสต์ 401/403/เจ้าของผิด และแจ้งลาซ้ำทั้งต่อเนื่องและพร้อมกัน ไม่มี Migration | คน 2 |
-| 2026-10-23 | รอบ 6 PR E1: สคริปต์ทดลองความปลอดภัยแบบออฟไลน์ `app/evaluation/safety.py` (ข้อ 6.34) เทียบการเลือกคนแทนแบบ manual สามแบบกับ nara บนตารางเวรสังเคราะห์ ตัดสินด้วย `evaluate()` ตัวเดียวกับแอป พร้อมเทสต์; ไม่มี API ไม่มี Migration | คน 1 |
+| 2026-10-23 | รอบ 6 PR EV1 (#141, ชื่อตอนเปิด E1): สคริปต์ทดลองความปลอดภัยแบบออฟไลน์ `app/evaluation/safety.py` (ข้อ 6.34) เทียบการเลือกคนแทนแบบ manual สามแบบกับ nara บนตารางเวรสังเคราะห์ ตัดสินด้วย `evaluate()` ตัวเดียวกับแอป พร้อมเทสต์; ไม่มี API ไม่มี Migration | คน 1 |
+| 2026-10-23 | รอบ 6 PR EV5-0: สัญญาของโหมดทดสอบและ KPI (ข้อ 6.35) นาฬิกาโหมด `scenario`, API รอบทดสอบ (รวมยกเลิกรอบและการห้าม Reset ขณะมีรอบค้าง), สถานการณ์ `cross_ward`, ตัวละครจำลองใน `run_due_work`, KPI จาก audit log ที่รอด Reset (แถว audit ไม่มี Migration) และเปลี่ยนชื่อ PR วัดผล #141 จาก E1 เป็น EV1 เพราะชื่อซ้ำ | ตกลงกัน |
