@@ -22,6 +22,7 @@ const NAV_ITEMS: readonly { href: string; label: MessageKey; roles: readonly Aut
   { href: "/demo/line-sim", label: "nav.lineSim", roles: [], demo: true },
   { href: "/roster", label: "nav.roster", roles: ["staff", "head_nurse", "supervisor"], demo: true },
   { href: "/me/offers", label: "nav.myOffers", roles: ["staff", "head_nurse", "supervisor"], demo: true },
+  { href: "/admin/staff", label: "nav.staff", roles: ["supervisor"], demo: false },
   { href: "/me/leave", label: "nav.leave", roles: ["staff", "head_nurse", "supervisor"], demo: false },
 ];
 

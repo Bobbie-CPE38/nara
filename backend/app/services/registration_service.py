@@ -123,9 +123,9 @@ def _staff(db: Session, subject: uuid.UUID) -> Staff:
     return staff
 
 
-def revoke_codes(db: Session, subject: uuid.UUID) -> None:
+def revoke_codes(db: Session, subject: uuid.UUID) -> int:
     """Staff must already be locked, before Contacts. Also used by explicit unlink."""
-    db.execute(
+    revoked = db.scalars(
         update(AuthRegistrationCode)
         .where(
             AuthRegistrationCode.staff_subject == subject,
@@ -133,8 +133,11 @@ def revoke_codes(db: Session, subject: uuid.UUID) -> None:
             AuthRegistrationCode.revoked_at.is_(None),
         )
         .values(revoked_at=auth_clock.now())
+        .returning(AuthRegistrationCode.id)
         .execution_options(synchronize_session=False)
     )
+
+    return len(revoked.all())
 
 
 def issue(db: Session, uid: str) -> RegistrationCode:

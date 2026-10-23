@@ -524,7 +524,10 @@ describe("the menu follows the role", () => {
     for (const me of [HEAD, SUPERVISOR]) {
       cleanup();
       const links = await menuOf(me);
-      expect(links).toEqual(["Dashboard", "Gap check", "Approvals", "Handoff", "Roster", "My offers", "Report leave"]);
+      expect(links).toEqual([
+        "Dashboard", "Gap check", "Approvals", "Handoff", "Roster", "My offers",
+        ...(me === SUPERVISOR ? ["Staff management"] : []), "Report leave",
+      ]);
     }
   });
 
