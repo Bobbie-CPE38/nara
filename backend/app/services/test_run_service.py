@@ -58,6 +58,10 @@ ABORTED = "ABORTED"
 CLOCK_LOST = "CLOCK_LOST"
 # The clock or the first job round failed after the run was written (6.35.2)
 START_FAILED = "START_FAILED"
+# A test run's clock moves one job round at a time (the job's default interval), and in
+# all at most two hours, when the run's shift starts (6.35.1)
+SCENARIO_STEP_SECONDS = 30
+SCENARIO_MAX_ADVANCE_SECONDS = 2 * 60 * 60
 REASON_MAX_LENGTH = 100
 
 _lock = threading.Lock()
@@ -82,6 +86,14 @@ class TestRunNotFoundError(LookupError):
 
 class TestRunClosedError(RuntimeError):
     """The run is already finished or aborted (409)."""
+
+
+class AdvanceLimitError(ValueError):
+    """The move would take a test run's clock past SCENARIO_MAX_ADVANCE_SECONDS in all (422)."""
+
+
+class PartialAdvanceError(RuntimeError):
+    """The clock left its mode after some steps were already moved and committed (409)."""
 
 
 @dataclass(frozen=True)
@@ -246,31 +258,67 @@ def start(
     return StartResult(test_run_id=run_id, scenario=scenario, started_at=demo_time, case_id=case_id)
 
 
-def advance(db: Session, delta: timedelta) -> datetime:
-    """Move the demo clock; during a run, record the move for the KPI (6.35.1). Commits.
+def advance_clock(db: Session, seconds: int) -> tuple[datetime, list[job_service.DueWork]]:
+    """Move the demo clock and run the work that fell due, for POST /demo/clock/advance.
 
-    RuntimeError when the clock follows real time, like clock.advance().
+    A frozen clock moves in one jump. A test run's clock moves one job round at a time,
+    with the due work after each step, as the job would while the time passed: one jump
+    of 10 minutes would time the offers out before the scripted answers of 45 and 120
+    seconds fall due. The whole move holds the run lock, so Finish, Abort and the other
+    clock buttons wait until it ends instead of landing between two steps.
+
+    RuntimeError when the clock follows real time; AdvanceLimitError past two hours of
+    advances in a run; PartialAdvanceError if the clock leaves its mode mid-move.
     """
     with _lock:
-        before = clock.now()
-        after = clock.advance(delta)
-        run_id = clock.test_run_id()
-        if run_id is not None:
-            audit_service.log(
-                db,
-                case_id=None,
-                actor_id=_system_actor(db),
-                action=AuditAction.TEST_RUN_CLOCK_ADVANCED,
-                entity_type=EntityType.TEST_RUN,
-                entity_id=run_id,
-                payload={
-                    "seconds": delta.total_seconds(),
-                    "before": before.isoformat(),
-                    "after": after.isoformat(),
-                },
+        scenario = clock.mode() == clock.ClockMode.SCENARIO
+        if scenario and clock.advanced_seconds() + seconds > SCENARIO_MAX_ADVANCE_SECONDS:
+            raise AdvanceLimitError(
+                f"A test run's clock is advanced at most {SCENARIO_MAX_ADVANCE_SECONDS} seconds"
+                f" in all; {clock.advanced_seconds():.0f} are used"
             )
-            db.commit()
-        return after
+        step = SCENARIO_STEP_SECONDS if scenario else seconds
+        works: list[job_service.DueWork] = []
+        moved = 0
+        now = clock.now()
+        while moved < seconds:
+            delta = min(step, seconds - moved)
+            try:
+                now = _advance_unlocked(db, timedelta(seconds=delta))
+            except RuntimeError as error:
+                if moved:
+                    raise PartialAdvanceError(
+                        f"The clock moved {moved} of {seconds} seconds, then left its mode: {error}"
+                    ) from error
+                raise
+            moved += delta
+            works.append(job_service.run_due_work(db))
+        return now, works
+
+
+def _advance_unlocked(db: Session, delta: timedelta) -> datetime:
+    """Move the demo clock in one jump; during a run, record the move for the KPI (6.35.1).
+    Commits. The caller holds the run lock. RuntimeError when the clock follows real time,
+    like clock.advance()."""
+    before = clock.now()
+    after = clock.advance(delta)
+    run_id = clock.test_run_id()
+    if run_id is not None:
+        audit_service.log(
+            db,
+            case_id=None,
+            actor_id=_system_actor(db),
+            action=AuditAction.TEST_RUN_CLOCK_ADVANCED,
+            entity_type=EntityType.TEST_RUN,
+            entity_id=run_id,
+            payload={
+                "seconds": delta.total_seconds(),
+                "before": before.isoformat(),
+                "after": after.isoformat(),
+            },
+        )
+        db.commit()
+    return after
 
 
 def _started_row(db: Session, run_id: int) -> AuditLog:

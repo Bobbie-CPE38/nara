@@ -3,7 +3,6 @@ Basic Auth, and in session mode every POST also needs an allowed Origin (6.33.3)
 
 import csv
 import io
-from datetime import timedelta
 
 from fastapi import APIRouter, HTTPException, Response, status
 
@@ -59,18 +58,22 @@ def advance_clock(body: ClockAdvance, db: DbSession) -> ClockAdvanceResult:
 
     Runs the same function as the job service: a frozen clock that moves does
     not wake the job up. 409 when the clock follows real time (no reset yet since
-    the backend started). In scenario mode the move adds to the run's offset (6.35.1).
+    the backend started). In scenario mode the move adds to the run's offset and goes
+    one job round at a time, two hours in all per run (test_run_service.advance_clock,
+    6.35.1): 422 past that.
     """
     if clock.mode() == clock.ClockMode.REAL:
         raise HTTPException(
             status.HTTP_409_CONFLICT, "The demo clock is not frozen. Call POST /demo/reset first"
         )
     try:
-        now = test_run_service.advance(db, timedelta(seconds=body.seconds))
+        now, works = test_run_service.advance_clock(db, body.seconds)
+    except test_run_service.AdvanceLimitError as error:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(error)) from error
     except RuntimeError as error:
-        # Unfrozen between the check above and the move
+        # Unfrozen between the check above and the move; PartialAdvanceError says how far
         raise HTTPException(status.HTTP_409_CONFLICT, str(error)) from error
-    return ClockAdvanceResult.of(now, job_service.run_due_work(db))
+    return ClockAdvanceResult.of(now, job_service.merge(works))
 
 
 @router.post("/clock/freeze")

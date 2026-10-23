@@ -16,15 +16,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// The page also reads GET /clock every second (to enable the right freeze button). That read
-// is answered here and kept out of the mock, so the tests count only the calls they care about.
+// The page also reads GET /clock every second (to enable the right freeze button) and the list
+// of test runs (round 6 PR EV5b). Those reads are answered here and kept out of the mock, so the
+// tests count only the calls they care about.
 const CLOCK_ANSWER = { now: "2026-10-09T21:00:00+07:00", frozen: true };
 
 function answerClock(fetchMock: (url: string, init?: RequestInit) => unknown) {
   vi.stubGlobal("fetch", (url: string, init?: RequestInit) =>
     /\/clock$/.test(url)
       ? Promise.resolve(new Response(JSON.stringify(CLOCK_ANSWER)))
-      : (fetchMock(url, init) as Promise<Response>),
+      : /\/demo\/test-runs$/.test(url) && (init?.method ?? "GET") === "GET"
+        ? Promise.resolve(new Response("[]"))
+        : (fetchMock(url, init) as Promise<Response>),
   );
 }
 
@@ -39,8 +42,18 @@ function stubFetch(body: unknown, status = 200) {
   return fetchMock;
 }
 
+// A link to a case is named by its ID; the test-run panel's link to its results is not
+const CASE_LINK = /^\d/;
+
 function click(name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
+}
+
+/** Reset, Freeze and Unfreeze wait for the first list of test runs (review of #144). */
+async function clickWhenReady(name: string) {
+  const button = screen.getByRole<HTMLButtonElement>("button", { name });
+  await vi.waitFor(() => expect(button.disabled).toBe(false));
+  fireEvent.click(button);
 }
 
 // Read the action's own text separately from nested live-status controls.
@@ -85,7 +98,7 @@ describe("demo control page", () => {
 
     expect(await screen.findByText("No case opened")).toBeTruthy();
     expect(screen.getByText("4 (IGNORED)")).toBeTruthy();
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("link", { name: CASE_LINK })).toBeNull();
     const request = fetchMock.mock.calls[0][1];
     expect(request.headers.has("X-Demo-User")).toBe(false);
     expect(JSON.parse(request.body)).toEqual({
@@ -106,7 +119,7 @@ describe("demo control page", () => {
     expect(await screen.findByText("Not decided yet. The event is waiting.")).toBeTruthy();
     expect(screen.getByText("5 (RECEIVED)")).toBeTruthy();
     expect(screen.queryByText("No case opened")).toBeNull();
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("link", { name: CASE_LINK })).toBeNull();
   });
 
   it.each([
@@ -250,7 +263,7 @@ describe("demo control page", () => {
   it("resets the demo without a demo user and shows the new clock", async () => {
     const fetchMock = stubFetch({ status: "ok", clock: "2026-10-09T21:00:00+07:00" });
     render(createElement(DemoControl));
-    click("Reset demo");
+    await clickWhenReady("Reset demo");
 
     expect(await screen.findByText("Demo reset. Clock: 2026-10-09T21:00:00+07:00")).toBeTruthy();
     const [url, request] = fetchMock.mock.calls[0];
@@ -269,9 +282,10 @@ describe("demo control page", () => {
         "105 reports leave (shift 1): Staff 105 has no assigned roster on shift 1 (HTTP 409)",
       ),
     ).toBeTruthy();
-    // the two clock buttons follow the state of the clock, the others only the running request
+    // the two clock buttons follow the state of the clock, the others only the running request.
+    // Starting a test run waits for a tester code (round 6 PR EV5b)
     for (const button of screen.getAllByRole<HTMLButtonElement>("button")) {
-      if (/^(Freeze|Unfreeze) clock/.test(button.textContent ?? "")) continue;
+      if (/^(Freeze|Unfreeze) clock|^Start test run/.test(button.textContent ?? "")) continue;
       expect(button.disabled).toBe(false);
     }
   });
@@ -279,7 +293,7 @@ describe("demo control page", () => {
   it("says so when the API cannot be reached", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     render(createElement(DemoControl));
-    click("Reset demo");
+    await clickWhenReady("Reset demo");
 
     expect(
       await screen.findByText(
@@ -292,10 +306,14 @@ describe("demo control page", () => {
     let respond!: (response: Response) => void;
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => new Promise<Response>((resolve) => { respond = resolve; })),
+      vi.fn((url: string) =>
+        /\/demo\/test-runs$/.test(url)
+          ? Promise.resolve(new Response("[]"))
+          : new Promise<Response>((resolve) => { respond = resolve; }),
+      ),
     );
     render(createElement(DemoControl));
-    click("Reset demo");
+    await clickWhenReady("Reset demo");
 
     expect(await screen.findByText("Working…")).toBeTruthy();
     for (const button of screen.getAllByRole<HTMLButtonElement>("button")) {
@@ -485,7 +503,7 @@ describe("demo control live case status", () => {
     finish(json({ id: 7, status: "WAITING_APPROVAL" }));
     await tick();
     expect(screen.getByText("Demo reset. Clock: now")).toBeTruthy();
-    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("link", { name: CASE_LINK })).toBeNull();
   });
 
   it("updates both merge-window and recovery links after a clock action", async () => {
@@ -647,6 +665,7 @@ describe("demo control clock buttons", () => {
         calls.push(path);
         isFrozen = path.endsWith("/freeze");
       }
+      if (path === "/demo/test-runs") return new Response("[]");
       return new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: isFrozen }));
     });
     return calls;
@@ -674,6 +693,7 @@ describe("demo control clock buttons", () => {
     await vi.waitFor(() =>
       expect((screen.getByRole("button", { name: "Unfreeze clock (real time)" }) as HTMLButtonElement).disabled).toBe(true),
     );
+    await vi.waitFor(() => expect((freeze as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(freeze);
     expect(await screen.findByText(/Clock frozen at/)).toBeTruthy();
     expect(calls).toEqual(["/demo/clock/freeze"]);
@@ -711,30 +731,34 @@ describe("demo control clock reads", () => {
   });
 
   it("gives the words of an error in the language of the page", async () => {
-    vi.stubGlobal("fetch", async (url: string) =>
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) =>
       /\/clock$/.test(url)
         ? new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }))
-        : new Response("{}", { status: 500 }),
+        : /\/demo\/test-runs$/.test(url) && (init?.method ?? "GET") === "GET"
+          ? new Response("[]")
+          : new Response("{}", { status: 500 }),
     );
     const view = render(
       createElement(LanguageProvider, { initial: "th", children: createElement(DemoControl) }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "รีเซ็ต Demo" }));
+    await clickWhenReady("รีเซ็ต Demo");
     expect(await screen.findByText(/คำขอไปยัง API ไม่สำเร็จ \(500\)/)).toBeTruthy();
     view.unmount();
     // the same failure shown in English: the sentence is ours, so it follows the language
     render(createElement(LanguageProvider, { initial: "en", children: createElement(DemoControl) }));
-    fireEvent.click(screen.getByRole("button", { name: "Reset demo" }));
+    await clickWhenReady("Reset demo");
     expect(await screen.findByText(/API request failed \(500\)/)).toBeTruthy();
   });
 });
 
 describe("demo control language switch", () => {
   it("changes an error that stays on the screen from Thai to English without a remount", async () => {
-    vi.stubGlobal("fetch", async (url: string) =>
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) =>
       /\/clock$/.test(url)
         ? new Response(JSON.stringify({ now: "2026-10-09T21:00:00+07:00", frozen: true }))
-        : new Response("{}", { status: 500 }),
+        : /\/demo\/test-runs$/.test(url) && (init?.method ?? "GET") === "GET"
+          ? new Response("[]")
+          : new Response("{}", { status: 500 }),
     );
     render(
       createElement(LanguageProvider, {
@@ -742,7 +766,7 @@ describe("demo control language switch", () => {
         children: [createElement(LanguageSwitch, { key: "switch" }), createElement(DemoControl, { key: "page" })],
       }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "รีเซ็ต Demo" }));
+    await clickWhenReady("รีเซ็ต Demo");
     expect(await screen.findByText(/คำขอไปยัง API ไม่สำเร็จ \(500\)/)).toBeTruthy();
 
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "EN" })); });

@@ -580,6 +580,7 @@ describe("the menu follows the role", () => {
       "Approvals",
       "Handoff",
       "LINE simulator",
+      "Test runs",
       "Roster",
       "My offers",
     ]);

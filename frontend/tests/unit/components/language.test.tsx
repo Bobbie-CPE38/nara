@@ -88,7 +88,7 @@ describe("the top bar", () => {
     fireEvent.click(button);
     expect(screen.getByRole("button", { name: "Close the menu" }).getAttribute("aria-expanded")).toBe("true");
     const menu = within(document.getElementById("mobile-menu") as HTMLElement);
-    expect(menu.getAllByRole("link")).toHaveLength(8);
+    expect(menu.getAllByRole("link")).toHaveLength(9);
 
     fireEvent.click(menu.getByRole("link", { name: "Roster" }));
     expect(document.getElementById("mobile-menu")).toBeNull();
