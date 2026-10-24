@@ -12,6 +12,7 @@ import type { MessageKey } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import { describeError } from "@/lib/errors";
 import { homeOf } from "@/lib/routeAccess";
+import { wardName } from "@/lib/demo";
 import type { AuthRole } from "@/lib/types/auth";
 
 /** `roles`: who sees the item in session mode (docs/workflow.md 6.33.4); `demo`: shown in demo mode. */
@@ -83,6 +84,7 @@ function AccountMenu() {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
       <span className="font-medium">{t("auth.signedInAs", { id: state.me.staff_id, role: t(ROLE_KEYS[state.me.role]) })}</span>
+      <span>{t("summary.homeWard", { ward: state.me.home_ward_name ?? wardName(state.me.home_ward_id) })}</span>
       <Link className="underline" href="/change-password">
         {t("auth.change.title")}
       </Link>

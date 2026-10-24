@@ -14,6 +14,8 @@ import {
   waitingResponseAudit,
 } from "../../../fixtures/case";
 
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+
 type Reply = () => Response | Promise<Response>;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -133,7 +135,7 @@ describe("CaseView", () => {
     expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
 
     await tick(10000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
     expect(vi.getTimerCount()).toBe(0);
     expect(status()).toBe("RESOLVED");
   });
@@ -154,7 +156,7 @@ describe("CaseView", () => {
       await tick();
       await tick(4000);
       expect(status()).toBe(open);
-      expect(fetchMock).toHaveBeenCalledTimes(6);
+      expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
     },
   );
 
@@ -491,7 +493,7 @@ describe("CaseView", () => {
       ["Handoff", "204", "—", "A_REASON_ADDED_LATER"],
     ]);
     await tick(4000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
   });
 
   it("lists skipped people without names when the case stopped without a plan", async () => {
@@ -1022,7 +1024,7 @@ describe("CaseView", () => {
     expect(status()).toBe("WAITING_APPROVAL");
     expect(actions()).toEqual(["CASE_OPENED"]);
     await tick(2000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
   });
 
   it("stops polling when the page is left", async () => {

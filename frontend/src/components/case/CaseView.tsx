@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
 import { type ExplanationRequest, ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
 import { SkippedTable } from "@/components/candidate/SkippedTable";
 import { CANDIDATES_ID, CaseOverviewCard } from "@/components/case/CaseOverviewCard";
 import { CaseSummary } from "@/components/case/CaseSummary";
+import { CaseManagement } from "@/components/case/CaseManagement";
 import { GapTable } from "@/components/case/GapTable";
 import { HandoverList } from "@/components/handover/HandoverList";
 import { Badge } from "@/components/ui/Badge";
@@ -212,7 +213,13 @@ export function CaseView({ caseId }: { caseId: string }) {
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
-      <PageHeader title={valid ? t("case.title", { id: caseId }) : t("case.titleGeneric")} />
+      <PageHeader title={valid ? t("case.title", { id: caseId }) : t("case.titleGeneric")}>
+        {valid && data && httpStatus !== 403 && httpStatus !== 404 && httpStatus !== 422 && (
+          <Suspense>
+            <CaseManagement caseId={caseId} status={data.detail.status} onChanged={refresh} />
+          </Suspense>
+        )}
+      </PageHeader>
       {body}
     </main>
   );
