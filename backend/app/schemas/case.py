@@ -197,6 +197,19 @@ class OverviewMove(BaseModel):
     end_at: AppDatetime
 
 
+class OverviewAutoBasis(BaseModel):
+    """Why the system approved a side (round 6 PR EV9, 6.39): the queue over its cap.
+
+    HEAD_NURSE_QUEUE is the queue of the side's own ward (`approver_count` its active Head
+    Nurses); SUPERVISOR_QUEUE the requests the Supervisor may decide (the active Supervisors).
+    """
+
+    basis: Literal["HEAD_NURSE_QUEUE", "SUPERVISOR_QUEUE"]
+    queue_count: int
+    cap: float
+    approver_count: int
+
+
 class OverviewSide(BaseModel):
     """One ward's approval of a request: the destination, and the source of a move."""
 
@@ -212,6 +225,8 @@ class OverviewSide(BaseModel):
     # While PENDING: the ward's active head nurses, and when the Supervisor may decide too
     waiting_for: list[OverviewPerson]
     supervisor_from: AppDatetime | None
+    # AUTO_APPROVED by a queue over its cap (6.39): `by` is then None, never a person
+    auto: OverviewAutoBasis | None = None
 
 
 class OverviewRequest(BaseModel):
@@ -257,6 +272,8 @@ class OverviewDecision(BaseModel):
     candidate: OverviewPerson | None
     reason: str | None
     at: AppDatetime
+    # An automatic side's queue (6.39); None for a person and for older automatic approvals
+    auto: OverviewAutoBasis | None = None
 
 
 class OverviewOutcome(BaseModel):

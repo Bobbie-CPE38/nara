@@ -1,7 +1,7 @@
 """Models owned by person 1 must match docs/database-schema.md exactly."""
 
 import pytest
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Numeric, Text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import CreateIndex, CreateTable
@@ -180,11 +180,16 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "approval_request_id": (BigInteger, NOT_NULL),
         "ward_id": (BigInteger, NOT_NULL),
         "side": (StrEnumText, NOT_NULL),
-        "approver_id": (BigInteger, NOT_NULL),
+        "approver_id": (BigInteger, NULL),
         "decided_as": (StrEnumText, NOT_NULL),
         "is_approved": (Boolean, NOT_NULL),
         "reason": (Text, NULL),
         "decided_at": (DateTime, NOT_NULL),
+        # Round 6 PR EV9: a side the system approved, and the queue that made it eligible
+        "approval_mode": (StrEnumText, NOT_NULL),
+        "queue_count": (Integer, NULL),
+        "queue_cap": (Numeric, NULL),
+        "queue_approver_count": (Integer, NULL),
     },
 }
 
