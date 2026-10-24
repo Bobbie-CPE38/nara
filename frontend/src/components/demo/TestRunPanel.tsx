@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { newAlertGeneration } from "@/components/layout/Alerts";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Notice";
 import { ApiError, apiRequest } from "@/lib/api";
@@ -20,6 +21,11 @@ import {
 const SCENARIO_LABELS: Record<TestRunScenario, MessageKey> = {
   golden: "run.scenario.golden",
   cross_ward: "run.scenario.cross_ward",
+  // Round 6 PR EV7 (docs/workflow.md 6.37.10)
+  surge: "run.scenario.surge",
+  no_show: "run.scenario.no_show",
+  handoff: "run.scenario.handoff",
+  supervisor: "run.scenario.supervisor",
 };
 
 /** The scenario's name in the language of the page; an unknown one as the Backend sent it. */
@@ -83,13 +89,15 @@ export function TestRunPanel({
   }
 
   const start = () =>
-    act(async () => ({
-      kind: "started",
-      run: await apiRequest<TestRunStarted>("/demo/test-runs", {
+    act(async () => {
+      const run = await apiRequest<TestRunStarted>("/demo/test-runs", {
         method: "POST",
         json: { tester_code: code, scenario, auto_nurses: autoNurses },
-      }),
-    }));
+      });
+      // A run starts with a reset: the IDs start again (Alerts)
+      newAlertGeneration();
+      return { kind: "started", run };
+    });
 
   const close = (how: "finish" | "abort") => {
     if (open === undefined) return;

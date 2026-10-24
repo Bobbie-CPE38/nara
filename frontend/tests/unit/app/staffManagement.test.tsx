@@ -8,7 +8,7 @@ import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn() }), usePathname: () => "/admin/staff" }));
 let role: string, mode: string, failure: boolean, linked: boolean, stale: boolean, inactive: boolean;
 let calls: { path: string; method: string; headers: Headers; credentials?: RequestCredentials; body?: unknown }[];
-const staff = { id: 201, first_name: "Arunee", last_name: "Demo", role: "RN", ward_name: "ICU", status: "ACTIVE", line_linked: false, line_binding_present: false };
+const staff = { id: 201, first_name: "Arunee", last_name: "Demo", role: "RN", ward_name: "ICU", status: "ACTIVE", line_linked: false, line_binding_present: false, skills: ["BLS", "ICU"], has_account: true };
 const copy = vi.fn();
 beforeEach(() => {
   role = "supervisor"; mode = "session"; failure = false; linked = true; stale = false; inactive = false; calls = []; copy.mockReset();
@@ -57,6 +57,12 @@ it("brings the new code into view at once (round 6 PR EV6)", async () => {
   } finally {
     delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
   }
+});
+it("shows each person's role, skills and web account (round 6 PR EV7)", async () => {
+  view();
+  const row = (await screen.findByText("Arunee Demo")).closest("tr")!;
+  const cells = within(row).getAllByRole("cell").map((cell) => cell.textContent);
+  expect(cells.slice(0, 7)).toEqual(["201", "Arunee Demo", "Staff", "BLS, ICU", "ICU", "Active", "Yes"]);
 });
 it("searches and paginates; linked and inactive staff cannot request codes", async () => {
   view(); await screen.findByText("Arunee Demo");

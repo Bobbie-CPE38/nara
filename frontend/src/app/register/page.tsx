@@ -5,6 +5,7 @@ import { type FormEvent, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Notice } from "@/components/ui/Notice";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { apiRequest } from "@/lib/api";
@@ -90,10 +91,9 @@ export default function RegisterPage() {
               <label className="block" htmlFor="register-password">
                 {t("auth.password")}
               </label>
-              <input
+              <PasswordInput
                 id="register-password"
                 name="password"
-                type="password"
                 autoComplete="new-password"
                 value={password}
                 disabled={busy}
@@ -105,10 +105,9 @@ export default function RegisterPage() {
               <label className="block" htmlFor="register-repeat">
                 {t("auth.password.confirm")}
               </label>
-              <input
+              <PasswordInput
                 id="register-repeat"
                 name="repeat"
-                type="password"
                 autoComplete="new-password"
                 value={repeat}
                 disabled={busy}

@@ -1,6 +1,6 @@
 /** Test runs of the Demo control (round 6 PR EV5b, docs/workflow.md 6.35). */
 
-export const TEST_RUN_SCENARIOS = ["golden", "cross_ward"] as const;
+export const TEST_RUN_SCENARIOS = ["golden", "cross_ward", "surge", "no_show", "handoff", "supervisor"] as const;
 export type TestRunScenario = (typeof TEST_RUN_SCENARIOS)[number];
 
 /** The intervals of 6.35.4 in seconds the tester really spent (clock advances taken out). */
@@ -34,7 +34,7 @@ export type TestRunView = {
   open: boolean;
   /** System time since the start, advances included; null when this API lost the run's clock */
   elapsed_seconds: number | null;
-  /** null while open; true for an aborted, CLOCK_LOST or START_FAILED run */
+  /** null while open; true for an aborted, CLOCK_LOST, START_FAILED or NO_CASE run */
   invalid: boolean | null;
   reason: string | null;
   advanced_seconds: number;

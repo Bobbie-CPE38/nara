@@ -4,5 +4,7 @@
  * heading stay in view; on a wide screen the box changes nothing.
  */
 export function ScrollX({ children }: { children: React.ReactNode }) {
-  return <div className="overflow-x-auto">{children}</div>;
+  // relative: a visually hidden header (sr-only is absolute) stays inside the box instead of
+  // widening the page (round 6 PR EV7)
+  return <div className="relative overflow-x-auto">{children}</div>;
 }

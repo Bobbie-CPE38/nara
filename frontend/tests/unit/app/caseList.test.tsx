@@ -63,8 +63,26 @@ describe("Case list", () => {
       "Shift 21 · NIGHT · 2026-10-09 23:00",
       "1",
       "2026-10-09 21:00:00",
+      "See details",
     ]);
     expect(screen.getByText("Page 1 of 2 · 21 in all")).toBeTruthy();
+  });
+
+  it("opens a case from a click anywhere on its row, or its See details link (round 6 PR EV7)", async () => {
+    render(<CaseList />);
+    const table = within(await screen.findByRole("table", { name: "Cases" }));
+    const row = table.getAllByRole("row")[1];
+    const link = within(row).getByRole("link", { name: "See details" });
+    expect(link.getAttribute("href")).toBe("/cases/9");
+    const followed = vi.fn((event: Event) => event.preventDefault());
+    link.addEventListener("click", followed);
+
+    // A click on a plain cell follows the row's own link
+    fireEvent.click(within(row).getByText("Medicine"));
+    expect(followed).toHaveBeenCalledTimes(1);
+    // A click on the case number is that link's own click, not a second one
+    fireEvent.click(within(row).getByRole("link", { name: "9" }));
+    expect(followed).toHaveBeenCalledTimes(1);
   });
 
   it("searches on submit, filters by status at once, and goes back to page 1", async () => {

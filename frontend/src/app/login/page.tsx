@@ -6,6 +6,7 @@ import { type FormEvent, Suspense, useEffect, useState } from "react";
 import { safeNext, useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Notice } from "@/components/ui/Notice";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { parseStaffId } from "@/lib/authForms";
@@ -85,10 +86,9 @@ function LoginForm() {
           <label className="block" htmlFor="login-password">
             {t("auth.password")}
           </label>
-          <input
+          <PasswordInput
             id="login-password"
             name="password"
-            type="password"
             autoComplete="current-password"
             value={password}
             disabled={busy}

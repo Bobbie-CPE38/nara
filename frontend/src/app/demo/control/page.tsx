@@ -6,7 +6,9 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useBackendClock } from "@/components/ClockProvider";
+import { OffersPanel } from "@/components/demo/OffersPanel";
 import { TestRunPanel } from "@/components/demo/TestRunPanel";
+import { newAlertGeneration } from "@/components/layout/Alerts";
 import { Notice } from "@/components/ui/Notice";
 import { usePolling } from "@/hooks/usePolling";
 import { useShiftPicker } from "@/hooks/useShiftPicker";
@@ -62,8 +64,11 @@ const EVENTS: readonly { label: MessageKey; staffId: number; json: Record<string
 
 // Moving the frozen demo clock also runs what became due, like the job does with
 // real time (section 3.8): offers time out after 300 seconds, waiting cases are
-// rechecked and merge windows close
-const ADVANCE_SECONDS = 600;
+// rechecked and merge windows close. Round 6 PR EV7: the step is chosen, or typed in
+const ADVANCE_PRESETS = [3, 5, 10, 15, 30, 60] as const;
+const ADVANCE_DEFAULT = 10;
+// The Backend takes at most a week in one advance
+const ADVANCE_MAX_MINUTES = 7 * 24 * 60;
 
 /** A text of the page (a key and its values, in the language of the user) or the words of the API. */
 type Message = { key: MessageKey; params?: Params } | { failure: unknown };
@@ -175,6 +180,11 @@ export default function DemoControl() {
   const clockValue = clockInput ?? localInput(clockView?.now);
   // The hospital demo of 6.36.3: five more wards for a week; ticked by default
   const [withHospital, setWithHospital] = useState(true);
+  // Round 6 PR EV7: how far to advance, and the patients of a surge
+  const [advanceChoice, setAdvanceChoice] = useState<string>(String(ADVANCE_DEFAULT));
+  const [advanceCustom, setAdvanceCustom] = useState("20");
+  const advanceMinutes = Number(advanceChoice === "custom" ? advanceCustom : advanceChoice);
+  const [surgePatients, setSurgePatients] = useState(12);
 
   const text = (message: Message) => ("failure" in message ? errorText(message.failure, t) : t(message.key, message.params));
 
@@ -197,6 +207,8 @@ export default function DemoControl() {
         { method: "POST", json: { hospital: withHospital } },
       );
       setClockInput(null);
+      // The IDs start again: the bell must not take a new case for one it already showed
+      newAlertGeneration();
       void picker.reload();
       return { kind: "reset", clock };
     });
@@ -232,11 +244,13 @@ export default function DemoControl() {
       return clockOutcome(view);
     });
 
+  const advanceMinutesValid =
+    Number.isInteger(advanceMinutes) && advanceMinutes >= 1 && advanceMinutes <= ADVANCE_MAX_MINUTES;
   const advanceClock = () =>
-    run({ key: "ctl.advance" }, async () => {
+    run({ key: "ctl.advanceBy", params: { minutes: advanceMinutes } }, async () => {
       const result = await apiRequest<ClockAdvanceResult>("/demo/clock/advance", {
         method: "POST",
-        json: { seconds: ADVANCE_SECONDS },
+        json: { seconds: advanceMinutes * 60 },
       });
       return { kind: "clock", result };
     });
@@ -258,6 +272,27 @@ export default function DemoControl() {
 
   const { ward, shift, person } = picker;
   const chosen = ward !== undefined && shift !== undefined && person !== undefined;
+
+  // A patient surge on the picked shift, reported by its ward's head nurse (round 6 PR EV7)
+  const reportSurge = () => {
+    if (ward === undefined || shift === undefined || !ward.head_nurse_id) return;
+    const name: Message = {
+      key: "ctl.surgeLabel",
+      params: { patients: surgePatients, ward: ward.name, shift: shift.id },
+    };
+    return run(name, async () => {
+      const result = await apiRequest<EventResult>("/demo/events", {
+        method: "POST",
+        json: {
+          event_type: "PATIENT_SURGE",
+          shift_id: shift.id,
+          patient_count: surgePatients,
+          reporter_staff_id: ward.head_nurse_id,
+        },
+      });
+      return { kind: "event", label: name, result };
+    });
+  };
 
   const reportLeave = () => {
     if (!chosen) return;
@@ -358,10 +393,44 @@ export default function DemoControl() {
             {t("ctl.setRunning")}
           </Button>
         </div>
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Button className="text-left" disabled={working || !canAdvance} onClick={advanceClock}>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-sm font-medium" htmlFor="advance-by">
+            {t("ctl.advanceStep")}{" "}
+            <select
+              id="advance-by"
+              value={advanceChoice}
+              disabled={working}
+              onChange={(event) => setAdvanceChoice(event.target.value)}
+            >
+              {ADVANCE_PRESETS.map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {t("ctl.minutes", { minutes })}
+                </option>
+              ))}
+              <option value="custom">{t("ctl.advanceCustom")}</option>
+            </select>
+          </label>
+          {advanceChoice === "custom" && (
+            <label className="text-sm font-medium" htmlFor="advance-minutes">
+              {t("ctl.advanceMinutes")}{" "}
+              <input
+                id="advance-minutes"
+                type="number"
+                min={1}
+                max={ADVANCE_MAX_MINUTES}
+                step={1}
+                className="w-24"
+                value={advanceCustom}
+                disabled={working}
+                onChange={(event) => setAdvanceCustom(event.target.value)}
+              />
+            </label>
+          )}
+          <Button disabled={working || !canAdvance || !advanceMinutesValid} onClick={advanceClock}>
             {t("ctl.advance")}
           </Button>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
           <Button
             className="text-left"
             disabled={working || clockFrozen === true || runBlocks}
@@ -480,7 +549,36 @@ export default function DemoControl() {
             {t("ctl.simCheckIn")}
           </Button>
         </div>
+        {/* Round 6 PR EV7: more patients on the picked shift, as its ward's head nurse */}
+        <div className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-2">
+          <label className="text-sm font-medium" htmlFor="surge-patients">
+            {t("ctl.surgePatients")}{" "}
+            <input
+              id="surge-patients"
+              type="number"
+              min={1}
+              max={500}
+              className="w-24"
+              value={surgePatients}
+              disabled={working}
+              onChange={(event) => setSurgePatients(Number(event.target.value))}
+            />
+          </label>
+          <Button
+            disabled={
+              working || ward === undefined || shift === undefined || !ward.head_nurse_id || !(surgePatients >= 1)
+            }
+            onClick={reportSurge}
+          >
+            {t("ctl.reportSurge")}
+          </Button>
+          {ward !== undefined && !ward.head_nurse_id && (
+            <span className="text-sm text-slate-600">{t("ctl.noHeadNurse")}</span>
+          )}
+        </div>
       </fieldset>
+
+      <OffersPanel blocked={working} />
 
       {busy && <p className="mt-4">{t("ctl.working")}</p>}
       {outcome?.kind === "reset" && (

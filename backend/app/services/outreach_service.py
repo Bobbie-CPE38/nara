@@ -58,6 +58,14 @@ class OutreachLockRetryError(ValueError):
 
 def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
     """Read history with per-offer actions and ward/shift context; no writes."""
+    return list_offers_of(db, {staff_id})
+
+
+def list_offers_of(db: Session, staff_ids: set[int]) -> list[OfferView]:
+    """list_offers of many people in the same few queries, in offer ID order (round 6 PR EV7:
+    the Demo control answers for every candidate, and polls)."""
+    if not staff_ids:
+        return []
     with db.no_autoflush:
         assigned = (
             select(ApprovalRequest.id)
@@ -110,7 +118,7 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                     (OfferOutcomeNotification.outreach_id == CandidateOutreach.id)
                     & (OfferOutcomeNotification.kind == "FINAL"),
                 )
-                .where(CandidateItem.staff_id == staff_id)
+                .where(CandidateItem.staff_id.in_(staff_ids))
                 .order_by(CandidateOutreach.id)
             )
             .mappings()
@@ -133,9 +141,9 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                 )
             )
         )
-        # One set of unresolved acceptances for the staff, independent of the
+        # One set of unresolved acceptances per staff member, independent of the
         # number of displayed offers. Keep the shared pausing semantics.
-        waiting_cases = case_facts_service.staff_waiting_case_ids(db, staff_id)
+        waiting = case_facts_service.waiting_case_ids_by_staff(db, staff_ids)
         cancelled = {row["id"] for row in rows if row["status"] == OutreachStatus.CANCELLED}
         reasons = _cancellation_reasons(db, cancelled)
         result = []
@@ -146,7 +154,7 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                 and row["expires_at"] is not None
                 and row["expires_at"] > now
             )
-            paused = live and bool(waiting_cases - {row["case_id"]})
+            paused = live and bool(waiting.get(row["staff_id"], set()) - {row["case_id"]})
             blocked = (
                 "CASE_STOPPED"
                 if row["case_status"] in AUTOMATION_STOPPED_STATUSES

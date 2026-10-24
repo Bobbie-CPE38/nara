@@ -5,6 +5,7 @@ import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
 import { type ExplanationRequest, ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
 import { SkippedTable } from "@/components/candidate/SkippedTable";
+import { CaseOverviewCard } from "@/components/case/CaseOverviewCard";
 import { CaseSummary } from "@/components/case/CaseSummary";
 import { GapTable } from "@/components/case/GapTable";
 import { HandoverList } from "@/components/handover/HandoverList";
@@ -99,6 +100,7 @@ function CaseSections({ detail, audit, request, onSummaryRequested }: CaseSnapsh
           <dd>{formatDateTime(detail.updated_at)}</dd>
         </dl>
       </Card>
+      {detail.overview && <CaseOverviewCard overview={detail.overview} />}
       <Card title={t("common.gap")}>
         {detail.gap ? <GapTable gap={detail.gap} /> : <p className="mt-2">{t("case.notAssessed")}</p>}
       </Card>

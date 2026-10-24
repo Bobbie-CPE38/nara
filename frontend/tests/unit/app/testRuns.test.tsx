@@ -123,7 +123,7 @@ describe("the test run on the Demo control", () => {
     expect(screen.getByText(/A test run is in progress/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Start test run" })).toBeNull();
     // A test run's clock can be moved past the waits (6.35.1)
-    await waitFor(() => expect(button("Advance clock 10 minutes").disabled).toBe(false));
+    await waitFor(() => expect(button("Advance clock").disabled).toBe(false));
     expect(screen.getByText("Time so far on the system clock: 95 s (advanced: 60 s).")).toBeTruthy();
   });
 
@@ -196,9 +196,9 @@ describe("the test run on the Demo control", () => {
       return new Response("{}", { status: 404 });
     }));
     control();
-    await waitFor(() => expect(button("Advance clock 10 minutes").disabled).toBe(false));
+    await waitFor(() => expect(button("Advance clock").disabled).toBe(false));
 
-    fireEvent.click(button("Advance clock 10 minutes"));
+    fireEvent.click(button("Advance clock"));
 
     await waitFor(() => expect(button("Finish run").disabled).toBe(true));
     expect(button("Abort run").disabled).toBe(true);
@@ -221,9 +221,28 @@ describe("the test run on the Demo control", () => {
     control();
     fireEvent.click(await screen.findByRole("button", { name: "Finish run" }));
 
-    await waitFor(() => expect(button("Advance clock 10 minutes").disabled).toBe(true));
+    await waitFor(() => expect(button("Advance clock").disabled).toBe(true));
     finishRun();
     expect(await screen.findByText("Run 7 finished. Time to fill: 30 s.")).toBeTruthy();
+  });
+
+  it("offers the scenarios of round 6 PR EV7 too", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = new URL(url).pathname;
+      if (path === "/clock") return new Response(JSON.stringify({ now: "2026-10-23T21:00:00+07:00", frozen: true }));
+      if (path === "/demo/test-runs") return new Response("[]");
+      return new Response("[]");
+    }));
+    control();
+    const scenario = await screen.findByLabelText<HTMLSelectElement>("Scenario");
+    expect(Array.from(scenario.options).map((option) => option.value)).toEqual([
+      "golden",
+      "cross_ward",
+      "surge",
+      "no_show",
+      "handoff",
+      "supervisor",
+    ]);
   });
 
   it("is in Thai", async () => {

@@ -9,6 +9,7 @@ Every test here signs in for real: X-Demo-User is never a way in.
 """
 
 from collections.abc import Callable, Iterator
+from datetime import datetime
 
 import pytest
 from fastapi.routing import APIRoute
@@ -18,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.api import rate_limit
 from app.api.dependencies import get_db
+from app.core import clock
 from app.core.config import settings
 from app.db.models import (
     AuditLog,
@@ -156,6 +158,8 @@ INVENTORY: dict[tuple[str, str], str] = {
     ("POST", "/demo/clock/resume"): "demo",
     # Names of people: a head nurse or a supervisor in session mode, like /demo/events
     ("GET", "/demo/wards"): "session",
+    ("GET", "/demo/offers"): "session",
+    ("POST", "/demo/offers/{outreach_id}/response"): "session",
     ("GET", "/demo/shifts"): "session",
     ("POST", "/demo/clock/set"): "demo",
     ("POST", "/demo/attendance/check-in"): "demo",
@@ -360,7 +364,8 @@ def test_post_events_answers_403_before_reading_a_bad_body(
 # --------------------------------------------------------------------------- #
 # Approvals
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize(("staff_id", "sees"), [(900, True), (902, False), (950, True)])
+# The Supervisor sees a request only once they may decide it (round 6 PR EV7, 6.37.3)
+@pytest.mark.parametrize(("staff_id", "sees"), [(900, True), (902, False), (950, False)])
 def test_pending_approvals_keep_the_wards_of_the_reader(
     as_: Client, world: dict[str, int], staff_id: int, sees: bool
 ) -> None:
@@ -368,6 +373,15 @@ def test_pending_approvals_keep_the_wards_of_the_reader(
 
     assert response.status_code == 200
     assert [row["id"] for row in response.json()] == ([world["approval"]] if sees else [])
+
+
+def test_the_supervisor_sees_a_request_once_the_head_nurses_had_their_time(
+    as_: Client, world: dict[str, int]
+) -> None:
+    supervisor_from = as_(900).get("/approvals").json()[0]["supervisor_from"]
+    clock.set_time(datetime.fromisoformat(supervisor_from))
+
+    assert [row["id"] for row in as_(950).get("/approvals").json()] == [world["approval"]]
 
 
 @pytest.mark.parametrize("staff_id", [101, 201])

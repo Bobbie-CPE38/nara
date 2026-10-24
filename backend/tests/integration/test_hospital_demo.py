@@ -44,7 +44,8 @@ def _hospital_shifts(db: Session) -> list[Shift]:
 
 
 def test_a_reset_with_the_hospital_loads_a_week_of_five_wards() -> None:
-    assert client.post("/demo/reset", json={"hospital": True}).status_code == 200
+    # The seed alone: the route also plays the example cases (6.37.1), which change rosters
+    reset_demo(hospital=True)
 
     with SessionLocal() as db:
         wards = db.scalars(select(Ward).where(Ward.id > hospital_demo.WARD_BASE)).all()

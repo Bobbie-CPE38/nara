@@ -10,7 +10,7 @@
 """
 
 from collections.abc import Callable, Iterator
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -157,6 +157,10 @@ def test_llm_requests_are_for_a_manager_who_may_read_the_case(scene: Scene, path
 # --------------------------------------------------------------------------- #
 # Pending approvals: in the query, own side only
 # --------------------------------------------------------------------------- #
+def _supervisor_may_decide(rows: list[dict]) -> None:  # type: ignore[type-arg]
+    clock.set_time(max(datetime.fromisoformat(row["supervisor_from"]) for row in rows))
+
+
 def _sides(rows: list[dict]) -> list[list[int]]:  # type: ignore[type-arg]
     return [sorted(side["ward_id"] for side in row["wards"]) for row in rows]
 
@@ -164,6 +168,8 @@ def _sides(rows: list[dict]) -> list[list[int]]:  # type: ignore[type-arg]
 def test_a_head_nurse_gets_only_the_side_of_their_own_ward(scene: Scene) -> None:
     destination = client_of(900).get("/approvals?pending=true").json()
     source = client_of(scene.source_head).get("/approvals?pending=true").json()
+    # A supervisor gets a request once they may decide it (round 6 PR EV7, 6.37.3)
+    _supervisor_may_decide(destination)
     everyone = client_of(scene.supervisor).get("/approvals?pending=true").json()
 
     assert [row["id"] for row in destination] == [scene.request_id]
@@ -200,6 +206,7 @@ def test_another_request_of_the_same_case_is_not_in_a_source_head_nurses_queue(
     assert all(row["wards"] for row in source_nurse.get("/approvals?pending=true").json())
     # The ICU head nurse has a side in both, and a supervisor sees both
     assert ids(900) == sorted([scene.request_id, other.id])
+    _supervisor_may_decide(client_of(900).get("/approvals?pending=true").json())
     assert ids(scene.supervisor) == sorted([scene.request_id, other.id])
     # The head nurse of a ward with no side in either sees none
     assert ids(902) == []

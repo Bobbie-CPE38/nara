@@ -18,7 +18,7 @@ from app.api.dependencies import (
 )
 from app.core.constants import MAX_BIGINT
 from app.core.rate_limit import LINE_ADMIN_PER_MINUTE, Limit, limiter
-from app.db.models import Actor, Contact, Role, Staff, Ward
+from app.db.models import Actor, AuthAccount, Contact, Role, Skill, Staff, StaffSkill, Ward
 from app.domain.enums import StaffStatus
 from app.schemas.line_account import IssuedLineCode, UnlinkedLineAccount
 from app.services import auth_service, line_account_service
@@ -46,6 +46,9 @@ class StaffEntry(BaseModel):
     status: StaffStatus
     line_linked: bool
     line_binding_present: bool
+    # Round 6 PR EV7 (6.37.6): the skills by name, and whether the person has a web account
+    skills: list[str]
+    has_account: bool
 
 
 class StaffPage(BaseModel):
@@ -94,6 +97,22 @@ def list_staff(
     rows = db.execute(
         directory.add_columns(bound, usable).order_by(Staff.id).offset(offset).limit(limit)
     ).all()
+    page_ids = [staff.id for staff, *_ in rows]
+    skills: dict[int, list[str]] = {staff_id: [] for staff_id in page_ids}
+    for staff_id, skill in db.execute(
+        select(StaffSkill.staff_id, Skill.name)
+        .join(Skill, Skill.id == StaffSkill.skill_id)
+        .where(StaffSkill.staff_id.in_(page_ids))
+        .order_by(StaffSkill.staff_id, Skill.name)
+    ):
+        skills[staff_id].append(skill)
+    with_account = set(
+        db.scalars(
+            select(Staff.id)
+            .join(AuthAccount, AuthAccount.staff_subject == Staff.auth_subject)
+            .where(Staff.id.in_(page_ids))
+        )
+    )
     return StaffPage(
         items=[
             StaffEntry(
@@ -105,6 +124,8 @@ def list_staff(
                 status=staff.status,
                 line_linked=usable_binding,
                 line_binding_present=linked,
+                skills=skills[staff.id],
+                has_account=staff.id in with_account,
             )
             for staff, role, ward, linked, usable_binding in rows
         ],
