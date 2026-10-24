@@ -98,7 +98,7 @@ function CaseListPage() {
                     onClick={followRowLink}
                   >
                     <td>
-                      <Link {...ROW_LINK} className="underline" href={state.status === "demo" ? withActor(`/cases/${row.id}`, actorId) : `/cases/${row.id}`}>
+                      <Link {...ROW_LINK} className="font-medium no-underline" href={state.status === "demo" ? withActor(`/cases/${row.id}`, actorId) : `/cases/${row.id}`}>
                         {row.id}
                       </Link>
                     </td>
