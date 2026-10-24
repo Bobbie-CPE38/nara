@@ -13,22 +13,51 @@ import type { CasePage } from "@/lib/types/handoff";
 export const ALERT_POLL_MS = 15000;
 const TOAST_MS = 10000;
 const SEEN_KEY = "nara.alerts.seen";
+// Moved by every demo reset of this browser, in every tab: see newAlertGeneration
+const GENERATION_KEY = "nara.alerts.generation";
 // In demo mode there is no login: the bell reads as the Supervisor, who sees every ward
 const DEMO_READER = 950;
+// The newest handed-off cases, so a new one is always in the list; the rest are on /handoff
+const HANDOFF_URL = "/cases/search?page=1&page_size=20&sort=newest&status=MANUAL_HANDOFF";
 
 type Alert = { key: string; kind: "handoff" | "approval"; caseId: number; staffId?: number };
+type Seen = { generation: string; keys: string[] };
 
-function readSeen(): Set<string> {
+function generation(): string {
   try {
-    return new Set(JSON.parse(window.sessionStorage.getItem(SEEN_KEY) ?? "[]") as string[]);
+    return window.localStorage.getItem(GENERATION_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * A demo reset starts the case and approval IDs again, so a new alert can have the key of one
+ * this tab already showed. The Demo control calls this after a reset or the start of a test run:
+ * every tab of the browser then forgets what it showed.
+ */
+export function newAlertGeneration(): void {
+  try {
+    window.localStorage.setItem(GENERATION_KEY, String(Date.now()));
+  } catch {
+    // Without storage the keys still hold the time each case or request was made
+  }
+}
+
+/** What this tab showed to this account, since the last reset */
+function readSeen(account: string): Set<string> {
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(`${SEEN_KEY}.${account}`) ?? "null") as Seen | null;
+    return new Set(stored && stored.generation === generation() ? stored.keys : []);
   } catch {
     return new Set();
   }
 }
 
-function writeSeen(seen: Set<string>): void {
+function writeSeen(account: string, seen: Set<string>): void {
   try {
-    window.sessionStorage.setItem(SEEN_KEY, JSON.stringify([...seen].slice(-200)));
+    const stored: Seen = { generation: generation(), keys: [...seen].slice(-200) };
+    window.sessionStorage.setItem(`${SEEN_KEY}.${account}`, JSON.stringify(stored));
   } catch {
     // A private window without storage only shows the toasts again on the next page
   }
@@ -38,40 +67,49 @@ function writeSeen(seen: Set<string>): void {
  * The work that waits for a head nurse or a supervisor, like the badge of a chat app (round 6 PR
  * EV7, docs/workflow.md 6.37.5): a bell with the number of handed-off cases and approval
  * requests, its list, and a toast that pops up when a new one arrives. A toast is shown once
- * per browser tab. The lists are the same reads as the Handoff and Approvals pages, so the
- * Backend decides what each user may see (a Supervisor's approvals only once they may decide).
+ * per browser tab and account. The lists are the same reads as the Handoff and Approvals pages,
+ * so the Backend decides what each user may see (a Supervisor's approvals only once they may
+ * decide).
+ *
+ * Another account, or none, is a new bell: its toasts, timers and lists start empty, so nothing
+ * of the account before is left on the screen.
  */
 export function Alerts() {
-  const t = useT();
   const { state } = useAuth();
-  const manager =
-    state.status === "demo" ||
-    (state.status === "authenticated" &&
-      !state.me.must_change_password &&
-      (state.me.role === "head_nurse" || state.me.role === "supervisor"));
+  const account =
+    state.status === "demo"
+      ? "demo"
+      : state.status === "authenticated" &&
+          !state.me.must_change_password &&
+          (state.me.role === "head_nurse" || state.me.role === "supervisor")
+        ? String(state.me.staff_id)
+        : null;
+  if (account === null) return null;
+  return <AlertsOf key={account} account={account} />;
+}
+
+function AlertsOf({ account }: { account: string }) {
+  const t = useT();
   const api = useMemo(() => createDemoApi(DEMO_READER), []);
 
-  const loadHandoffs = useCallback(
-    (signal: AbortSignal) =>
-      api<CasePage>("/cases/search?page=1&page_size=20&sort=oldest&status=MANUAL_HANDOFF", { signal }),
-    [api],
-  );
+  const loadHandoffs = useCallback((signal: AbortSignal) => api<CasePage>(HANDOFF_URL, { signal }), [api]);
   const loadApprovals = useCallback(
     (signal: AbortSignal) => api<PendingApproval[]>("/approvals?pending=true", { signal }),
     [api],
   );
-  const handoffs = usePolling(loadHandoffs, { intervalMs: ALERT_POLL_MS, enabled: manager });
-  const approvals = usePolling(loadApprovals, { intervalMs: ALERT_POLL_MS, enabled: manager });
+  const handoffs = usePolling(loadHandoffs, { intervalMs: ALERT_POLL_MS });
+  const approvals = usePolling(loadApprovals, { intervalMs: ALERT_POLL_MS });
 
   const alerts: Alert[] = useMemo(
     () => [
+      // The time each was made is in the key too, so a reused ID is still a new alert
       ...(handoffs.data?.items ?? []).map((row) => ({
-        key: `handoff:${row.id}`,
+        key: `handoff:${row.id}:${row.created_at}`,
         kind: "handoff" as const,
         caseId: row.id,
       })),
       ...(Array.isArray(approvals.data) ? approvals.data : []).map((row) => ({
-        key: `approval:${row.id}`,
+        key: `approval:${row.id}:${row.requested_at}`,
         kind: "approval" as const,
         caseId: row.case_id,
         staffId: row.staff_id,
@@ -79,7 +117,9 @@ export function Alerts() {
     ],
     [handoffs.data, approvals.data],
   );
-  const count = (handoffs.data?.total ?? 0) + (Array.isArray(approvals.data) ? approvals.data.length : 0);
+  const handoffTotal = handoffs.data?.total ?? 0;
+  const approvalTotal = Array.isArray(approvals.data) ? approvals.data.length : 0;
+  const count = handoffTotal + approvalTotal;
 
   const [open, setOpen] = useState(false);
   const [toasts, setToasts] = useState<Alert[]>([]);
@@ -94,23 +134,21 @@ export function Alerts() {
   // A new alert pops up once; the ones this tab already showed stay in the bell only
   useEffect(() => {
     if (alerts.length === 0) return;
-    const seen = readSeen();
+    const seen = readSeen(account);
     const fresh = alerts.filter((alert) => !seen.has(alert.key));
     if (fresh.length === 0) return;
     fresh.forEach((alert) => seen.add(alert.key));
-    writeSeen(seen);
+    writeSeen(account, seen);
     setToasts((current) => [...current, ...fresh].slice(-3));
     for (const alert of fresh) {
       timers.current.set(alert.key, setTimeout(() => dismiss(alert.key), TOAST_MS));
     }
-  }, [alerts, dismiss]);
+  }, [account, alerts, dismiss]);
 
   useEffect(() => {
     const pending = timers.current;
     return () => pending.forEach((timer) => clearTimeout(timer));
   }, []);
-
-  if (!manager) return null;
 
   const text = (alert: Alert) =>
     alert.kind === "handoff"
@@ -156,6 +194,15 @@ export function Alerts() {
               ))}
             </ul>
           )}
+          {/* The bell lists the newest 20 handed-off cases; the full lists are their pages */}
+          <div className="mt-1 flex flex-wrap gap-x-4 border-t border-slate-100 px-2 pt-2 text-sm">
+            <Link href="/handoff" className="text-brand-700 underline" onClick={() => setOpen(false)}>
+              {t("alerts.allHandoffs", { count: handoffTotal })}
+            </Link>
+            <Link href="/approvals" className="text-brand-700 underline" onClick={() => setOpen(false)}>
+              {t("alerts.allApprovals", { count: approvalTotal })}
+            </Link>
+          </div>
         </div>
       )}
       <div className="fixed bottom-4 right-4 z-50 flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2" aria-live="polite">

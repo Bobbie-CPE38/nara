@@ -82,6 +82,8 @@ export const th: Record<MessageKey, string> = {
   "alerts.none": "ไม่มีงานที่รอคุณ",
   "alerts.handoff": "เคส {id} ต้องมีคนจัดการ: ระบบหาคนแทนไม่ได้",
   "alerts.approval": "พนักงาน {staff} รอคุณอนุมัติ (เคส {id})",
+  "alerts.allHandoffs": "เคสที่ส่งต่อทั้งหมด ({count})",
+  "alerts.allApprovals": "คำขออนุมัติทั้งหมด ({count})",
   "overview.title": "ใครและเพราะอะไร",
   "overview.what": "เกิดอะไรขึ้น",
   "overview.replacements": "ใครมาแทน",

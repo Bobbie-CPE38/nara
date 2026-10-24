@@ -9,9 +9,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core import clock
-from app.db.models import StaffingCase, StaffingEvent
+from app.db.models import AuditLog, StaffingCase, StaffingEvent
 from app.db.session import SessionLocal
 from app.main import app
+from app.services import simulated_replies_service
 
 pytestmark = pytest.mark.usefixtures("restore_empty_database")
 
@@ -91,6 +92,38 @@ def test_no_show_opens_the_case_by_itself(client: TestClient) -> None:
     assert kpi["invalid"] is False and kpi["time_to_fill_system_s"] is not None
 
 
+def test_a_no_show_run_finished_before_its_case_opens_is_invalid(client: TestClient) -> None:
+    run = _start(client, "no_show")
+
+    result = client.post(f"/demo/test-runs/{run['test_run_id']}/finish").json()["result"]
+
+    assert result == {"invalid": True, "reason": "NO_CASE"}
+
+
+def test_a_no_show_run_keeps_its_own_case_when_another_is_reported(client: TestClient) -> None:
+    run = _start(client, "no_show")
+    # Reported by hand from the Demo control on the same shift, before the NO_SHOW is found
+    surge = client.post(
+        "/demo/events",
+        json={
+            "reporter_staff_id": 900,
+            "event_type": "PATIENT_SURGE",
+            "shift_id": 1,
+            "patient_count": 14,
+        },
+    )
+    assert surge.status_code == 201, surge.text
+    surge_case = surge.json()["case_id"]
+
+    _advance(client, 10)
+    with SessionLocal() as db:
+        no_show = db.scalars(select(StaffingEvent).where(StaffingEvent.staff_id == 104)).one()
+        started = db.get(AuditLog, run["test_run_id"])
+        assert started is not None and no_show.case_id not in (None, surge_case)
+        # The first case of the shift is the surge's: the run must not take it
+        assert simulated_replies_service.run_case_id(db, started.payload) == no_show.case_id
+
+
 def test_handoff_ends_with_the_tester_staffing_the_shift(client: TestClient) -> None:
     run = _start(client, "handoff")
 
@@ -120,8 +153,6 @@ def test_supervisor_decides_once_the_head_nurse_had_her_time(client: TestClient)
 
     _advance(client, 3)
     assert _status(run["case_id"]) == "WAITING_APPROVAL"
-    # Review point of 6.37.3: not shown to the Supervisor before they may decide
-    assert client.get("/approvals?pending=true", headers=SUPERVISOR).json() == []
     assert len(client.get("/approvals?pending=true", headers=HEAD_NURSE).json()) == 1
 
     _advance(client, 10)

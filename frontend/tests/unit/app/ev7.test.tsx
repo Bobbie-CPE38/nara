@@ -5,9 +5,9 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthGate, AuthProvider } from "@/components/AuthProvider";
+import { AuthGate, AuthProvider, useAuth } from "@/components/AuthProvider";
 import { CaseOverviewCard } from "@/components/case/CaseOverviewCard";
-import { Alerts } from "@/components/layout/Alerts";
+import { Alerts, newAlertGeneration } from "@/components/layout/Alerts";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { setSessionMode } from "@/lib/api";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
@@ -47,6 +47,7 @@ beforeEach(() => {
   replace.mockReset();
   pathname = "/";
   window.sessionStorage.clear();
+  window.localStorage.clear();
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string, init: RequestInit = {}) => {
@@ -136,12 +137,30 @@ describe("a password that can be shown", () => {
 });
 
 describe("the bell of the work that waits", () => {
-  const handoff = { id: 7, status: "MANUAL_HANDOFF", shift_id: 1, ward_id: 1, ward_name: "ICU" };
+  const handoff = {
+    id: 7,
+    status: "MANUAL_HANDOFF",
+    shift_id: 1,
+    ward_id: 1,
+    ward_name: "ICU",
+    created_at: "2026-10-09T21:00:00+07:00",
+  };
+  const page = (items: unknown[], total = items.length) => ({
+    status: 200,
+    body: { items, total, page: 1, page_size: 20 },
+  });
+  const wait = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
 
   it("counts the handed-off cases and the approvals, and pops a toast once", async () => {
     session(HEAD, {
       "GET /cases/search": () => ({ status: 200, body: { items: [handoff], total: 1, page: 1, page_size: 20 } }),
-      "GET /approvals": () => ({ status: 200, body: [{ id: 3, case_id: 8, staff_id: 201 }] }),
+      "GET /approvals": () => ({
+        status: 200,
+        body: [{ id: 3, case_id: 8, staff_id: 201, requested_at: "2026-10-09T21:02:00+07:00" }],
+      }),
     });
     app(<Alerts />);
 
@@ -159,19 +178,83 @@ describe("the bell of the work that waits", () => {
     cleanup();
     app(<Alerts />);
     await screen.findByRole("button", { name: "Work waiting for you: 2" });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
+    await wait();
     expect(screen.queryAllByRole("status")).toEqual([]);
+  });
+
+  it("pops a toast again for a reused case ID after a reset", async () => {
+    session(HEAD, { "GET /cases/search": () => page([handoff]), "GET /approvals": () => ({ status: 200, body: [] }) });
+    app(<Alerts />);
+    expect(await screen.findAllByRole("status")).toHaveLength(1);
+
+    // A reset starts the IDs again, and the clock is at the same time: case 7 is a new case
+    cleanup();
+    newAlertGeneration();
+    app(<Alerts />);
+    expect(await screen.findAllByRole("status")).toHaveLength(1);
+  });
+
+  it("watches the newest handed-off cases and links to the full lists", async () => {
+    const search = vi.fn(() => page([handoff], 25));
+    session(HEAD, { "GET /cases/search": search, "GET /approvals": () => ({ status: 200, body: [] }) });
+    app(<Alerts />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Work waiting for you: 25" }));
+    const calls = vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+    expect(calls.some((url) => url.includes("/cases/search?") && url.includes("sort=newest"))).toBe(true);
+    expect(screen.getByRole("link", { name: "All handed-off cases (25)" }).getAttribute("href")).toBe("/handoff");
+    expect(screen.getByRole("link", { name: "All approvals (0)" }).getAttribute("href")).toBe("/approvals");
+  });
+
+  it("leaves nothing of the account before after a logout and another login", async () => {
+    const OTHER = { ...HEAD, staff_id: 902, home_ward_id: 2 };
+    let me: unknown = HEAD;
+    let items: unknown[] = [handoff];
+    session(HEAD, {
+      "GET /auth/me": () => ({ status: 200, body: me }),
+      "POST /auth/logout": () => ({ status: 204 }),
+      "POST /auth/login": () => ({ status: 200, body: OTHER }),
+      "GET /cases/search": () => page(items),
+      "GET /approvals": () => ({ status: 200, body: [] }),
+    });
+    let auth: ReturnType<typeof useAuth> | undefined;
+    function Grab() {
+      auth = useAuth();
+      return null;
+    }
+    app(
+      <>
+        <Grab />
+        <Alerts />
+      </>,
+    );
+    expect(await screen.findAllByRole("status")).toHaveLength(1);
+
+    // 902 has nothing waiting: the toast of 900 must not stay on the screen
+    items = [];
+    me = OTHER;
+    await act(async () => {
+      await auth?.logout();
+    });
+    await act(async () => {
+      await auth?.login(902, "a password of 902");
+    });
+    await screen.findByRole("button", { name: "Work waiting for you: 0" });
+    await wait();
+    expect(screen.queryAllByRole("status")).toEqual([]);
+
+    // The cases 900 saw are new to 902: the seen list is each account's own
+    items = [handoff];
+    cleanup();
+    app(<Alerts />);
+    expect(await screen.findAllByRole("status")).toHaveLength(1);
   });
 
   it("is not there for a nurse", async () => {
     session(STAFF);
     app(<Alerts />);
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
+    await wait();
     expect(screen.queryByRole("button", { name: /Work waiting/ })).toBeNull();
   });
 });

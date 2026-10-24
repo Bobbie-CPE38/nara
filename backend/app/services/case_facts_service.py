@@ -228,8 +228,16 @@ def _staff_waiting_on_another_case(db: Session, case_id: int, staff_ids: set[int
 
 def staff_waiting_case_ids(db: Session, staff_id: int) -> set[int]:
     """Batch offer reads: running cases holding this staff's unresolved acceptance."""
+    return waiting_case_ids_by_staff(db, {staff_id}).get(staff_id, set())
+
+
+def waiting_case_ids_by_staff(db: Session, staff_ids: set[int]) -> dict[int, set[int]]:
+    """staff_waiting_case_ids of many people in one query (round 6 PR EV7, /demo/offers)."""
+    waiting: dict[int, set[int]] = {}
     with db.no_autoflush:
-        return {case_id for _, case_id in _waiting_acceptances(db, {staff_id})}
+        for staff_id, case_id in _waiting_acceptances(db, staff_ids):
+            waiting.setdefault(staff_id, set()).add(case_id)
+    return waiting
 
 
 def assigned_staff_ids(db: Session, case_id: int) -> set[int]:

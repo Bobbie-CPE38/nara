@@ -67,8 +67,10 @@ services:
       # the usage-plan key. Both stay out of the repo (the env file on the machine)
       LLM_LAMBDA_URL: ${LLM_LAMBDA_URL:-}
       LLM_LAMBDA_API_KEY: ${LLM_LAMBDA_API_KEY:-}
-      # Round 6 PR EV7: test accounts that log in without LINE after a demo reset. Unset = none
+      # Round 6 PR EV7: test accounts that log in without LINE after a demo reset. Unset = none.
+      # Nurses only, unless DEMO_MANAGER_ACCOUNTS=true adds the head nurses and the Supervisor
       DEMO_ACCOUNT_PASSWORD: ${DEMO_ACCOUNT_PASSWORD:-}
+      DEMO_MANAGER_ACCOUNTS: ${DEMO_MANAGER_ACCOUNTS:-false}
       LLM_MAX_OUTPUT_TOKENS: ${LLM_MAX_OUTPUT_TOKENS:-1024}
       LLM_REQUEST_TIMEOUT_SECONDS: ${LLM_REQUEST_TIMEOUT_SECONDS:-15}
       LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-1}

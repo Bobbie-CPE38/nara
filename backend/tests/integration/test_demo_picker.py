@@ -9,7 +9,7 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
@@ -103,8 +103,19 @@ def test_an_open_offer_is_listed_and_answered_in_the_candidates_name(
     )
     assert leave.status_code == 201, leave.text
 
-    offers = client.get("/demo/offers").json()
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany) -> None:  # type: ignore[no-untyped-def]
+        statements.append(statement)
+
+    event.listen(seeded.get_bind(), "before_cursor_execute", record)
+    try:
+        offers = client.get("/demo/offers").json()
+    finally:
+        event.remove(seeded.get_bind(), "before_cursor_execute", record)
     assert {offer["staff_id"] for offer in offers} == {201, 202}
+    # Both candidates' offers come from one read, not one per candidate
+    assert sum("offer_outcome_notification" in statement for statement in statements) == 1
     first = next(offer for offer in offers if offer["staff_id"] == 202)
     assert first["first_name"] == "Phanu" and first["can_reject"] is True
 

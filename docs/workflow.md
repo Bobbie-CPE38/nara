@@ -2423,15 +2423,15 @@ OT: `SoftMetrics.overtime_hours` เปลี่ยนจาก "OT ที่ท
 
 #### 6.37.1 เคสตัวอย่างของชุดโรงพยาบาล
 
-`POST /demo/reset` ที่ได้ชุดโรงพยาบาลแบบ active เล่นเคสตัวอย่างหลัง Reset commit แล้ว (`services/demo_example_service.py`) ทุกขั้นผ่าน service เดียวกับที่คนกด ในนามของคนนั้นพร้อม `payload.source = SIMULATED` audit และ timeline จึงเป็นของจริง: (1) Surgery ดึก D ลา → คนแรกที่ได้ Offer รับ → หัวหน้าหออนุมัติ → `RESOLVED` (2) Pediatrics ปฏิเสธจนถึง `MANUAL_HANDOFF` และค้างไว้ (3) Emergency ปฏิเสธจน handoff แล้วหัวหน้าหอปิดเคสพร้อมเหตุผล → `UNRESOLVED` (4) Orthopedics ปฏิเสธจน handoff แล้วหัวหน้าหอจัดคนเอง → `RESOLVED` (5) Cardiology รับแล้วรออนุมัติ → `WAITING_APPROVAL` (6) Surgery เช้า D+1 มี Offer รอคำตอบ → `WAITING_RESPONSE` นาฬิกาหยุดที่ D 21:00 Offer จึงไม่หมดเวลาระหว่างเล่น ตัวอย่างที่เล่นไม่ได้ถูก log และข้ามไป เพราะ Reset commit ไปแล้ว รอบทดสอบไม่เล่นตัวอย่าง (Reset ของรอบไม่ผ่าน route นี้)
+`POST /demo/reset` ที่ได้ชุดโรงพยาบาลแบบ active เล่นเคสตัวอย่างหลัง Reset commit แล้ว (`services/demo_example_service.py`) ทุกขั้นผ่าน service เดียวกับที่คนกด ในนามของคนนั้นพร้อม `payload.source = SIMULATED` audit และ timeline จึงเป็นของจริง: (1) Surgery ดึก D ลา → คนแรกที่ได้ Offer รับ → หัวหน้าหออนุมัติ → `RESOLVED` (2) Pediatrics ปฏิเสธจนถึง `MANUAL_HANDOFF` และค้างไว้ (3) Emergency ปฏิเสธจน handoff แล้วหัวหน้าหอปิดเคสพร้อมเหตุผล → `UNRESOLVED` (4) Orthopedics ปฏิเสธจน handoff แล้วหัวหน้าหอจัดคนเอง → `RESOLVED` (5) Cardiology รับแล้วรออนุมัติ → `WAITING_APPROVAL` (6) Surgery เช้า D+1 มี Offer รอคำตอบ → `WAITING_RESPONSE` นาฬิกาหยุดที่ D 21:00 Offer จึงไม่หมดเวลาระหว่างเล่น ตัวอย่างที่เล่นไม่ได้ถูก log และข้ามไป เพราะ Reset commit ไปแล้ว การสร้างบัญชีทดสอบ (ข้อ 6.37.9) ที่ล้มก็ถูก log เช่นกัน และ Reset ยังตอบ 200 รอบทดสอบไม่เล่นตัวอย่าง (Reset ของรอบไม่ผ่าน route นี้)
 
 #### 6.37.2 หัวหน้าหน้ารายละเอียดเคส
 
-`GET /cases/{id}` มี `overview` (`services/case_overview_service.py`) อ่านจากแถวที่ workflow เขียนอยู่แล้ว: `events` (ชนิดและคนที่เกี่ยว), `replacements` (ใครมาแทน: `APPROVED`, `TRANSFERRED` หรือ `MANUAL`), `decisions` (การตัดสินของคน รวมถึงอนุมัติอัตโนมัติ คำขอหมดเวลา จัดคนเอง และปิดเคส พร้อมผู้ตัดสิน บทบาท หอ ฝั่ง `DESTINATION` หรือ `SOURCE` คนที่ถูกตัดสิน และเหตุผล การย้ายข้ามหอจึงเห็นผู้อนุมัติของทั้งสองหอ) และ `outcome` (เหตุที่หยุดล่าสุด: `MANUAL_HANDOFF` พร้อมรหัสเหตุผล, `CLOSED_UNRESOLVED` พร้อมข้อความของคนปิด หรือ `FAILED` พร้อมชนิด error) หน้าเคสแสดงส่วน "ใครและเพราะอะไร" ใต้กล่องสถานะ แปลรหัสเหตุผลเป็นคำทั้งสองภาษา
+`GET /cases/{id}` มี `overview` (`services/case_overview_service.py`) อ่านจากแถวที่ workflow เขียนอยู่แล้ว: `events` (ชนิดและคนที่เกี่ยว), `replacements` (ใครมาแทน: `APPROVED`, `TRANSFERRED` หรือ `MANUAL`), `decisions` (การตัดสินของคน รวมถึงอนุมัติอัตโนมัติ คำขอหมดเวลา จัดคนเอง และปิดเคส พร้อมผู้ตัดสิน บทบาท หอ ฝั่ง `DESTINATION` หรือ `SOURCE` คนที่ถูกตัดสิน และเหตุผล การย้ายข้ามหอจึงเห็นผู้อนุมัติของทั้งสองหอ) และ `outcome` (เหตุที่หยุดล่าสุด: `MANUAL_HANDOFF` พร้อมรหัสเหตุผล, `CLOSED_UNRESOLVED` พร้อมข้อความของคนปิด หรือ `FAILED` พร้อมชนิด error) `outcome` มีเฉพาะเคสที่หยุดอยู่ตอนนี้ (สถานะ `MANUAL_HANDOFF`, `UNRESOLVED` หรือ `FAILED`) และไม่นับแถวหยุดที่มีการจัดคนหรือ `CASE_RESOLVED` ตามมาทีหลัง เคสที่ handoff แล้วหัวหน้าหอจัดคนเอง หรือ workflow ที่ฟื้นแล้วไปต่อ จึงไม่มีเหตุที่หยุดค้างอยู่ `staff_id` ใน payload ที่เป็น null หรือไม่ใช่ตัวเลขถูกข้าม หน้าเคสจึงไม่ตอบ 500 เพราะแถว audit แถวเดียว หน้าเคสแสดงส่วน "ใครและเพราะอะไร" ใต้กล่องสถานะ แปลรหัสเหตุผลเป็นคำทั้งสองภาษา
 
 #### 6.37.3 Approvals ของ Supervisor
 
-Supervisor ตัดสินได้หลัง `supervisor_from` เท่านั้น (ข้อ 6.21) `GET /approvals?pending=true` จึงไม่ส่งคำขอที่ยังไม่ถึงเวลานั้นให้ Supervisor ทั้งสองโหมด หัวหน้าหอเห็นตามเดิม เมื่อถึงเวลา คำขอจึงปรากฏในรายการและในกระดิ่งของ Supervisor
+Supervisor ตัดสินได้หลัง `supervisor_from` เท่านั้น (ข้อ 6.21) `GET /approvals?pending=true` ในโหมด `session` จึงไม่ส่งคำขอที่ยังไม่ถึงเวลานั้นให้ Supervisor หัวหน้าหอเห็นตามเดิม เมื่อถึงเวลา คำขอจึงปรากฏในรายการและในกระดิ่งของ Supervisor โหมด demo คงเดิมทุกอย่าง: ผู้ใช้ demo ทุกคนเห็นทุกคำขอ ไม่เรียก `access_viewer` และไม่กรองตามเวลา
 
 #### 6.37.4 หน้าที่แต่ละบทบาทเปิดได้
 
@@ -2439,7 +2439,9 @@ Supervisor ตัดสินได้หลัง `supervisor_from` เท่�
 
 #### 6.37.5 การแจ้งเตือนในเว็บ
 
-แถบบนมีกระดิ่ง (`components/layout/Alerts.tsx`) สำหรับ head nurse และ supervisor (และทุกคนในโหมด demo โดยอ่านในนาม 950) อ่าน `GET /cases/search?status=MANUAL_HANDOFF` กับ `GET /approvals?pending=true` ทุก 15 วินาที แสดงตัวเลขสีแดงแบบแอปแชท กดแล้วเปิดรายการพร้อมลิงก์ และเด้ง toast มุมขวาล่างเมื่อมีรายการใหม่ แต่ละรายการเด้งครั้งเดียวต่อแท็บ (จำไว้ใน `sessionStorage`) หายเองใน 10 วินาทีหรือกดปิด สิทธิ์ของรายการเป็นของ Backend จึงเหมือนหน้า Handoff และ Approvals
+แถบบนมีกระดิ่ง (`components/layout/Alerts.tsx`) สำหรับ head nurse และ supervisor (และทุกคนในโหมด demo โดยอ่านในนาม 950) อ่าน `GET /cases/search?status=MANUAL_HANDOFF&sort=newest` (20 เคสล่าสุด เคสใหม่จึงอยู่ในรายการเสมอ) กับ `GET /approvals?pending=true` ทุก 15 วินาที แสดงตัวเลขสีแดงแบบแอปแชท (นับทุกเคส) กดแล้วเปิดรายการพร้อมลิงก์ และลิงก์ไปรายการเต็มที่หน้า `/handoff` และ `/approvals` เด้ง toast มุมขวาล่างเมื่อมีรายการใหม่ หายเองใน 10 วินาทีหรือกดปิด สิทธิ์ของรายการเป็นของ Backend จึงเหมือนหน้า Handoff และ Approvals
+
+แต่ละรายการเด้งครั้งเดียวต่อแท็บและต่อบัญชี (จำไว้ใน `sessionStorage` แยกตามบัญชี) กุญแจของรายการมีเวลาที่สร้างด้วย (`created_at` ของเคส, `requested_at` ของคำขอ) Reset และการเริ่มรอบทดสอบจาก Demo control เปลี่ยนเลขรุ่นใน `localStorage` (`newAlertGeneration`) ทุกแท็บของเบราว์เซอร์จึงลืมรายการที่เคยเด้ง เพราะหลัง Reset เลขเคสเริ่มใหม่และเวลาอาจซ้ำ การเปลี่ยนบัญชีหรือออกจากระบบสร้างกระดิ่งใหม่ toast, timer และรายการของบัญชีก่อนหน้าจึงหายทันที
 
 #### 6.37.6 หน้าตาอื่น
 
@@ -2455,11 +2457,15 @@ Supervisor ตัดสินได้หลัง `supervisor_from` เท่�
 
 - เลื่อนนาฬิกาเลือกได้ 3, 5, 10, 15, 30, 60 นาที หรือกรอกเอง 1 ถึง 10080 นาที
 - แจ้งผู้ป่วยเพิ่ม (`PATIENT_SURGE`) ของเวรที่เลือก ในนามหัวหน้าหอของหอนั้น (`GET /demo/wards` มี `head_nurse_id` คือ head nurse คนแรกที่ ACTIVE)
-- ตอบ Offer แทน candidate: `GET /demo/offers` คือ Offer ที่ยังตอบได้ทุกอัน พร้อมชื่อคน และ `POST /demo/offers/{outreach_id}/response {response}` ตอบผ่าน `outreach_service.record_response` ในนามของ candidate พร้อม `payload.source = SIMULATED` (404 ไม่มี Offer, 409 ตอบไม่ได้แล้ว) ทั้งสอง route ใน `session` ต้องมี session ของ head nurse หรือ supervisor เหมือน `/demo/events`
+- ตอบ Offer แทน candidate: `GET /demo/offers` คือ Offer ที่ยังตอบได้ทุกอัน พร้อมชื่อคน และ `POST /demo/offers/{outreach_id}/response {response}` ตอบผ่าน `outreach_service.record_response` ในนามของ candidate พร้อม `payload.source = SIMULATED` (404 ไม่มี Offer, 409 ตอบไม่ได้แล้ว) ทั้งสอง route ใน `session` ต้องมี session ของ head nurse หรือ supervisor เหมือน `/demo/events` `GET /demo/offers` อ่าน Offer ของทุก candidate ในครั้งเดียว (`outreach_service.list_offers_of`) จำนวน query ไม่โตตามจำนวนคน
 
 #### 6.37.9 บัญชีทดสอบที่ไม่ต้องผูก LINE
 
-ตั้ง `DEMO_ACCOUNT_PASSWORD` (อย่างน้อย 12 ตัว ในไฟล์ env ของเครื่อง ห้ามอยู่ใน repo) แล้ว `POST /demo/reset` สร้างบัญชีให้คนที่ยังไม่มีบัญชี (`services/demo_account_service.py`): 105, 201, 202, 203, 900, 902, 950 และในชุดโรงพยาบาล head nurse กับ RN คนแรกของแต่ละหอ ไม่ต้องเปลี่ยนรหัสตอนล็อกอินแรก ไม่แตะบัญชีที่มีอยู่แล้ว และเก็บข้าม Reset ตามข้อ 6.33.7 ไม่ตั้งค่า = ไม่สร้าง ใครผ่าน Basic Auth ได้ก็ลองรหัสนี้ได้ จึงใช้กับเครื่อง Demo เท่านั้น
+ตั้ง `DEMO_ACCOUNT_PASSWORD` (12 ถึง 128 ตัวเท่ากับรหัสของบัญชีเว็บ ในไฟล์ env ของเครื่อง ห้ามอยู่ใน repo) แล้ว `POST /demo/reset` สร้างบัญชีให้คนที่ยังไม่มีบัญชี (`services/demo_account_service.py`) ไม่ต้องเปลี่ยนรหัสตอนล็อกอินแรก ไม่แตะบัญชีที่มีอยู่แล้ว และเก็บข้าม Reset ตามข้อ 6.33.7 ไม่ตั้งค่า = ไม่สร้าง
+
+รหัสนี้ใช้ร่วมกันและผู้ทดสอบทุกคนรู้ ใครผ่าน Basic Auth ได้ก็ลองได้ จึงสร้างให้เฉพาะพยาบาลเป็นค่าเริ่มต้น: 105, 201, 202, 203 และ RN คนแรกของแต่ละหอในชุดโรงพยาบาล พยาบาลเห็นแค่เวรและ Offer ของตัวเอง บัญชีของ head nurse (900, 902 และหัวหน้าของแต่ละหอ) และ supervisor 950 เปิดได้ทุกหอ Demo control และ Staff management จึงสร้างเมื่อตั้ง `DEMO_MANAGER_ACCOUNTS=true` เพิ่มเท่านั้น ให้เปิดเฉพาะช่วงทดสอบแล้วตั้งกลับเป็น `false` บัญชีที่สร้างไปแล้วยังอยู่จนกว่าจะปิดบัญชีด้วยสคริปต์บัญชี ใช้กับเครื่อง Demo เท่านั้น
+
+บัญชีทั้งหมดสร้างใน transaction เดียว hash รหัสครั้งเดียว และ insert แบบ `ON CONFLICT DO NOTHING` Reset ที่ทับกันจึงไม่ทำให้ล้ม ถ้ายังล้ม Reset ยังตอบ 200 และ log ไว้ Reset ครั้งต่อไปสร้างส่วนที่ขาด
 
 #### 6.37.10 สถานการณ์ทดสอบเพิ่ม
 
@@ -2470,20 +2476,21 @@ Supervisor ตัดสินได้หลัง `supervisor_from` เท่�
 | `handoff` | 105 ลา | 202, 201, 203 ปฏิเสธที่ 30, 45, 60 วินาที | จัดคนเองจากหน้า handoff |
 | `supervisor` | 105 ลา | เหมือน golden, หัวหน้าหอไม่ตัดสิน | เล่นเป็น 950 รอจนถึงเวลาของ supervisor แล้วอนุมัติ |
 
-เคสของรอบที่ไม่มี event เริ่ม (`no_show`) คือเคสแรกของเวรดึก ICU (`simulated_replies_service.run_case_id`) payload ของ `TEST_RUN_STARTED` จึงมี `shift_id` ด้วย KPI และตัวละครจำลองใช้ฟังก์ชันเดียวกันหาเคส
+เคสของรอบที่ไม่มี event เริ่ม (`no_show`) คือเคสของ event NO_SHOW ของ 104 ในเวรดึก ICU (`simulated_replies_service.run_case_id`) ไม่ใช่เคสแรกของเวร เคสอื่นในเวรเดียวกัน เช่น เคสที่แจ้งเองจาก Demo control ระหว่างรอบ จึงไม่ถูกหยิบไปแทน payload ของ `TEST_RUN_STARTED` จึงมี `shift_id` และ `no_show_staff_id` KPI และตัวละครจำลองใช้ฟังก์ชันเดียวกันหาเคส กดจบรอบก่อนระบบพบ NO_SHOW (ยังไม่มีเคส) ได้ผล invalid เหตุผล `NO_CASE` แทนแถว KPI ที่ว่าง
 
 #### 6.37.11 จุดที่เสี่ยงพังเงียบ (มีเทสต์)
 
 | ข้อกำหนด | เทสต์ |
 |---|---|
-| Reset ชุดโรงพยาบาลได้เคสครบหกแบบ, หน้าเคสบอกคนมาแทน ผู้อนุมัติ หอ ฝั่ง และเหตุผลที่หยุด, ไม่มีชุดโรงพยาบาลไม่เล่นอะไร | `test_demo_examples.py` |
-| บัญชีทดสอบล็อกอินได้เมื่อตั้งรหัส, ไม่สร้างซ้ำ, ไม่ตั้งรหัสไม่สร้าง | `test_demo_examples.py` |
+| Reset ชุดโรงพยาบาลได้เคสครบหกแบบ, หน้าเคสบอกคนมาแทน ผู้อนุมัติ หอ ฝั่ง และเหตุผลที่หยุด, เคสที่จัดคนเองหลัง handoff ไม่มีเหตุที่หยุด, `staff_id` ที่ใช้ไม่ได้ไม่ทำให้หน้าเคส 500, ไม่มีชุดโรงพยาบาลไม่เล่นอะไร | `test_demo_examples.py` |
+| บัญชีทดสอบเป็นพยาบาลเป็นค่าเริ่มต้น, head nurse และ supervisor เฉพาะเมื่อเปิด `DEMO_MANAGER_ACCOUNTS`, ไม่สร้างซ้ำ, ไม่ตั้งรหัสไม่สร้าง, สร้างล้มแล้ว Reset ยังตอบ 200 | `test_demo_examples.py` |
+| `DEMO_ACCOUNT_PASSWORD` 12 และ 128 ตัวผ่าน, 11 และ 129 ตัวหยุด startup, ค่าว่างคือไม่ตั้ง | `test_auth_config.py` |
 | การย้ายข้ามหอแสดงผู้อนุมัติ ICU ฝั่งปลายทางและ Medicine ฝั่งต้นทาง | `test_test_run_scenarios.py` |
-| Supervisor ไม่เห็นคำขอก่อน `supervisor_from` และเห็นหลังจากนั้น | `test_route_permissions.py`, `test_au2_review_points.py`, `test_test_run_scenarios.py` |
-| สถานการณ์ surge, no_show, handoff, supervisor เล่นจนจบได้ และรอบหาเคสได้แม้ไม่มี event เริ่ม | `test_test_run_scenarios.py` |
-| ตอบ Offer จาก Demo control ในนามของ candidate, 404 และ 409, หอบอกหัวหน้าหอ | `test_demo_picker.py` |
+| Supervisor ในโหมด `session` ไม่เห็นคำขอก่อน `supervisor_from` และเห็นหลังจากนั้น, โหมด demo เห็นทันทีเหมือนเดิม | `test_route_permissions.py`, `test_au2_review_points.py`, `test_pending_approvals.py` |
+| สถานการณ์ surge, no_show, handoff, supervisor เล่นจนจบได้, รอบ no_show หาเคสของ NO_SHOW ได้แม้มีเคสอื่นในเวร, จบก่อนมีเคสได้ `NO_CASE` | `test_test_run_scenarios.py` |
+| ตอบ Offer จาก Demo control ในนามของ candidate, 404 และ 409, อ่าน Offer ทุกคนในครั้งเดียว, หอบอกหัวหน้าหอ | `test_demo_picker.py` |
 | Staff management มีทักษะและบัญชี | `test_staff_management.py` |
-| หน้าเว็บ: หน้าตามบทบาท, รหัสผ่านแสดงได้, กระดิ่งนับและเด้งครั้งเดียว, หัวหน้าหน้าเคส, กดแถว, เลื่อนเวลาเลือกได้, ผู้ป่วยเพิ่ม, ตอบ Offer, ทักษะ, สถานการณ์ใหม่ | `ev7.test.tsx`, `caseList.test.tsx`, `demoControl.test.ts`, `staffManagement.test.tsx`, `testRuns.test.tsx` |
+| หน้าเว็บ: หน้าตามบทบาท, รหัสผ่านแสดงได้, กระดิ่งนับและเด้งครั้งเดียว เด้งใหม่หลัง Reset อ่านเคสล่าสุดพร้อมลิงก์รายการเต็ม และไม่เหลืออะไรของบัญชีก่อนเมื่อเปลี่ยนบัญชี, หัวหน้าหน้าเคส, กดแถว, เลื่อนเวลาเลือกได้, ผู้ป่วยเพิ่ม, ตอบ Offer, ทักษะ, สถานการณ์ใหม่ | `ev7.test.tsx`, `caseList.test.tsx`, `demoControl.test.ts`, `staffManagement.test.tsx`, `testRuns.test.tsx` |
 
 ## 7. Audit
 
@@ -3448,5 +3455,5 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-23 | รอบ 6 PR EV5-0: สัญญาของโหมดทดสอบและ KPI (ข้อ 6.35) นาฬิกาโหมด `scenario`, API รอบทดสอบ (รวมยกเลิกรอบและการห้าม Reset ขณะมีรอบค้าง), สถานการณ์ `cross_ward`, ตัวละครจำลองใน `run_due_work`, KPI จาก audit log ที่รอด Reset (แถว audit ไม่มี Migration) และเปลี่ยนชื่อ PR วัดผล #141 จาก E1 เป็น EV1 เพราะชื่อซ้ำ | ตกลงกัน |
 | 2026-10-23 | รอบ 6 PR EV5a: Backend ของโหมดทดสอบ (ข้อ 6.35) นาฬิกาโหมด `scenario`, `/demo/test-runs` (เริ่ม จบ ยกเลิก รายการ CSV), ห้าม Reset/Freeze/Unfreeze ขณะมีรอบค้าง, เลื่อนเวลาในรอบเป็นแถว audit, สถานการณ์ `cross_ward` (`seed/scenarios/cross_ward.py`), ตัวละครจำลองใน `run_due_work`, KPI จาก audit log, Reset เก็บแถว `TEST_RUN`; ไม่มี Migration | คน 1 |
 | 2026-10-23 | รอบ 6 PR EV5b: หน้าเว็บของโหมดทดสอบ (ข้อ 6.35.5) ส่วนรอบทดสอบใน Demo control (เริ่ม จบ ยกเลิก, ปิด Reset/Freeze/Unfreeze ขณะมีรอบค้าง), หน้า `/demo/test-runs` (มัธยฐาน ต่ำสุดถึงสูงสุด CSV), แถบนาฬิกาแสดงโหมด scenario, สองภาษา; Backend: การเลื่อนนาฬิกาของรอบทีละ 30 วินาที รวมไม่เกิน 2 ชั่วโมงต่อรอบ และไม่แทรกกับ Finish/Abort | คน 1 |
-| 2026-10-24 | รอบ 6 PR EV7 (ข้อ 6.37): เคสตัวอย่างของชุดโรงพยาบาลที่เล่นผ่าน flow จริงหลัง Reset (`demo_example_service`); `overview` ของ `GET /cases/{id}` และส่วน "ใครและเพราะอะไร" ของหน้าเคส; Supervisor เห็นคำขออนุมัติหลัง `supervisor_from`; หน้าเว็บกันหน้าตามบทบาท (`lib/routeAccess.ts`); กระดิ่งแจ้งเตือนกับ toast; ช่องรหัสผ่านแสดงได้; โลโก้ชิดซ้าย; `skills`, `has_account` ใน `GET /admin/staff`; กดแถวดูเคส; Demo control เลื่อนเวลาเลือกได้ ผู้ป่วยเพิ่ม และ `GET /demo/offers`, `POST /demo/offers/{id}/response`; `DEMO_ACCOUNT_PASSWORD` สร้างบัญชีทดสอบ (`demo_account_service`); สถานการณ์ `surge`, `no_show`, `handoff`, `supervisor`; ไม่มี Migration | คน 1 |
+| 2026-10-24 | รอบ 6 PR EV7 (ข้อ 6.37): เคสตัวอย่างของชุดโรงพยาบาลที่เล่นผ่าน flow จริงหลัง Reset (`demo_example_service`); `overview` ของ `GET /cases/{id}` และส่วน "ใครและเพราะอะไร" ของหน้าเคส; Supervisor ในโหมด session เห็นคำขออนุมัติหลัง `supervisor_from`; หน้าเว็บกันหน้าตามบทบาท (`lib/routeAccess.ts`); กระดิ่งแจ้งเตือนกับ toast; ช่องรหัสผ่านแสดงได้; โลโก้ชิดซ้าย; `skills`, `has_account` ใน `GET /admin/staff`; กดแถวดูเคส; Demo control เลื่อนเวลาเลือกได้ ผู้ป่วยเพิ่ม และ `GET /demo/offers`, `POST /demo/offers/{id}/response`; `DEMO_ACCOUNT_PASSWORD` สร้างบัญชีทดสอบของพยาบาล และ `DEMO_MANAGER_ACCOUNTS` เพิ่ม head nurse กับ supervisor (`demo_account_service`); สถานการณ์ `surge`, `no_show`, `handoff`, `supervisor`; ไม่มี Migration | คน 1 |
 | 2026-10-23 | รอบ 6 PR EV6 (ข้อ 6.36): นาฬิกาโหมด `running` กับ `POST /demo/clock/set` และ `/resume`; Reset เก็บ `AUTH_SESSION` และ `CONTACTS`; Demo ชุดโรงพยาบาล (`seed/hospital_demo.py`, `POST /demo/reset {hospital}`) พร้อมเช็คอินเอง; `GET /demo/wards`, `GET /demo/shifts`; `GET /dashboard?ward_id=` และ `ward_options`; `GET /cases/search` กับหน้า `/cases`; handoff ค้นหา แบ่งหน้า และ modal; Roster ตามสิทธิ์; Demo control ในเมนูของผู้จัดการ; น้ำหนัก Ranking ตามลำดับความสำคัญและ OT แบบคาดการณ์; เพดาน 10 Wave และ 90 นาทีใน `OUTREACH_POLICY` (Migration `c3e5a7b9d1f2`) | คน 1 |

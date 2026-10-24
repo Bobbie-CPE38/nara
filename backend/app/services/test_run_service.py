@@ -66,6 +66,8 @@ ABORTED = "ABORTED"
 CLOCK_LOST = "CLOCK_LOST"
 # The clock or the first job round failed after the run was written (6.35.2)
 START_FAILED = "START_FAILED"
+# Finished before the run had a case: in no_show, before the system found the NO_SHOW
+NO_CASE = "NO_CASE"
 # A test run's clock moves one job round at a time (the job's default interval), and in
 # all at most two hours, when the run's shift starts (6.35.1)
 SCENARIO_STEP_SECONDS = 30
@@ -299,8 +301,10 @@ def start(
                     "scenario_start": demo_time.isoformat(),
                     "started_real_at": real_start.isoformat(),
                     "event_id": event_id,
-                    # The case of a run without a starting event is the first of this shift
+                    # A run without a starting event finds its case through the NO_SHOW of
+                    # this nurse on this shift (simulated_replies_service.run_case_id)
                     "shift_id": NIGHT_SHIFT,
+                    "no_show_staff_id": NO_SHOW_NURSE if event_id is None else None,
                 },
             )
             started = db.scalars(
@@ -501,6 +505,10 @@ def finish(db: Session, run_id: int, *, staff_id: int | None) -> dict[str, Any]:
         started = _started_row(db, run_id)
         if clock.test_run_id() != run_id:
             payload: dict[str, Any] = {"invalid": True, "reason": CLOCK_LOST}
+        elif _run_case(db, started) is None:
+            # No case, no KPI to read: say so instead of a row of empty times
+            clock.freeze_now()
+            payload = {"invalid": True, "reason": NO_CASE}
         else:
             clock.freeze_now()
             payload = {

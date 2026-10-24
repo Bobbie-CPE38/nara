@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { newAlertGeneration } from "@/components/layout/Alerts";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Notice";
 import { ApiError, apiRequest } from "@/lib/api";
@@ -88,13 +89,15 @@ export function TestRunPanel({
   }
 
   const start = () =>
-    act(async () => ({
-      kind: "started",
-      run: await apiRequest<TestRunStarted>("/demo/test-runs", {
+    act(async () => {
+      const run = await apiRequest<TestRunStarted>("/demo/test-runs", {
         method: "POST",
         json: { tester_code: code, scenario, auto_nurses: autoNurses },
-      }),
-    }));
+      });
+      // A run starts with a reset: the IDs start again (Alerts)
+      newAlertGeneration();
+      return { kind: "started", run };
+    });
 
   const close = (how: "finish" | "abort") => {
     if (open === undefined) return;

@@ -30,7 +30,6 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     Staff,
-    StaffingCase,
     StaffingEvent,
 )
 from app.domain.enums import (
@@ -39,9 +38,16 @@ from app.domain.enums import (
     CandidateResponse,
     CheckInSource,
     EntityType,
+    EventType,
     OutreachStatus,
 )
-from app.services import actor_service, approval_service, approval_wards, outreach_service
+from app.services import (
+    actor_service,
+    approval_service,
+    approval_wards,
+    merge_window_service,
+    outreach_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -116,18 +122,26 @@ SCRIPTS: dict[str, Script] = {
 
 def run_case_id(db: Session, payload: dict[str, Any]) -> int | None:
     """The case of a test run: the case of its starting event, or for a run that starts
-    without one (no_show) the first case of its shift. A reset started the run, so every
-    case of that shift is the run's."""
+    without one (no_show) the case of the NO_SHOW event the system writes for the nurse
+    who does not come. Never another case of the shift, such as one reported by hand from
+    the Demo control during the run."""
     event_id = payload.get("event_id")
     if event_id is not None:
         return db.scalar(select(StaffingEvent.case_id).where(StaffingEvent.id == event_id))
     shift_id = payload.get("shift_id")
-    if shift_id is None:
+    staff_id = payload.get("no_show_staff_id")
+    if shift_id is None or staff_id is None:
         return None
     return db.scalar(
-        select(StaffingCase.id)
-        .where(StaffingCase.shift_id == shift_id)
-        .order_by(StaffingCase.id)
+        select(StaffingEvent.case_id)
+        .where(
+            StaffingEvent.shift_id == shift_id,
+            StaffingEvent.staff_id == staff_id,
+            StaffingEvent.event_type == EventType.STAFF_UNAVAILABLE,
+            StaffingEvent.payload["reason"].as_string() == merge_window_service.NO_SHOW_REASON,
+            StaffingEvent.case_id.is_not(None),
+        )
+        .order_by(StaffingEvent.id)
         .limit(1)
     )
 

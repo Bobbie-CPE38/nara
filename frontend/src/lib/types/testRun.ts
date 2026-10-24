@@ -34,7 +34,7 @@ export type TestRunView = {
   open: boolean;
   /** System time since the start, advances included; null when this API lost the run's clock */
   elapsed_seconds: number | null;
-  /** null while open; true for an aborted, CLOCK_LOST or START_FAILED run */
+  /** null while open; true for an aborted, CLOCK_LOST, START_FAILED or NO_CASE run */
   invalid: boolean | null;
   reason: string | null;
   advanced_seconds: number;

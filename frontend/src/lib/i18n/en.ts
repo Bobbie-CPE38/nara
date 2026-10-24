@@ -64,6 +64,8 @@ export const en = {
   "alerts.none": "Nothing waits for you.",
   "alerts.handoff": "Case {id} needs a person: nobody could be found",
   "alerts.approval": "Staff {staff} waits for your approval (case {id})",
+  "alerts.allHandoffs": "All handed-off cases ({count})",
+  "alerts.allApprovals": "All approvals ({count})",
   "overview.title": "Who and why",
   "overview.what": "What happened",
   "overview.replacements": "Who came instead",

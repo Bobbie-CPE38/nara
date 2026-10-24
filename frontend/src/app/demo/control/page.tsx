@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { useBackendClock } from "@/components/ClockProvider";
 import { OffersPanel } from "@/components/demo/OffersPanel";
 import { TestRunPanel } from "@/components/demo/TestRunPanel";
+import { newAlertGeneration } from "@/components/layout/Alerts";
 import { Notice } from "@/components/ui/Notice";
 import { usePolling } from "@/hooks/usePolling";
 import { useShiftPicker } from "@/hooks/useShiftPicker";
@@ -206,6 +207,8 @@ export default function DemoControl() {
         { method: "POST", json: { hospital: withHospital } },
       );
       setClockInput(null);
+      // The IDs start again: the bell must not take a new case for one it already showed
+      newAlertGeneration();
       void picker.reload();
       return { kind: "reset", clock };
     });

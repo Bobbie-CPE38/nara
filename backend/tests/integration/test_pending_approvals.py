@@ -1,7 +1,7 @@
 """Seam 6: authenticated, read-only pending approval lists from PostgreSQL."""
 
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
+from app.core import clock
 from app.db.models import (
     ApprovalRequest,
     AuditLog,
@@ -207,6 +208,17 @@ def test_reads_do_not_require_the_approver_role(
     response = client.get(URL, headers={"X-Demo-User": str(staff_id)})
     assert response.status_code == 200
     assert response.json()[0]["id"] == request.id
+
+
+def test_demo_mode_shows_the_supervisor_a_request_before_supervisor_from(
+    client: TestClient, production_seeded: Session
+) -> None:
+    # Only session mode hides it until the head nurses had their time (round 6 PR EV7, 6.37.3)
+    request = _request(production_seeded)
+    rows = client.get(URL, headers={"X-Demo-User": "950"}).json()
+
+    assert [row["id"] for row in rows] == [request.id]
+    assert datetime.fromisoformat(rows[0]["supervisor_from"]) > clock.now()
 
 
 @pytest.mark.parametrize("headers", [{}, {"X-Demo-User": "abc"}, {"X-Demo-User": "999"}])

@@ -3,6 +3,7 @@ Basic Auth, and in session mode every POST also needs an allowed Origin (6.33.3)
 
 import csv
 import io
+import logging
 from datetime import date, datetime, time, timedelta
 from typing import Annotated
 
@@ -52,6 +53,7 @@ from app.services.requirement_service import RequirementNotFoundError
 SIMULATED_SOURCE = CheckInSource.SIMULATED.value
 
 router = APIRouter(prefix="/demo", tags=["demo"])
+logger = logging.getLogger(__name__)
 
 
 def _run_in_progress(error: test_run_service.TestRunOpenError) -> HTTPException:
@@ -76,7 +78,13 @@ def reset(db: DbSession, body: DemoReset | None = None) -> dict[str, str]:
                 select(DemoDataset.id).where(DemoDataset.profile == hospital_demo.PROFILE)
             ):
                 demo_example_service.play(db)
-            demo_account_service.ensure(db)
+            # The reset has committed: a failure here must not answer 500 for it. The
+            # accounts are made again by the next reset, which skips those that exist
+            try:
+                demo_account_service.ensure(db)
+            except Exception:
+                db.rollback()
+                logger.exception("Demo reset: the test accounts were not made")
     except test_run_service.TestRunOpenError as error:
         raise _run_in_progress(error) from error
     return {"status": "ok", "clock": demo_time.isoformat()}
@@ -209,11 +217,10 @@ def list_open_offers(db: DbSession, reader: Reader) -> list[DemoOffer]:
     offers = [
         DemoOffer(
             **offer.model_dump(),
-            first_name=names[staff_id].first_name,
-            last_name=names[staff_id].last_name,
+            first_name=names[offer.staff_id].first_name,
+            last_name=names[offer.staff_id].last_name,
         )
-        for staff_id in staff_ids
-        for offer in outreach_service.list_offers(db, staff_id=staff_id)
+        for offer in outreach_service.list_offers_of(db, set(staff_ids))
         if offer.can_accept or offer.can_reject
     ]
     return sorted(offers, key=lambda offer: (offer.sent_at is None, offer.sent_at, offer.id))

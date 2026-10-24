@@ -19,10 +19,11 @@ from app.db.models import (
     CandidateItem,
     Role,
     Staff,
+    StaffingCase,
     StaffingEvent,
     Ward,
 )
-from app.domain.enums import ActorType, AuditAction
+from app.domain.enums import ActorType, AuditAction, CaseStatus
 from app.schemas.case import (
     CaseOverview,
     OverviewDecision,
@@ -37,6 +38,24 @@ _FILLS = {
     AuditAction.ASSIGNMENT_TRANSFERRED: "TRANSFERRED",
     AuditAction.MANUAL_ASSIGNMENT_CREATED: "MANUAL",
 }
+# The statuses of a case that stopped: only these show why. A stop row of a case that went
+# on afterwards (staffed by hand, or a workflow that recovered) is history, not the outcome
+_STOPPED = {CaseStatus.MANUAL_HANDOFF, CaseStatus.UNRESOLVED, CaseStatus.FAILED}
+# A stop row before one of these is over: the case went on and was staffed after it
+_RESOLUTIONS = {*_FILLS, AuditAction.CASE_RESOLVED}
+
+
+def _staff_id(payload: dict[str, Any]) -> int | None:
+    """payload.staff_id when it is a usable ID: an old or hand-written row may hold null or
+    text, and the case page must still open."""
+    value = payload.get("staff_id")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdecimal():
+        return int(value)
+    return None
 
 
 class _People:
@@ -82,6 +101,7 @@ class _People:
 
 
 def build(db: Session, case_id: int) -> CaseOverview:
+    case_status = db.scalar(select(StaffingCase.status).where(StaffingCase.id == case_id))
     events = db.scalars(
         select(StaffingEvent).where(StaffingEvent.case_id == case_id).order_by(StaffingEvent.id)
     ).all()
@@ -98,19 +118,19 @@ def build(db: Session, case_id: int) -> CaseOverview:
     ).all()
 
     staff_ids = {event.staff_id for event in events if event.staff_id is not None}
-    staff_ids |= {int(row.payload["staff_id"]) for row in audits if "staff_id" in row.payload}
+    staff_ids |= {staff_id for row in audits if (staff_id := _staff_id(row.payload)) is not None}
     staff_ids |= {decision.approver_id for decision, _, _ in ward_decisions}
     staff_ids |= {candidate for _, candidate, _ in ward_decisions}
     people = _People(db, staff_ids, {row.actor_id for row in audits})
 
     replacements = [
         OverviewReplacement(
-            staff=_required(people.person(int(row.payload["staff_id"]))),
+            staff=_required(people.person(staff_id)),
             how=_FILLS[row.action],
             at=row.created_at,
         )
         for row in audits
-        if row.action in _FILLS and "staff_id" in row.payload
+        if row.action in _FILLS and (staff_id := _staff_id(row.payload)) is not None
     ]
 
     decisions: list[tuple[datetime, OverviewDecision]] = [
@@ -146,7 +166,7 @@ def build(db: Session, case_id: int) -> CaseOverview:
         ],
         replacements=replacements,
         decisions=[decision for _, decision in decisions],
-        outcome=_outcome(audits, people),
+        outcome=_outcome(audits, people) if case_status in _STOPPED else None,
     )
 
 
@@ -154,7 +174,7 @@ def _from_audit(row: AuditLog, people: _People) -> OverviewDecision | None:
     """The decisions that are not one ward side's: an automatic approval, a request that
     timed out, a manual assignment and a close. A person's approval is a ward decision."""
     payload: dict[str, Any] = row.payload
-    candidate = people.person(payload.get("staff_id"))
+    candidate = people.person(_staff_id(payload))
     if row.action == AuditAction.APPROVAL_APPROVED and payload.get("approval_mode") == "AUTO":
         kind = "AUTO_APPROVED"
     elif row.action == AuditAction.APPROVAL_TIMEOUT:
@@ -178,8 +198,11 @@ def _from_audit(row: AuditLog, people: _People) -> OverviewDecision | None:
 
 
 def _outcome(audits: Any, people: _People) -> OverviewOutcome | None:
-    """The latest stop of the case: a later close replaces the handoff before it."""
+    """The latest stop of the case: a later close replaces the handoff before it, and a
+    later fill or resolution means the case went on, so there is no stop to show."""
     for row in reversed(audits):
+        if row.action in _RESOLUTIONS:
+            return None
         if row.action == AuditAction.CASE_CLOSED_UNRESOLVED:
             kind, reason = "CLOSED_UNRESOLVED", row.payload.get("reason")
         elif row.action == AuditAction.MANUAL_HANDOFF:
