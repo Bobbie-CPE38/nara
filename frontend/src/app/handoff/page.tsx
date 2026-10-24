@@ -17,6 +17,7 @@ import { ApiError, createDemoApi } from "@/lib/api";
 import { SKIP_REASON_KEYS } from "@/lib/constants";
 import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
+import { CLICKABLE_ROW, ROW_LINK, followRowLink } from "@/lib/rowClick";
 import type { MessageKey, Params, Translate } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import type {
@@ -322,7 +323,11 @@ function HandoffPage() {
               </thead>
               <tbody>
                 {cases.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    className={CLICKABLE_ROW}
+                    onClick={followRowLink}
+                  >
                     <td>
                       <Link className="underline" href={`/cases/${row.id}`}>
                         {row.id}
@@ -334,14 +339,19 @@ function HandoffPage() {
                     <td>{shortByText(row)}</td>
                     <td>{formatDateTime(row.created_at)}</td>
                     <td>
-                      {row.can_manage ? (
-                        <Button disabled={busy} onClick={() => open(row.id)}>
-                          {t("hand.manage")}
-                        </Button>
-                      ) : (
-                        // FAILED stays an end point (R2-Q22)
-                        <span className="text-sm">{t("hand.cannotManage")}</span>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {row.can_manage ? (
+                          <Button disabled={busy} onClick={() => open(row.id)}>
+                            {t("hand.manage")}
+                          </Button>
+                        ) : (
+                          // FAILED stays an end point (R2-Q22)
+                          <span className="text-sm">{t("hand.cannotManage")}</span>
+                        )}
+                        <Link {...ROW_LINK} className="whitespace-nowrap font-medium text-brand-700 underline" href={`/cases/${row.id}`}>
+                          {t("cases.seeDetails")}
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}

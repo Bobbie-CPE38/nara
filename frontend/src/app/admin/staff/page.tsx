@@ -10,15 +10,24 @@ import { ScrollX } from "@/components/ScrollX";
 import { ApiError, apiRequest } from "@/lib/api";
 import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
+import type { MessageKey } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
 
 type Staff = {
   id: number; first_name: string; last_name: string; role: string;
   ward_name: string; status: string; line_linked: boolean; line_binding_present: boolean;
+  /** Round 6 PR EV7: the skills by name, and whether the person has a web account */
+  skills?: string[]; has_account?: boolean;
 };
 type StaffPage = { items: Staff[]; total: number };
 type Code = { code: string; expires_at: string };
 const PAGE_SIZE = 25;
+// The role names of the database, said in the language of the page
+const ROLE_KEYS: Record<string, MessageKey> = {
+  RN: "role.staff",
+  HEAD_NURSE: "role.headNurse",
+  SUPERVISOR: "role.supervisor",
+};
 
 function Directory() {
   const t = useT();
@@ -186,10 +195,14 @@ function Directory() {
       {data && <Card>
         <p className="mb-3">{t("staff.total", { total: data.total })}</p>
         {data.items.length === 0 ? <p>{t("staff.empty")}</p> : <ScrollX><table className="w-full text-left text-sm">
-          <thead><tr>{(["staff.id", "staff.name", "staff.ward", "staff.status", "staff.line"] as const).map((key) => <th key={key} className="p-2">{t(key)}</th>)}<th><span className="sr-only">{t("staff.issue")}</span></th></tr></thead>
+          <thead><tr>{(["staff.id", "staff.name", "staff.role", "staff.skills", "staff.ward", "staff.status", "staff.account", "staff.line"] as const).map((key) => <th key={key} className="p-2">{t(key)}</th>)}<th><span className="sr-only">{t("staff.issue")}</span></th></tr></thead>
           <tbody>{data.items.map((staff) => <tr key={staff.id} className="border-t border-slate-200">
-            <td className="p-2">{staff.id}</td><td className="p-2">{staff.first_name} {staff.last_name}</td><td className="p-2">{staff.ward_name}</td>
-            <td className="p-2">{t(staff.status === "ACTIVE" ? "staff.active" : "staff.inactive")}</td><td className="p-2">{t(staff.line_linked ? "staff.linked" : staff.line_binding_present ? "staff.bindingInactive" : "staff.unlinked")}</td>
+            <td className="p-2">{staff.id}</td><td className="p-2">{staff.first_name} {staff.last_name}</td>
+            <td className="p-2">{ROLE_KEYS[staff.role] ? t(ROLE_KEYS[staff.role]) : staff.role}</td>
+            <td className="p-2">{staff.skills && staff.skills.length > 0 ? staff.skills.join(", ") : "—"}</td>
+            <td className="p-2">{staff.ward_name}</td>
+            <td className="p-2">{t(staff.status === "ACTIVE" ? "staff.active" : "staff.inactive")}</td>
+            <td className="p-2">{staff.has_account === undefined ? "—" : t(staff.has_account ? "staff.hasAccount" : "staff.noAccount")}</td><td className="p-2">{t(staff.line_linked ? "staff.linked" : staff.line_binding_present ? "staff.bindingInactive" : "staff.unlinked")}</td>
             <td className="p-2"><div className="flex flex-wrap gap-2">
               <Button disabled={busy !== null || loading || unlinkTarget !== null || staff.line_binding_present || staff.status !== "ACTIVE"} onClick={() => void issue(staff)}>{t(busy === staff.id && unlinkTarget === null ? "staff.issuing" : "staff.issue")}</Button>
               {staff.line_binding_present && <Button disabled={busy !== null || loading || unlinkTarget !== null} onClick={() => requestUnlink(staff)}>{t("staff.unlink")}</Button>}

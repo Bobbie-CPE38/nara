@@ -107,7 +107,7 @@ describe("handoff page", () => {
       "1",
       "1",
       "2026-10-09 21:00:00",
-      "Manage",
+      "ManageSee details",
     ]);
   });
 

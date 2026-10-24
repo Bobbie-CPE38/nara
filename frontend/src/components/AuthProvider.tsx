@@ -7,6 +7,7 @@ import { Notice } from "@/components/ui/Notice";
 import { ApiError, apiRequest, setAuthProblemHandler, setSessionMode } from "@/lib/api";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n/LanguageProvider";
+import { roleMayOpen } from "@/lib/routeAccess";
 import type { AuthConfig, AuthMe } from "@/lib/types/auth";
 
 /**
@@ -180,11 +181,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const mustChange = state.status === "authenticated" && state.me.must_change_password;
   const sendToLogin = state.status === "anonymous" && !worksWithoutAccount(pathname);
   const sendToChangePassword = mustChange && pathname !== "/change-password";
+  // A page outside the user's role goes back to the Dashboard without a word (round 6 PR EV7)
+  const sendHome = state.status === "authenticated" && !roleMayOpen(pathname, state.me.role);
   const redirectTo = sendToLogin
     ? `/login?next=${encodeURIComponent(safeNext(`${pathname}${typeof window === "undefined" ? "" : window.location.search}`))}`
     : sendToChangePassword
       ? "/change-password"
-      : null;
+      : sendHome
+        ? "/"
+        : null;
 
   useEffect(() => {
     if (redirectTo !== null) router.replace(redirectTo);

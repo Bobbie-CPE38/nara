@@ -16,6 +16,7 @@ import { createDemoApi } from "@/lib/api";
 import { CASE_STATUS_INFO } from "@/lib/constants";
 import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
+import { CLICKABLE_ROW, ROW_LINK, followRowLink } from "@/lib/rowClick";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import type { CasePage } from "@/lib/types/handoff";
 
@@ -83,11 +84,18 @@ function CaseListPage() {
                   <th>{t("common.shift")}</th>
                   <th>{t("hand.stillShort")}</th>
                   <th>{t("hand.openedAt")}</th>
+                  <th>
+                    <span className="sr-only">{t("cases.seeDetails")}</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {data.items.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    className={CLICKABLE_ROW}
+                    onClick={followRowLink}
+                  >
                     <td>
                       <Link className="underline" href={`/cases/${row.id}`}>
                         {row.id}
@@ -108,6 +116,11 @@ function CaseListPage() {
                       {row.headcount_gap === null ? "—" : Math.max(row.headcount_gap - row.assigned_count, 0)}
                     </td>
                     <td className="whitespace-nowrap">{formatDateTime(row.created_at)}</td>
+                    <td>
+                      <Link {...ROW_LINK} className="whitespace-nowrap font-medium text-brand-700 underline" href={`/cases/${row.id}`}>
+                        {t("cases.seeDetails")}
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>

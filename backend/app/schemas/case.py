@@ -6,10 +6,12 @@ from pydantic import BaseModel
 
 from app.domain.enums import (
     ActorType,
+    ApprovalSide,
     AuditAction,
     CandidateSource,
     CaseStatus,
     EntityType,
+    EventType,
     ExplanationBlock,
     ExplanationViewStatus,
     OutreachStatus,
@@ -150,6 +152,72 @@ class RankExplanationView(BaseModel):
     request_blocked_reason: ExplanationBlock | None
 
 
+class OverviewPerson(BaseModel):
+    """Someone the case overview names: who left, who came, who decided (round 6 PR EV7)."""
+
+    staff_id: int | None
+    # "System" (or the component) when no person did it, e.g. auto-approval
+    name: str
+    role: str | None
+    ward_name: str | None
+
+
+class OverviewEvent(BaseModel):
+    event_id: int
+    event_type: EventType
+    # The person the event is about (who is on leave, who did not come); None for a surge
+    staff: OverviewPerson | None
+    occurred_at: AppDatetime
+
+
+class OverviewReplacement(BaseModel):
+    staff: OverviewPerson
+    # APPROVED (offer and approval), TRANSFERRED (moved from another ward's shift) or MANUAL
+    how: Literal["APPROVED", "TRANSFERRED", "MANUAL"]
+    at: AppDatetime
+
+
+class OverviewDecision(BaseModel):
+    """One human or automatic decision on the case, with its ward side for an approval."""
+
+    kind: Literal[
+        "APPROVED",
+        "REJECTED",
+        "AUTO_APPROVED",
+        "APPROVAL_TIMEOUT",
+        "MANUAL_ASSIGNMENT",
+        "CLOSED_UNRESOLVED",
+    ]
+    by: OverviewPerson
+    # The ward the decision speaks for: each side of a cross-ward move has its own
+    ward_name: str | None
+    side: ApprovalSide | None
+    # The candidate the decision is about
+    candidate: OverviewPerson | None
+    reason: str | None
+    at: AppDatetime
+
+
+class OverviewOutcome(BaseModel):
+    """Why the case stopped where it is: a handoff, a close, or a failure."""
+
+    kind: Literal["MANUAL_HANDOFF", "CLOSED_UNRESOLVED", "FAILED"]
+    # A ManualHandoffReason code, the words of whoever closed it, or the error type
+    reason: str | None
+    by: OverviewPerson | None
+    at: AppDatetime
+
+
+class CaseOverview(BaseModel):
+    """The top of the case page: what happened, who came, who decided, why it stopped
+    (round 6 PR EV7, docs/workflow.md 6.37.2). All of it is in the timeline too."""
+
+    events: list[OverviewEvent]
+    replacements: list[OverviewReplacement]
+    decisions: list[OverviewDecision]
+    outcome: OverviewOutcome | None
+
+
 class CaseDetail(BaseModel):
     """GET /cases/{id}. `status` is the key the E2E test reads."""
 
@@ -175,6 +243,7 @@ class CaseDetail(BaseModel):
     partial_plan: bool
     handovers: list[HandoverView]
     summary: CaseSummaryView | None
+    overview: CaseOverview
 
 
 class AuditEntry(BaseModel):

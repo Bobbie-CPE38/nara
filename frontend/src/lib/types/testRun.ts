@@ -1,6 +1,6 @@
 /** Test runs of the Demo control (round 6 PR EV5b, docs/workflow.md 6.35). */
 
-export const TEST_RUN_SCENARIOS = ["golden", "cross_ward"] as const;
+export const TEST_RUN_SCENARIOS = ["golden", "cross_ward", "surge", "no_show", "handoff", "supervisor"] as const;
 export type TestRunScenario = (typeof TEST_RUN_SCENARIOS)[number];
 
 /** The intervals of 6.35.4 in seconds the tester really spent (clock advances taken out). */

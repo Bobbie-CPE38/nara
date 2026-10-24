@@ -134,7 +134,7 @@ describe("the pages in Thai", () => {
     await show(<ClockProvider><DemoControl /></ClockProvider>, "th");
     expect(title()).toBe("ควบคุม Demo");
     expect(screen.getByRole("button", { name: "รีเซ็ต Demo" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "เดินนาฬิกาไป 10 นาที" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "เดินนาฬิกา" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "105 แจ้งลา (เวร 1)" })).toBeTruthy();
     expect(screen.getByText("แจ้งลาหรือจำลองการเช็คอิน เลือกหอ วัน เวร และคนได้อิสระ")).toBeTruthy();
     expect(screen.getByRole("button", { name: "ตั้งเวลาแล้วเดินต่อ" })).toBeTruthy();

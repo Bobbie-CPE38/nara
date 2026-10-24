@@ -142,6 +142,31 @@ export type CaseDetail = {
   partial_plan: boolean;
   handovers: HandoverView[];
   summary: CaseSummaryView | null;
+  /** Round 6 PR EV7: who left, who came, who decided, why it stopped. Absent from an older Backend */
+  overview?: CaseOverview;
+};
+
+/** Someone the case overview names */
+export type OverviewPerson = {
+  staff_id: number | null;
+  name: string;
+  role: string | null;
+  ward_name: string | null;
+};
+
+export type CaseOverview = {
+  events: { event_id: number; event_type: string; staff: OverviewPerson | null; occurred_at: string }[];
+  replacements: { staff: OverviewPerson; how: "APPROVED" | "TRANSFERRED" | "MANUAL"; at: string }[];
+  decisions: {
+    kind: "APPROVED" | "REJECTED" | "AUTO_APPROVED" | "APPROVAL_TIMEOUT" | "MANUAL_ASSIGNMENT" | "CLOSED_UNRESOLVED";
+    by: OverviewPerson;
+    ward_name: string | null;
+    side: "DESTINATION" | "SOURCE" | null;
+    candidate: OverviewPerson | null;
+    reason: string | null;
+    at: string;
+  }[];
+  outcome: { kind: "MANUAL_HANDOFF" | "CLOSED_UNRESOLVED" | "FAILED"; reason: string | null; by: OverviewPerson | null; at: string } | null;
 };
 
 /** One item of GET /cases/{id}/audit */

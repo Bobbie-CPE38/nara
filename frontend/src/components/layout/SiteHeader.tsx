@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { DemoClock } from "@/components/DemoClock";
+import { Alerts } from "@/components/layout/Alerts";
 import { LanguageSwitch } from "@/components/layout/LanguageSwitch";
 import { Button } from "@/components/ui/Button";
 import type { MessageKey } from "@/lib/i18n";
@@ -99,7 +100,7 @@ function NavLinks({ onNavigate, stacked }: { onNavigate?: () => void; stacked: b
   const pathname = usePathname();
   const items = useNavItems();
   return (
-    <ul className={stacked ? "flex flex-col gap-1" : "flex flex-wrap items-center gap-1"}>
+    <ul className={stacked ? "flex flex-col gap-1" : "flex flex-nowrap items-center gap-0.5"}>
       {items.map(({ href, label }) => {
         const current = pathname === href;
         return (
@@ -108,7 +109,7 @@ function NavLinks({ onNavigate, stacked }: { onNavigate?: () => void; stacked: b
               href={href}
               onClick={onNavigate}
               aria-current={current ? "page" : undefined}
-              className={`block rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              className={`block whitespace-nowrap rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors ${
                 current
                   ? "bg-brand-50 font-semibold text-brand-700"
                   : "text-slate-700 hover:bg-brand-50 hover:text-brand-700"
@@ -133,21 +134,23 @@ export function SiteHeader() {
   const hasMenu = useNavItems().length > 0;
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2">
+      {/* The logo sits at the left edge, so the menu has the width (round 6 PR EV7) */}
+      <div className="flex w-full items-center gap-3 px-4 py-2">
         <Link href="/" className="shrink-0" aria-label={t("app.name")}>
           {/* The logo is a file of the team: shown as it is, never recoloured or redrawn */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/nara-logo.svg" alt="NARA" width={87} height={32} className="h-8 w-auto" />
         </Link>
-        <nav aria-label={t("nav.main")} className="hidden flex-1 md:block">
+        <nav aria-label={t("nav.main")} className="hidden min-w-0 flex-1 xl:block">
           <NavLinks stacked={false} />
         </nav>
         <div className="ml-auto flex items-center gap-3">
+          <Alerts />
           <LanguageSwitch />
           {hasMenu && (
             <button
               type="button"
-              className="px-2 md:hidden"
+              className="px-2 xl:hidden"
               aria-expanded={open}
               aria-controls="mobile-menu"
               aria-label={open ? t("nav.closeMenu") : t("nav.openMenu")}
@@ -161,13 +164,13 @@ export function SiteHeader() {
         </div>
       </div>
       {open && hasMenu && (
-        <nav id="mobile-menu" aria-label={t("nav.main")} className="border-t border-slate-200 px-4 py-3 md:hidden">
+        <nav id="mobile-menu" aria-label={t("nav.main")} className="border-t border-slate-200 px-4 py-3 xl:hidden">
           <NavLinks stacked onNavigate={() => setOpen(false)} />
         </nav>
       )}
       {/* The Backend clock is always in view: check-in and NO_SHOW follow it, not the browser */}
       <div className="border-t border-slate-100 bg-brand-50/70">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-1 text-xs text-slate-700">
+        <div className="flex w-full flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-1 text-xs text-slate-700">
           <AccountMenu />
           <DemoClock />
         </div>

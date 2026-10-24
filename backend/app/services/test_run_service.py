@@ -29,6 +29,7 @@ from app.core import clock
 from app.db.models import (
     AuditLog,
     CandidatePlan,
+    RosterAssignment,
     Shift,
     Staff,
     StaffingCase,
@@ -46,11 +47,18 @@ from app.domain.enums import (
 from app.seed.large_demo import WARD_BASE
 from app.seed.reset import reset_demo
 from app.seed.scenarios import cross_ward
-from app.services import actor_service, audit_service, event_service, job_service
+from app.services import (
+    actor_service,
+    attendance_service,
+    audit_service,
+    event_service,
+    job_service,
+    simulated_replies_service,
+)
 from app.services.test_run_kpi import KPI_COLUMNS, Advance, Row, compute
 
 TESTER_CODE = re.compile(r"[A-Za-z0-9_-]{1,16}")
-# The Golden Case leave that opens the case of every scenario (docs/workflow.md 10)
+# The Golden Case leave that opens the case of most scenarios (docs/workflow.md 10)
 LEAVING_NURSE = 105
 NIGHT_SHIFT = 1
 SIMULATED_SOURCE = CheckInSource.SIMULATED.value
@@ -70,6 +78,21 @@ _lock = threading.Lock()
 class Scenario(StrEnum):
     GOLDEN = "golden"
     CROSS_WARD = "cross_ward"
+    # Round 6 PR EV7 (docs/workflow.md 6.37.10)
+    SURGE = "surge"
+    NO_SHOW = "no_show"
+    HANDOFF = "handoff"
+    SUPERVISOR = "supervisor"
+
+
+# A surge on the ICU night shift: 10 patients become 14, so at 2 per nurse it needs 7, two
+# more than its 5 (6.37.10)
+SURGE_PATIENTS = 14
+SURGE_REPORTER = 900
+# no_show: 104 never checks in. The run starts a minute before the grace period of the
+# night shift ends, so the system finds the NO_SHOW and opens the case by itself
+NO_SHOW_NURSE = 104
+NO_SHOW_START = timedelta(hours=2, minutes=14)
 
 
 class TestRunOpenError(RuntimeError):
@@ -177,8 +200,61 @@ def _load_scenario(scenario: Scenario) -> Callable[[Session], None]:
         db.execute(update(Ward).where(Ward.id > WARD_BASE).values(is_active=False))
         if scenario is Scenario.CROSS_WARD:
             cross_ward.seed(db)
+        if scenario is Scenario.NO_SHOW:
+            _everyone_but_one_checks_in(db)
 
     return load
+
+
+def _everyone_but_one_checks_in(db: Session) -> None:
+    """no_show: every nurse of the night shift arrives on time but NO_SHOW_NURSE."""
+    shift = db.get(Shift, NIGHT_SHIFT)
+    assert shift is not None, "the Golden Case seeds the night shift"
+    rows = db.scalars(
+        select(RosterAssignment)
+        .where(RosterAssignment.shift_id == NIGHT_SHIFT, RosterAssignment.staff_id != NO_SHOW_NURSE)
+        .order_by(RosterAssignment.id)
+    ).all()
+    actor_id = _system_actor(db)
+    for roster in rows:
+        attendance_service.record(
+            db,
+            roster=roster,
+            shift=shift,
+            check_in_at=attendance_service.required_arrival_at(roster, shift),
+            source=CheckInSource.SIMULATED,
+            actor_id=actor_id,
+        )
+
+
+def _open_the_case(db: Session, scenario: Scenario) -> int | None:
+    """The event that starts the run, or None when the system finds it (no_show)."""
+    if scenario is Scenario.NO_SHOW:
+        return None
+    if scenario is Scenario.SURGE:
+        reporter = db.get(Staff, SURGE_REPORTER)
+        assert reporter is not None, "the Golden Case seeds the ICU head nurse"
+        return event_service.receive_event(
+            db,
+            staff_id=reporter.id,
+            actor_id=_system_actor(db),
+            role_id=reporter.role_id,
+            event_type=EventType.PATIENT_SURGE,
+            shift_id=NIGHT_SHIFT,
+            patient_count=SURGE_PATIENTS,
+            source=SIMULATED_SOURCE,
+        ).event_id
+    reporter = db.get(Staff, LEAVING_NURSE)
+    assert reporter is not None, "the Golden Case seeds the leaving nurse"
+    return event_service.receive_event(
+        db,
+        staff_id=reporter.id,
+        actor_id=_system_actor(db),
+        role_id=reporter.role_id,
+        event_type=EventType.STAFF_UNAVAILABLE,
+        shift_id=NIGHT_SHIFT,
+        source=SIMULATED_SOURCE,
+    ).event_id
 
 
 def _starter_actor(db: Session, staff_id: int | None) -> int:
@@ -202,23 +278,16 @@ def start(
         if run_id is not None:
             raise TestRunOpenError(run_id)
         demo_time = reset_demo(_load_scenario(scenario))
+        if scenario is Scenario.NO_SHOW:
+            demo_time += NO_SHOW_START
+            clock.set_time(demo_time)
         real_start = datetime.now(clock.APP_TIMEZONE)
         with SessionLocal() as db:
-            reporter = db.get(Staff, LEAVING_NURSE)
-            assert reporter is not None, "the Golden Case seeds the leaving nurse"
-            outcome = event_service.receive_event(
-                db,
-                staff_id=reporter.id,
-                actor_id=_system_actor(db),
-                role_id=reporter.role_id,
-                event_type=EventType.STAFF_UNAVAILABLE,
-                shift_id=NIGHT_SHIFT,
-                source=SIMULATED_SOURCE,
-            )
+            event_id = _open_the_case(db, scenario)
             audit_service.log(
                 db,
                 case_id=None,
-                event_id=outcome.event_id,
+                event_id=event_id,
                 actor_id=_starter_actor(db, staff_id),
                 action=AuditAction.TEST_RUN_STARTED,
                 entity_type=EntityType.TEST_RUN,
@@ -229,7 +298,9 @@ def start(
                     "auto_nurses": auto_nurses,
                     "scenario_start": demo_time.isoformat(),
                     "started_real_at": real_start.isoformat(),
-                    "event_id": outcome.event_id,
+                    "event_id": event_id,
+                    # The case of a run without a starting event is the first of this shift
+                    "shift_id": NIGHT_SHIFT,
                 },
             )
             started = db.scalars(
@@ -252,9 +323,7 @@ def start(
                 clock.freeze_now()
                 _close(db, started, {"invalid": True, "reason": START_FAILED}, staff_id)
                 raise
-            case_id = db.scalar(
-                select(StaffingEvent.case_id).where(StaffingEvent.id == outcome.event_id)
-            )
+            case_id = simulated_replies_service.run_case_id(db, started.payload)
     return StartResult(test_run_id=run_id, scenario=scenario, started_at=demo_time, case_id=case_id)
 
 
@@ -337,8 +406,7 @@ def _started_row(db: Session, run_id: int) -> AuditLog:
 
 
 def _run_case(db: Session, started: AuditLog) -> StaffingCase | None:
-    event_id = started.payload.get("event_id")
-    case_id = db.scalar(select(StaffingEvent.case_id).where(StaffingEvent.id == event_id))
+    case_id = simulated_replies_service.run_case_id(db, started.payload)
     return None if case_id is None else db.get(StaffingCase, case_id)
 
 

@@ -9,10 +9,12 @@ from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.db.models import Shift
+from app.db.models import AuditLog, Shift
+from app.domain.enums import AuditAction
 from app.main import app
 from tests.integration.conftest import DEMO_NOW
 
@@ -82,3 +84,38 @@ def test_an_inactive_shift_is_not_offered(client: TestClient, seeded: Session) -
     ).json()
 
     assert shifts == []
+
+
+def test_the_wards_name_their_head_nurse(client: TestClient) -> None:
+    """Round 6 PR EV7 (6.37.8): who reports a patient surge from the Demo control."""
+    wards = {ward["id"]: ward["head_nurse_id"] for ward in client.get("/demo/wards").json()}
+
+    assert wards == {1: 900, 2: 902, 3: None}
+
+
+def test_an_open_offer_is_listed_and_answered_in_the_candidates_name(
+    client: TestClient, seeded: Session
+) -> None:
+    leave = client.post(
+        "/events",
+        headers={"X-Demo-User": "105"},
+        json={"event_type": "STAFF_UNAVAILABLE", "shift_id": 1},
+    )
+    assert leave.status_code == 201, leave.text
+
+    offers = client.get("/demo/offers").json()
+    assert {offer["staff_id"] for offer in offers} == {201, 202}
+    first = next(offer for offer in offers if offer["staff_id"] == 202)
+    assert first["first_name"] == "Phanu" and first["can_reject"] is True
+
+    answered = client.post(f"/demo/offers/{first['id']}/response", json={"response": "REJECT"})
+    again = client.post(f"/demo/offers/{first['id']}/response", json={"response": "ACCEPT"})
+    unknown = client.post("/demo/offers/999999/response", json={"response": "ACCEPT"})
+
+    assert answered.status_code == 200 and answered.json()["outreach_status"] == "REJECTED"
+    assert again.status_code == 409
+    assert unknown.status_code == 404
+    rejected = seeded.scalars(
+        select(AuditLog).where(AuditLog.action == AuditAction.OFFER_REJECTED)
+    ).one()
+    assert rejected.payload["source"] == "SIMULATED"

@@ -78,7 +78,17 @@ def test_supervisor_search_pagination_and_minimal_fields(directory):
         "status",
         "line_linked",
         "line_binding_present",
+        "skills",
+        "has_account",
     }
+    # Round 6 PR EV7 (6.37.6): the skills by name and whether a web account exists
+    assert (found[0]["role"], found[0]["skills"], found[0]["has_account"]) == (
+        "RN",
+        ["BLS", "ICU"],
+        False,
+    )
+    head = client.get("/admin/staff?q=900").json()["items"][0]
+    assert (head["role"], head["skills"], head["has_account"]) == ("HEAD_NURSE", [], True)
     assert client.get("/admin/staff?q=%25").json()["total"] == 0
     assert client.get("/admin/staff?limit=101").status_code == 422
     assert client.get("/admin/staff?offset=-1").status_code == 422

@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     aws_region: str | None = None
     llm_lambda_url: str | None = None
     llm_lambda_api_key: SecretStr | None = None
+    # Round 6 PR EV7 (docs/workflow.md 6.37.9): a demo reset gives the test accounts of
+    # demo_account_service this password, so they log in without LINE. Unset = no accounts.
+    # From the machine's env file, never the repo
+    # 12 characters at least, like every password of a web account (6.33.2)
+    demo_account_password: SecretStr | None = Field(default=None, min_length=12)
     llm_max_output_tokens: int = Field(1024, ge=1, le=4096)
     # Per attempt
     llm_request_timeout_seconds: float = Field(15, gt=0, le=60)
@@ -85,6 +90,7 @@ class Settings(BaseSettings):
         "llm_trial_call_cap",
         "llm_lambda_url",
         "llm_lambda_api_key",
+        "demo_account_password",
         mode="before",
     )
     @classmethod

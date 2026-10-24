@@ -20,6 +20,11 @@ import {
 const SCENARIO_LABELS: Record<TestRunScenario, MessageKey> = {
   golden: "run.scenario.golden",
   cross_ward: "run.scenario.cross_ward",
+  // Round 6 PR EV7 (docs/workflow.md 6.37.10)
+  surge: "run.scenario.surge",
+  no_show: "run.scenario.no_show",
+  handoff: "run.scenario.handoff",
+  supervisor: "run.scenario.supervisor",
 };
 
 /** The scenario's name in the language of the page; an unknown one as the Backend sent it. */

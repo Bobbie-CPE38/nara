@@ -6,27 +6,43 @@ import io
 from datetime import date, datetime, time, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import APIRouter, HTTPException, Path, Query, Response, status
 from sqlalchemy import select
 
 from app.api.dependencies import DbSession, Reader, access_viewer, forbidden
+from app.api.offer_responses import ResponseResult
 from app.core import clock
-from app.db.models import Attendance, RosterAssignment, Shift, Staff, Ward
-from app.domain.enums import ActorName, CheckInSource, StaffStatus
+from app.core.constants import HEAD_NURSE_ROLE
+from app.db.models import (
+    Attendance,
+    CandidateItem,
+    CandidateOutreach,
+    DemoDataset,
+    Role,
+    RosterAssignment,
+    Shift,
+    Staff,
+    Ward,
+)
+from app.domain.enums import ActorName, CheckInSource, OutreachStatus, StaffStatus
 from app.domain.errors import ShiftNotFoundError, StaffNotFoundError
 from app.schemas.attendance import CheckInResponse, SimulatedCheckIn
 from app.schemas.clock import ClockSet, ClockView, DemoReset
-from app.schemas.demo import DemoRosterPerson, DemoShift, DemoWard
+from app.schemas.demo import DemoOffer, DemoOfferAnswer, DemoRosterPerson, DemoShift, DemoWard
 from app.schemas.event import DemoEventCreate, EventResult
 from app.schemas.job import ClockAdvance, ClockAdvanceResult
 from app.schemas.test_run import TestRunAbort, TestRunClosed, TestRunStart, TestRunStarted
 from app.schemas.types import MAX_BIGINT
+from app.seed import hospital_demo
 from app.seed.reset import reset_demo
 from app.services import (
     actor_service,
     attendance_service,
+    demo_account_service,
+    demo_example_service,
     event_service,
     job_service,
+    outreach_service,
     test_run_service,
     unavailability_service,
 )
@@ -43,7 +59,7 @@ def _run_in_progress(error: test_run_service.TestRunOpenError) -> HTTPException:
 
 
 @router.post("/reset")
-def reset(body: DemoReset | None = None) -> dict[str, str]:
+def reset(db: DbSession, body: DemoReset | None = None) -> dict[str, str]:
     """Drop the database, migrate, load the Golden Case and freeze the clock at D 21:00.
 
     `hospital` adds or leaves out the hospital demo (6.36.3); no body keeps what the
@@ -53,6 +69,14 @@ def reset(body: DemoReset | None = None) -> dict[str, str]:
     try:
         with test_run_service.no_open_run():
             demo_time = reset_demo(hospital=None if body is None else body.hospital)
+            # Round 6 PR EV7: the hospital demo's example cases (6.37.1) and the test
+            # accounts (6.37.9), under the same lock so a test run cannot start in between
+            db.expire_all()
+            if db.scalar(
+                select(DemoDataset.id).where(DemoDataset.profile == hospital_demo.PROFILE)
+            ):
+                demo_example_service.play(db)
+            demo_account_service.ensure(db)
     except test_run_service.TestRunOpenError as error:
         raise _run_in_progress(error) from error
     return {"status": "ok", "clock": demo_time.isoformat()}
@@ -146,15 +170,94 @@ def _manager_only(db: DbSession, reader: Reader) -> None:
 def list_wards(db: DbSession, reader: Reader) -> list[DemoWard]:
     """Every ward, for the Demo control's choice of shift (round 6 PR EV6, 6.36.5)."""
     _manager_only(db, reader)
+    head_nurses: dict[int, int] = {}
+    for ward_id, staff_id in db.execute(
+        select(Staff.home_ward_id, Staff.id)
+        .join(Role, Role.id == Staff.role_id)
+        .where(Role.name == HEAD_NURSE_ROLE, Staff.status == StaffStatus.ACTIVE)
+        .order_by(Staff.id)
+    ):
+        head_nurses.setdefault(ward_id, staff_id)
     return [
         DemoWard(
             id=ward.id,
             name=ward.name,
             is_active=ward.is_active,
             is_float_pool=ward.is_float_pool,
+            head_nurse_id=head_nurses.get(ward.id),
         )
         for ward in db.scalars(select(Ward).order_by(Ward.id))
     ]
+
+
+@router.get("/offers")
+def list_open_offers(db: DbSession, reader: Reader) -> list[DemoOffer]:
+    """Every offer a candidate can still answer, for the Demo control to answer in their
+    place (round 6 PR EV7, 6.37.8). Oldest first."""
+    _manager_only(db, reader)
+    now = clock.now()
+    staff_ids = db.scalars(
+        select(CandidateItem.staff_id)
+        .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+        .where(
+            CandidateOutreach.status == OutreachStatus.SENT,
+            CandidateOutreach.expires_at > now,
+        )
+        .distinct()
+    ).all()
+    names = {staff.id: staff for staff in db.scalars(select(Staff).where(Staff.id.in_(staff_ids)))}
+    offers = [
+        DemoOffer(
+            **offer.model_dump(),
+            first_name=names[staff_id].first_name,
+            last_name=names[staff_id].last_name,
+        )
+        for staff_id in staff_ids
+        for offer in outreach_service.list_offers(db, staff_id=staff_id)
+        if offer.can_accept or offer.can_reject
+    ]
+    return sorted(offers, key=lambda offer: (offer.sent_at is None, offer.sent_at, offer.id))
+
+
+@router.post("/offers/{outreach_id}/response")
+def answer_open_offer(
+    outreach_id: Annotated[int, Path(ge=1, le=MAX_BIGINT)],
+    body: DemoOfferAnswer,
+    db: DbSession,
+    reader: Reader,
+) -> ResponseResult:
+    """Answer an offer as its candidate, through the same service as the candidate's own
+    answer, in their name with payload.source SIMULATED (6.37.8). 404 unknown offer, 409
+    when it can no longer be answered."""
+    _manager_only(db, reader)
+    staff_id = db.scalar(
+        select(CandidateItem.staff_id)
+        .join(CandidateOutreach, CandidateOutreach.candidate_item_id == CandidateItem.id)
+        .where(CandidateOutreach.id == outreach_id)
+    )
+    if staff_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"No offer {outreach_id}")
+    try:
+        outreach, case = outreach_service.record_response(
+            db,
+            staff_id=staff_id,
+            actor_id=actor_service.user_id(db, staff_id),
+            outreach_id=outreach_id,
+            response=body.response,
+            audit_source=SIMULATED_SOURCE,
+        )
+    except outreach_service.OutreachLockRetryError as error:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error), headers={"Retry-After": "1"}
+        ) from error
+    except outreach_service.OpenOfferConflictError as error:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(error)) from error
+    return ResponseResult(
+        outreach_id=outreach.id,
+        outreach_status=outreach.status,
+        case_id=case.id,
+        case_status=case.status,
+    )
 
 
 @router.get("/shifts")

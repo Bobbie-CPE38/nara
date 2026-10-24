@@ -17,6 +17,7 @@ new traceback on every tick.
 import logging
 from dataclasses import dataclass
 from datetime import timedelta
+from typing import Any
 
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session, aliased
@@ -29,6 +30,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     Staff,
+    StaffingCase,
     StaffingEvent,
 )
 from app.domain.enums import (
@@ -79,7 +81,55 @@ SCRIPTS: dict[str, Script] = {
         },
         source_head_nurse=(902, 90),
     ),
+    # Round 6 PR EV7 (6.37.10). Surge: two more nurses are needed, and both come
+    "surge": Script(
+        nurses={
+            201: (CandidateResponse.ACCEPT, 60),
+            202: (CandidateResponse.ACCEPT, 90),
+        },
+    ),
+    # The system opens the case at the NO_SHOW of 104; then as the Golden Case
+    "no_show": Script(
+        nurses={
+            202: (CandidateResponse.REJECT, 45),
+            201: (CandidateResponse.ACCEPT, 120),
+        },
+    ),
+    # Everyone declines: the case goes to MANUAL_HANDOFF and the tester staffs it by hand
+    "handoff": Script(
+        nurses={
+            202: (CandidateResponse.REJECT, 30),
+            201: (CandidateResponse.REJECT, 45),
+            203: (CandidateResponse.REJECT, 60),
+        },
+    ),
+    # The ICU head nurse (900) never decides: the tester plays the Supervisor, who may
+    # decide once the waiting period is over
+    "supervisor": Script(
+        nurses={
+            202: (CandidateResponse.REJECT, 45),
+            201: (CandidateResponse.ACCEPT, 120),
+        },
+    ),
 }
+
+
+def run_case_id(db: Session, payload: dict[str, Any]) -> int | None:
+    """The case of a test run: the case of its starting event, or for a run that starts
+    without one (no_show) the first case of its shift. A reset started the run, so every
+    case of that shift is the run's."""
+    event_id = payload.get("event_id")
+    if event_id is not None:
+        return db.scalar(select(StaffingEvent.case_id).where(StaffingEvent.id == event_id))
+    shift_id = payload.get("shift_id")
+    if shift_id is None:
+        return None
+    return db.scalar(
+        select(StaffingCase.id)
+        .where(StaffingCase.shift_id == shift_id)
+        .order_by(StaffingCase.id)
+        .limit(1)
+    )
 
 
 def _scripted_run(db: Session) -> tuple[int, int, Script] | None:
@@ -103,9 +153,7 @@ def _scripted_run(db: Session) -> tuple[int, int, Script] | None:
     if started is None or not started.payload.get("auto_nurses"):
         return None
     script = SCRIPTS.get(started.payload.get("scenario", ""))
-    case_id = db.scalar(
-        select(StaffingEvent.case_id).where(StaffingEvent.id == started.payload.get("event_id"))
-    )
+    case_id = run_case_id(db, started.payload)
     if script is None or case_id is None:
         return None
     return run_id, case_id, script

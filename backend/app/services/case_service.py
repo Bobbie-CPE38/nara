@@ -64,6 +64,7 @@ from app.schemas.case import (
 )
 from app.services import (
     case_facts_service,
+    case_overview_service,
     case_summary_service,
     explanation_service,
     handover_service,
@@ -98,6 +99,7 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
         partial_plan=_partial_plan(db, case.id),
         handovers=handover_service.list_handovers(db, case_id=case.id),
         summary=case_summary_service.view(db, case),
+        overview=case_overview_service.build(db, case.id),
     )
 
 
