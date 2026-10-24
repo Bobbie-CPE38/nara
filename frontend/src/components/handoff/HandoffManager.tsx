@@ -74,8 +74,7 @@ export function OutcomeView({ outcome }: { outcome: Outcome | null }) {
 /**
  * Managing one MANUAL_HANDOFF case in a dialog (round 6 PR EV6, docs/workflow.md 6.36.6):
  * put someone free on the shift with a note, confirm cancelling their other offers, or close
- * the case with a reason. The case detail header, since PR #148 (6.38.7),
- * opens it. The parent keys it by case, so another case starts empty.
+ * the case with a reason. The case detail status card (6.38.7) opens it. The parent keys it by case, so another case starts empty.
  *
  * `onDone` is called with the result once the case left the handoff (staffed or closed): the
  * parent closes the dialog and shows the result on its page. `onChanged` reads the list again.

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
 import { type ExplanationRequest, ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
@@ -66,7 +66,7 @@ function liveKey(snapshot: CaseSnapshot): MessageKey {
   return "case.stopped";
 }
 
-function CaseSections({ detail, audit, request, onSummaryRequested }: CaseSnapshot & { request: ExplanationRequest; onSummaryRequested: () => Promise<void> }) {
+function CaseSections({ detail, audit, request, onSummaryRequested, management }: CaseSnapshot & { request: ExplanationRequest; onSummaryRequested: () => Promise<void>; management?: ReactNode }) {
   const t = useT();
   const info = CASE_STATUS_INFO.get(detail.status);
   const skips = collectSkips(audit);
@@ -76,18 +76,23 @@ function CaseSections({ detail, audit, request, onSummaryRequested }: CaseSnapsh
     : undefined;
   return (
     <div className="space-y-4">
-      <Card>
-        <p>
-          {t("case.status")}{" "}
-          <Badge tone={info?.tone ?? "neutral"} as="strong">{detail.status}</Badge>
-          {info && <span className="ml-2">{t(info.messageKey)}</span>}
-        </p>
-        {failure && (
-          <p className="text-red-700">
-            {t("case.failedAt", { at: formatValue(failure.payload.failed_at), error: formatValue(failure.payload.error_type) })}
-          </p>
-        )}
-        <p className="mt-1 text-sm text-slate-500">{t(liveKey({ detail, audit }), { seconds: POLL_INTERVAL_MS / 1000 })}</p>
+      <Card label={t("case.status")}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1 basis-64">
+            <p>
+              {t("case.status")}{" "}
+              <Badge tone={info?.tone ?? "neutral"} as="strong">{detail.status}</Badge>
+              {info && <span className="ml-2">{t(info.messageKey)}</span>}
+            </p>
+            {failure && (
+              <p className="text-red-700">
+                {t("case.failedAt", { at: formatValue(failure.payload.failed_at), error: formatValue(failure.payload.error_type) })}
+              </p>
+            )}
+            <p className="mt-1 text-sm text-slate-500">{t(liveKey({ detail, audit }), { seconds: POLL_INTERVAL_MS / 1000 })}</p>
+          </div>
+          {management && <div className="ml-auto shrink-0">{management}</div>}
+        </div>
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-[max-content_1fr]">
           <dt className="font-medium">{t("common.shift")}</dt>
           <dd>{detail.shift_id}</dd>
@@ -206,20 +211,24 @@ export function CaseView({ caseId }: { caseId: string }) {
             </Notice>
           </div>
         )}
-        <CaseSections detail={data.detail} audit={data.audit} request={{ busy: requesting, message: requestMessage, onRequest: requestExplanation }} onSummaryRequested={refresh} />
+        <CaseSections
+          detail={data.detail}
+          audit={data.audit}
+          request={{ busy: requesting, message: requestMessage, onRequest: requestExplanation }}
+          onSummaryRequested={refresh}
+          management={httpStatus !== 403 && (
+            <Suspense>
+              <CaseManagement caseId={caseId} status={data.detail.status} onChanged={refresh} />
+            </Suspense>
+          )}
+        />
       </>
     );
   }
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
-      <PageHeader title={valid ? t("case.title", { id: caseId }) : t("case.titleGeneric")}>
-        {valid && data && httpStatus !== 403 && httpStatus !== 404 && httpStatus !== 422 && (
-          <Suspense>
-            <CaseManagement caseId={caseId} status={data.detail.status} onChanged={refresh} />
-          </Suspense>
-        )}
-      </PageHeader>
+      <PageHeader title={valid ? t("case.title", { id: caseId }) : t("case.titleGeneric")} />
       {body}
     </main>
   );

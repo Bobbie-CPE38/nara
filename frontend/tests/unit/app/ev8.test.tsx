@@ -646,7 +646,8 @@ describe("Manage on the case detail page", () => {
     routes["GET /cases/9"] = () => ok(caseDetail({ id: 9, status: staffed ? "RESOLVED" : "MANUAL_HANDOFF" }));
     routes["GET /cases/9/audit"] = () => ok([]);
     app(<CaseView caseId="9" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Manage" }));
+    const statusCard = await screen.findByRole("region", { name: "Status:" });
+    fireEvent.click(await within(statusCard).findByRole("button", { name: "Manage" }));
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(await dialog.findByRole("button", { name: "Assign" }));
     expect(await screen.findByText(/Staff 202 assigned. Case 9: RESOLVED/)).toBeTruthy();
@@ -730,6 +731,8 @@ describe("Case row links in session mode (#148)", () => {
       }], total: 1, page: 1, page_size: 20 }),
     });
     app(<Page />);
-    expect((await screen.findByRole("link", { name: "9" })).getAttribute("href")).toBe("/cases/9");
+    const link = await screen.findByRole("link", { name: "9" });
+    expect(link.getAttribute("href")).toBe("/cases/9");
+    expect(link.classList.contains("no-underline")).toBe(true);
   });
 });
