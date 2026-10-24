@@ -7,13 +7,13 @@ import type { CasePage, HandoffCase } from "@/lib/types/handoff";
 
 type Api = ReturnType<typeof createDemoApi>;
 
-/** Enough rows to find one case among the few whose shift has the same number as its ID */
+/** The search API ranks the exact case ID first, before shift/ward matches. */
 const OWN_ROW_PAGE_SIZE = 100;
 
 /**
  * Keeps the dialog of a case only while the case can still be managed (round 6 PR EV6): a case
  * someone else staffed or closed closes the dialog with a word instead of leaving a blank panel.
- * The case list uses it too (round 6 PR EV8).
+ * Used by the detail-page Manage action.
  *
  * Only the case's own row decides (review of #147): newer cases can push it off the page the
  * user is on (the case list is newest first), so a case missing from the page is read again by

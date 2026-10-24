@@ -139,11 +139,11 @@ describe("Dashboard links keep the user they were opened for", () => {
     },
   );
 
-  it("Handoff: changing the user reads that user's list and closes the open case", async () => {
+  it("Handoff: changing the user reads that user's list", async () => {
     params = new URLSearchParams("?as=902");
     render(<Handoff />);
-    fireEvent.click(await screen.findByRole("button", { name: "Manage" }));
-    expect(await screen.findByRole("dialog", { name: "Manage case 7" })).toBeTruthy();
+    await screen.findByRole("link", { name: "7" });
+    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
 
     request.mockClear();
     fireEvent.change(screen.getByLabelText(/Viewing as/), { target: { value: "950" } });

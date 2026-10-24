@@ -3,7 +3,11 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CaseManagement } from "@/components/case/CaseManagement";
 import Handoff from "../../../src/app/handoff/page";
+
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+const unchanged = async () => {};
 
 afterEach(() => {
   cleanup();
@@ -93,7 +97,7 @@ describe("handoff page", () => {
     render(createElement(Handoff));
 
     const link = await screen.findByRole("link", { name: "7" });
-    expect(link.getAttribute("href")).toBe("/cases/7");
+    expect(link.getAttribute("href")).toBe("/cases/7?as=900");
     const [url, request] = fetchMock.mock.calls[0];
     // One page of the search of round 6 PR EV6, the oldest case first
     expect(url).toMatch(/\/cases\/search\?page=1&page_size=10&sort=oldest&status=MANUAL_HANDOFF%2CFAILED$/);
@@ -107,7 +111,6 @@ describe("handoff page", () => {
       "1",
       "1",
       "2026-10-09 21:00:00",
-      "ManageSee details",
     ]);
   });
 
@@ -116,10 +119,10 @@ describe("handoff page", () => {
     render(createElement(Handoff));
 
     const failedRow = (await screen.findByRole("link", { name: "8" })).closest("tr") as HTMLElement;
-    expect(within(failedRow).getByText("Cannot be managed")).toBeTruthy();
     expect(within(failedRow).queryByRole("button")).toBeNull();
     expect(within(failedRow).getByText("—")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Manage" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "See details" })).toBeNull();
   });
 
   it("says so when no case is handed off", async () => {
@@ -131,7 +134,7 @@ describe("handoff page", () => {
 
   it("shows why each person is blocked and allows no override", async () => {
     stubFetch();
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await openCase();
 
     expect(within(rowOf("Pimchanok Demo")).getByText("Already on this shift")).toBeTruthy();
@@ -159,7 +162,7 @@ describe("handoff page", () => {
         },
       },
     ]);
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await openCase();
     fireEvent.change(screen.getByLabelText("Note for the assignment (optional)"), {
       target: { value: "  Called in  " },
@@ -198,7 +201,7 @@ describe("handoff page", () => {
         },
       },
     ]);
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await openCase();
     fireEvent.click(within(rowOf("Chonthicha Demo")).getByRole("button", { name: "Assign" }));
 
@@ -224,7 +227,7 @@ describe("handoff page", () => {
         body: { detail: { code: "CONFLICTING_OFFERS", message: "x", case_ids: [9] } },
       },
     ]);
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await openCase();
     fireEvent.click(within(rowOf("Chonthicha Demo")).getByRole("button", { name: "Assign" }));
     fireEvent.click(await screen.findByRole("button", { name: "Keep the other offer" }));
@@ -246,7 +249,7 @@ describe("handoff page", () => {
         },
       },
     ]);
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await openCase();
     fireEvent.click(within(rowOf("Arunee Demo")).getByRole("button", { name: "Assign" }));
 
@@ -257,7 +260,7 @@ describe("handoff page", () => {
 
   it("closes the case only with a reason, sent trimmed", async () => {
     const fetchMock = stubFetch([{ body: { case_id: 7, case_status: "UNRESOLVED" } }]);
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await openCase();
 
     const reason = screen.getByLabelText<HTMLTextAreaElement>(
@@ -282,7 +285,7 @@ describe("handoff page", () => {
     stubFetch([
       { status: 403, body: { detail: "The staff member is not a head nurse of the shift's ward" } },
     ]);
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await openCase();
     fireEvent.click(within(rowOf("Arunee Demo")).getByRole("button", { name: "Assign" }));
 
@@ -306,11 +309,10 @@ describe("handoff page", () => {
         return new Response(JSON.stringify(rows));
       }),
     );
-    render(createElement(Handoff));
-    const [manage7, manage9] = await screen.findAllByRole("button", { name: "Manage" });
-
-    fireEvent.click(manage7);
-    fireEvent.click(manage9);
+    const view = render(createElement(CaseManagement, { key: "7", caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
+    fireEvent.click(await screen.findByRole("button", { name: "Manage" }));
+    view.rerender(createElement(CaseManagement, { key: "9", caseId: "9", status: "MANUAL_HANDOFF", onChanged: unchanged }));
+    fireEvent.click(await screen.findByRole("button", { name: "Manage" }));
     // Case 9 answers first, then the stale answer of case 7 arrives
     await act(async () => late[9]([{ ...FREE, first_name: "Ninth" }]));
     await act(async () => late[7]([{ ...FREE, first_name: "Seventh" }]));
@@ -327,7 +329,7 @@ describe("handoff page", () => {
         body: { detail: [{ loc: ["body", "staff_id"], msg: "Input should be greater than 0" }] },
       },
     ]);
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await openCase();
     fireEvent.click(within(rowOf("Arunee Demo")).getByRole("button", { name: "Assign" }));
 
@@ -348,7 +350,7 @@ describe("handoff page", () => {
       ),
     );
     const tick = (ms: number) => act(async () => { await vi.advanceTimersByTimeAsync(ms); });
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await tick(0);
     fireEvent.click(screen.getByRole("button", { name: "Manage" }));
     await tick(0);
@@ -390,7 +392,7 @@ describe("handoff list of round 6 PR EV6", () => {
 
   it("manages a case in a dialog that closes with its button or Escape", async () => {
     stubFetch();
-    render(createElement(Handoff));
+    render(createElement(CaseManagement, { caseId: "7", status: "MANUAL_HANDOFF", onChanged: unchanged }));
     await openCase();
 
     const dialog = screen.getByRole("dialog", { name: "Manage case 7" });
@@ -401,7 +403,7 @@ describe("handoff list of round 6 PR EV6", () => {
     await openCase();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    // The list stays where it was
-    expect(screen.getByRole("link", { name: "7" })).toBeTruthy();
+    // The detail-page action remains available after closing the dialog
+    expect(screen.getByRole("button", { name: "Manage" })).toBeTruthy();
   });
 });

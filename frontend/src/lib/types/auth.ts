@@ -10,6 +10,7 @@ export type AuthMe = {
   staff_id: number;
   role: AuthRole;
   home_ward_id: number;
+  home_ward_name?: string | null;
   must_change_password: boolean;
 };
 

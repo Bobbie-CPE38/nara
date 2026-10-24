@@ -10,6 +10,7 @@ from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Body, Header, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 
 from app.api.dependencies import (
     AUTH_FORBIDDEN,
@@ -28,6 +29,7 @@ from app.core.rate_limit import (
     Limit,
     limiter,
 )
+from app.db.models import Ward
 from app.schemas.auth import (
     AuthConfig,
     AuthMe,
@@ -86,12 +88,12 @@ def login(
         httponly=True,
         samesite="lax",
     )
-    return _me(user)
+    return _me(user, db)
 
 
 @router.get("/me")
-def read_me(user: SessionUserDep) -> AuthMe:
-    return _me(user)
+def read_me(user: SessionUserDep, db: DbSession) -> AuthMe:
+    return _me(user, db)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -134,11 +136,12 @@ def _clear_cookie(response: Response) -> None:
     )
 
 
-def _me(user: auth_service.SessionUser) -> AuthMe:
+def _me(user: auth_service.SessionUser, db: DbSession) -> AuthMe:
     return AuthMe(
         staff_id=user.staff.id,
         role=user.role,
         home_ward_id=user.staff.home_ward_id,
+        home_ward_name=db.scalar(select(Ward.name).where(Ward.id == user.staff.home_ward_id)),
         must_change_password=user.must_change_password,
     )
 

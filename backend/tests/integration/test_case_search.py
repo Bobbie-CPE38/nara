@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
+from app.db.models import Shift
 from app.domain.enums import CaseStatus
 from app.main import app
 from tests.integration import case_rows
@@ -128,3 +129,42 @@ def test_a_number_too_big_for_an_id_finds_nothing_instead_of_failing(
     body = _search(client, q="9" * digits)
 
     assert body["total"] == 0 and body["items"] == []
+
+
+@pytest.mark.parametrize("sort", ["newest", "oldest"])
+def test_exact_case_precedes_more_than_a_page_of_shift_matches(
+    client: TestClient, seeded: Session, sort: str
+) -> None:
+    """#148: Manage must find its own row even with over 100 matches."""
+    first = case_rows.make_case(seeded, CaseStatus.MANUAL_HANDOFF)
+    # A different shift shares the case number; its cases are also search matches.
+    if seeded.get(Shift, first.id) is None:
+        template = seeded.get(Shift, ICU_NIGHT)
+        assert template is not None
+        seeded.add(
+            Shift(
+                id=first.id,
+                ward_id=template.ward_id,
+                patient_count=template.patient_count,
+                start_at=template.start_at,
+                end_at=template.end_at,
+                shift_type=template.shift_type,
+                is_active=True,
+            )
+        )
+        seeded.flush()
+    for _ in range(105):
+        case_rows.make_case(seeded, CaseStatus.MANUAL_HANDOFF, shift_id=first.id)
+    body = _search(client, q=str(first.id), page_size=100, sort=sort)
+    assert body["total"] == 106
+    assert len(body["items"]) == 100
+    assert body["items"][0]["id"] == first.id
+    assert body["items"][0]["can_manage"] is True
+    other_ids = [row["id"] for row in body["items"][1:]]
+    assert other_ids == sorted(other_ids, reverse=sort == "newest")
+    # The exact match is still subject to status filters.
+    first.status = CaseStatus.RESOLVED
+    seeded.flush()
+    filtered = _search(client, q=str(first.id), status="MANUAL_HANDOFF", page_size=100)
+    assert filtered["total"] == 105
+    assert first.id not in [row["id"] for row in filtered["items"]]

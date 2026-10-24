@@ -14,7 +14,7 @@ import logging
 from collections.abc import Collection
 from typing import NamedTuple
 
-from sqlalchemy import ColumnElement, func, or_, select, true
+from sqlalchemy import ColumnElement, SQLColumnExpression, case, func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.core import clock
@@ -172,7 +172,8 @@ def search_cases(
     The same rows as list_cases(): a Head Nurse's own ward, every ward for a Supervisor, or
     `condition` for a session-mode staff member. Filters: statuses (all when None), one
     ward, and `query`, which matches part of the ward name (case-insensitive), and also the
-    case ID or shift ID when it is a number. Newest first unless `oldest_first`.
+    case ID or shift ID when it is a number. An exact case ID comes first, then
+    newest first unless `oldest_first`.
     """
     if condition is None:
         supervisor = _require_manager_role(db, role_id) == SUPERVISOR_ROLE
@@ -182,6 +183,7 @@ def search_cases(
         filters.append(StaffingCase.status.in_(list(statuses)))
     if ward_id is not None:
         filters.append(Shift.ward_id == ward_id)
+    number: int | None = None
     text = (query or "").strip()
     if text:
         escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -198,14 +200,19 @@ def search_cases(
         .join(Ward, Ward.id == Shift.ward_id)
         .where(*filters)
     )
+    # Keep the exact case on the first page even when its shift or ward matches
+    # hundreds of other rows. Both Manage lookups rely on this ordering.
+    ordering: list[SQLColumnExpression[int]] = [
+        StaffingCase.id if oldest_first else StaffingCase.id.desc()
+    ]
+    if number is not None:
+        ordering.insert(0, case((StaffingCase.id == number, 0), else_=1))
     with db.no_autoflush:
         total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
         rows = db.execute(
-            base.order_by(StaffingCase.id if oldest_first else StaffingCase.id.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
+            base.order_by(*ordering).offset((page - 1) * page_size).limit(page_size)
         ).all()
-        views = _handoff_cases(db, [(case, shift.ward_id) for case, shift, _ in rows])
+        views = _handoff_cases(db, [(row_case, shift.ward_id) for row_case, shift, _ in rows])
     items = [
         CaseListItem(
             **view.model_dump(),

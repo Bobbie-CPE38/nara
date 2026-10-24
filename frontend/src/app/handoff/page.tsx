@@ -3,19 +3,18 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ScrollX } from "@/components/ScrollX";
+import { useAuth } from "@/components/AuthProvider";
 import { ActingAs } from "@/components/ActingAs";
 import { CaseFilters, type CaseQuery, searchPath } from "@/components/case/CaseFilters";
-import { HandoffManager, OutcomeView } from "@/components/handoff/HandoffManager";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Pager } from "@/components/ui/Pager";
 import { useActor } from "@/hooks/useActor";
-import { useManagedCase } from "@/hooks/useManagedCase";
 import { usePolling } from "@/hooks/usePolling";
 import { createDemoApi } from "@/lib/api";
 import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
+import { withActor } from "@/lib/demo";
 import { CLICKABLE_ROW, ROW_LINK, followRowLink } from "@/lib/rowClick";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import type { CasePage, HandoffCase } from "@/lib/types/handoff";
@@ -36,6 +35,7 @@ function shortByText(row: HandoffCase): string {
 
 function HandoffPage() {
   const t = useT();
+  const { state } = useAuth();
   // Who acts: the user a link carried here (the Dashboard counts), else the Golden Case head
   // nurse (docs/workflow.md, section 10). The API shows each one their own ward
   const [actorId, setActorId] = useActor();
@@ -46,15 +46,13 @@ function HandoffPage() {
     (signal: AbortSignal) => api<CasePage>(searchPath(query, PAGE_SIZE, "oldest"), { signal }),
     [api, query],
   );
-  const { data: page, error, isLoading, refresh } = usePolling(loadCases);
+  const { data: page, error, isLoading } = usePolling(loadCases);
   const cases = page?.items;
-  const managed = useManagedCase(cases, api);
 
   function changeActor(id: number) {
-    // Nothing of the previous user's case may stay open: it belongs to another ward's list
+    // Read the selected user's ward and return to the first page
     setActorId(id);
     setQuery((value) => ({ ...value, page: 1 }));
-    managed.reset();
   }
 
   return (
@@ -68,8 +66,6 @@ function HandoffPage() {
       </Card>
       <div className="mt-4 space-y-3">
         {error && <p className="text-red-700">{describeError(error, t)}</p>}
-        {/* With the dialog open its own answers show in it */}
-        {!managed.selected && <OutcomeView outcome={managed.outcome} />}
       </div>
       {isLoading && <p className="mt-4">{t("common.loading")}</p>}
       {cases && cases.length === 0 && <p className="mt-4">{t("hand.noCases")}</p>}
@@ -85,14 +81,13 @@ function HandoffPage() {
                   <th>{t("common.shift")}</th>
                   <th>{t("hand.stillShort")}</th>
                   <th>{t("hand.openedAt")}</th>
-                  <th>{t("offers.col.action")}</th>
                 </tr>
               </thead>
               <tbody>
                 {cases.map((row) => (
                   <tr key={row.id} className={CLICKABLE_ROW} onClick={followRowLink}>
                     <td>
-                      <Link className="underline" href={`/cases/${row.id}`}>
+                      <Link {...ROW_LINK} className="underline" href={state.status === "demo" ? withActor(`/cases/${row.id}`, actorId) : `/cases/${row.id}`}>
                         {row.id}
                       </Link>
                     </td>
@@ -101,21 +96,6 @@ function HandoffPage() {
                     <td>{row.shift_id}</td>
                     <td>{shortByText(row)}</td>
                     <td>{formatDateTime(row.created_at)}</td>
-                    <td>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {row.can_manage ? (
-                          <Button onClick={() => managed.open(row.id)}>
-                            {t("hand.manage")}
-                          </Button>
-                        ) : (
-                          // FAILED stays an end point (R2-Q22)
-                          <span className="text-sm">{t("hand.cannotManage")}</span>
-                        )}
-                        <Link {...ROW_LINK} className="whitespace-nowrap font-medium text-brand-700 underline" href={`/cases/${row.id}`}>
-                          {t("cases.seeDetails")}
-                        </Link>
-                      </div>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -130,17 +110,6 @@ function HandoffPage() {
         </Card>
       )}
 
-      {/* Managing a case is a dialog over the list (round 6 PR EV6): the list stays put */}
-      {managed.selected && (
-        <HandoffManager
-          key={managed.selected.id}
-          caseId={managed.selected.id}
-          api={api}
-          onClose={managed.close}
-          onDone={managed.done}
-          onChanged={refresh}
-        />
-      )}
     </main>
   );
 }

@@ -1,18 +1,21 @@
 // @vitest-environment jsdom
 // Round 6 PR EV8 (docs/workflow.md 6.38): the Dashboard's cards and charts, the status page, a
 // nurse's roster, the two lists of offers, the replacement summary of a case, the columns of
-// the candidates and the Manage dialog of the case list. The Backend is a stub of fetch; the
+// the candidates and the Manage dialog of the case detail page. The Backend is a stub of fetch; the
 // provider, the gate, the pages and the API layer are the real ones.
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CaseList from "@/app/cases/page";
+import Handoff from "@/app/handoff/page";
 import MyOffers from "@/app/me/offers/page";
 import Home from "@/app/page";
 import RosterRoute from "@/app/roster/page";
 import StatusPage from "@/app/status/page";
 import { AuthGate, AuthProvider } from "@/components/AuthProvider";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
+import { CaseManagement } from "@/components/case/CaseManagement";
+import { CaseView } from "@/components/case/CaseView";
 import { CaseOverviewCard } from "@/components/case/CaseOverviewCard";
 import { waitingForText } from "@/components/dashboard/DashboardView";
 import { OFFERS_PAGE_SIZE, OfferList } from "@/components/outreach/OfferList";
@@ -611,7 +614,7 @@ describe("the replacement summary", () => {
   });
 });
 
-describe("Manage on the case list", () => {
+describe("Manage on the case detail page", () => {
   const row = (id: number, status: string) => ({
     id,
     status,
@@ -627,8 +630,8 @@ describe("Manage on the case list", () => {
     can_manage: status === "MANUAL_HANDOFF",
   });
 
-  it("opens the dialog of the Handoff page, staffs the case and says so on the list", async () => {
-    pathname = "/cases";
+  it("opens the dialog from the detail page, staffs the case and refreshes its status", async () => {
+    pathname = "/cases/9";
     let staffed = false;
     session(HEAD, {
       "GET /cases/search": () => ok({ items: [row(9, staffed ? "RESOLVED" : "MANUAL_HANDOFF"), row(8, "RESOLVED")], total: 2, page: 1, page_size: 20 }),
@@ -640,17 +643,19 @@ describe("Manage on the case list", () => {
         return ok({ case_id: 9, staff_id: 202, case_status: "RESOLVED", cancelled_outreach_ids: [] });
       },
     });
-    app(<CaseList />);
-    const table = within(await screen.findByRole("table", { name: "Cases" }));
-    fireEvent.click(table.getByRole("button", { name: "Manage" }));
+    routes["GET /cases/9"] = () => ok(caseDetail({ id: 9, status: staffed ? "RESOLVED" : "MANUAL_HANDOFF" }));
+    routes["GET /cases/9/audit"] = () => ok([]);
+    app(<CaseView caseId="9" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage" }));
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(await dialog.findByRole("button", { name: "Assign" }));
     expect(await screen.findByText(/Staff 202 assigned. Case 9: RESOLVED/)).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Status:").textContent).toContain("RESOLVED"));
   });
 
-  it("keeps the dialog open when newer cases push its case to the next page (review of #147)", async () => {
-    pathname = "/cases";
+  it("keeps the typed note across polls and closes when the case is resolved elsewhere", async () => {
+    pathname = "/cases/9";
     // Newer cases arrive: case 9 is no longer on the first page, but still MANUAL_HANDOFF
     let pushedOff = false;
     let resolved = false;
@@ -666,14 +671,14 @@ describe("Manage on the case list", () => {
       "GET /cases/9/handoff/candidates": () =>
         ok([{ staff_id: 202, first_name: "Phanu", last_name: "Demo", role_name: "RN", blocking_rules: [], other_case_ids: [] }]),
     });
-    app(<CaseList />);
+    app(<CaseManagement caseId="9" status="MANUAL_HANDOFF" onChanged={async () => {}} />);
     fireEvent.click(await screen.findByRole("button", { name: "Manage" }));
     const dialog = await screen.findByRole("dialog", { name: "Manage case 9" });
     fireEvent.change(within(dialog).getByLabelText("Note for the assignment (optional)"), { target: { value: "kept" } });
 
     pushedOff = true;
     await waitFor(() => expect(seen).toContain("GET /cases/search?q=9&page=1&page_size=100"), { timeout: 5000 });
-    await waitFor(() => expect(screen.getByRole("table", { name: "Cases" }).textContent).toContain("31"), { timeout: 5000 });
+    await waitFor(() => expect(seen.filter((path) => path === "GET /cases/search?q=9&page=1&page_size=100").length).toBeGreaterThan(1), { timeout: 5000 });
     // Still open, with what was typed: the row of case 9 says it can be managed
     expect(screen.getByRole("dialog", { name: "Manage case 9" })).toBeTruthy();
     expect((screen.getByLabelText("Note for the assignment (optional)") as HTMLInputElement).value).toBe("kept");
@@ -685,14 +690,46 @@ describe("Manage on the case list", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("does not offer management when the server denies this ward", async () => {
+    session(HEAD, {
+      "GET /cases/search": () => ok({ items: [{ ...row(9, "MANUAL_HANDOFF"), can_manage: false }], total: 1, page: 1, page_size: 100 }),
+    });
+    app(<CaseManagement caseId="9" status="MANUAL_HANDOFF" onChanged={async () => {}} />);
+    await waitFor(() => expect(seen).toContain("GET /cases/search?q=9&page=1&page_size=100"));
+    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
+  });
+
+  it.each(["RESOLVED", "FAILED", "WAITING_APPROVAL"])("does not offer management on %s", async (status) => {
+    session(HEAD);
+    app(<CaseManagement caseId="9" status={status} onChanged={async () => {}} />);
+    await waitFor(() => expect(seen).toContain("GET /auth/me"));
+    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
+    expect(seen.some((path) => path.includes("/cases/search"))).toBe(false);
+  });
+
   it("offers no Manage button to a nurse", async () => {
-    pathname = "/cases";
+    pathname = "/cases/9";
     session(STAFF, {
       "GET /cases/search": () => ok({ items: [row(9, "MANUAL_HANDOFF")], total: 1, page: 1, page_size: 20 }),
     });
-    app(<CaseList />);
-    const table = within(await screen.findByRole("table", { name: "Cases" }));
-    expect(table.queryByRole("button", { name: "Manage" })).toBeNull();
-    expect(table.getByRole("link", { name: "See details" })).toBeTruthy();
+    app(<CaseManagement caseId="9" status="MANUAL_HANDOFF" onChanged={async () => {}} />);
+    await waitFor(() => expect(seen).toContain("GET /auth/me"));
+    expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
+  });
+});
+
+
+describe("Case row links in session mode (#148)", () => {
+  it.each([CaseList, Handoff])("omits the demo identity from the row link", async (Page) => {
+    session(HEAD, {
+      "GET /cases/search": () => ok({ items: [{
+        id: 9, status: "MANUAL_HANDOFF", shift_id: 21, ward_id: 1, ward_name: "ICU",
+        shift_type: "NIGHT", shift_start_at: "2026-10-24T23:00:00+07:00",
+        required_replacement_time: "2026-10-24T23:00:00+07:00",
+        created_at: "2026-10-24T21:00:00+07:00", headcount_gap: 1, assigned_count: 0, can_manage: true,
+      }], total: 1, page: 1, page_size: 20 }),
+    });
+    app(<Page />);
+    expect((await screen.findByRole("link", { name: "9" })).getAttribute("href")).toBe("/cases/9");
   });
 });

@@ -54,7 +54,7 @@ describe("Case list", () => {
       "/cases/search?page=1&page_size=20&sort=newest",
       expect.objectContaining({ demoUser: 900 }),
     );
-    expect(table.getByRole("link", { name: "9" }).getAttribute("href")).toBe("/cases/9");
+    expect(table.getByRole("link", { name: "9" }).getAttribute("href")).toBe("/cases/9?as=900");
     const cells = within(table.getAllByRole("row")[1]).getAllByRole("cell");
     expect(cells.map((cell) => cell.textContent)).toEqual([
       "9",
@@ -63,19 +63,17 @@ describe("Case list", () => {
       "Shift 21 · NIGHT · 2026-10-09 23:00",
       "1",
       "2026-10-09 21:00:00",
-      // A handed-off case can be managed from here too (round 6 PR EV8)
-      "ManageSee details",
     ]);
     expect(within(table.getAllByRole("row")[2]).queryByRole("button", { name: "Manage" })).toBeNull();
     expect(screen.getByText("Page 1 of 2 · 21 in all")).toBeTruthy();
   });
 
-  it("opens a case from a click anywhere on its row, or its See details link (round 6 PR EV7)", async () => {
+  it("opens a case from a click anywhere on its row, or its case number", async () => {
     render(<CaseList />);
     const table = within(await screen.findByRole("table", { name: "Cases" }));
     const row = table.getAllByRole("row")[1];
-    const link = within(row).getByRole("link", { name: "See details" });
-    expect(link.getAttribute("href")).toBe("/cases/9");
+    const link = within(row).getByRole("link", { name: "9" });
+    expect(link.getAttribute("href")).toBe("/cases/9?as=900");
     const followed = vi.fn((event: Event) => event.preventDefault());
     link.addEventListener("click", followed);
 
@@ -84,7 +82,7 @@ describe("Case list", () => {
     expect(followed).toHaveBeenCalledTimes(1);
     // A click on the case number is that link's own click, not a second one
     fireEvent.click(within(row).getByRole("link", { name: "9" }));
-    expect(followed).toHaveBeenCalledTimes(1);
+    expect(followed).toHaveBeenCalledTimes(2);
   });
 
   it("searches on submit, filters by status at once, and goes back to page 1", async () => {

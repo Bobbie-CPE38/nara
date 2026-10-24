@@ -518,6 +518,13 @@ describe("change password page", () => {
 });
 
 describe("the menu follows the role", () => {
+  it("shows the real home ward from the session next to the role", async () => {
+    session({ ...HEAD, home_ward_id: 987, home_ward_name: "Surgical ICU" });
+    app(<SiteHeader />);
+    expect(await screen.findByText("Home ward Surgical ICU")).toBeTruthy();
+    expect(screen.getByText("Staff 900 · Head Nurse")).toBeTruthy();
+  });
+
   async function menuOf(me: unknown | null) {
     session(me);
     app(<SiteHeader />);
