@@ -22,6 +22,16 @@ PASSWORD = "test-only-password"
 USER = "team"
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """A redirect of the gate is the answer under test, not a page to follow."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+OPENER = urllib.request.build_opener(NoRedirect())
+
+
 def docker(*args):
     return subprocess.check_output(["docker", *args], text=True).strip()
 
@@ -124,7 +134,7 @@ class AwsGate(unittest.TestCase):
             self.base + path, headers=headers, method=method
         )
         try:
-            answer = urllib.request.urlopen(request, timeout=5)
+            answer = OPENER.open(request, timeout=5)
         except urllib.error.HTTPError as error:
             answer = error
         with answer:
@@ -153,21 +163,34 @@ class AwsGate(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("live AU4 checklist remains required", result.stdout)
 
-    def test_optional_account_checks_keep_the_cookie_and_log_out(self):
-        result = subprocess.run(
-            ["bash", "check-gate.sh", self.base, USER, PASSWORD, "--staff-id", "101"],
+    def run_account(self, password, *, role="staff", basic_password=PASSWORD):
+        self.flag("nara-test-role", role)
+        self.addCleanup(self.flag, "nara-test-role")
+        return subprocess.run(
+            ["bash", "check-gate.sh", self.base, USER, basic_password, "--staff-id", "101"],
             check=False,
             cwd=ROOT,
             capture_output=True,
             text=True,
-            input="fake-account-password\n",
+            input=password + "\n",
             timeout=180,
         )
+
+    def test_optional_account_checks_keep_the_cookie_and_log_out(self):
+        result = self.run_account("fake-account-password")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("ok  other simulator identity forbidden: HTTP 403", result.stdout)
+        # EV8: a nurse is sent to their own page, without the Basic Auth box
+        self.assertIn("ok  nurse cannot open Demo: HTTP 302", result.stdout)
+        self.assertIn("ok  logged in /api/dashboard: HTTP 403", result.stdout)
         self.assertIn("ok  logged out session: HTTP 401", result.stdout)
         self.assertNotIn("test-session", result.stdout)
         self.assertNotIn("fake-account-password", result.stdout)
+
+    def test_a_manager_account_checks_the_basic_auth_and_the_simulator(self):
+        result = self.run_account("fake-account-password", role="head_nurse")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("ok  Demo page with Basic: HTTP 200", result.stdout)
+        self.assertIn("ok  other simulator identity forbidden: HTTP 403", result.stdout)
 
     def test_private_password_prompts_and_wrong_basic_credentials(self):
         result = subprocess.run(
@@ -182,13 +205,9 @@ class AwsGate(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertNotIn(PASSWORD, result.stdout)
         self.assertNotIn("test-session", result.stdout)
-        result = subprocess.run(
-            ["bash", "check-gate.sh", self.base, USER, "wrong-password"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            timeout=180,
-            check=False,
+        # Only a manager's session reaches the Basic Auth, so only that run can find it wrong
+        result = self.run_account(
+            "fake-account-password", role="supervisor", basic_password="wrong-password"
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("FAIL  Demo page with Basic", result.stdout)
@@ -221,14 +240,65 @@ class AwsGate(unittest.TestCase):
             for name, old_requests in before.items():
                 self.assertEqual(self.new_requests(name, old_requests), [], path)
 
-    def test_demo_requires_basic_but_business_uses_session(self):
-        for path in ("/demo", "/demo/control", "/api/demo", "/api/demo/reset"):
-            code, headers, _ = self.probe("POST", path)
-            self.assertEqual(code, 401, path)
-            self.assertTrue(headers.get("WWW-Authenticate", "").startswith("Basic"))
+    def logged_in_as(self, role):
+        """A session of the fake backend for `role`; the flag goes when the test ends."""
+        self.probe("POST", "/api/auth/login")
+        self.flag("nara-test-role", role)
+        self.addCleanup(self.flag, "nara-test-role")
+        return {"Cookie": "nara_session=test-session"}
+
+    def test_demo_asks_for_basic_only_after_a_manager_session(self):
+        # EV8: without a session, a Demo page goes to the login and an API call gets 401,
+        # never the Basic Auth box, even with the right Basic credentials
+        for basic in (False, True):
+            for path in ("/demo", "/demo/control", "/demo/line-sim"):
+                code, headers, _ = self.probe("GET", path, basic=basic)
+                self.assertEqual(code, 302, path)
+                self.assertTrue(headers["Location"].startswith("/login?next="), path)
+                self.assertIsNone(headers.get("WWW-Authenticate"))
+            for path in ("/api/demo", "/api/demo/reset"):
+                code, headers, _ = self.probe("POST", path, basic=basic)
+                self.assertEqual(code, 401, path)
+                self.assertIsNone(headers.get("WWW-Authenticate"))
         code, headers, _ = self.probe("GET", "/api/dashboard", basic=True)
         self.assertEqual(code, 401)
         self.assertIsNone(headers.get("WWW-Authenticate"))
+
+    def test_a_nurse_never_sees_the_basic_auth_box(self):
+        cookie = self.logged_in_as("staff")
+        for basic in (False, True):
+            code, headers, _ = self.probe("GET", "/demo/control", basic=basic, headers=cookie)
+            self.assertEqual((code, headers["Location"]), (302, "/me/offers"))
+            self.assertIsNone(headers.get("WWW-Authenticate"))
+            code, headers, _ = self.probe("POST", "/api/demo/reset", basic=basic, headers=cookie)
+            self.assertEqual(code, 403)
+            self.assertIsNone(headers.get("WWW-Authenticate"))
+
+    def test_a_manager_gets_the_basic_auth_box_and_keeps_the_body(self):
+        import json
+
+        for role in ("head_nurse", "supervisor"):
+            cookie = self.logged_in_as(role)
+            for path in ("/demo/control", "/api/demo/reset"):
+                code, headers, _ = self.probe("POST", path, headers=cookie)
+                self.assertEqual(code, 401, (role, path))
+                self.assertTrue(headers.get("WWW-Authenticate", "").startswith("Basic"))
+            self.assertEqual(self.probe("GET", "/demo/control", basic=True, headers=cookie)[0], 200)
+            # The gate is asked first: the route behind it must still get the whole body
+            payload = b'{"hospital": true}'
+            request = urllib.request.Request(
+                self.base + "/api/demo/echo-length",
+                data=payload,
+                headers={
+                    **cookie,
+                    "Content-Type": "application/json",
+                    "Authorization": "Basic "
+                    + __import__("base64").b64encode(f"{USER}:{PASSWORD}".encode()).decode(),
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=5) as answer:
+                self.assertEqual(json.loads(answer.read()), {"length": len(payload)})
 
     def test_signed_webhook_only_exact_raw_post(self):
         for path in (

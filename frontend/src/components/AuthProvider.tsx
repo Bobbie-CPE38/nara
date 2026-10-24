@@ -7,7 +7,7 @@ import { Notice } from "@/components/ui/Notice";
 import { ApiError, apiRequest, setAuthProblemHandler, setSessionMode } from "@/lib/api";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n/LanguageProvider";
-import { roleMayOpen } from "@/lib/routeAccess";
+import { homeOf, roleMayOpen } from "@/lib/routeAccess";
 import type { AuthConfig, AuthMe } from "@/lib/types/auth";
 
 /**
@@ -82,13 +82,17 @@ export function safeNext(value: string | null | undefined): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-/** Pages that work without an account: the login ones, and the Demo control behind Basic Auth. */
+/** The API and database check (round 6 PR EV8): shown even when the Backend cannot be reached */
+const STATUS_PAGE = "/status";
+
+/**
+ * Pages that work without an account: the login ones and the system status. Since round 6 PR
+ * EV8 (docs/workflow.md 6.38.1) a Demo page needs the login of a head nurse or a supervisor
+ * first: Caddy asks the Backend before its Basic Auth, and this page does the same.
+ */
 function worksWithoutAccount(path: string): boolean {
   // /change-password sends a visitor without a session to /login itself (it also shows the result)
-  if (path === "/login" || path === "/register" || path === "/change-password") return true;
-  const isDemoPage = path === "/demo" || path.startsWith("/demo/");
-  // The simulator answers offers as a person, so it needs a session (docs/workflow.md 6.33.5)
-  return isDemoPage && !(path === "/demo/line-sim" || path.startsWith("/demo/line-sim/"));
+  return path === "/login" || path === "/register" || path === "/change-password" || path === STATUS_PAGE;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -181,20 +185,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const mustChange = state.status === "authenticated" && state.me.must_change_password;
   const sendToLogin = state.status === "anonymous" && !worksWithoutAccount(pathname);
   const sendToChangePassword = mustChange && pathname !== "/change-password";
-  // A page outside the user's role goes back to the Dashboard without a word (round 6 PR EV7)
+  // A page outside the user's role goes back to their home page without a word (round 6 PR EV7):
+  // the Dashboard, or My offers for a nurse (round 6 PR EV8)
   const sendHome = state.status === "authenticated" && !roleMayOpen(pathname, state.me.role);
   const redirectTo = sendToLogin
     ? `/login?next=${encodeURIComponent(safeNext(`${pathname}${typeof window === "undefined" ? "" : window.location.search}`))}`
     : sendToChangePassword
       ? "/change-password"
-      : sendHome
-        ? "/"
+      : sendHome && state.status === "authenticated"
+        ? homeOf(state.me.role)
         : null;
 
   useEffect(() => {
     if (redirectTo !== null) router.replace(redirectTo);
   }, [redirectTo, router]);
 
+  // The status page says itself whether the API answers: no login, no check of the mode first
+  if (pathname === STATUS_PAGE) return <>{children}</>;
   if (state.status === "loading") {
     return (
       <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">

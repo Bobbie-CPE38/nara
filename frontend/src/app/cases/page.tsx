@@ -3,14 +3,18 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ActingAs } from "@/components/ActingAs";
+import { useSessionUser } from "@/components/AuthProvider";
 import { CaseFilters, type CaseQuery, searchPath } from "@/components/case/CaseFilters";
+import { HandoffManager, OutcomeView } from "@/components/handoff/HandoffManager";
 import { ScrollX } from "@/components/ScrollX";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Notice } from "@/components/ui/Notice";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Pager } from "@/components/ui/Pager";
 import { useActor } from "@/hooks/useActor";
+import { useManagedCase } from "@/hooks/useManagedCase";
 import { usePolling } from "@/hooks/usePolling";
 import { createDemoApi } from "@/lib/api";
 import { CASE_STATUS_INFO } from "@/lib/constants";
@@ -35,7 +39,9 @@ const CASE_STATUS_FILTERS = [
 
 /**
  * Every case the user may read, newest first, with search, a status filter and pages (round 6
- * PR EV6, docs/workflow.md 6.36.6). Before it, a case was only reached by a link.
+ * PR EV6, docs/workflow.md 6.36.6). Before it, a case was only reached by a link. A case in
+ * MANUAL_HANDOFF has a Manage button that opens the dialog of the Handoff page here (round 6
+ * PR EV8, 6.38.7); a nurse never has one, and the Backend checks every action again.
  */
 function CaseListPage() {
   const t = useT();
@@ -46,7 +52,9 @@ function CaseListPage() {
     (signal: AbortSignal) => api<CasePage>(searchPath(query, PAGE_SIZE, "newest"), { signal }),
     [api, query],
   );
-  const { data, error, isLoading } = usePolling(load);
+  const { data, error, isLoading, refresh } = usePolling(load);
+  const managed = useManagedCase(data?.items, api);
+  const nurse = useSessionUser()?.role === "staff";
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
@@ -57,6 +65,7 @@ function CaseListPage() {
           onChange={(id) => {
             setActorId(id);
             setQuery((value) => ({ ...value, page: 1 }));
+            managed.reset();
           }}
         />
       </PageHeader>
@@ -68,6 +77,11 @@ function CaseListPage() {
           <Notice kind="error" role="alert">
             {describeError(error, t)}
           </Notice>
+        </div>
+      )}
+      {!managed.selected && managed.outcome && (
+        <div className="mt-4">
+          <OutcomeView outcome={managed.outcome} />
         </div>
       )}
       {isLoading && !data && <p className="mt-4">{t("common.loading")}</p>}
@@ -117,9 +131,14 @@ function CaseListPage() {
                     </td>
                     <td className="whitespace-nowrap">{formatDateTime(row.created_at)}</td>
                     <td>
-                      <Link {...ROW_LINK} className="whitespace-nowrap font-medium text-brand-700 underline" href={`/cases/${row.id}`}>
-                        {t("cases.seeDetails")}
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {row.can_manage && !nurse && (
+                          <Button onClick={() => managed.open(row.id)}>{t("hand.manage")}</Button>
+                        )}
+                        <Link {...ROW_LINK} className="whitespace-nowrap font-medium text-brand-700 underline" href={`/cases/${row.id}`}>
+                          {t("cases.seeDetails")}
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -133,6 +152,16 @@ function CaseListPage() {
             onPage={(page) => setQuery((value) => ({ ...value, page }))}
           />
         </Card>
+      )}
+      {managed.selected && (
+        <HandoffManager
+          key={managed.selected.id}
+          caseId={managed.selected.id}
+          api={api}
+          onClose={managed.close}
+          onDone={managed.done}
+          onChanged={refresh}
+        />
       )}
     </main>
   );

@@ -23,7 +23,10 @@ client = TestClient(app)
 
 def _cases() -> dict[int, str]:
     with SessionLocal() as db:
-        return {case.id: case.status.value for case in db.scalars(select(StaffingCase))}
+        return {
+            case.id: case.status.value
+            for case in db.scalars(select(StaffingCase).order_by(StaffingCase.id))
+        }
 
 
 def test_a_reset_with_the_hospital_plays_one_case_of_every_kind() -> None:
@@ -32,11 +35,15 @@ def test_a_reset_with_the_hospital_plays_one_case_of_every_kind() -> None:
     statuses = Counter(_cases().values())
     assert statuses == Counter(
         {
-            "RESOLVED": 2,  # approved, and staffed by hand from the handoff page
+            # approved, staffed by hand, and (round 6 PR EV8) moved with both wards'
+            # approval and a free nurse borrowed from another ward
+            "RESOLVED": 4,
             "MANUAL_HANDOFF": 1,
             "UNRESOLVED": 1,
-            "WAITING_APPROVAL": 1,
-            "WAITING_RESPONSE": 1,
+            # one for its head nurse; a move waiting for its source ward, and for both
+            "WAITING_APPROVAL": 3,
+            # offers out; and the move the source ward refused, which asks the next people
+            "WAITING_RESPONSE": 2,
         }
     )
 
@@ -50,7 +57,11 @@ def test_the_case_page_says_who_came_who_decided_and_why_it_stopped() -> None:
     resolved = [
         client.get(f"/cases/{case_id}").json()["overview"] for case_id in by_status["RESOLVED"]
     ]
-    approved = next(view for view in resolved if view["replacements"][0]["how"] == "APPROVED")
+    approved = next(
+        view
+        for view in resolved
+        if view["replacements"][0]["how"] == "APPROVED" and view["shift"]["ward_name"] == "Surgery"
+    )
     by_hand = next(view for view in resolved if view["replacements"][0]["how"] == "MANUAL")
     closed = client.get(f"/cases/{by_status['UNRESOLVED'][0]}").json()["overview"]
     handoff = client.get(f"/cases/{by_status['MANUAL_HANDOFF'][0]}").json()["overview"]
@@ -76,6 +87,62 @@ def test_the_case_page_says_who_came_who_decided_and_why_it_stopped() -> None:
 
     assert handoff["outcome"]["kind"] == "MANUAL_HANDOFF"
     assert handoff["outcome"]["reason"] in {"NO_CANDIDATE_LEFT", "WAVE_LIMIT_REACHED"}
+
+
+def test_the_cross_ward_examples_show_each_ward_of_the_move() -> None:
+    """Round 6 PR EV8 (6.38.5, 6.38.6): a move needs both wards, a free nurse one."""
+    assert client.post("/demo/reset", json={"hospital": True}).status_code == 200
+    details = [client.get(f"/cases/{case_id}").json() for case_id in _cases()]
+    requests = [
+        (detail["status"], request)
+        for detail in details
+        for request in detail["overview"]["requests"]
+    ]
+
+    def sides(request: dict) -> list[tuple[str, str]]:
+        return [(side["side"], side["status"]) for side in request["sides"]]
+
+    moves = [(status, request) for status, request in requests if request["moved_from"]]
+    approved = next(request for status, request in moves if status == "RESOLVED")
+    assert sides(approved) == [("DESTINATION", "APPROVED"), ("SOURCE", "APPROVED")]
+    assert approved["assigned"] is True
+    assert {side["by"]["role"] for side in approved["sides"]} == {"HEAD_NURSE"}
+    assert approved["moved_from"]["ward_name"] in {"Emergency", "Cardiology"}
+    assert approved["candidate"]["ward_name"] == approved["moved_from"]["ward_name"]
+
+    waiting = sorted(sides(request) for status, request in moves if status == "WAITING_APPROVAL")
+    assert waiting == [
+        [("DESTINATION", "APPROVED"), ("SOURCE", "PENDING")],
+        [("DESTINATION", "PENDING"), ("SOURCE", "PENDING")],
+    ]
+    pending = next(
+        side
+        for status, request in moves
+        for side in request["sides"]
+        if status == "WAITING_APPROVAL" and side["status"] == "PENDING"
+    )
+    # Who it waits for: the active head nurse of that ward, and the Supervisor's time
+    assert [person["role"] for person in pending["waiting_for"]] == ["HEAD_NURSE"]
+    assert pending["waiting_for"][0]["ward_name"] == pending["ward_name"]
+    assert pending["supervisor_from"] is not None
+
+    refused = next(request for status, request in moves if request["status"] == "REJECTED")
+    assert sides(refused) == [("DESTINATION", "APPROVED"), ("SOURCE", "REJECTED")]
+    assert refused["sides"][1]["reason"] == "We cannot spare a nurse from our shift"
+
+    borrowed = next(
+        detail
+        for detail in details
+        if detail["status"] == "RESOLVED"
+        and any(
+            request["moved_from"] is None
+            and request["candidate"]["ward_name"] != detail["overview"]["shift"]["ward_name"]
+            for request in detail["overview"]["requests"]
+        )
+    )
+    (request,) = borrowed["overview"]["requests"]
+    assert sides(request) == [("DESTINATION", "APPROVED")]
+    assert borrowed["overview"]["replacements"][0]["how"] == "APPROVED"
 
 
 def test_a_staff_id_that_is_not_an_id_does_not_break_the_case_page() -> None:

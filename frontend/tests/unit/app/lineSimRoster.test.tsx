@@ -552,7 +552,8 @@ describe("LINE simulator", () => {
     replies(() => offers);
     render(<LineSimulatorPage />);
     await screen.findByRole("table");
-    for (const button of screen.getAllByRole("button"))
+    // The two list buttons above the table stay usable (round 6 PR EV8); every offer's are not
+    for (const button of screen.getAllByRole("button", { name: /offer \d+/ }))
       expect((button as HTMLButtonElement).disabled).toBe(true);
   });
   it("shows a read error", async () => {
@@ -838,6 +839,8 @@ describe("LINE simulator", () => {
     render(<LineSimulatorPage />);
     await screen.findByRole("table");
     expect(screen.getByRole("button", { name: "Accept offer 1" })).toBeTruthy();
+    // Offer 2 can no longer be answered: it is in the other list (round 6 PR EV8)
+    fireEvent.click(screen.getByRole("button", { name: "Can no longer answer (1)" }));
     expect(
       (
         screen.getByRole("button", {

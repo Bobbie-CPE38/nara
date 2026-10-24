@@ -84,13 +84,21 @@ describe("pages each role may open", () => {
     ["/admin/staff", "supervisor", true],
     ["/handoff", "head_nurse", true],
     ["/cases/7", "staff", true],
-    ["/demo/line-sim", "staff", true],
-    ["/", "staff", true],
+    // Round 6 PR EV8: a nurse has the cases, the roster, their offers and their leave only
+    ["/demo/line-sim", "staff", false],
+    ["/", "staff", false],
+    ["/gap", "staff", false],
+    ["/roster", "staff", true],
+    ["/me/offers", "staff", true],
+    ["/me/leave", "staff", true],
+    ["/status", "staff", true],
+    ["/", "head_nurse", true],
+    ["/demo/line-sim", "supervisor", true],
   ] as const)("%s for %s: %s", (path, role, allowed) => {
     expect(roleMayOpen(path, role)).toBe(allowed);
   });
 
-  it("sends a nurse who types the address of Approvals back to the Dashboard, without a word", async () => {
+  it("sends a nurse who types the address of Approvals back to their offers, without a word", async () => {
     session(STAFF);
     pathname = "/approvals";
     app(
@@ -99,7 +107,8 @@ describe("pages each role may open", () => {
       </AuthGate>,
     );
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+    // A nurse has no Dashboard: their home page is My offers (round 6 PR EV8)
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/me/offers"));
     expect(screen.queryByText("approvals page")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
   });
@@ -281,22 +290,60 @@ describe("the top of the case page", () => {
   it("says who left, who came, and who decided for each ward", () => {
     render(
       <LanguageProvider initial="en">
-        <CaseOverviewCard overview={overview} />
+        <CaseOverviewCard
+          caseStatus="RESOLVED"
+          overview={{
+            ...overview,
+            shift: { shift_id: 1, ward_id: 1, ward_name: "ICU", shift_type: "NIGHT", start_at: "2026-10-09T23:00:00+07:00", end_at: "2026-10-10T07:00:00+07:00" },
+            requests: [
+              {
+                approval_id: 3,
+                candidate: person(301, "Niran Demo", "RN", "Medicine"),
+                destination_ward_name: "ICU",
+                moved_from: { shift_id: 21, ward_name: "Medicine", start_at: "2026-10-09T23:00:00+07:00", end_at: "2026-10-10T07:00:00+07:00" },
+                status: "APPROVED",
+                approval_mode: "MANUAL",
+                assigned: true,
+                requested_at: "2026-10-09T21:02:00+07:00",
+                sides: [
+                  { side: "DESTINATION", ward_name: "ICU", status: "APPROVED", by: person(900, "Malai Demo", "HEAD_NURSE", "ICU"), decided_as: "HEAD_NURSE", reason: null, at: "2026-10-09T21:03:00+07:00", waiting_for: [], supervisor_from: null },
+                  { side: "SOURCE", ward_name: "Medicine", status: "APPROVED", by: person(902, "Ratana Demo", "HEAD_NURSE", "Medicine"), decided_as: "HEAD_NURSE", reason: null, at: "2026-10-09T21:04:00+07:00", waiting_for: [], supervisor_from: null },
+                ],
+              },
+            ],
+          }}
+        />
       </LanguageProvider>,
     );
 
-    const card = within(screen.getByRole("region", { name: "Who and why" }));
-    expect(card.getByText(/STAFF_UNAVAILABLE/).textContent).toContain("105 Sudarat Demo · RN, ICU");
-    expect(card.getByText(/moved from a shift of another ward/).textContent).toContain("301 Niran Demo");
-    const decisions = card.getAllByRole("listitem").map((item) => item.textContent ?? "");
-    expect(decisions[0]).toContain("Approved for ICU · by 900 Malai Demo");
-    expect(decisions[1]).toContain("for Medicine (the ward lending the nurse) · by 902 Ratana Demo");
+    // Round 6 PR EV8: the replacement summary, in three parts
+    const card = within(screen.getByRole("region", { name: "Replacement summary" }));
+    const what = card.getByRole("region", { name: "What happened" }).textContent ?? "";
+    expect(what).toContain("Sudarat Demo");
+    expect(what).toContain("ID 105");
+    expect(what).toContain("reported being unable to work the shift");
+    expect(what).toContain("Night shift");
+    const came = card.getByRole("region", { name: "Who came instead" }).textContent ?? "";
+    expect(came).toContain("Niran Demo");
+    expect(came).toContain("Home ward Medicine");
+    expect(came).toContain("Helping ICU");
+    expect(came).toContain("Moved off Medicine shift 21");
+    expect(came).toContain("Moved, approved by both wards");
+    const approved = within(card.getByRole("region", { name: "Who approved" }));
+    const rows = approved.getAllByRole("listitem").map((item) => item.textContent ?? "");
+    expect(rows[0]).toContain("Head nurse of the destination ward · ICU");
+    expect(rows[0]).toContain("Malai Demo");
+    expect(rows[0]).toContain("ID 900");
+    expect(rows[0]).toContain("Approved");
+    expect(rows[1]).toContain("Head nurse of the source ward · Medicine");
+    expect(rows[1]).toContain("Ratana Demo");
   });
 
   it("says why a case stopped, with the reason in words", () => {
     render(
       <LanguageProvider initial="th">
         <CaseOverviewCard
+          caseStatus="MANUAL_HANDOFF"
           overview={{
             ...overview,
             replacements: [],
@@ -307,7 +354,11 @@ describe("the top of the case page", () => {
       </LanguageProvider>,
     );
 
-    expect(screen.getByText(/ส่งต่อให้คนจัดการ: ส่ง Offer ครบรอบสุดท้ายที่อนุญาตแล้ว/)).toBeTruthy();
-    expect(screen.getByText("ยังไม่มี")).toBeTruthy();
+    const why = screen.getByRole("region", { name: "เหตุที่เคสหยุด" }).textContent ?? "";
+    expect(why).toContain("ส่งต่อให้คนจัดการ: ส่ง Offer ครบรอบสุดท้ายที่อนุญาตแล้ว");
+    // Nobody came: the step the case is at, and the way to its candidates
+    const came = within(screen.getByRole("region", { name: "ใครมาแทน" }));
+    expect(came.getByText("รอหัวหน้าหอหรือ Supervisor จัดคนเอง")).toBeTruthy();
+    expect(came.getByRole("link", { name: "ดูผู้สมัคร" }).getAttribute("href")).toBe("#candidates");
   });
 });

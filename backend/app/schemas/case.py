@@ -6,7 +6,9 @@ from pydantic import BaseModel
 
 from app.domain.enums import (
     ActorType,
+    ApprovalMode,
     ApprovalSide,
+    ApproverCapacity,
     AuditAction,
     CandidateSource,
     CaseStatus,
@@ -15,6 +17,7 @@ from app.domain.enums import (
     ExplanationBlock,
     ExplanationViewStatus,
     OutreachStatus,
+    ShiftType,
 )
 from app.schemas.case_summary import CaseSummaryView
 from app.schemas.handover import HandoverView
@@ -168,6 +171,64 @@ class OverviewEvent(BaseModel):
     # The person the event is about (who is on leave, who did not come); None for a surge
     staff: OverviewPerson | None
     occurred_at: AppDatetime
+    # payload.reason: NO_SHOW for the check-in job's event (6.24), the words of a cancel
+    reason: str | None = None
+    # The new total of a PATIENT_SURGE
+    patient_count: int | None = None
+
+
+class OverviewShift(BaseModel):
+    """The shift the case is about: the day and the shift that are short (round 6 PR EV8)."""
+
+    shift_id: int
+    ward_id: int
+    ward_name: str
+    shift_type: ShiftType
+    start_at: AppDatetime
+    end_at: AppDatetime
+
+
+class OverviewMove(BaseModel):
+    """The shift a candidate is moved off when they come (6.19): their source ward."""
+
+    shift_id: int
+    ward_name: str
+    start_at: AppDatetime
+    end_at: AppDatetime
+
+
+class OverviewSide(BaseModel):
+    """One ward's approval of a request: the destination, and the source of a move."""
+
+    side: ApprovalSide
+    ward_name: str
+    # NOT_NEEDED: the request ended before this ward decided (the other ward said no, it
+    # timed out, or the case stopped)
+    status: Literal["PENDING", "APPROVED", "REJECTED", "AUTO_APPROVED", "TIMED_OUT", "NOT_NEEDED"]
+    by: OverviewPerson | None
+    decided_as: ApproverCapacity | None
+    reason: str | None
+    at: AppDatetime | None
+    # While PENDING: the ward's active head nurses, and when the Supervisor may decide too
+    waiting_for: list[OverviewPerson]
+    supervisor_from: AppDatetime | None
+
+
+class OverviewRequest(BaseModel):
+    """One accepted offer and its approval, bound to its candidate (round 6 PR EV8)."""
+
+    approval_id: int
+    candidate: OverviewPerson
+    destination_ward_name: str
+    # None: the candidate is free that day; a move needs both wards (6.21)
+    moved_from: OverviewMove | None
+    # CANCELLED: still undecided, but the case stopped, so nobody decides it any more
+    status: Literal["PENDING", "APPROVED", "REJECTED", "TIMED_OUT", "CANCELLED"]
+    approval_mode: ApprovalMode
+    # The candidate is on the case's shift now: the replacement or the move was made
+    assigned: bool
+    requested_at: AppDatetime
+    sides: list[OverviewSide]
 
 
 class OverviewReplacement(BaseModel):
@@ -216,6 +277,11 @@ class CaseOverview(BaseModel):
     replacements: list[OverviewReplacement]
     decisions: list[OverviewDecision]
     outcome: OverviewOutcome | None
+    # Round 6 PR EV8: the shift, every approval request with each ward's side, and how many
+    # offers still wait for an answer (the current step while nobody has come yet)
+    shift: OverviewShift | None = None
+    requests: list[OverviewRequest] = []
+    open_offers: int = 0
 
 
 class CaseDetail(BaseModel):

@@ -40,11 +40,53 @@ class Shortage(BaseModel):
     role_gaps: list[NamedGap]
     skill_gaps: list[NamedGap]
     case_id: int | None
+    # Running at `now`: listed before the shifts that start later (round 6 PR EV8)
+    in_progress: bool
 
 
-class WardCount(BaseModel):
+class WardShortage(BaseModel):
+    """One bar of the Dashboard's chart: what a ward still misses in the window (EV8)."""
+
+    ward_id: int
+    # Headcount positions over the ward's short shifts: someone missing from two shifts
+    # counts twice, so this is not a number of people
+    missing_positions: int
+    short_shifts: int
+
+
+class Approver(BaseModel):
+    staff_id: int
+    name: str
+
+
+class PendingApprovalCount(BaseModel):
+    """Requests still waiting for one ward's decision, and who may decide them now (EV8).
+
+    A ward's requests split in two rows when the Supervisor may decide some of them
+    already (`supervisor_from` passed) and not the others."""
+
     ward_id: int
     count: int
+    # The ward's active head nurses, who may decide at any time
+    head_nurses: list[Approver]
+    # True once the Supervisor may decide them too (docs/workflow.md 6.21)
+    supervisor: bool
+
+
+class DashboardSummary(BaseModel):
+    """The four cards at the top of the Dashboard (round 6 PR EV8)."""
+
+    # Shifts running now or starting within window_hours that are short
+    short_shifts: int
+    # Their headcount positions still missing, added over the shifts (not people)
+    missing_positions: int
+    # Approval requests the user may decide now, on a side of a ward shown (the requests the
+    # approvals page lists for them; review of #147)
+    pending_approvals: int
+    # The other requests still waiting there: a Supervisor's until supervisor_from passes
+    pending_approvals_later: int
+    # Cases waiting in MANUAL_HANDOFF for a person to staff or close them
+    handoff_cases: int
 
 
 class WardOption(BaseModel):
@@ -91,11 +133,19 @@ class Dashboard(BaseModel):
     wards: list[int]
     # Every ward the user may see, by name, for the ward filter (6.36.4)
     ward_options: list[WardOption]
+    # How far ahead the shortages look, from `now` (DASHBOARD_SHORTAGE_WINDOW_HOURS)
+    window_hours: int
+    # True when the wards shown hold the demo's simulated people (round 6 PR EV8)
+    demo_data: bool
+    summary: DashboardSummary
     # Every case status in workflow order, zero counts included
     cases_by_status: list[CaseStatusCount]
+    # In progress first, then by start; at most DASHBOARD_MAX_SHORTAGES
     shortages: list[Shortage]
-    # Approval requests still waiting for each ward's decision
-    pending_approvals: list[WardCount]
+    # Every ward with a short shift in the window, the most missing first
+    shortage_by_ward: list[WardShortage]
+    # Approval requests still waiting for each ward's decision, and who may decide
+    pending_approvals: list[PendingApprovalCount]
     open_offers: OpenOffers
     recent_no_show: list[NoShowEvent]
     # null while LLM_ENABLED is false

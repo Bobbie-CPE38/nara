@@ -1,4 +1,6 @@
 # AU4: session identity for the app; Basic Auth is an additional gate only for Demo.
+# EV8: the Backend first checks the web session of a Demo request, so only a head nurse or
+# a supervisor is ever asked for the Basic Auth password (docs/workflow.md 6.38.1).
 # Match the webhook exception on the original URI, before any prefix is stripped.
 {
 	email {$ACME_EMAIL}
@@ -45,6 +47,13 @@
 		respond @otherWebhook 404
 
 		@demo path /demo /demo/* /api/demo /api/demo/*
+		# 204 goes on to the Basic Auth. Anything else goes back to the visitor as it is:
+		# /login, the nurse's own page, or the JSON error of an /api/demo call
+		forward_auth @demo backend:8000 {
+			uri /auth/demo-gate
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
 		basic_auth @demo {
 			{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
 		}

@@ -63,6 +63,9 @@ STAFF_LAST = STAFF_BASE + 100 * len(WARD_NAMES)
 TEAM_SIZE, FLOAT_POOL_SIZE = 5, 4
 DAYS_BEFORE, DAYS_AFTER = 3, 3
 PATIENTS_PER_SHIFT, REQUIRED_STAFF, MINIMUM_STAFF, REQUIRED_BLS = 8, 4, 3, 2
+# Round 6 PR EV8: on D+1 every shift of Emergency and Cardiology has the whole team of
+# five, one above the target, so another ward may move one of them (6.19, two approvals)
+OVERSTAFFED_DAY, OVERSTAFFED_WARDS = 1, (2, 4)
 RN_ROLE, HEAD_NURSE_ROLE = 1, 2
 ICU_SKILL, BLS_SKILL = 1, 2
 # (shift type, start hour); the night shift ends at 07 the next day
@@ -202,8 +205,11 @@ def seed(db: Session, *, active: bool = True) -> None:
                 start_at = day + timedelta(hours=start_hour)
                 end_at = start_at + timedelta(hours=SHIFT_HOURS)
                 _add_shift(db, shift_id, ward_id, shift_type, start_at, end_at, now)
-                # One nurse of the team is off each day, in turn
+                # One nurse of the team is off each day, in turn; on D+1 the wards of
+                # OVERSTAFFED_WARDS keep that nurse too, so they can lend one (a move)
                 off = (offset + DAYS_BEFORE + index) % TEAM_SIZE
+                if offset == OVERSTAFFED_DAY and index in OVERSTAFFED_WARDS:
+                    off = TEAM_SIZE
                 status = RosterStatus.COMPLETED if end_at <= now else RosterStatus.ASSIGNED
                 db.add_all(
                     RosterAssignment(

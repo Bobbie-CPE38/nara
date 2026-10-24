@@ -10,7 +10,7 @@
 อินเทอร์เน็ต ── 443 / 80 ──> Caddy (HTTPS)
                                 ├── POST /api/line/webhook ตรงตัว ──> LINE signature
                                 ├── /api/internal/* และ API docs  ──> 404
-                                ├── /demo/* และ /api/demo/*       ──> Basic Auth เพิ่ม
+                                ├── /demo/* และ /api/demo/*       ──> session ของผู้จัดการ แล้ว Basic Auth (EV8)
                                 ├── /api/* ตัด /api ออก           ──> Backend ตรวจ session/สิทธิ์
                                 └── หน้าเว็บ                     ──> Frontend production
 ```
@@ -19,11 +19,11 @@
 
 AWS overlay ตรึง `APP_ENV=aws`, `AUTH_MODE=session`, Secure cookie และหนึ่ง Backend serving worker ไม่มี reload Frontend ใช้ `next build`/`next start` ไม่มี bind mount Backend ยัง mount source จึงต้องหยุด service ก่อน checkout/redeploy ไม่ใช้รหัส Demo แทนบัญชีเว็บ และ `X-Demo-User` ไม่เปลี่ยนตัวตนใน session
 
-Basic Auth ครอบ `/demo`, `/demo/*`, `/api/demo`, `/api/demo/*` เท่านั้น คนรู้รหัส Demo ยัง reset/ควบคุมนาฬิกาได้ตาม contract แต่ simulator ต้องมี session ของตน และ Demo events ต้องมี manager session ด้วย API docs/redoc/openapi และ `/api/internal/*` ปิดจากภายนอก ไม่มีข้อยกเว้นเมื่อมี Basic หรือ session
+Basic Auth ครอบ `/demo`, `/demo/*`, `/api/demo`, `/api/demo/*` เท่านั้น **ตั้งแต่ EV8 (`docs/workflow.md` ข้อ 6.38.1)** Caddy ถาม Backend ก่อน (`forward_auth` ไปที่ `GET /auth/demo-gate`) ว่า session ของคำขอเป็น head nurse หรือ supervisor หรือไม่ ผู้เยี่ยมชมที่ไม่ล็อกอินถูกพาไป `/login` พยาบาลถูกพาไป `/me/offers` (คำขอ `/api/demo/*` ได้ 401 หรือ 403 แบบ JSON) จึงไม่มีใครนอกจากผู้จัดการเห็นกล่อง Basic Auth และรหัส Demo อย่างเดียว reset หรือควบคุมนาฬิกาไม่ได้อีกแล้ว simulator ยังต้องตอบในนามตัวเอง และ Demo events ยังต้องมี manager session API docs/redoc/openapi และ `/api/internal/*` ปิดจากภายนอก ไม่มีข้อยกเว้นเมื่อมี Basic หรือ session
 
 Webhook เฉพาะ POST `/api/line/webhook` ที่ URI ดิบตรงตัวผ่านไปตรวจลายเซ็น LINE ไม่ถาม Basic/session URI ดัดแปลง (ตัวพิมพ์ใหญ่, `//`, encoded path, dot segment, query, suffix/trailing slash) ถูกปฏิเสธ ไม่ normalize ให้กลายเป็นข้อยกเว้น Tunnel ในเครื่องพัฒนาเป็นคนละกฎ และไม่ใช่เส้นทาง production หลัง W
 
-ตรวจจากภายนอกด้วย Python 3 และ bash: `bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> nara --require-real-line` (ถามรหัส Demo แบบไม่ echo) เพิ่ม `--staff-id 900` หลังเปลี่ยนรหัสครั้งแรกแล้วเพื่อตรวจ session/role/simulator/logout ด้วยรหัสเว็บที่ถามต่างหาก สคริปต์ไม่ทำ reset/Offer/LLM และยังไม่ใช่ผล LINE smoke ครบ ขั้นตอน deploy/rollback และ live checklist อยู่ใน [AU4 handoff](round6/pr-AU4-handoff.md)
+ตรวจจากภายนอกด้วย Python 3 และ bash: `bash deploy/aws/check-gate.sh https://<SITE_DOMAIN> nara --require-real-line` (ถามรหัส Demo แบบไม่ echo) เพิ่ม `--staff-id 900` หลังเปลี่ยนรหัสครั้งแรกแล้วเพื่อตรวจ session/role/simulator/logout ด้วยรหัสเว็บที่ถามต่างหาก (ตั้งแต่ EV8 การตรวจรหัส Demo ที่ผิดต้องใช้บัญชีของผู้จัดการ เพราะผู้เยี่ยมชมไปไม่ถึงกล่อง Basic Auth; บัญชีพยาบาลตรวจว่าถูกพาไปหน้าของตัวเองแทน) สคริปต์ไม่ทำ reset/Offer/LLM และยังไม่ใช่ผล LINE smoke ครบ ขั้นตอน deploy/rollback และ live checklist อยู่ใน [AU4 handoff](round6/pr-AU4-handoff.md)
 
 เทสต์โดยไม่ใช้ AWS: `python3 deploy/aws/test_gate.py` ใช้ Caddy จริงกับ upstream ปลอม ตรวจการไม่หลุดด่านและการแทน forwarded headers; `python3 deploy/aws/test_session_deploy.py` ตรวจ Compose; Backend integration tests ตรวจ session/สิทธิ์และ Uvicorn proxy trust/rate limit จริง ผล fake ไม่แทนผลบนเครื่อง AWS
 
