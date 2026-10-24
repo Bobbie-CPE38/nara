@@ -212,7 +212,7 @@ def search_cases(
         rows = db.execute(
             base.order_by(*ordering).offset((page - 1) * page_size).limit(page_size)
         ).all()
-        views = _handoff_cases(db, [(case, shift.ward_id) for case, shift, _ in rows])
+        views = _handoff_cases(db, [(row_case, shift.ward_id) for row_case, shift, _ in rows])
     items = [
         CaseListItem(
             **view.model_dump(),
