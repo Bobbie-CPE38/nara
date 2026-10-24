@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
+import { useAuth } from "@/components/AuthProvider";
 import { ActingAs } from "@/components/ActingAs";
 import { CaseFilters, type CaseQuery, searchPath } from "@/components/case/CaseFilters";
 import { ScrollX } from "@/components/ScrollX";
@@ -41,6 +42,7 @@ const CASE_STATUS_FILTERS = [
  */
 function CaseListPage() {
   const t = useT();
+  const { state } = useAuth();
   const [actorId, setActorId] = useActor();
   const api = useMemo(() => createDemoApi(actorId), [actorId]);
   const [query, setQuery] = useState<CaseQuery>({ q: "", status: "", page: 1 });
@@ -96,7 +98,7 @@ function CaseListPage() {
                     onClick={followRowLink}
                   >
                     <td>
-                      <Link {...ROW_LINK} className="underline" href={withActor(`/cases/${row.id}`, actorId)}>
+                      <Link {...ROW_LINK} className="underline" href={state.status === "demo" ? withActor(`/cases/${row.id}`, actorId) : `/cases/${row.id}`}>
                         {row.id}
                       </Link>
                     </td>

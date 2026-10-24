@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 // Round 6 PR EV8 (docs/workflow.md 6.38): the Dashboard's cards and charts, the status page, a
 // nurse's roster, the two lists of offers, the replacement summary of a case, the columns of
-// the candidates and the Manage dialog of the case list. The Backend is a stub of fetch; the
+// the candidates and the Manage dialog of the case detail page. The Backend is a stub of fetch; the
 // provider, the gate, the pages and the API layer are the real ones.
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CaseList from "@/app/cases/page";
+import Handoff from "@/app/handoff/page";
 import MyOffers from "@/app/me/offers/page";
 import Home from "@/app/page";
 import RosterRoute from "@/app/roster/page";
@@ -714,5 +715,21 @@ describe("Manage on the case detail page", () => {
     app(<CaseManagement caseId="9" status="MANUAL_HANDOFF" onChanged={async () => {}} />);
     await waitFor(() => expect(seen).toContain("GET /auth/me"));
     expect(screen.queryByRole("button", { name: "Manage" })).toBeNull();
+  });
+});
+
+
+describe("Case row links in session mode (#148)", () => {
+  it.each([CaseList, Handoff])("omits the demo identity from the row link", async (Page) => {
+    session(HEAD, {
+      "GET /cases/search": () => ok({ items: [{
+        id: 9, status: "MANUAL_HANDOFF", shift_id: 21, ward_id: 1, ward_name: "ICU",
+        shift_type: "NIGHT", shift_start_at: "2026-10-24T23:00:00+07:00",
+        required_replacement_time: "2026-10-24T23:00:00+07:00",
+        created_at: "2026-10-24T21:00:00+07:00", headcount_gap: 1, assigned_count: 0, can_manage: true,
+      }], total: 1, page: 1, page_size: 20 }),
+    });
+    app(<Page />);
+    expect((await screen.findByRole("link", { name: "9" })).getAttribute("href")).toBe("/cases/9");
   });
 });

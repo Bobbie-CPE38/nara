@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ScrollX } from "@/components/ScrollX";
+import { useAuth } from "@/components/AuthProvider";
 import { ActingAs } from "@/components/ActingAs";
 import { CaseFilters, type CaseQuery, searchPath } from "@/components/case/CaseFilters";
 import { Card } from "@/components/ui/Card";
@@ -34,6 +35,7 @@ function shortByText(row: HandoffCase): string {
 
 function HandoffPage() {
   const t = useT();
+  const { state } = useAuth();
   // Who acts: the user a link carried here (the Dashboard counts), else the Golden Case head
   // nurse (docs/workflow.md, section 10). The API shows each one their own ward
   const [actorId, setActorId] = useActor();
@@ -85,7 +87,7 @@ function HandoffPage() {
                 {cases.map((row) => (
                   <tr key={row.id} className={CLICKABLE_ROW} onClick={followRowLink}>
                     <td>
-                      <Link {...ROW_LINK} className="underline" href={withActor(`/cases/${row.id}`, actorId)}>
+                      <Link {...ROW_LINK} className="underline" href={state.status === "demo" ? withActor(`/cases/${row.id}`, actorId) : `/cases/${row.id}`}>
                         {row.id}
                       </Link>
                     </td>

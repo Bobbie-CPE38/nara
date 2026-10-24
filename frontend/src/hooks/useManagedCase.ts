@@ -7,7 +7,7 @@ import type { CasePage, HandoffCase } from "@/lib/types/handoff";
 
 type Api = ReturnType<typeof createDemoApi>;
 
-/** Enough rows to find one case among the few whose shift has the same number as its ID */
+/** The search API ranks the exact case ID first, before shift/ward matches. */
 const OWN_ROW_PAGE_SIZE = 100;
 
 /**
