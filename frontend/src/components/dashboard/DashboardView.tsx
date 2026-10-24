@@ -170,6 +170,7 @@ function SummaryCards({ data, actorId }: { data: Dashboard; actorId: number }) {
   const t = useT();
   const summary = summaryOf(data);
   const hours = windowHours(data);
+  const later = summary.pending_approvals_later ?? 0;
   return (
     <section aria-label={t("dash.summary")}>
       <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -192,10 +193,11 @@ function SummaryCards({ data, actorId }: { data: Dashboard; actorId: number }) {
           />
         </li>
         <li>
+          {/* What the user may decide now, the requests their approvals page lists (review of #147) */}
           <SummaryTile
             label={t("dash.card.approvals")}
             value={summary.pending_approvals}
-            note={t("dash.card.now")}
+            note={later > 0 ? t("dash.card.approvalsLater", { count: later }) : t("dash.card.approvalsNow")}
             href={withActor("/approvals", actorId)}
             tone="waiting"
           />

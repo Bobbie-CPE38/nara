@@ -117,6 +117,7 @@ function board(wardId: number | null) {
       short_shifts: shortages.length,
       missing_positions: shortages.reduce((sum, row) => sum + row.headcount_gap, 0),
       pending_approvals: 3,
+      pending_approvals_later: 2,
       handoff_cases: 1,
     },
     cases_by_status: withCounts({ WAITING_RESPONSE: 2, ASSESSING: 1, RESOLVED: 4, MANUAL_HANDOFF: 1, UNRESOLVED: 1 }),
@@ -165,9 +166,13 @@ describe("the Dashboard of round 6 PR EV8", () => {
     ]);
     // Positions over shifts are not people, and every part says the time it covers
     expect(links[1].textContent).toContain("not people");
+    // The card counts what the user may decide now, like the page it opens (review of #147)
+    expect(links[2].textContent).toContain(
+      "That you may decide now; 2 more wait for head nurses until the Supervisor's time",
+    );
     expect(screen.getByText("Simulated data (Demo)")).toBeTruthy();
     expect(screen.getByText(/A position is counted on each shift it is missing from/)).toBeTruthy();
-    expect(screen.getByText("Every case in the system, by its status now")).toBeTruthy();
+    expect(screen.getByText("Every case of the wards shown, by its status now")).toBeTruthy();
     expect(screen.getByText(/^From now until 2026-10-18 21:00 \(the next 24 hours\)$/)).toBeTruthy();
   });
 
@@ -298,8 +303,8 @@ describe("a nurse's roster", () => {
     app(<RosterRoute />);
     const select = (await screen.findByLabelText("Shift")) as HTMLSelectElement;
     expect([...select.options].map((option) => option.textContent)).toEqual([
-      "Surgery · shift 32 · 2026-10-25 07:00–15:00 (ASSIGNED)",
-      "Surgery · shift 31 · 2026-10-23 07:00–15:00 (COMPLETED)",
+      "Surgery · shift 32 · 2026-10-25 07:00–15:00 (on the shift)",
+      "Surgery · shift 31 · 2026-10-23 07:00–15:00 (completed)",
     ]);
     await waitFor(() => expect(seen).toContain("GET /roster?shift_id=32"));
     fireEvent.change(select, { target: { value: "31" } });
@@ -641,6 +646,42 @@ describe("Manage on the case list", () => {
     const dialog = within(await screen.findByRole("dialog"));
     fireEvent.click(await dialog.findByRole("button", { name: "Assign" }));
     expect(await screen.findByText(/Staff 202 assigned. Case 9: RESOLVED/)).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps the dialog open when newer cases push its case to the next page (review of #147)", async () => {
+    pathname = "/cases";
+    // Newer cases arrive: case 9 is no longer on the first page, but still MANUAL_HANDOFF
+    let pushedOff = false;
+    let resolved = false;
+    session(HEAD, {
+      "GET /cases/search": (url) => {
+        if (url.searchParams.get("q") === "9") {
+          // The case's own row, read by its ID
+          return ok({ items: [row(9, resolved ? "RESOLVED" : "MANUAL_HANDOFF")], total: 1, page: 1, page_size: 100 });
+        }
+        const items = pushedOff ? [row(31, "WAITING_RESPONSE"), row(30, "WAITING_RESPONSE")] : [row(9, "MANUAL_HANDOFF")];
+        return ok({ items, total: pushedOff ? 22 : 1, page: 1, page_size: 20 });
+      },
+      "GET /cases/9/handoff/candidates": () =>
+        ok([{ staff_id: 202, first_name: "Phanu", last_name: "Demo", role_name: "RN", blocking_rules: [], other_case_ids: [] }]),
+    });
+    app(<CaseList />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage" }));
+    const dialog = await screen.findByRole("dialog", { name: "Manage case 9" });
+    fireEvent.change(within(dialog).getByLabelText("Note for the assignment (optional)"), { target: { value: "kept" } });
+
+    pushedOff = true;
+    await waitFor(() => expect(seen).toContain("GET /cases/search?q=9&page=1&page_size=100"), { timeout: 5000 });
+    await waitFor(() => expect(screen.getByRole("table", { name: "Cases" }).textContent).toContain("31"), { timeout: 5000 });
+    // Still open, with what was typed: the row of case 9 says it can be managed
+    expect(screen.getByRole("dialog", { name: "Manage case 9" })).toBeTruthy();
+    expect((screen.getByLabelText("Note for the assignment (optional)") as HTMLInputElement).value).toBe("kept");
+    expect(screen.queryByText("Case 9 is no longer handed off.")).toBeNull();
+
+    // Someone else staffed it: its own row says so, and only then the dialog closes
+    resolved = true;
+    expect(await screen.findByText("Case 9 can no longer be managed: it is now RESOLVED.", {}, { timeout: 5000 })).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 

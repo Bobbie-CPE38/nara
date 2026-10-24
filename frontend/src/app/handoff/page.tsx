@@ -48,7 +48,7 @@ function HandoffPage() {
   );
   const { data: page, error, isLoading, refresh } = usePolling(loadCases);
   const cases = page?.items;
-  const managed = useManagedCase(cases);
+  const managed = useManagedCase(cases, api);
 
   function changeActor(id: number) {
     // Nothing of the previous user's case may stay open: it belongs to another ward's list

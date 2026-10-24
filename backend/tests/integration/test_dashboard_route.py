@@ -202,10 +202,17 @@ def test_pending_approvals_are_counted_per_ward(client: TestClient, seeded: Sess
     assert _dashboard(client)["pending_approvals"] == waiting
     assert _dashboard(client, SUPERVISOR)["pending_approvals"] == waiting
     assert _dashboard(client, MEDICINE_HEAD_NURSE)["pending_approvals"] == []
+    # The card counts what the user may decide now, like the approvals page it links to
+    # (review of #147): the Supervisor's two wait for the head nurse until supervisor_from
     assert _dashboard(client)["summary"]["pending_approvals"] == 2
+    assert _dashboard(client)["summary"]["pending_approvals_later"] == 0
+    supervisor = _dashboard(client, SUPERVISOR)["summary"]
+    assert (supervisor["pending_approvals"], supervisor["pending_approvals_later"]) == (0, 2)
 
     clock.set_time(DEMO_NOW + timedelta(seconds=600))  # supervisor_after_seconds of the seed
     assert _dashboard(client)["pending_approvals"] == [waiting[0] | {"supervisor": True}]
+    supervisor = _dashboard(client, SUPERVISOR)["summary"]
+    assert (supervisor["pending_approvals"], supervisor["pending_approvals_later"]) == (2, 0)
 
 
 def test_the_cards_and_the_chart_count_every_short_shift_of_the_window(
@@ -224,6 +231,7 @@ def test_the_cards_and_the_chart_count_every_short_shift_of_the_window(
         "short_shifts": 2,
         "missing_positions": 3,
         "pending_approvals": 0,
+        "pending_approvals_later": 0,
         "handoff_cases": 1,
     }
     assert body["shortage_by_ward"] == [

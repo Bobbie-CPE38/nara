@@ -23,6 +23,14 @@ import type { ShiftRoster } from "@/lib/types/roster";
 
 type Api = ReturnType<typeof createDemoApi>;
 
+/** A roster status in words for the shift picker of a nurse; an unknown one as the API sent it */
+const ROSTER_STATUS_WORDS: Readonly<Record<string, MessageKey>> = {
+  PENDING_APPROVAL: "rosterStatus.PENDING_APPROVAL",
+  ASSIGNED: "rosterStatus.ASSIGNED",
+  CANCELLED: "rosterStatus.CANCELLED",
+  COMPLETED: "rosterStatus.COMPLETED",
+};
+
 const COLUMNS: readonly MessageKey[] = [
   "roster.col.assignment",
   "common.staff",
@@ -165,7 +173,7 @@ function OwnShifts({ staffId }: { staffId: number }) {
                     id: row.shift.id,
                     from: formatDateTime(row.shift.start_at).slice(0, 16),
                     until: formatDateTime(row.shift.end_at).slice(11, 16),
-                    status: row.status,
+                    status: ROSTER_STATUS_WORDS[row.status] ? t(ROSTER_STATUS_WORDS[row.status]) : row.status,
                   })}
                 </option>
               ))}

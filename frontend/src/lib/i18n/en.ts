@@ -804,7 +804,7 @@ export const en = {
   "dash.chart.byWardHint": "Pick a bar to see that ward's shifts and cases below.",
   "dash.chart.noCases": "No case yet in these wards.",
   "dash.range.window": "From now until {until} (the next {hours} hours)",
-  "dash.range.allCases": "Every case in the system, by its status now",
+  "dash.range.allCases": "Every case of the wards shown, by its status now",
   "dash.range.urgent": "Running shifts first, then the next to start, until {until} ({hours} hours)",
   "dash.range.noShows": "The latest 10, newest first",
   "dash.unitNote": "A position is counted on each shift it is missing from: one person short on two shifts counts twice, so this is not a number of different staff.",
@@ -890,6 +890,12 @@ export const en = {
   "summary.closeReason": "Reason given",
   "summary.code": "Code",
   "summary.when": "When",
+  "dash.card.approvalsNow": "That you may decide now",
+  "dash.card.approvalsLater": "That you may decide now; {count} more wait for head nurses until the Supervisor's time",
+  "rosterStatus.PENDING_APPROVAL": "waiting for approval",
+  "rosterStatus.ASSIGNED": "on the shift",
+  "rosterStatus.CANCELLED": "cancelled",
+  "rosterStatus.COMPLETED": "completed",
 } as const;
 
 export type MessageKey = keyof typeof en;

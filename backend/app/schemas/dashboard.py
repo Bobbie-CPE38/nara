@@ -80,8 +80,11 @@ class DashboardSummary(BaseModel):
     short_shifts: int
     # Their headcount positions still missing, added over the shifts (not people)
     missing_positions: int
-    # Approval requests waiting for a decision of one of the wards shown
+    # Approval requests the user may decide now, on a side of a ward shown (the requests the
+    # approvals page lists for them; review of #147)
     pending_approvals: int
+    # The other requests still waiting there: a Supervisor's until supervisor_from passes
+    pending_approvals_later: int
     # Cases waiting in MANUAL_HANDOFF for a person to staff or close them
     handoff_cases: int
 

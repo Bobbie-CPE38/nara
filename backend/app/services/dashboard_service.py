@@ -46,6 +46,7 @@ from app.domain.enums import (
     StaffStatus,
 )
 from app.domain.staffing.gap_calculator import GapResult
+from app.domain.staffing.ward_authority import can_decide
 from app.schemas.dashboard import (
     Approver,
     CaseStatusCount,
@@ -98,7 +99,7 @@ def build(db: Session, staff: Staff, *, ward_id: int | None = None) -> Dashboard
     with db.no_autoflush:
         cases_by_status = _cases_by_status(db, scope)
         short = _short_shifts(db, scope, now)
-        pending = _pending_approvals(db, scope, now)
+        pending = _pending_approvals(db, scope, now, staff)
         return Dashboard(
             now=now,
             modes=DashboardModes(
@@ -115,7 +116,8 @@ def build(db: Session, staff: Staff, *, ward_id: int | None = None) -> Dashboard
             summary=DashboardSummary(
                 short_shifts=len(short),
                 missing_positions=sum(row.result.headcount_gap for row in short),
-                pending_approvals=len(pending.request_ids),
+                pending_approvals=len(pending.decidable),
+                pending_approvals_later=len(pending.request_ids - pending.decidable),
                 handoff_cases=next(
                     row.count for row in cases_by_status if row.status is CaseStatus.MANUAL_HANDOFF
                 ),
@@ -216,24 +218,37 @@ def _by_ward(short: list[_Short]) -> list[WardShortage]:
 @dataclass(frozen=True)
 class _Pending:
     rows: list[PendingApprovalCount]
+    # Every request with a side of a ward shown still to decide
     request_ids: set[int]
+    # Those the user may decide now (ward_authority.can_decide): the card counts these
+    decidable: set[int]
 
 
-def _pending_approvals(db: Session, scope: WardScope, now: datetime) -> _Pending:
+def _pending_approvals(db: Session, scope: WardScope, now: datetime, staff: Staff) -> _Pending:
     """Requests of the approvals page that still wait for each visible ward's decision, and
     who may decide them (EV8): the ward's head nurses, and the Supervisor once
     `supervisor_from` passed.
 
-    A transfer needs both wards: it counts for each ward that has not approved yet.
+    A transfer needs both wards: it counts for each ward that has not approved yet. The
+    requests the user may decide now are kept apart (review of #147): a Supervisor's
+    approvals page lists a request only from `supervisor_from` on, so the card that links
+    there counts the same requests.
     """
+    role = db.scalar(select(Role.name).where(Role.id == staff.role_id))
     counts: dict[tuple[int, bool], int] = {}
     request_ids = set()
+    decidable = set()
     for request in approval_service.list_pending(db):
+        waited = now >= request.supervisor_from
         for ward in request.wards:
             if ward.status == "PENDING" and scope.sees(ward.ward_id):
-                key = (ward.ward_id, now >= request.supervisor_from)
+                key = (ward.ward_id, waited)
                 counts[key] = counts.get(key, 0) + 1
                 request_ids.add(request.id)
+                if can_decide(
+                    role=role, home_ward_id=staff.home_ward_id, ward_id=ward.ward_id, waited=waited
+                ):
+                    decidable.add(request.id)
     heads = _head_nurses(db, {ward_id for ward_id, _ in counts})
     return _Pending(
         rows=[
@@ -246,6 +261,7 @@ def _pending_approvals(db: Session, scope: WardScope, now: datetime) -> _Pending
             for (ward_id, supervisor), count in sorted(counts.items())
         ],
         request_ids=request_ids,
+        decidable=decidable,
     )
 
 

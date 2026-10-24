@@ -47,7 +47,10 @@ export type PendingApprovalCount = {
 export type DashboardSummary = {
   short_shifts: number;
   missing_positions: number;
+  /** Requests the user may decide now, as their approvals page lists them (review of #147) */
   pending_approvals: number;
+  /** The others still waiting: a Supervisor's until supervisor_from; absent from an older Backend */
+  pending_approvals_later?: number;
   handoff_cases: number;
 };
 

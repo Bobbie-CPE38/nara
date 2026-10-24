@@ -53,7 +53,7 @@ function CaseListPage() {
     [api, query],
   );
   const { data, error, isLoading, refresh } = usePolling(load);
-  const managed = useManagedCase(data?.items);
+  const managed = useManagedCase(data?.items, api);
   const nurse = useSessionUser()?.role === "staff";
 
   return (
