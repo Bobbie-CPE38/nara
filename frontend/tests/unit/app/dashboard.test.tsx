@@ -97,16 +97,18 @@ describe("Dashboard page", () => {
     );
     render(<Home />);
     const list = within(await screen.findByRole("region", { name: "Cases by status" }));
-    expect(list.getAllByRole("listitem")).toHaveLength(12);
+    // Round 6 PR EV8: five groups first, then every status in the part that opens
+    const groups = list.getAllByRole("listitem").slice(0, 5).map((item) => item.textContent);
+    expect(groups).toEqual(["In progress7", "Staffed0", "Waiting for a person2", "Closed still short0", "System failed1"]);
+    const details = list.getByText("Every status, step by step").closest("details")!;
+    expect(details.open).toBe(false);
+    expect(within(details).getAllByRole("listitem")).toHaveLength(12);
     expect(list.getByRole("link", { name: "MANUAL_HANDOFF" }).getAttribute("href")).toBe("/handoff?as=900");
     expect(list.getByRole("link", { name: "FAILED" }).getAttribute("href")).toBe("/handoff?as=900");
     expect(list.getByRole("link", { name: "WAITING_APPROVAL" }).getAttribute("href")).toBe("/approvals?as=900");
     // OUTREACH has no list page, so it is a count only
     expect(list.queryByRole("link", { name: "OUTREACH" })).toBeNull();
-    expect(list.getByText("OUTREACH: 4")).toBeTruthy();
-    // A status that needs a person stands out only while it has cases
-    expect(list.getByText(/MANUAL_HANDOFF/).closest("li")?.className).toContain("font-semibold");
-    expect(list.getByText("RESOLVED: 0").closest("li")?.className ?? "").not.toContain("font-semibold");
+    expect(within(list.getByText("OUTREACH").closest("li")!).getByText("4")).toBeTruthy();
   });
 
   it("keeps the short shifts and the no-shows in boxes that scroll sideways on a phone", async () => {
@@ -128,7 +130,10 @@ describe("Dashboard page", () => {
       }),
     );
     render(<Home />);
-    const tables = [await screen.findByRole("table", { name: "Short shifts" }), screen.getByRole("table", { name: "Recent no-shows" })];
+    const tables = [
+      await screen.findByRole("table", { name: "Short shifts, most urgent first" }),
+      screen.getByRole("table", { name: "Recent no-shows" }),
+    ];
     tables.forEach(inScrollBox);
   });
 
@@ -152,16 +157,20 @@ describe("Dashboard page", () => {
     expect(screen.getByRole("option", { name: "902 — หัวหน้าหอ, Medicine" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "950 — ผู้ควบคุมดูแล, ทุกหอ" })).toBeTruthy();
     const counts = within(screen.getByRole("region", { name: "เคสตามสถานะ" }));
-    // The status codes are the Backend's words
+    // The status codes are the Backend's words; the groups are in words
     expect(counts.getByRole("link", { name: "MANUAL_HANDOFF" })).toBeTruthy();
-    expect(counts.getByText("OUTREACH: 4")).toBeTruthy();
-    const shifts = within(screen.getByRole("region", { name: "เวรที่ขาดคน" }));
+    expect(counts.getByText("OUTREACH")).toBeTruthy();
+    expect(counts.getByText("กำลังดำเนินการ")).toBeTruthy();
+    expect(counts.getByText("รอจัดการด้วยคน")).toBeTruthy();
+    const shifts = within(screen.getByRole("region", { name: "เวรที่ขาดคน (เร่งด่วน)" }));
     expect(shifts.getByRole("link", { name: "เคส 7" }).getAttribute("href")).toBe("/cases/7");
     expect(shifts.getByText("1 RN")).toBeTruthy();
     expect(screen.getByText("ทั้งหมด 1 หอ")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "ตรวจระบบ" })).toBeTruthy();
+    expect(screen.getByText("จำนวนตำแหน่งที่ยังขาด")).toBeTruthy();
+    // The system check has its own page since round 6 PR EV8
+    expect(screen.queryByRole("region", { name: "ตรวจระบบ" })).toBeNull();
     // Nothing of the English page is left
-    expect(screen.queryByText("Short shifts")).toBeNull();
+    expect(screen.queryByText("Short shifts, most urgent first")).toBeNull();
     expect(screen.queryByText("Cases by status")).toBeNull();
   });
 
@@ -193,7 +202,7 @@ describe("Dashboard page", () => {
       }),
     );
     render(<Home />);
-    const table = within(await screen.findByRole("table", { name: "Short shifts" }));
+    const table = within(await screen.findByRole("table", { name: "Short shifts, most urgent first" }));
     const rows = table.getAllByRole("row");
     expect(rows).toHaveLength(3);
     const first = within(rows[1]);
@@ -209,7 +218,8 @@ describe("Dashboard page", () => {
     replies(() => dashboard());
     render(<Home />);
     expect(await screen.findByText("No shift is short.")).toBeTruthy();
-    expect(screen.queryByRole("table", { name: "Short shifts" })).toBeNull();
+    expect(screen.queryByRole("table", { name: "Short shifts, most urgent first" })).toBeNull();
+    expect(screen.getByText("No ward is short in this period.")).toBeTruthy();
   });
 
   it("shows open offers, approvals by ward and recent no-shows", async () => {
@@ -274,7 +284,7 @@ describe("Dashboard page", () => {
     expect(screen.getByText(/waiting for a reply: 5/)).toBeTruthy();
   });
 
-  it("reads as the chosen user, and the system check stays on the page", async () => {
+  it("reads as the chosen user, with the system check on its own page (round 6 PR EV8)", async () => {
     replies(() => dashboard());
     render(<Home />);
     await screen.findByText("No shift is short.");
@@ -283,7 +293,7 @@ describe("Dashboard page", () => {
     await waitFor(() =>
       expect(request).toHaveBeenCalledWith("/dashboard", expect.objectContaining({ demoUser: 950 })),
     );
-    const status = within(await screen.findByRole("region", { name: "System check" }));
-    expect(await status.findAllByText("ok")).toHaveLength(2);
+    expect(screen.queryByRole("region", { name: "System check" })).toBeNull();
+    expect(request).not.toHaveBeenCalledWith("/health", expect.anything());
   });
 });

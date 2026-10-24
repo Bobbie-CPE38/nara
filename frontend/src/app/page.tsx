@@ -3,7 +3,6 @@
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ActingAs } from "@/components/ActingAs";
 import { DashboardView } from "@/components/dashboard/DashboardView";
-import { SystemStatus } from "@/components/dashboard/SystemStatus";
 import { Notice } from "@/components/ui/Notice";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useActor } from "@/hooks/useActor";
@@ -50,7 +49,6 @@ function DashboardPage() {
           onWardChange={(id) => setWard({ actorId, id })}
         />
       )}
-      <SystemStatus />
     </main>
   );
 }

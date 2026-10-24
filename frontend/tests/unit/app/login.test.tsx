@@ -182,6 +182,8 @@ describe("AuthGate", () => {
 
   it("holds the page back while it asks who the user is", async () => {
     session(ME);
+    // A nurse's own page: "/" is the Dashboard, which is not theirs (round 6 PR EV8)
+    pathname = "/me/offers";
     app(
       <AuthGate>
         <p>the page</p>
@@ -203,9 +205,9 @@ describe("AuthGate", () => {
     expect(screen.queryByText("secret page")).toBeNull();
   });
 
-  it("leaves the login pages and the Demo control to a visitor", async () => {
+  it("leaves the login pages and the status page to a visitor", async () => {
     session(null);
-    for (const path of ["/login", "/register", "/demo/control"]) {
+    for (const path of ["/login", "/register", "/status"]) {
       cleanup();
       pathname = path;
       app(
@@ -216,6 +218,18 @@ describe("AuthGate", () => {
       expect(await screen.findByText("open page")).toBeTruthy();
     }
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Demo control behind the login since round 6 PR EV8", async () => {
+    session(null);
+    pathname = "/demo/control";
+    app(
+      <AuthGate>
+        <p>demo control</p>
+      </AuthGate>,
+    );
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login?next=%2Fdemo%2Fcontrol"));
+    expect(screen.queryByText("demo control")).toBeNull();
   });
 
   it("keeps the LINE simulator behind the login: it answers as a person", async () => {
@@ -256,16 +270,16 @@ describe("AuthGate", () => {
 
   it("goes to /login when a later answer says the session is gone", async () => {
     session(ME, { "GET /cases": () => ({ status: 401, body: { detail: "AUTH_REQUIRED" } }) });
-    pathname = "/gap";
+    pathname = "/roster";
     const { apiRequest } = await import("@/lib/api");
     app(
       <AuthGate>
-        <p>gap page</p>
+        <p>roster page</p>
       </AuthGate>,
     );
-    await screen.findByText("gap page");
+    await screen.findByText("roster page");
     await expect(apiRequest("/cases")).rejects.toThrow();
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login?next=%2Fgap"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login?next=%2Froster"));
   });
 });
 
@@ -517,7 +531,8 @@ describe("the menu follows the role", () => {
 
   it("shows a staff nurse the pages of a nurse and no approvals, handoff or Demo pages", async () => {
     const links = await menuOf(ME);
-    expect(links).toEqual(["Dashboard", "Gap check", "Cases", "Roster", "My offers", "Report leave"]);
+    // Round 6 PR EV8: no Dashboard and no gap check for a nurse
+    expect(links).toEqual(["Cases", "Roster", "My offers", "Report leave"]);
   });
 
   it("adds Demo control, Approvals and Handoff for a head nurse and a supervisor, no other Demo page", async () => {

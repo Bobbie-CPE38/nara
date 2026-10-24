@@ -11,17 +11,20 @@ import { Button } from "@/components/ui/Button";
 import type { MessageKey } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import { describeError } from "@/lib/errors";
+import { homeOf } from "@/lib/routeAccess";
 import type { AuthRole } from "@/lib/types/auth";
 
 /** `roles`: who sees the item in session mode (docs/workflow.md 6.33.4); `demo`: shown in demo mode. */
+// Round 6 PR EV8 (docs/workflow.md 6.38.2): a nurse has Cases, Roster, My offers and Report leave
 const NAV_ITEMS: readonly { href: string; label: MessageKey; roles: readonly AuthRole[]; demo: boolean }[] = [
-  { href: "/", label: "nav.dashboard", roles: ["staff", "head_nurse", "supervisor"], demo: true },
-  { href: "/gap", label: "nav.gap", roles: ["staff", "head_nurse", "supervisor"], demo: true },
+  { href: "/", label: "nav.dashboard", roles: ["head_nurse", "supervisor"], demo: true },
+  { href: "/gap", label: "nav.gap", roles: ["head_nurse", "supervisor"], demo: true },
   // Head nurses and supervisors run the demo: its events need their login (round 6 PR EV6)
   { href: "/demo/control", label: "nav.demoControl", roles: ["head_nurse", "supervisor"], demo: true },
   { href: "/approvals", label: "nav.approvals", roles: ["head_nurse", "supervisor"], demo: true },
   { href: "/handoff", label: "nav.handoff", roles: ["head_nurse", "supervisor"], demo: true },
-  // Every case the user may read (round 6 PR EV6); a nurse sees the cases they are part of
+  // Every case the user may read (round 6 PR EV6); a nurse sees the cases of their own leave
+  // and the ones that put them on a shift (round 6 PR EV8)
   { href: "/cases", label: "nav.cases", roles: ["staff", "head_nurse", "supervisor"], demo: true },
   { href: "/demo/line-sim", label: "nav.lineSim", roles: [], demo: true },
   { href: "/demo/test-runs", label: "nav.testRuns", roles: [], demo: true },
@@ -130,13 +133,16 @@ function NavLinks({ onNavigate, stacked }: { onNavigate?: () => void; stacked: b
  */
 export function SiteHeader() {
   const t = useT();
+  const { state } = useAuth();
   const [open, setOpen] = useState(false);
   const hasMenu = useNavItems().length > 0;
+  // A nurse has no Dashboard: the logo goes to their own home page (round 6 PR EV8)
+  const home = state.status === "authenticated" ? homeOf(state.me.role) : "/";
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
       {/* The logo sits at the left edge, so the menu has the width (round 6 PR EV7) */}
       <div className="flex w-full items-center gap-3 px-4 py-2">
-        <Link href="/" className="shrink-0" aria-label={t("app.name")}>
+        <Link href={home} className="shrink-0" aria-label={t("app.name")}>
           {/* The logo is a file of the team: shown as it is, never recoloured or redrawn */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/nara-logo.svg" alt="NARA" width={87} height={32} className="h-8 w-auto" />

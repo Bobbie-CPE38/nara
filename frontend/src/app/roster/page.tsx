@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useMemo, useState } from "react";
 import { ActingAs } from "@/components/ActingAs";
+import { useSessionUser } from "@/components/AuthProvider";
 import { ScrollX } from "@/components/ScrollX";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
@@ -16,6 +17,7 @@ import { formatDemoTime, wardName } from "@/lib/demo";
 import { formatDateTime } from "@/lib/format";
 import type { MessageKey } from "@/lib/i18n";
 import { useT } from "@/lib/i18n/LanguageProvider";
+import type { StaffRoster } from "@/lib/types/auth";
 import type { Dashboard, GapShiftSummary } from "@/lib/types/dashboard";
 import type { ShiftRoster } from "@/lib/types/roster";
 
@@ -124,11 +126,71 @@ function Roster({ api, shiftId }: { api: Api; shiftId: number }) {
 }
 
 /**
+ * A nurse's roster (round 6 PR EV8, docs/workflow.md 6.38.2): only the shifts they are on,
+ * newest first, each with everyone on it. Their own rows come from GET /roster?staff_id=, so
+ * a shift they left or were moved from is still there to look at.
+ */
+function OwnShifts({ staffId }: { staffId: number }) {
+  const t = useT();
+  const api = useMemo(() => createDemoApi(staffId), [staffId]);
+  const load = useCallback(
+    (signal: AbortSignal) => api<StaffRoster>(`/roster?staff_id=${staffId}`, { signal }),
+    [api, staffId],
+  );
+  const stopAfterFirstRead = useCallback(() => true, []);
+  const { data, error } = usePolling(load, { stopOnData: stopAfterFirstRead });
+  const shifts = useMemo(() => {
+    const seen = new Map<number, StaffRoster["assignments"][number]>();
+    for (const row of data?.assignments ?? []) if (!seen.has(row.shift.id)) seen.set(row.shift.id, row);
+    return [...seen.values()].sort((a, b) => b.shift.start_at.localeCompare(a.shift.start_at) || b.shift.id - a.shift.id);
+  }, [data]);
+  const [choice, setChoice] = useState<number | null>(null);
+  const shiftId = choice !== null && shifts.some((row) => row.shift.id === choice) ? choice : (shifts[0]?.shift.id ?? null);
+
+  return (
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+      <PageHeader title={t("roster.title")} description={t("roster.ownIntro")} />
+      {error && <Notice kind="error" role="alert">{describeError(error, t)}</Notice>}
+      {!data && !error && <p>{t("common.loading")}</p>}
+      {data && shifts.length === 0 && <p>{t("roster.noOwnShift")}</p>}
+      {shifts.length > 0 && (
+        <Card>
+          <label className="block text-sm font-medium" htmlFor="own-shift">
+            {t("common.shift")}{" "}
+            <select id="own-shift" value={shiftId ?? ""} onChange={(event) => setChoice(Number(event.target.value))}>
+              {shifts.map((row) => (
+                <option key={row.shift.id} value={row.shift.id}>
+                  {t("roster.ownShiftOption", {
+                    ward: row.shift.ward_name,
+                    id: row.shift.id,
+                    from: formatDateTime(row.shift.start_at).slice(0, 16),
+                    until: formatDateTime(row.shift.end_at).slice(11, 16),
+                    status: row.status,
+                  })}
+                </option>
+              ))}
+            </select>
+          </label>
+        </Card>
+      )}
+      {shiftId !== null && <Roster key={shiftId} api={api} shiftId={shiftId} />}
+    </main>
+  );
+}
+
+/**
  * The roster of one shift (round 6 PR EV6, docs/workflow.md 6.36.4): the wards and the shifts
  * to pick from are only the ones the user may see, read from the Dashboard and the gap list,
- * as the user who is logged in or the demo user picked, never a fixed head nurse.
+ * as the user who is logged in or the demo user picked, never a fixed head nurse. A nurse who
+ * is logged in sees their own shifts instead (round 6 PR EV8).
  */
 function RosterPage() {
+  const me = useSessionUser();
+  if (me?.role === "staff") return <OwnShifts staffId={me.staff_id} />;
+  return <WardRosterPage />;
+}
+
+function WardRosterPage() {
   const t = useT();
   const [actorId, setActorId] = useActor();
   const api = useMemo(() => createDemoApi(actorId), [actorId]);

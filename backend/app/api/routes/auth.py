@@ -4,11 +4,21 @@ Auth routes work in both modes. Identity checks use only the session cookie,
 never X-Demo-User. All /auth responses are no-store. POST needs an allowed Origin.
 """
 
+import re
 from typing import Annotated
+from urllib.parse import quote, urlsplit
 
-from fastapi import APIRouter, Body, HTTPException, Request, Response, status
+from fastapi import APIRouter, Body, Header, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 
-from app.api.dependencies import AUTH_REQUIRED, SESSION_COOKIE, DbSession, SessionUserDep
+from app.api.dependencies import (
+    AUTH_FORBIDDEN,
+    AUTH_PASSWORD_CHANGE_REQUIRED,
+    AUTH_REQUIRED,
+    SESSION_COOKIE,
+    DbSession,
+    SessionUserDep,
+)
 from app.core.config import settings
 from app.core.rate_limit import (
     LOGIN_PER_ACCOUNT,
@@ -131,6 +141,52 @@ def _me(user: auth_service.SessionUser) -> AuthMe:
         home_ward_id=user.staff.home_ward_id,
         must_change_password=user.must_change_password,
     )
+
+
+# The canonical Demo page paths that Caddy lets through (deploy/aws/Caddyfile)
+_DEMO_PAGE = re.compile(r"/demo(/[a-z0-9_-]+)*/?")
+# Where a nurse goes instead of a Demo page: their home page (lib/routeAccess.ts)
+STAFF_HOME = "/me/offers"
+
+
+@router.get("/demo-gate", status_code=status.HTTP_204_NO_CONTENT)
+def demo_gate(
+    request: Request,
+    db: DbSession,
+    x_forwarded_uri: Annotated[str | None, Header()] = None,
+) -> Response:
+    """Who may reach the Demo pages, asked by Caddy before its Basic Auth (round 6 PR EV8).
+
+    Caddy's forward_auth sends the visitor's request here with the address in
+    X-Forwarded-Uri. 204 lets Caddy go on to the Basic Auth, so only a head nurse or a
+    supervisor ever sees that box. Any other answer goes back to the visitor as it is: a
+    page goes to /login (no session), /change-password, or the nurse's home page; an
+    /api/demo call gets the JSON error of the API. Demo mode has no sessions: always 204.
+    It decides nothing on its own: every /demo route still checks its caller."""
+    if settings.auth_mode != "session":
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+    path = urlsplit(x_forwarded_uri or "").path
+    token = request.cookies.get(SESSION_COOKIE)
+    user = auth_service.resolve(db, token) if token else None
+    if user is None:
+        page = path if _DEMO_PAGE.fullmatch(path) else "/demo/control"
+        login = f"/login?next={quote(page)}"
+        return _refuse(path, status.HTTP_401_UNAUTHORIZED, AUTH_REQUIRED, login)
+    if user.must_change_password:
+        return _refuse(
+            path, status.HTTP_403_FORBIDDEN, AUTH_PASSWORD_CHANGE_REQUIRED, "/change-password"
+        )
+    if user.role == "staff":
+        return _refuse(path, status.HTTP_403_FORBIDDEN, AUTH_FORBIDDEN, STAFF_HOME)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def _refuse(path: str, code: int, detail: str, page: str) -> Response:
+    """The error of the API for an /api/demo call, a redirect for a page. Like every /auth
+    answer it is no-store (origin_guard)."""
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": detail}, status_code=code)
+    return Response(status_code=status.HTTP_302_FOUND, headers={"Location": page})
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)

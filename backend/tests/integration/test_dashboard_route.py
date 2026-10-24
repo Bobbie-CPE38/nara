@@ -159,6 +159,7 @@ def test_short_shifts_inside_the_window_are_listed(client: TestClient, seeded: S
             "role_gaps": [{"name": "RN", "gap_count": 2}],
             "skill_gaps": [{"name": "ICU", "gap_count": 1}],
             "case_id": running.id,
+            "in_progress": False,
         }
     ]
 
@@ -188,9 +189,66 @@ def test_pending_approvals_are_counted_per_ward(client: TestClient, seeded: Sess
     case_rows.offer(seeded, case, items[203], OutreachStatus.ACCEPTED)
     case_rows.approval(seeded, case, items[203], approved=True)
 
-    assert _dashboard(client)["pending_approvals"] == [{"ward_id": 1, "count": 2}]
-    assert _dashboard(client, SUPERVISOR)["pending_approvals"] == [{"ward_id": 1, "count": 2}]
+    # Round 6 PR EV8: who the requests wait for, the ward's head nurse until the Supervisor
+    # may decide them too
+    waiting = [
+        {
+            "ward_id": 1,
+            "count": 2,
+            "head_nurses": [{"staff_id": HEAD_NURSE, "name": "Malai Demo"}],
+            "supervisor": False,
+        }
+    ]
+    assert _dashboard(client)["pending_approvals"] == waiting
+    assert _dashboard(client, SUPERVISOR)["pending_approvals"] == waiting
     assert _dashboard(client, MEDICINE_HEAD_NURSE)["pending_approvals"] == []
+    assert _dashboard(client)["summary"]["pending_approvals"] == 2
+
+    clock.set_time(DEMO_NOW + timedelta(seconds=600))  # supervisor_after_seconds of the seed
+    assert _dashboard(client)["pending_approvals"] == [waiting[0] | {"supervisor": True}]
+
+
+def test_the_cards_and_the_chart_count_every_short_shift_of_the_window(
+    client: TestClient, seeded: Session
+) -> None:
+    """Round 6 PR EV8 (6.38.4): positions over shifts, not people; the busiest ward first."""
+    case_rows.leave(seeded, 105)
+    case_rows.leave(seeded, 101)
+    case_rows.cancel_roster(seeded, 301, MEDICINE_NIGHT)
+    case_rows.make_case(seeded, CaseStatus.MANUAL_HANDOFF)
+
+    body = _dashboard(client, SUPERVISOR)
+
+    assert body["window_hours"] == 24
+    assert body["summary"] == {
+        "short_shifts": 2,
+        "missing_positions": 3,
+        "pending_approvals": 0,
+        "handoff_cases": 1,
+    }
+    assert body["shortage_by_ward"] == [
+        {"ward_id": 1, "missing_positions": 2, "short_shifts": 1},
+        {"ward_id": 2, "missing_positions": 1, "short_shifts": 1},
+    ]
+    # The ward filter narrows the cards and the chart too
+    narrowed = client.get(
+        "/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": str(SUPERVISOR)}
+    ).json()
+    assert narrowed["summary"]["short_shifts"] == 1
+    assert narrowed["shortage_by_ward"] == [
+        {"ward_id": 2, "missing_positions": 1, "short_shifts": 1}
+    ]
+
+
+def test_a_running_shift_says_so(client: TestClient, seeded: Session) -> None:
+    case_rows.leave(seeded, 105)
+    clock.set_time(DEMO_NOW + timedelta(hours=3))  # D+1 00:00, inside the night shift
+
+    assert [row["in_progress"] for row in _dashboard(client)["shortages"]] == [True]
+
+
+def test_the_demo_seed_is_marked_as_demo_data(client: TestClient, seeded: Session) -> None:
+    assert _dashboard(client)["demo_data"] is True
 
 
 def test_open_offers_count_only_sent_and_unexpired(client: TestClient, seeded: Session) -> None:

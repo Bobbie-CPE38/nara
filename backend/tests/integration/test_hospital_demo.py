@@ -63,8 +63,14 @@ def test_a_reset_with_the_hospital_loads_a_week_of_five_wards() -> None:
             rows = db.scalars(
                 select(RosterAssignment).where(RosterAssignment.shift_id == shift.id)
             ).all()
-            # Exactly the required staff on every shift, none twice
-            assert len({row.staff_id for row in rows}) == len(rows) == 4
+            # Exactly the required staff on every shift, none twice; on D+1 two wards have
+            # the whole team, one above the target, to lend a nurse (round 6 PR EV8)
+            over = (
+                (shift.start_at.astimezone(now.tzinfo).date() - now.date()).days
+                == hospital_demo.OVERSTAFFED_DAY
+                and shift.ward_id - hospital_demo.WARD_BASE - 1 in hospital_demo.OVERSTAFFED_WARDS
+            )
+            assert len({row.staff_id for row in rows}) == len(rows) == (5 if over else 4)
             expected = RosterStatus.COMPLETED if shift.end_at <= now else RosterStatus.ASSIGNED
             assert {row.status for row in rows} == {expected}
         # The evening shift of D is running at 21:00: its people are checked in

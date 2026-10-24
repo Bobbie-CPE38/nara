@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollX } from "@/components/ScrollX";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Notice } from "@/components/ui/Notice";
+import { Pager } from "@/components/ui/Pager";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError } from "@/lib/api";
 import { formatDemoTime } from "@/lib/demo";
@@ -73,6 +74,17 @@ export type OfferApi = {
   ) => Promise<OfferResponse>;
 };
 
+/** Offers per page of each list (round 6 PR EV8) */
+export const OFFERS_PAGE_SIZE = 10;
+
+type OfferView = "open" | "closed";
+
+/** The newest offer first: by the time it was sent, then by ID (an offer not sent yet goes last) */
+function newestFirst(left: Offer, right: Offer): number {
+  const sent = (right.sent_at ?? "").localeCompare(left.sent_at ?? "");
+  return sent !== 0 ? sent : right.id - left.id;
+}
+
 const COLUMNS: readonly MessageKey[] = [
   "offers.col.offer",
   "common.case",
@@ -129,6 +141,26 @@ export function OfferList({
   }, [data]);
   const openOffers =
     data?.filter((offer) => offer.status === "SENT" && offer.can_reject) ?? [];
+  // Round 6 PR EV8 (docs/workflow.md 6.38.3): newest first, in two lists, the offers the nurse
+  // may still answer and the ones they no longer may, one page at a time. Until the nurse
+  // picks one, the list shows what they can answer, or their history when nothing waits
+  const [picked, setPicked] = useState<OfferView | null>(null);
+  const [page, setPage] = useState(1);
+  const lists = useMemo(() => {
+    const sorted = [...(data ?? [])].sort(newestFirst);
+    // The same test as openOffers: the offers Accept or Reject may still answer
+    const answerable = (offer: Offer) => offer.status === "SENT" && offer.can_reject;
+    return { open: sorted.filter(answerable), closed: sorted.filter((offer) => !answerable(offer)) };
+  }, [data]);
+  const view: OfferView = picked ?? (lists.open.length > 0 ? "open" : "closed");
+  const rows = lists[view];
+  const pages = Math.max(1, Math.ceil(rows.length / OFFERS_PAGE_SIZE));
+  const currentPage = Math.min(page, pages);
+  const shown = rows.slice((currentPage - 1) * OFFERS_PAGE_SIZE, currentPage * OFFERS_PAGE_SIZE);
+  function show(next: OfferView) {
+    setPicked(next);
+    setPage(1);
+  }
 
   async function respond(offerId: number, response: "ACCEPT" | "REJECT") {
     // A ref also prevents a second click before React paints the pending state.
@@ -264,100 +296,122 @@ export function OfferList({
       {data?.length === 0 && <p>{emptyText}</p>}
       {data && data.length > 0 && (
         <Card>
-          <ScrollX>
-            <table className="text-sm">
-              <caption className="sr-only">
-                {t("offers.caption", { id: staffId })}
-              </caption>
-              <thead>
-                <tr>
-                  {COLUMNS.map((label) => (
-                    <th key={label} scope="col">
-                      {t(label)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((offer) => {
-                  const canRespond =
-                    openOffers.some((open) => open.id === offer.id) &&
-                    offerSnapshot(offer) !== answeredSnapshot &&
-                    !pending &&
-                    !error;
-                  return (
-                    <tr key={offer.id}>
-                      <td>{offer.id}</td>
-                      <td>{offer.case_id}</td>
-                      <td>
-                        {t("offers.wardShift", { ward: offer.ward_name, shift: offer.proposed_shift_id })}
-                        <div>
-                          {formatDemoTime(offer.shift_start_at)} –{" "}
-                          {formatDemoTime(offer.shift_end_at)}
-                        </div>
-                      </td>
-                      <td>{offer.status}</td>
-                      <td>{offer.case_status}</td>
-                      <td className="whitespace-nowrap">
-                        {formatDemoTime(offer.sent_at)}
-                      </td>
-                      <td className="whitespace-nowrap">
-                        {formatDemoTime(offer.response_at)}
-                      </td>
-                      <td className="whitespace-nowrap">
-                        {formatDemoTime(offer.expires_at)}
-                      </td>
-                      <td>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="primary"
-                            aria-label={t("offers.acceptLabel", { id: offer.id })}
-                            disabled={!canRespond || !offer.can_accept}
-                            onClick={() => void respond(offer.id, "ACCEPT")}
-                          >
-                            {t("offers.accept")}
-                          </Button>
-                          <Button
-                            aria-label={t("offers.rejectLabel", { id: offer.id })}
-                            disabled={!canRespond}
-                            onClick={() => void respond(offer.id, "REJECT")}
-                          >
-                            {t("offers.reject")}
-                          </Button>
-                        </div>
-                        {(offer.blocked_reason === "OFFER_EXPIRED" ||
-                          offer.status === "TIMEOUT") && (
-                          <p className="mt-1">{t("offers.expired")}</p>
-                        )}
-                        {offer.blocked_reason === "AWAITING_OTHER_CASE" && (
-                          <p className="mt-1">{t("offers.paused")}</p>
-                        )}
-                        {offer.cancellation_reason && !offer.final_message && (
-                          <p className="mt-1">{t("offers.cancelled", { reason: offer.cancellation_reason })}</p>
-                        )}
-                        {!offer.is_assigned && offer.final_message && (
-                          <p className="mt-1 whitespace-pre-line">{offer.final_message}</p>
-                        )}
-                        {!offer.is_assigned && offer.final_delivery_status === "FAILED" && (
-                          <p className="mt-1 text-amber-800">{t("offers.lineFailed")}</p>
-                        )}
-                        {offer.is_assigned ? (
-                          <p className="mt-1">{t("offers.assigned")}</p>
-                        ) : offer.is_reserve ? (
-                          <p className="mt-1">{t("offers.reserve")}</p>
-                        ) : (
-                          offer.status === "ACCEPTED" &&
-                          !STOPPED_CASE_STATUSES.has(offer.case_status) && (
-                            <p className="mt-1">{t("offers.notConfirmed")}</p>
-                          )
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </ScrollX>
+          <div role="group" aria-label={t("offers.lists")} className="inline-flex overflow-hidden rounded-lg border border-slate-300">
+            {(["open", "closed"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={view === key}
+                onClick={() => show(key)}
+                className={`rounded-none border-0 px-3 py-1.5 text-sm font-medium shadow-none ${
+                  view === key ? "bg-brand-600 text-white" : "bg-white text-slate-700 hover:bg-brand-50"
+                } ${key === "closed" ? "border-l border-slate-300" : ""}`}
+              >
+                {t(key === "open" ? "offers.view.open" : "offers.view.closed", { count: lists[key].length })}
+              </button>
+            ))}
+          </div>
+          {rows.length === 0 ? (
+            <p className="mt-3">{t(view === "open" ? "offers.view.noneOpen" : "offers.view.noneClosed")}</p>
+          ) : (
+            <ScrollX>
+              <table className="mt-3 text-sm">
+                <caption className="sr-only">
+                  {t("offers.caption", { id: staffId })}
+                </caption>
+                <thead>
+                  <tr>
+                    {COLUMNS.map((label) => (
+                      <th key={label} scope="col">
+                        {t(label)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {shown.map((offer) => {
+                    const canRespond =
+                      openOffers.some((open) => open.id === offer.id) &&
+                      offerSnapshot(offer) !== answeredSnapshot &&
+                      !pending &&
+                      !error;
+                    return (
+                      <tr key={offer.id}>
+                        <td>{offer.id}</td>
+                        <td>{offer.case_id}</td>
+                        <td>
+                          {t("offers.wardShift", { ward: offer.ward_name, shift: offer.proposed_shift_id })}
+                          <div>
+                            {formatDemoTime(offer.shift_start_at)} –{" "}
+                            {formatDemoTime(offer.shift_end_at)}
+                          </div>
+                        </td>
+                        <td>{offer.status}</td>
+                        <td>{offer.case_status}</td>
+                        <td className="whitespace-nowrap">
+                          {formatDemoTime(offer.sent_at)}
+                        </td>
+                        <td className="whitespace-nowrap">
+                          {formatDemoTime(offer.response_at)}
+                        </td>
+                        <td className="whitespace-nowrap">
+                          {formatDemoTime(offer.expires_at)}
+                        </td>
+                        <td>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="primary"
+                              aria-label={t("offers.acceptLabel", { id: offer.id })}
+                              disabled={!canRespond || !offer.can_accept}
+                              onClick={() => void respond(offer.id, "ACCEPT")}
+                            >
+                              {t("offers.accept")}
+                            </Button>
+                            <Button
+                              aria-label={t("offers.rejectLabel", { id: offer.id })}
+                              disabled={!canRespond}
+                              onClick={() => void respond(offer.id, "REJECT")}
+                            >
+                              {t("offers.reject")}
+                            </Button>
+                          </div>
+                          {(offer.blocked_reason === "OFFER_EXPIRED" ||
+                            offer.status === "TIMEOUT") && (
+                            <p className="mt-1">{t("offers.expired")}</p>
+                          )}
+                          {offer.blocked_reason === "AWAITING_OTHER_CASE" && (
+                            <p className="mt-1">{t("offers.paused")}</p>
+                          )}
+                          {offer.cancellation_reason && !offer.final_message && (
+                            <p className="mt-1">{t("offers.cancelled", { reason: offer.cancellation_reason })}</p>
+                          )}
+                          {!offer.is_assigned && offer.final_message && (
+                            <p className="mt-1 whitespace-pre-line">{offer.final_message}</p>
+                          )}
+                          {!offer.is_assigned && offer.final_delivery_status === "FAILED" && (
+                            <p className="mt-1 text-amber-800">{t("offers.lineFailed")}</p>
+                          )}
+                          {offer.is_assigned ? (
+                            <p className="mt-1">{t("offers.assigned")}</p>
+                          ) : offer.is_reserve ? (
+                            <p className="mt-1">{t("offers.reserve")}</p>
+                          ) : (
+                            offer.status === "ACCEPTED" &&
+                            !STOPPED_CASE_STATUSES.has(offer.case_status) && (
+                              <p className="mt-1">{t("offers.notConfirmed")}</p>
+                            )
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </ScrollX>
+          )}
+          {rows.length > OFFERS_PAGE_SIZE && (
+            <Pager page={currentPage} pageSize={OFFERS_PAGE_SIZE} total={rows.length} onPage={setPage} />
+          )}
         </Card>
       )}
       <p className="text-sm text-slate-600">{t("offers.help")}</p>

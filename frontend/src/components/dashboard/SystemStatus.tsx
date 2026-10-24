@@ -10,7 +10,10 @@ type Health = { status: string; database: string; detail?: string };
 /** The API did not answer at all: the text is in the language of the page when it is shown */
 const UNREACHABLE = Symbol("unreachable");
 
-/** The small API and database check the home page showed before the Dashboard (GET /health). */
+/**
+ * The API and database check (GET /health). Round 6 PR EV8 moved it from the bottom of the
+ * Dashboard to its own page, /status, which works without a login.
+ */
 export function SystemStatus() {
   const t = useT();
   const [health, setHealth] = useState<Health | null>(null);
@@ -42,8 +45,7 @@ export function SystemStatus() {
   }, []);
 
   return (
-    <section aria-label={t("sys.title")} className="mt-8 border-t border-slate-300 pt-3 text-sm">
-      <h2 className="text-sm font-semibold">{t("sys.title")}</h2>
+    <section aria-label={t("sys.title")} className="text-sm">
       {error && <p className="mt-1 text-red-700">{error === UNREACHABLE ? t("common.apiUnreachable") : describeError(error, t)}</p>}
       {!error && !health && <p className="mt-1">{t("sys.checking")}</p>}
       {health && (

@@ -63,8 +63,10 @@ describe("Case list", () => {
       "Shift 21 · NIGHT · 2026-10-09 23:00",
       "1",
       "2026-10-09 21:00:00",
-      "See details",
+      // A handed-off case can be managed from here too (round 6 PR EV8)
+      "ManageSee details",
     ]);
+    expect(within(table.getAllByRole("row")[2]).queryByRole("button", { name: "Manage" })).toBeNull();
     expect(screen.getByText("Page 1 of 2 · 21 in all")).toBeTruthy();
   });
 

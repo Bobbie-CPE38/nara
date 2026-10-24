@@ -75,7 +75,7 @@ async function linksOf(actorId: number): Promise<string[]> {
     counts.getByRole("link", { name: "FAILED" }),
     counts.getByRole("link", { name: "WAITING_APPROVAL" }),
     within(await screen.findByRole("region", { name: "Waiting for people" })).getByRole("link", { name: "1" }),
-    within(await screen.findByRole("region", { name: "Short shifts" })).getByRole("link", { name: "Gap check" }),
+    within(await screen.findByRole("region", { name: "Short shifts, most urgent first" })).getByRole("link", { name: "Gap check" }),
   ].map((link) => link.getAttribute("href") ?? "");
   cleanup();
   return hrefs;

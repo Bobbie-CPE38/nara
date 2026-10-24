@@ -27,7 +27,7 @@ from app.domain.enums import ActorName, AuditAction, CaseStatus
 from app.main import app
 from app.services import access_service, actor_service, auth_service, job_service
 from app.services import unavailability_service as unavailability
-from tests.integration.case_rows import approval, make_plan, offer
+from tests.integration.case_rows import approval, make_plan, offer, replacement
 from tests.integration.test_approval_two_wards import build
 
 PASSWORD = "review points test password"
@@ -94,13 +94,13 @@ def client_of(staff_id: int | None) -> TestClient:
 
 
 # --------------------------------------------------------------------------- #
-# A nurse's Dashboard follows the case, in any ward
+# A nurse sees the case that put them on a shift, in any ward (round 6 PR EV8)
 # --------------------------------------------------------------------------- #
-def test_a_nurse_offered_a_shift_of_another_ward_sees_it_everywhere_or_nowhere(
+def test_a_nurse_of_another_ward_sees_the_case_once_it_put_them_on_its_shift(
     scene: Scene,
 ) -> None:
-    """Medicine nurse 301 has an open offer on an ICU case: the case, the list and the
-    Dashboard counts all show it, and nobody else of Medicine does."""
+    """Medicine nurse 301 with only an open offer on an ICU case sees neither the case nor
+    the list row (6.38.2). Approved and on the shift, they see both, as a case of theirs."""
     db = scene.db
     case = db.get(StaffingCase, scene.case_id)
     assert case is not None
@@ -109,13 +109,15 @@ def test_a_nurse_offered_a_shift_of_another_ward_sees_it_everywhere_or_nowhere(
     db.commit()
 
     me = client_of(301)
+    assert me.get(f"/cases/{scene.case_id}").status_code == 404
+    assert me.get(f"/cases?status={WAITING}").json() == []
+
+    approval(db, case, items[301], approved=True)
+    replacement(db, items[301])
+    db.commit()
     assert me.get(f"/cases/{scene.case_id}").status_code == 200
     listed = me.get(f"/cases?status={WAITING}").json()
     assert [row["id"] for row in listed] == [scene.case_id]
-    dashboard = me.get("/dashboard").json()
-    counts = {row["status"]: row["count"] for row in dashboard["cases_by_status"]}
-    assert counts[WAITING] == 1
-    assert dashboard["open_offers"]["count"] == 1
 
     # The head nurse of Medicine has no part in it: nothing, in the case, the list or the counts
     other = client_of(902)
@@ -127,13 +129,13 @@ def test_a_nurse_offered_a_shift_of_another_ward_sees_it_everywhere_or_nowhere(
     assert other_dashboard["open_offers"]["count"] == 0
 
 
-def test_a_nurse_with_no_part_in_the_case_counts_nothing(scene: Scene) -> None:
-    dashboard = client_of(105).get("/dashboard").json()
+def test_a_nurse_has_no_dashboard_but_lists_the_case_of_their_leave(scene: Scene) -> None:
     # 105 reported the leave that opened the case, so it is theirs; 301 has no part in it
-    counts = {row["status"]: row["count"] for row in dashboard["cases_by_status"]}
-    assert counts[WAITING] == 1
-    nothing = client_of(301).get("/dashboard").json()
-    assert {row["status"]: row["count"] for row in nothing["cases_by_status"]}[WAITING] == 0
+    listed = client_of(105).get(f"/cases?status={WAITING}").json()
+    assert [row["id"] for row in listed] == [scene.case_id]
+    assert client_of(301).get(f"/cases?status={WAITING}").json() == []
+    for nurse in (105, 301):
+        assert client_of(nurse).get("/dashboard").status_code == 403
 
 
 # --------------------------------------------------------------------------- #

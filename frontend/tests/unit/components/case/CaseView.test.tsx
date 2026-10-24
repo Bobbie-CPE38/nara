@@ -107,9 +107,9 @@ describe("CaseView", () => {
       ["Skill", "ICU", "2", "2", "OK"],
     ]);
     expect(rows("Candidates")).toEqual([
-      ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU", "Whole shift", "—"],
-      ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "1013", "ICU", "Whole shift", "—"],
-      ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "1020", "ICU", "Whole shift", "—"],
+      ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU"],
+      ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "1013", "ICU"],
+      ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "1020", "ICU"],
     ]);
     expect(actions()).toEqual(waitingResponseAudit().map(entry => entry.action));
   });
@@ -302,7 +302,7 @@ describe("CaseView", () => {
     );
     await tick(2000);
     expect(status()).toBe("WAITING_RESPONSE");
-    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU", "Whole shift", "—"]]);
+    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU"]]);
     expect(actions()).toEqual(["EVENT_RECEIVED", "UNAVAILABILITY_CREATED", "CASE_OPENED", "CASE_STATUS_CHANGED"]);
   });
 
@@ -946,9 +946,9 @@ describe("CaseView", () => {
       expect(screen.queryByText("The explanation is not ready")).toBeNull();
       expect(screen.queryByRole("table", { name: /^Score of staff/ })).toBeNull();
       expect(rows("Candidates")).toEqual([
-        ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—", "ICU", "Whole shift", "—"],
-        ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "—", "ICU", "Whole shift", "—"],
-        ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "—", "ICU", "Whole shift", "—"],
+        ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—", "ICU"],
+        ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "—", "ICU"],
+        ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "—", "ICU"],
       ]);
     });
 

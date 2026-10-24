@@ -24,9 +24,32 @@ export type Shortage = {
   role_gaps: NamedGap[];
   skill_gaps: NamedGap[];
   case_id: number | null;
+  /** Running now: listed before the shifts that start later (round 6 PR EV8) */
+  in_progress?: boolean;
 };
 
-export type WardCount = { ward_id: number; count: number };
+/** One bar of the chart by ward (round 6 PR EV8): positions over shifts, not people */
+export type WardShortage = { ward_id: number; missing_positions: number; short_shifts: number };
+
+export type Approver = { staff_id: number; name: string };
+
+/** Requests waiting for one ward, and who may decide them now (round 6 PR EV8) */
+export type PendingApprovalCount = {
+  ward_id: number;
+  count: number;
+  /** The ward's head nurses; absent from an older Backend */
+  head_nurses?: Approver[];
+  /** The Supervisor may decide them too */
+  supervisor?: boolean;
+};
+
+/** The four cards at the top (round 6 PR EV8) */
+export type DashboardSummary = {
+  short_shifts: number;
+  missing_positions: number;
+  pending_approvals: number;
+  handoff_cases: number;
+};
 
 export type NoShowEvent = {
   event_id: number;
@@ -53,9 +76,17 @@ export type Dashboard = {
   wards: number[];
   /** Every ward the user may see, by name, for the ward filter (round 6 PR EV6) */
   ward_options: WardOption[];
+  /** Round 6 PR EV8. How far ahead the shortages look, in hours from `now` */
+  window_hours?: number;
+  /** The wards shown hold the demo's simulated people */
+  demo_data?: boolean;
+  summary?: DashboardSummary;
   cases_by_status: CaseStatusCount[];
+  /** Running first, then by start */
   shortages: Shortage[];
-  pending_approvals: WardCount[];
+  /** Every ward with a short shift, the most missing first */
+  shortage_by_ward?: WardShortage[];
+  pending_approvals: PendingApprovalCount[];
   open_offers: { count: number };
   recent_no_show: NoShowEvent[];
   /** null while LLM_ENABLED is false */
