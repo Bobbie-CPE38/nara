@@ -94,6 +94,8 @@ def seed(db: Session) -> None:
                 created_at=now,
                 approval_timeout_seconds=900,
                 supervisor_after_seconds=600,
+                supervisor_ratio=Decimal(5),
+                supervisor_incoming_count=10,
             ),
             OutreachPolicy(
                 id=1,

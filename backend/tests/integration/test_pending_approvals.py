@@ -152,7 +152,9 @@ def test_pending_response_contract(client: TestClient, production_seeded: Sessio
             "expires_at": (DEMO_NOW + timedelta(seconds=900)).isoformat(),
             "home_ward_id": 1,
             "source_ward_id": None,
-            "wards": [{"ward_id": 1, "side": "DESTINATION", "status": "PENDING"}],
+            "wards": [
+                {"ward_id": 1, "side": "DESTINATION", "status": "PENDING", "approval_mode": None}
+            ],
             "supervisor_from": (DEMO_NOW + timedelta(seconds=600)).isoformat(),
         }
     ]

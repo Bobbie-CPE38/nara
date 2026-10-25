@@ -532,7 +532,7 @@ describe("round 4 (PR U)", () => {
     ]);
     render(createElement(Approvals));
 
-    const history = await screen.findByRole("table", { name: "Approved by the system" });
+    const history = await screen.findByRole("table", { name: "Approved on every side" });
     await waitFor(() => expect(within(history).getByText("RESOLVED")).toBeTruthy());
     const [, row] = within(history).getAllByRole("row");
     expect(within(row).getAllByRole("cell").map((item) => item.textContent)).toEqual([
@@ -540,6 +540,42 @@ describe("round 4 (PR U)", () => {
     ]);
     const [, request] = fetchMock.mock.calls.find(([url]) => /\/approvals\/auto$/.test(url))!;
     expect(request.headers.get("X-Demo-User")).toBe("900");
+  });
+
+  it("keeps requests one ward approved apart from new ones (round 6 PR EV9)", async () => {
+    stubFetch(
+      [
+        PENDING,
+        { ...TRANSFER, id: 5,
+          wards: [
+            { ward_id: 1, side: "DESTINATION", status: "PENDING", approval_mode: null },
+            { ward_id: 2, side: "SOURCE", status: "APPROVED", approval_mode: "AUTO" },
+          ] },
+      ],
+      null,
+      { body: CASE },
+      [
+        { ...TRANSFER, id: 5, is_pending: true,
+          wards: [
+            { ward_id: 1, side: "DESTINATION", status: "PENDING", approval_mode: null },
+            { ward_id: 2, side: "SOURCE", status: "APPROVED", approval_mode: "AUTO" },
+          ],
+          decided_at: "2026-10-09T21:05:00+07:00" },
+      ],
+    );
+    render(createElement(Approvals));
+
+    const fresh = await screen.findByRole("table", { name: "Waiting for a decision" });
+    expect(within(fresh).getAllByRole("row")).toHaveLength(2);
+    const other = screen.getByRole("table", { name: "One ward approved, the other ward still decides" });
+    const [, row] = within(other).getAllByRole("row");
+    expect(within(row).getByText("ICU (destination): waiting; Medicine (source): approved by the system")).toBeTruthy();
+    // The destination head nurse still decides it
+    expect(within(row).getByRole("button", { name: "Approve" })).toBeTruthy();
+
+    const partly = await screen.findByRole("table", { name: "Approved on one side, the other ward still decides" });
+    expect(within(partly).getAllByRole("row")).toHaveLength(2);
+    expect(screen.queryByRole("table", { name: "Approved on every side" })).toBeNull();
   });
 
   it("flags an automatic approval whose execution failed (D11)", async () => {
@@ -553,7 +589,7 @@ describe("round 4 (PR U)", () => {
     ]);
     render(createElement(Approvals));
 
-    const history = await screen.findByRole("table", { name: "Approved by the system" });
+    const history = await screen.findByRole("table", { name: "Approved on every side" });
     const failed = await within(history).findByText(
       "FAILED: case workflow failed; check assignment outcome",
     );

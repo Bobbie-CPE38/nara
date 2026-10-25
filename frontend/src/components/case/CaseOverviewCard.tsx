@@ -307,6 +307,22 @@ function sideRows(request: OverviewRequest): { sides: OverviewSide[]; both: bool
 
 function Decider({ side }: { side: OverviewSide }) {
   const t = useT();
+  if (side.status === "AUTO_APPROVED") {
+    // The system decided: no person is named (round 6 PR EV9, docs/workflow.md 6.39)
+    const auto = side.auto;
+    return (
+      <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+        <Badge>{t("summary.system")}</Badge>
+        {auto && (
+          <span className="text-sm text-slate-700">
+            {auto.basis === "SUPERVISOR_QUEUE"
+              ? t("summary.auto.SUPERVISOR_QUEUE", { count: auto.queue_count, cap: auto.cap, people: auto.approver_count })
+              : t("summary.auto.HEAD_NURSE_QUEUE", { ward: side.ward_name, count: auto.queue_count, cap: auto.cap, people: auto.approver_count })}
+          </span>
+        )}
+      </span>
+    );
+  }
   if (side.by) {
     const role = side.decided_as === "SUPERVISOR" ? t("summary.role.SUPERVISOR") : t("role.headNurse");
     return (

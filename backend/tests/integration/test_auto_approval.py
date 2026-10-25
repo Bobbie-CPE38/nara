@@ -13,7 +13,6 @@ from app.core import clock
 from app.db.models import (
     ApprovalRequest,
     AuditLog,
-    CandidateItem,
     Shift,
     Staff,
     StaffingCase,
@@ -22,6 +21,7 @@ from app.db.models import (
 from app.domain.enums import (
     ActorName,
     ApprovalMode,
+    ApprovalSide,
     AuditAction,
     CandidateSource,
     CaseStatus,
@@ -95,29 +95,17 @@ def test_queue_equal_to_capacity_is_left_for_people(production_seeded):
     assert all(db.get(ApprovalRequest, row.id).is_pending for row in rows)
 
 
-def test_manual_only_requests_count_toward_threshold_but_are_never_approved(production_seeded):
+def test_cross_ward_and_float_pool_requests_are_approved_too(production_seeded):
+    """Round 6 PR EV9 (6.39): every kind of candidate is approved by an overloaded queue."""
     db = production_seeded
     rows = queue(
         db, (CandidateSource.SAME_WARD, CandidateSource.CROSS_WARD, CandidateSource.FLOAT_POOL)
     )
-    assert auto_approval_service.approve_due_requests(db).approval_ids == [rows[0].id]
-    assert all(db.get(ApprovalRequest, row.id).is_pending for row in rows[1:])
-
-
-def test_recorded_source_prevents_auto_even_with_same_ward_source(production_seeded):
-    from app.db.models import RosterAssignment
-
-    db = production_seeded
-    rows = queue(db)
-    item = db.get(CandidateItem, rows[0].candidate_item_id)
-    item.source_assignment_id = db.scalar(
-        select(RosterAssignment.id).where(RosterAssignment.staff_id == 202).limit(1)
-    )
-    db.commit()
-    result = auto_approval_service.approve_due_requests(db)
-    assert rows[0].id not in result.approval_ids
-    assert db.get(ApprovalRequest, rows[0].id).is_pending
-    assert len(result.approval_ids) == 2
+    assert auto_approval_service.approve_due_requests(db).approval_ids == [row.id for row in rows]
+    for row in rows:
+        db.refresh(row)
+        assert row.approval_mode == ApprovalMode.AUTO and row.is_approved is True
+        assert db.get(StaffingCase, row.case_id).status == CaseStatus.RESOLVED
 
 
 def test_no_active_head_nurse_means_zero_capacity(production_seeded):
@@ -152,6 +140,7 @@ def test_automatic_entry_point_requires_a_locked_batch(production_seeded):
         approval_service.decide_automatic(
             db,
             approval_id=rows[0].id,
+            side=ApprovalSide.DESTINATION,
             batch=None,
             notifications=[],
         )
@@ -322,15 +311,17 @@ def test_cancelled_offer_and_stopped_case_do_not_inflate_queue(production_seeded
 
 
 def test_history_is_ward_scoped_and_supervisor_can_read_all_wards(production_seeded):
-    from app.db.models import Role
+    from app.db.models import ApprovalPolicy, Role
 
     db = production_seeded
     rows = queue(db)
-    auto_approval_service.approve_due_requests(db)
     case = db.get(StaffingCase, rows[-1].case_id)
-    # Medicine (ward 2) and the SUPERVISOR role come from the seed (round 4 PR W4)
+    # Medicine (ward 2) and the SUPERVISOR role come from the seed (round 4 PR W4). Every
+    # queue is over a cap of 0, so the request of ward 2 is the system's too
     db.get(Shift, case.shift_id).ward_id = 2
+    db.scalar(select(ApprovalPolicy)).incoming_count = 0
     db.commit()
+    auto_approval_service.approve_due_requests(db)
     head_role = db.get(Staff, 900).role_id
     supervisor_role = db.scalar(select(Role.id).where(Role.name == "SUPERVISOR"))
     assert [
