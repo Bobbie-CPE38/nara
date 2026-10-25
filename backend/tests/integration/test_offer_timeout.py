@@ -427,7 +427,8 @@ def test_recovery_failure_does_not_starve_other_cases_and_retries_next_tick(prod
     assert first.id in job_service.run_due_work(db).recovered_case_ids
 
 
-def test_due_timeouts_release_queued_window_in_same_tick(client, production_seeded):
+def test_a_second_leave_joins_the_running_case_at_once(client, production_seeded):
+    """Round 6 PR EV10 (6.40): the leave of 104 no longer queues behind the case of 105."""
     db = production_seeded
     first = client.post(
         "/events",
@@ -435,33 +436,19 @@ def test_due_timeouts_release_queued_window_in_same_tick(client, production_seed
         json={"event_type": "STAFF_UNAVAILABLE", "shift_id": 1},
     )
     assert first.status_code == 201
-    queued = client.post(
+    second = client.post(
         "/events",
         headers={"X-Demo-User": "104"},
         json={"event_type": "STAFF_UNAVAILABLE", "shift_id": 1},
     )
-    assert queued.status_code == 201 and queued.json()["event_status"] == "RECEIVED"
-    assert client.post("/demo/clock/advance", json={"seconds": 300}).json()["closed_windows"] == []
-    closed = client.post("/demo/clock/advance", json={"seconds": 300})
-    assert closed.status_code == 200
-    window = closed.json()["closed_windows"][0]
-    assert window["event_ids"] == [queued.json()["event_id"]]
-    assert window["case_id"] != first.json()["case_id"]
-    # The new case covers the whole shift, so it replaces the stopped one (R2-Q19)
-    assert db.get(StaffingCase, first.json()["case_id"]).status == CaseStatus.UNRESOLVED
-    closing = db.scalars(
-        select(AuditLog).where(
-            AuditLog.case_id == first.json()["case_id"],
-            AuditLog.action == AuditAction.CASE_CLOSED_UNRESOLVED,
-        )
-    ).one()
-    assert closing.payload["closed_by"] == "SUCCESSOR_CASE"
-    assert closing.payload["successor_case_id"] == window["case_id"]
-    fresh = list(
-        db.scalars(select(CandidateOutreach).where(CandidateOutreach.case_id == window["case_id"]))
+    assert second.status_code == 201
+    body = second.json()
+    assert (body["event_status"], body["case_id"], body["joined_running_case"]) == (
+        "PROCESSED",
+        first.json()["case_id"],
+        True,
     )
-    assert len(fresh) == 3 and all(row.status == OutreachStatus.SENT for row in fresh)
-    assert {row.expires_at for row in fresh} == {clock.now() + timedelta(seconds=300)}
+    assert db.scalar(select(func.count()).select_from(StaffingCase)) == 1
 
 
 def test_accept_checked_before_deadline_survives_job_waiting_for_its_commit(

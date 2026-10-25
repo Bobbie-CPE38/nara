@@ -19,7 +19,6 @@ from app.db.models import (
     RosterAssignment,
     Shift,
     Staff,
-    StaffingCase,
     StaffingEvent,
     StaffUnavailability,
 )
@@ -120,25 +119,20 @@ def test_a_cancellation_reported_before_the_end_applies_after_the_job_runs(
     assert AuditAction.ASSIGNMENT_CANCELLED in actions(merging, event_id)
 
 
-def test_a_leave_held_back_by_a_running_case_applies_once_the_case_ends(
+def test_a_leave_on_a_shift_with_a_running_case_joins_it_when_its_window_closes(
     merging: Session,
 ) -> None:
+    """Round 6 PR EV10 (6.40): a waiting case no longer holds the leave back."""
     running = make_case(merging, CaseStatus.WAITING_RESPONSE)
     merging.commit()
     event_id = report(merging, 105, EventType.STAFF_UNAVAILABLE)
 
-    # Long past the window and the end of the shift, but the case still runs
-    clock.advance(timedelta(seconds=WINDOW * 3))
-    job_service.run_due_work(merging)
-    assert state(merging, event_id, 105) == (EventStatus.RECEIVED, RosterStatus.ASSIGNED)
-
-    case = merging.get(StaffingCase, running.id)
-    assert case is not None
-    case.status = CaseStatus.RESOLVED
-    merging.commit()
+    clock.advance(timedelta(seconds=WINDOW))
     job_service.run_due_work(merging)
 
     assert state(merging, event_id, 105) == (EventStatus.PROCESSED, RosterStatus.CANCELLED)
+    event = merging.get(StaffingEvent, event_id)
+    assert event is not None and event.case_id == running.id
     assert merging.scalars(select(StaffUnavailability.staff_id)).all() == [105]
 
 

@@ -208,7 +208,13 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
             AuditLog.payload.contains({"outreach_id": outreach_id}),
             # A late arrival made the offer surplus (workflow.md 6.24)
             and_(
-                AuditLog.action == AuditAction.OFFER_CANCELLED_NOT_NEEDED,
+                AuditLog.action.in_(
+                    [
+                        AuditAction.OFFER_CANCELLED_NOT_NEEDED,
+                        # The person reported leave for that time (round 6 PR EV10, 6.40)
+                        AuditAction.OFFER_CANCELLED_STAFF_UNAVAILABLE,
+                    ]
+                ),
                 AuditLog.payload.contains({"cancelled_outreach_id": outreach_id}),
             ),
         )
@@ -233,6 +239,11 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
                 and payload.get("cancelled_outreach_id") == outreach_id
             ):
                 reasons[outreach_id] = "NO_LONGER_NEEDED"
+            elif (
+                row.action == AuditAction.OFFER_CANCELLED_STAFF_UNAVAILABLE
+                and payload.get("cancelled_outreach_id") == outreach_id
+            ):
+                reasons[outreach_id] = "STAFF_UNAVAILABLE"
             elif payload.get("outreach_id") == outreach_id:
                 if row.action == AuditAction.APPROVAL_TIMEOUT:
                     reasons[outreach_id] = "APPROVAL_TIMEOUT"

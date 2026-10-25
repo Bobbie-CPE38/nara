@@ -102,7 +102,15 @@ def test_leave_that_opens_a_gap_creates_a_case_and_runs_it(
 
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == {"event_id", "event_status", "case_id", "case_status"}
+    assert set(body) == {
+        "event_id",
+        "event_status",
+        "case_id",
+        "case_status",
+        "joined_running_case",
+        "ignored_reason",
+        "window_closes_at",
+    }
     assert body["event_status"] == "PROCESSED"
     assert body["case_status"] == "WAITING_RESPONSE"
     seeded.expire_all()
@@ -401,10 +409,10 @@ def test_two_people_leaving_the_same_shift_at_once_do_not_hide_the_gap(
     both_cancelled = threading.Barrier(2, timeout=10)
     real_load = gap_service.load_roster
 
-    def load_when_both_are_ready(db: Session, shift_id: int) -> list[RosterMember]:
+    def load_when_both_are_ready(db: Session, shift_id: int, **options: Any) -> list[RosterMember]:
         with contextlib.suppress(threading.BrokenBarrierError):
             both_cancelled.wait(timeout=1.5)
-        return real_load(db, shift_id)
+        return real_load(db, shift_id, **options)
 
     monkeypatch.setattr(gap_service, "load_roster", load_when_both_are_ready)
     start = threading.Barrier(2, timeout=10)
