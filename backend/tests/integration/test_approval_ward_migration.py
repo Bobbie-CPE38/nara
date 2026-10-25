@@ -75,6 +75,8 @@ def test_new_policy_accepts_explicit_delay_below_short_timeout(seeded, timeout, 
         version="short-timeout",
         approval_timeout_seconds=timeout,
         supervisor_after_seconds=delay,
+        supervisor_ratio=5,
+        supervisor_incoming_count=10,
     )
     seeded.add(policy)
     seeded.flush()

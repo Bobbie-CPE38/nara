@@ -154,6 +154,15 @@ export type OverviewPerson = {
   ward_name: string | null;
 };
 
+/** Why the system approved a side (round 6 PR EV9, 6.39): the queue that was over its cap */
+export type OverviewAutoBasis = {
+  /** HEAD_NURSE_QUEUE: the side's own ward; SUPERVISOR_QUEUE: requests the Supervisor may decide */
+  basis: "HEAD_NURSE_QUEUE" | "SUPERVISOR_QUEUE";
+  queue_count: number;
+  cap: number;
+  approver_count: number;
+};
+
 /** One ward's approval of a request (round 6 PR EV8): the destination, and the source of a move */
 export type OverviewSide = {
   side: "DESTINATION" | "SOURCE";
@@ -168,6 +177,8 @@ export type OverviewSide = {
   waiting_for: OverviewPerson[];
   /** While PENDING: when the Supervisor may decide too */
   supervisor_from: string | null;
+  /** AUTO_APPROVED by a queue over its cap: `by` is then null, never a person */
+  auto?: OverviewAutoBasis | null;
 };
 
 /** One accepted offer and its approval, bound to its candidate (round 6 PR EV8) */

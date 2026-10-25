@@ -35,9 +35,11 @@ from app.db.models import (
 )
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
+    ActorName,
     ActorType,
     ApprovalMode,
     ApprovalSide,
+    ApproverCapacity,
     AuditAction,
     CaseStatus,
     OutreachStatus,
@@ -46,6 +48,7 @@ from app.domain.enums import (
 )
 from app.schemas.case import (
     CaseOverview,
+    OverviewAutoBasis,
     OverviewDecision,
     OverviewEvent,
     OverviewMove,
@@ -288,7 +291,11 @@ def build(db: Session, case_id: int) -> CaseOverview:
 
     staff_ids = {event.staff_id for event in events if event.staff_id is not None}
     staff_ids |= {staff_id for row in audits if (staff_id := _staff_id(row.payload)) is not None}
-    staff_ids |= {decision.approver_id for decision, _, _ in ward_decisions}
+    staff_ids |= {
+        decision.approver_id
+        for decision, _, _ in ward_decisions
+        if decision.approver_id is not None
+    }
     staff_ids |= {candidate for _, candidate, _ in ward_decisions}
     staff_ids |= {row.staff_id for row in request_rows}
     staff_ids |= {head for ward_heads in heads.values() for head in ward_heads}
@@ -308,13 +315,21 @@ def build(db: Session, case_id: int) -> CaseOverview:
         (
             decision.decided_at,
             OverviewDecision(
-                kind="APPROVED" if decision.is_approved else "REJECTED",
-                by=_required(people.person(decision.approver_id)),
+                kind="AUTO_APPROVED"
+                if decision.approval_mode == ApprovalMode.AUTO
+                else "APPROVED"
+                if decision.is_approved
+                else "REJECTED",
+                # The system decided an AUTO side: no person is named as its approver (6.39)
+                by=_SYSTEM
+                if decision.approver_id is None
+                else _required(people.person(decision.approver_id)),
                 ward_name=ward_name,
                 side=decision.side,
                 candidate=people.person(candidate),
                 reason=decision.reason,
                 at=decision.decided_at,
+                auto=_auto_basis(decision),
             ),
         )
         for decision, candidate, ward_name in ward_decisions
@@ -353,6 +368,25 @@ def build(db: Session, case_id: int) -> CaseOverview:
     )
 
 
+_SYSTEM = OverviewPerson(staff_id=None, name=ActorName.SYSTEM.value, role=None, ward_name=None)
+
+
+def _auto_basis(decision: ApprovalWardDecision | None) -> OverviewAutoBasis | None:
+    """The queue that made an automatic side eligible (6.39)."""
+    if decision is None or decision.approval_mode != ApprovalMode.AUTO:
+        return None
+    assert decision.queue_count is not None and decision.queue_cap is not None
+    assert decision.queue_approver_count is not None
+    return OverviewAutoBasis(
+        basis="SUPERVISOR_QUEUE"
+        if decision.decided_as == ApproverCapacity.SUPERVISOR
+        else "HEAD_NURSE_QUEUE",
+        queue_count=decision.queue_count,
+        cap=float(decision.queue_cap),
+        approver_count=decision.queue_approver_count,
+    )
+
+
 def _request_status(request: ApprovalRequest, *, stopped: bool) -> RequestStatus:
     if request.is_timed_out:
         return "TIMED_OUT"
@@ -366,6 +400,8 @@ def _side_status(
     decision: ApprovalWardDecision | None, request: ApprovalRequest, status: RequestStatus
 ) -> SideStatus:
     if decision is not None:
+        if decision.approval_mode == ApprovalMode.AUTO:
+            return "AUTO_APPROVED"
         return "APPROVED" if decision.is_approved else "REJECTED"
     if status == "APPROVED" and request.approval_mode == ApprovalMode.AUTO:
         return "AUTO_APPROVED"
@@ -415,7 +451,9 @@ def _requests(
                     side=side,
                     ward_name=ward_name,
                     status=side_status,
-                    by=None if decision is None else people.person(decision.approver_id),
+                    by=None
+                    if decision is None or decision.approver_id is None
+                    else people.person(decision.approver_id),
                     decided_as=None if decision is None else decision.decided_as,
                     reason=None if decision is None else decision.reason,
                     at=None if decision is None else decision.decided_at,
@@ -423,6 +461,7 @@ def _requests(
                     if waiting
                     else [],
                     supervisor_from=request.requested_at + delay if waiting else None,
+                    auto=_auto_basis(decision),
                 )
             )
         result.append(
@@ -447,6 +486,9 @@ def _from_audit(row: AuditLog, people: _People) -> OverviewDecision | None:
     payload: dict[str, Any] = row.payload
     candidate = people.person(_staff_id(payload))
     if row.action == AuditAction.APPROVAL_APPROVED and payload.get("approval_mode") == "AUTO":
+        if "side" in payload:
+            # Since 6.39 an automatic side has its own ward decision row, listed above
+            return None
         kind = "AUTO_APPROVED"
     elif row.action == AuditAction.APPROVAL_TIMEOUT:
         kind = "APPROVAL_TIMEOUT"

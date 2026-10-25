@@ -509,6 +509,67 @@ describe("the replacement summary", () => {
     expect(view.text("Who approved")).toContain("Two wards must approve");
   });
 
+  it("names no person for a side the system approved, and the queue that did it (round 6 PR EV9)", () => {
+    const view = summary(
+      overview({
+        requests: [
+          {
+            approval_id: 3,
+            candidate: person(200202, "Tawan S.", "RN", "Emergency"),
+            destination_ward_name: "Pediatrics",
+            moved_from: moved,
+            status: "PENDING",
+            approval_mode: "MANUAL",
+            assigned: false,
+            requested_at: "2026-10-24T21:00:00+07:00",
+            sides: [
+              side({ waiting_for: [person(200101, "Nattapong W.", "HEAD_NURSE", "Pediatrics")], supervisor_from: "2026-10-24T21:10:00+07:00" }),
+              side({
+                side: "SOURCE",
+                ward_name: "Emergency",
+                status: "AUTO_APPROVED",
+                by: null,
+                decided_as: "HEAD_NURSE",
+                at: "2026-10-24T21:01:00+07:00",
+                auto: { basis: "HEAD_NURSE_QUEUE", queue_count: 5, cap: 2, approver_count: 1 },
+              }),
+            ],
+          },
+          {
+            approval_id: 4,
+            candidate: person(200203, "Mali S.", "RN", "Pediatrics"),
+            destination_ward_name: "Pediatrics",
+            moved_from: null,
+            status: "APPROVED",
+            approval_mode: "AUTO",
+            assigned: true,
+            requested_at: "2026-10-24T21:00:00+07:00",
+            sides: [
+              side({
+                status: "AUTO_APPROVED",
+                by: null,
+                decided_as: "SUPERVISOR",
+                at: "2026-10-24T21:11:00+07:00",
+                auto: { basis: "SUPERVISOR_QUEUE", queue_count: 11, cap: 10, approver_count: 2 },
+              }),
+            ],
+          },
+        ],
+      }),
+      "WAITING_APPROVAL",
+    );
+    const rows = view.part("Who approved").getAllByRole("listitem").map((row) => row.textContent ?? "");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toContain("Waiting for Nattapong W. (200101)");
+    expect(rows[1]).toContain("Head nurse of the source ward · Emergency");
+    expect(rows[1]).toContain("System");
+    expect(rows[1]).toContain("Emergency head nurse queue: 5 waiting, over the limit of 2 (active head nurses: 1)");
+    expect(rows[1]).toContain("Approved automatically");
+    expect(rows[2]).toContain("Supervisor queue: 11 waiting, over the limit of 10 (active Supervisors: 2)");
+    // No person's name stands as the approver of an automatic side
+    expect(rows[1]).not.toContain("Saowanee");
+  });
+
   it("names one Supervisor once when they decided both wards", () => {
     const supervisor = person(950, "Supa S.", "SUPERVISOR", "ICU");
     const decided = { status: "APPROVED" as const, by: supervisor, decided_as: "SUPERVISOR" as const, at: "2026-10-24T21:12:00+07:00" };
