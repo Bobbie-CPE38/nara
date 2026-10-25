@@ -11,6 +11,7 @@ import { apiRequest } from "@/lib/api";
 import { bangkokIso } from "@/lib/authForms";
 import { describeError } from "@/lib/errors";
 import { formatDateTime } from "@/lib/format";
+import { eventOutcome } from "@/lib/eventOutcome";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import type { StaffRoster } from "@/lib/types/auth";
 import type { EventResult } from "@/lib/types/event";
@@ -108,11 +109,7 @@ function LeaveForm({ staffId }: { staffId: number }) {
       {result && (
         <div role="status" className="mt-4 space-y-1 text-green-700">
           <p>{t("leave.sent", { event: result.event_id, status: result.event_status })}</p>
-          <p>
-            {result.case_id === null
-              ? t("leave.noCase")
-              : t("leave.case", { case: result.case_id, status: result.case_status ?? "" })}
-          </p>
+          <p>{t(eventOutcome(result).key, eventOutcome(result).params)}</p>
         </div>
       )}
       {failure !== null && (

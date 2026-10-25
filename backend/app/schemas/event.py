@@ -4,6 +4,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from app.core.constants import MAX_BIGINT, MAX_EVENT_REASON_LENGTH
 from app.domain.enums import CaseStatus, EventStatus, EventType
+from app.schemas.types import AppDatetime
 
 # The count columns are PostgreSQL integer: a larger number would fail in the database
 MAX_INTEGER = 2**31 - 1
@@ -99,3 +100,10 @@ class EventResult(BaseModel):
     # RECEIVED = its merge window has not closed yet
     case_id: int | None
     case_status: CaseStatus | None
+    # PROCESSED: true when the event joined the case already running on the shift, false
+    # when its window opened the case (round 6 PR EV10, 6.40)
+    joined_running_case: bool = False
+    # IGNORED: why (EventIgnoredReason), e.g. NO_ASSIGNED_ROSTER for a second report
+    ignored_reason: str | None = None
+    # RECEIVED: the earliest time its merge window closes
+    window_closes_at: AppDatetime | None = None

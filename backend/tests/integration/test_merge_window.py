@@ -141,7 +141,12 @@ def test_event_waits_as_received_and_touches_no_other_table(merging: Session) ->
     outcome = report(merging, 105)
 
     assert outcome == EventOutcome(
-        event_id=outcome.event_id, event_status=EventStatus.RECEIVED, case_id=None, case_status=None
+        event_id=outcome.event_id,
+        event_status=EventStatus.RECEIVED,
+        case_id=None,
+        case_status=None,
+        # Round 6 PR EV10: the reporter is told when the window can close
+        window_closes_at=DEMO_NOW + timedelta(seconds=WINDOW),
     )
     event = event_row(merging, outcome.event_id)
     assert (event.status, event.processed_at, event.case_id) == (EventStatus.RECEIVED, None, None)
@@ -453,7 +458,7 @@ def _stop(db: Session, case_id: int, status: CaseStatus) -> None:
 
 
 @pytest.mark.parametrize("ended_as", sorted(AUTOMATION_STOPPED_STATUSES))
-def test_event_of_a_shift_with_a_running_case_waits_until_that_case_ends(
+def test_event_of_a_shift_whose_case_stopped_opens_a_case_of_its_own(
     merging: Session, ended_as: CaseStatus
 ) -> None:
     first = report(merging, 105)
@@ -461,17 +466,12 @@ def test_event_of_a_shift_with_a_running_case_waits_until_that_case_ends(
     assert first_window.case_id is not None
     first_event = event_row(merging, first.event_id)
     first_processed_at = first_event.processed_at
+    _stop(merging, first_window.case_id, ended_as)
 
     second = report(merging, 104)
-    # Long after its own ten minutes, but the first case is still WAITING_RESPONSE
-    assert close_after(merging, WINDOW * 3) == []
-    assert event_row(merging, second.event_id).status is EventStatus.RECEIVED
-    assert roster_status(merging, 104) is RosterStatus.ASSIGNED
+    (second_window,) = close_after(merging, WINDOW)
 
-    _stop(merging, first_window.case_id, ended_as)
-    (second_window,) = merge_window_service.close_due_windows(merging)
-
-    # A case of its own, never the case of the window before (Q43)
+    # A case of its own, never the stopped case of the window before (Q43)
     assert second_window.event_ids == (second.event_id,)
     assert second_window.case_id not in (None, first_window.case_id)
     assert event_row(merging, second.event_id).case_id == second_window.case_id
@@ -483,6 +483,35 @@ def test_event_of_a_shift_with_a_running_case_waits_until_that_case_ends(
         first_processed_at,
     )
     assert count(merging, StaffingCase) == 2
+
+
+def test_event_joins_the_case_that_waits_on_its_shift(merging: Session) -> None:
+    """Round 6 PR EV10 (6.40): the second leave does not wait for the first case to end."""
+    first = report(merging, 105)
+    (first_window,) = close_after(merging, WINDOW)
+    assert first_window.case_id is not None
+    second = report(merging, 104)
+    # Its own window still applies: ten minutes after it was reported
+    assert close_after(merging, WINDOW - 1) == []
+    assert roster_status(merging, 104) is RosterStatus.ASSIGNED
+    (second_window,) = close_after(merging, 1)
+
+    assert second_window.event_ids == (second.event_id,)
+    assert second_window.case_id == first_window.case_id
+    outcome = event_service.get_event(merging, second.event_id)
+    assert (outcome.event_status, outcome.case_id, outcome.joined_running_case) == (
+        EventStatus.PROCESSED,
+        first_window.case_id,
+        True,
+    )
+    assert roster_status(merging, 104) is RosterStatus.CANCELLED
+    assert count(merging, StaffingCase) == 1
+    # The case measured its gap again from the shift as it is now: 104 and 105 are gone
+    gap = gap_service.get_case_gap(merging, first_window.case_id).gap
+    shift = merging.get_one(Shift, NIGHT_SHIFT)
+    assert gap.headcount_gap == gap_service.assess_shift(merging, shift).result.headcount_gap
+    assert gap.headcount_gap >= 2
+    assert not event_service.get_event(merging, first.event_id).joined_running_case
 
 
 def test_second_window_measures_the_gap_of_the_whole_shift(
@@ -503,8 +532,8 @@ def test_second_window_measures_the_gap_of_the_whole_shift(
     assert gap_service.get_case_gap(merging, second_window.case_id).headcount_gap == 2
 
 
-def test_window_of_zero_seconds_also_waits_for_a_running_case(seeded: Session) -> None:
-    """The Golden Case shift: the second leave cannot open a second case at once."""
+def test_window_of_zero_seconds_joins_the_running_case_at_once(seeded: Session) -> None:
+    """The Golden Case shift (round 6 PR EV10, 6.40): the second leave is applied at once."""
     first = report(seeded, 105)
     assert (first.event_status, first.case_status) == (
         EventStatus.PROCESSED,
@@ -514,36 +543,27 @@ def test_window_of_zero_seconds_also_waits_for_a_running_case(seeded: Session) -
 
     second = report(seeded, 104)
 
-    assert (second.event_status, second.case_id) == (EventStatus.RECEIVED, None)
-    assert roster_status(seeded, 104) is RosterStatus.ASSIGNED
+    assert (second.event_status, second.case_id, second.joined_running_case) == (
+        EventStatus.PROCESSED,
+        first.case_id,
+        True,
+    )
+    assert roster_status(seeded, 104) is RosterStatus.CANCELLED
     assert count(seeded, StaffingCase) == 1
-    # Without moving the clock: a window of 0 is due as soon as the case ends
     assert merge_window_service.close_due_windows(seeded) == []
-    _stop(seeded, first.case_id, CaseStatus.RESOLVED)
-    (window,) = merge_window_service.close_due_windows(seeded)
-    assert window.event_ids == (second.event_id,)
-    assert event_service.get_event(seeded, second.event_id).case_id == window.case_id
 
 
-def test_waiting_events_of_a_zero_window_close_together_with_the_next_event(
-    seeded: Session,
-) -> None:
-    """An event that waited for a case is picked up by the next close of its shift,
-    whoever triggers it: here the next POST /events, not the job."""
+def test_a_third_leave_joins_the_same_case_too(seeded: Session) -> None:
     first = report(seeded, 105)
     assert first.case_id is not None
-    waiting = report(seeded, 104)
-    _stop(seeded, first.case_id, CaseStatus.RESOLVED)
-
+    second = report(seeded, 104)
     third = report(seeded, 103)
 
+    assert {second.case_id, third.case_id} == {first.case_id}
     assert third.event_status is EventStatus.PROCESSED
-    assert event_service.get_event(seeded, waiting.event_id).case_id == third.case_id
+    assert count(seeded, StaffingCase) == 1
 
 
-# --------------------------------------------------------------------------- #
-# Several shifts
-# --------------------------------------------------------------------------- #
 def test_each_due_shift_gets_its_own_close(overstaffed: Session) -> None:
     merge_gap.seed(overstaffed)
     night = report(overstaffed, 105)

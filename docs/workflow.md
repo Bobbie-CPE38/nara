@@ -382,6 +382,7 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 | EV8 | คน 2 | แก้ตามรายการของทีม: ด่าน Demo ถาม Basic Auth เฉพาะผู้จัดการ, Demo control ต้องล็อกอิน, หน้า `/status`, สิทธิ์ของพยาบาล (เมนู หน้าแรก เคส Roster), My offers (เช็คอินบนสุด ใหม่ก่อน สองรายการ แบ่งหน้า), Dashboard (การ์ด กราฟ รายการเร่งด่วน ผู้ที่คำขอรอ), เคสตัวอย่างข้ามหอ, สรุปการจัดคนแทน, Manage ในหน้าเคส, คอลัมน์ผู้สมัคร | 6.38 | EV7 | EV7 | ไม่มี | merge แล้ว (#147) |
 | #148 | คน 3 | ย้าย Manage ไปหัวหน้าเคสใน modal, เอาปุ่มจาก Cases/Handoff ออก, แสดงหอประจำบนแถบบัญชี | 6.33, 6.37.7, 6.38.7 | EV8 | EV8 | ไม่มี | [#148](https://github.com/Bobbie-CPE38/nara/pull/148) merge แล้ว |
 | #149 | คน 3 | เลขเคสไม่มีเส้นใต้; Manage อยู่มุมขวาของกล่องสถานะแรก ข้อความผลลัพธ์ตัดบรรทัดได้บนมือถือ | 6.37.7, 6.38.7 | #148 | #148 | ไม่มี | [#149](https://github.com/Bobbie-CPE38/nara/pull/149) รอรีวิว |
+| EV10 | คน 1 | แจ้งลาหลายคนในเวรเดียว: Event เข้าเคสที่รออยู่ของเวรทันทีที่ Window ปิด, Gap คำนวณใหม่จากข้อมูลปัจจุบัน, ตัด Offer ที่ไม่ต้องใช้, ยกเลิก Offer ของคนที่ลาในช่วงที่ลา, หน้าเว็บบอกผลของ Event | 6.40 | EV8 | EV8 | ไม่มี | PR นี้ |
 | ปิดรอบ | คน 3 | เอกสารปิดรอบ แล้ว `staging` → `main` และ tag `v0.7-round6`; ต้องครบ AU0–AU5 และผล production session | 6.33 | ทุกตัวรวม AU | ทุกตัวรวม AU | ไม่มี | |
 
 ลำดับ merge: 0 ก่อนทุกตัว, B1 ก่อน E1, S และ B2, E1 ก่อน E2 และ S, F1 ก่อน F2, F2 และ D ก่อน F3, F3 ก่อน UI1, UI1 ก่อน UI2 (UI1 และ UI2 ทำก่อนขั้นที่ 6 เพื่อตรวจช่วง ข กับหน้าตาสุดท้ายครั้งเดียว ไม่เปลี่ยน API จึงเปิดเครื่องก่อนได้ถ้าไม่ทัน), F3 และ D ก่อนขั้นที่ 6, ขั้นที่ 6 ก่อน B2 และ W Migration ของ B1, S และ E1 (ถ้ามี) ต่อจาก `c5f8b0d3e7a1` เป็นเส้นเดียว ตัวที่ merge ทีหลัง Rebase `down_revision` และแก้ Test ของ Migration ตัวก่อนหน้าที่ตรวจ head ผู้ทำของ P1 และการให้คน 3 ปิดรอบเป็นข้อเสนอของร่างรอบ 6 ถ้าทีมเปลี่ยน แก้ตารางนี้ B2 ก่อน B3 และ B3 ก่อนปิดรอบ (B3 ทำให้แอปเรียก Bedrock จริงได้ ไม่ขึ้นกับ AU) Head ของ Migration หลัง AU5 คือ `b8f3d5a0c2e4` ต่อ `a7e2c4f9b1d3` (AU1); PR ถัดไปที่เพิ่ม Migration ต้องต่อ head ล่าสุดให้เป็นเส้นเดียว ส่วน B3 ไม่มี Migration EV6 เพิ่ม `c3e5a7b9d1f2` ต่อ `f2c9a1d6e8b4` (ตาราง `demo_dataset`)
@@ -490,7 +491,7 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 
 ## 3. การรับ Event
 
-Event ของเวรเดียวกันถูกเก็บเป็น `RECEIVED` รอไว้ใน Window ก่อน ยังไม่เปิดเคส พอ Window ปิดจึงคิด Gap ครั้งเดียวจาก Event ทั้งชุด แล้วค่อยเปิดเคส หนึ่ง Window เปิดได้หนึ่งเคส Event ไม่ถูกเอาไปรวมกับเคสที่มีอยู่แล้ว (Q43) และเวรหนึ่งมีเคสที่เดินอยู่ได้เคสเดียว
+Event ของเวรเดียวกันถูกเก็บเป็น `RECEIVED` รอไว้ใน Window ก่อน ยังไม่เปิดเคส พอ Window ปิดจึงคิด Gap ครั้งเดียวจาก Event ทั้งชุด แล้วค่อยเปิดเคส หนึ่ง Window เปิดได้หนึ่งเคส Event ไม่ถูกเอาไปรวมกับเคสที่มีอยู่แล้ว (Q43) และเวรหนึ่งมีเคสที่เดินอยู่ได้เคสเดียว (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40)
 
 ### 3.1 สองช่วงของการรับ Event
 
@@ -501,7 +502,7 @@ Lock shift → ตรวจ Request → สร้าง Event (RECEIVED) เก�
           → ถ้าเป็น Event แรกที่ RECEIVED ของเวรนี้ = Window เปิด
 
 PART B: ปิด Window (หนึ่ง Transaction ต่อเวร)
-ถึงเวลาปิด = ครบ merge_window_seconds และเคสก่อนหน้าของเวรนี้จบแล้ว (Q43)
+ถึงเวลาปิด = ครบ merge_window_seconds และเคสก่อนหน้าของเวรนี้จบแล้ว (Q43) (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40)
          → Lock shift → อ่าน Event ที่ RECEIVED ทั้งหมดของเวรนี้
 
   วนทีละ Event (เรียงตาม occurred_at, id)
@@ -522,7 +523,7 @@ PART B: ปิด Window (หนึ่ง Transaction ต่อเวร)
                                   → บันทึก Gap หนึ่งแถว → Optimize
 
 Event ที่เข้ามาระหว่าง PART B: รอ Lock ของ shift แล้วเป็น Event แรกของ Window รอบถัดไป
-Event ที่เข้ามาตอนเวรมีเคสเดินอยู่: เก็บเป็น RECEIVED รอจนเคสนั้นจบ แล้วจึงเป็น Window รอบถัดไป (Q43)
+Event ที่เข้ามาตอนเวรมีเคสเดินอยู่: เก็บเป็น RECEIVED รอจนเคสนั้นจบ แล้วจึงเป็น Window รอบถัดไป (Q43) (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40)
 ```
 
 เหตุผลที่สร้างเคสและเขียน `required_staff` หลังวนครบ ไม่ทำกลางลูป: Event ตัวหลังเปลี่ยนข้อมูลที่ Event ตัวก่อนใช้ได้ ตัวอย่าง เวรมี 5 คน Ratio 2 Event แรกแจ้งผู้ป่วย 12 คน ผ่าน Threshold Event ที่สองแจ้งผู้ป่วยเหลือ 10 คน ไม่ผ่าน ถ้าเขียน `required_staff` = 6 ตั้งแต่ Event แรกแล้วไม่เขียนใหม่ Gap จะบอกว่าขาด 1 คน ทั้งที่ผู้ป่วย 10 คนต้องการแค่ 5 คน การเขียนจากค่าสุดท้ายได้ 5 และ Gap เป็น 0 จึงไม่เปิดเคส (ตรวจตัวเลขด้วยโค้ดแล้ว)
@@ -539,7 +540,7 @@ Event ที่เข้ามาตอนเวรมีเคสเดิน�
 |---|---|
 | เวรนี้มี Window เปิดอยู่ไหม | มี Event ที่ `shift_id` นี้ และ `status = RECEIVED` อย่างน้อย 1 แถว |
 | Window เปิดตอนไหน | `min(occurred_at)` ของ Event กลุ่มนั้น (`occurred_at` ตั้งจาก `clock.now()` ตอนรับ Event) |
-| Window ปิดตอนไหน | เวลาที่ช้ากว่าระหว่าง `min(occurred_at)` + `SHIFT.merge_window_seconds` กับเวลาที่เคสก่อนหน้าของเวรนั้นจบ ถ้าเวรไม่มีเคสเดินอยู่ ใช้ค่าแรกอย่างเดียว (Q43) |
+| Window ปิดตอนไหน | เวลาที่ช้ากว่าระหว่าง `min(occurred_at)` + `SHIFT.merge_window_seconds` กับเวลาที่เคสก่อนหน้าของเวรนั้นจบ ถ้าเวรไม่มีเคสเดินอยู่ ใช้ค่าแรกอย่างเดียว (Q43) (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40) |
 | Event ไหนอยู่ใน Window นี้ | Event ที่ `RECEIVED` ทุกแถวของเวรนั้น |
 | Event ไหนเคยอยู่ Window เดียวกัน (ดูย้อนหลัง) | `shift_id` เดียวกัน และ `processed_at` เท่ากัน |
 | Event ไหนเป็นของเคสไหน | `STAFFING_EVENTS.case_id` |
@@ -585,7 +586,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 | Migration (Q34) | ทำเป็น Migration ใหม่ ไม่แก้ไฟล์ Migration เดิม ไม่เติมค่าให้ข้อมูลที่มีอยู่ ทุกคนรัน `make reset` ก่อน |
 | Job ปิด Window (Q35) | Service แยกใน `docker-compose.yml` เป็นตัวจับรอบ ทุก 30 วินาทีเรียก Route ภายในของ Backend ให้ Backend ปิด Window ที่ถึงเวลาด้วยนาฬิกาของ Backend เอง |
 | Event ของเคสใน Case API (Q36) | ตอบเป็น List `event_ids` แทน `event_id` ตัวเดียว |
-| Event ของเวรที่มีเคสเดินอยู่ (Q43) | ไม่เข้าเคสนั้น เก็บเป็น `RECEIVED` รอจนเคสนั้นจบ แล้ว Window ของมันจึงปิดและเปิดเคสใหม่ของตัวเอง แทนคำตอบเดิมของ Q26 |
+| Event ของเวรที่มีเคสเดินอยู่ (Q43) | ไม่เข้าเคสนั้น เก็บเป็น `RECEIVED` รอจนเคสนั้นจบ แล้ว Window ของมันจึงปิดและเปิดเคสใหม่ของตัวเอง แทนคำตอบเดิมของ Q26 (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40) |
 | เคสก่อนหน้า "จบ" (Q49) | นับ 4 สถานะ: `RESOLVED`, `UNRESOLVED`, `FAILED`, `MANUAL_HANDOFF` |
 
 ### 3.3 Threshold
@@ -1227,7 +1228,7 @@ Offer มี Timeout ตามข้อนี้ ส่วนคำขออน�
 * **เคสอื่นที่ได้รับผลกระทบ (ข้อ 5.3):** `recompute()` ของเคสอื่นทำหลัง Commit ใน Transaction ของตัวเอง จึงเริ่มล็อกจาก Offer ของเคสนั้นตามลำดับปกติ ไม่ถือ Lock ของเคสแรกค้างไว้
 * **Safety ไม่ผ่าน:** ตั้ง Offer ของผู้ตอบเป็น `CANCELLED` ใน Transaction ของการตอบรับ ซึ่งถือ Lock ของแถวนั้นอยู่แล้ว
 * **เลือกคนของ Wave:** `contact_candidate` ล็อกแถว `STAFF` ของทั้ง Plan เรียงตาม `id` (ข้อ 6.7) ถ้าถูกเรียกต่อจากการตอบ Offer, การอนุมัติ หรือ Job แถวพวกนี้ถูกล็อกไว้แล้วตั้งแต่ต้น Transaction จึงไม่มีการรอเพิ่ม
-* **ปิด Window (ข้อ 3):** ล็อก `SHIFT` ก่อน แล้วจึงแก้ Roster ตรงลำดับเดิม
+* **ปิด Window (ข้อ 3):** ล็อก `SHIFT` ก่อน แล้วจึงแก้ Roster ตรงลำดับเดิม **EV10:** เมื่อ Event เข้าเคสที่รออยู่ (ข้อ 6.40) ต่อด้วยลำดับเดียวกับ check-in สาย: `APPROVAL_REQUEST` ที่รอของเคส → Offer ที่ยังไม่จบของเคสรวมกับ Offer ที่ยังมีผลของคนที่ลาในช่วงเวลาที่ลา (Query เดียวเรียง `id`) → เคส → `STAFF` ของทั้ง Plan ถ้าเคสได้ Offer หรือคำขอใหม่ระหว่างล็อก Rollback แล้วปิด Window ใหม่ (สูงสุด 5 ครั้ง ไม่ครบ Job ปิดรอบถัดไป) เมื่อเปิดเคสใหม่ Offer ของคนที่ลาล็อกหลัง Roster และก่อนสร้างเคส
 * **จัดคนเองจาก `MANUAL_HANDOFF`:** สร้าง Roster และอาจยกเลิก Offer ของคนที่ถูกเลือกในเคสอื่น จึงใช้ลำดับเดียวกับการตัดสินอนุมัติ: `SHIFT` → Offer ที่ยังไม่จบของคนนั้นในเคสอื่น → เคส → แถว `STAFF` ของคนที่ถูกเลือก ซึ่งต้องล็อกแม้เขาไม่อยู่ใน Plan แล้วตรวจ Hard Rules ซ้ำหลังได้ Lock (ข้อ 6.12) เส้นทางนี้ไม่ล็อก `WARD`
 * **คำขออนุมัติหมดเวลา (Job):** ยกเลิก Offer และอาจทำให้เคสส่ง Wave ถัดไป จึงใช้ลำดับของการตัดสินอนุมัติ โดยเริ่มที่ `SHIFT` ไม่ล็อก `WARD`
 * **Solver:** `create_plan()` ยังล็อก `STAFF` ของทั้ง Pool ก่อนตรวจกติกาและถือจน Commit เพดานเวลาของ Solver จำกัดเวลาค้น ไม่ได้จำกัดเวลาที่ถือ Lock นี้ (ข้อ 6.14)
@@ -2562,6 +2563,48 @@ Supervisor ตัดสินได้หลัง `supervisor_from` เท่�
 | เคสตัวอย่างข้ามหอครบห้าแบบ พร้อมฝั่งของแต่ละหอ และวัน D+1 ของสองหอที่มีห้าคน | `test_demo_examples.py`, `test_hospital_demo.py` |
 | หน้าเว็บ: เมนูและหน้าแรกของพยาบาล, `/status` ไม่ต้องล็อกอิน, Dashboard ใหม่, Roster ของพยาบาล, Offer ใหม่ก่อน สองรายการ แบ่งหน้า และเช็คอินบนสุด, สรุปการจัดคนแทน (สองหอ Supervisor แถวเดียว หลายคน เหตุผลที่หยุด), คอลัมน์ผู้สมัคร, Manage ในกล่องสถานะแรกของ `/cases/{id}` ไม่ปิดเมื่อเคสถูกดันไปหน้าถัดไป และค้นเลขเคสที่ตรงเป๊ะก่อนผลอื่น | `ev8.test.tsx`, `ev7.test.tsx`, `login.test.tsx`, `dashboard.test.tsx`, `caseList.test.tsx` |
 
+### 6.40 แจ้งลาหลายคนในเวรเดียวระหว่างที่เคสเดินอยู่ (EV10) [รอบ 6 · PR EV10]
+
+ปัญหาเดิม: คนแรกแจ้งลาแล้วเปิดเคส คนที่สองแจ้งลาได้ แต่ Event ค้าง `RECEIVED` จนเคสแรกหยุด (Q43) การลาของคนที่สองจึงยังไม่ยกเลิก Roster ไม่สร้างช่วงไม่พร้อม และไม่เข้า Gap ผู้ใช้เห็นว่าลาไม่เกิดผล
+
+#### 6.40.1 ทางที่เลือก: อัปเดตเคสเดิม
+
+* ตรวจ State Machine แล้ว: เคสที่ Commit อยู่มีแค่จุดรอ (`WAITING_RESPONSE`, `WAITING_APPROVAL`) หรือสถานะที่หยุด สถานะอื่นอยู่แค่ภายในรอบเดียวของ Orchestrator
+* เคสของเวรที่อยู่จุดรอไม่กั้น Window แล้ว เมื่อ Window ปิด (ครบ `merge_window_seconds` ของ Event แรกใน Window ตามเดิม) Event ทุกตัวทำงานของตัวเอง (ยกเลิก Roster, สร้างช่วงไม่พร้อม, ผู้ป่วย, ความต้องการ) แล้ว **เข้าเคสนั้น** (`PROCESSED`, `case_id` ของเคสนั้น) ไม่เปิดเคสใหม่ ยังเป็นหนึ่งเคสที่เดินอยู่ต่อเวร ไม่ต้องตรวจ Threshold เพราะเคสกำลังหาคนอยู่แล้ว Event ที่เป็นประวัติอย่างเดียว (`NO_SHOW` ของเวรที่จบแล้ว) ยัง `IGNORED` ตามเดิม
+* เหตุผลที่ไม่ให้เคสใหม่แทนเคสเดิม: เคสใหม่ต้องย้ายหรือทิ้ง Offer, คำตอบรับ และคำขออนุมัติที่ผูกกับเคสเดิม ซึ่งขัดกับข้อ "ไม่ล้างความคืบหน้าโดยไม่จำเป็น" ส่วนเคสใน `MANUAL_HANDOFF` และเคสที่จบแล้วยังเป็นแบบเดิม: Window เปิดเคสใหม่ และเคส `MANUAL_HANDOFF` ถูกปิดด้วยเคสใหม่ (ข้อ 6.12)
+* ทุกชนิด Event เข้าเคสได้ (ลาเอง ลาจาก Demo control, `NO_SHOW`, ยกเลิกเวร, ผู้ป่วยเพิ่ม, ความต้องการเปลี่ยน) เพราะ Gap คำนวณจากข้อมูลจริงทั้งชุด
+* เวรที่ `merge_window_seconds = 0` (Golden Case): Event ถูก Commit เป็น `RECEIVED` ก่อน แล้วปิด Window ใน Transaction ของตัวเองทันที คำตอบของการแจ้งลาจึงมีเคสแล้ว ถ้าเคสเปลี่ยนระหว่างล็อกเกิน 5 ครั้ง Event ยัง `RECEIVED` และ Job ปิดในรอบถัดไป (ไม่ทิ้งการลา)
+
+#### 6.40.2 Gap ใหม่และความคืบหน้าเดิม
+
+* Gap คำนวณใหม่จากเวรตอนนี้ (`gap_service.assess_shift`) ไม่ใช่บวกจำนวนคนที่ขาด โดยไม่นับแถว Roster ที่เคสนับเองอยู่แล้ว (`case_facts_service.credited_assignment_ids`: แถว `REPLACEMENT` ของคนที่เคสจัดเข้า และแถวของคนมาสายที่เคสได้เครดิต) เหมือนตอนเปิดเคสที่ยังไม่มีใครถูกจัด คนที่อนุมัติและจัดเข้าเวรแล้วจึงถูกนับครั้งเดียวผ่าน `load_case_facts()` ตามเดิม บันทึกเป็นแถว `STAFFING_GAP` ใหม่ของเคส (แถวล่าสุดคือ Gap ของเคส) และ Audit `GAP_ASSESSED` ที่มี `event_ids`, `previous_gap_id`, `previous_headcount_gap`
+* Offer และคำขออนุมัติเดิมไม่ถูกล้าง: `late_arrival_service.trim()` ตัวเดียวกับคนมาสาย (ข้อ 6.24) ตัดเฉพาะรายการที่ Gap ใหม่ไม่ต้องใช้แล้ว (`OFFER_CANCELLED_NOT_NEEDED` พร้อม `event_ids`) แล้ว `orchestrator.recompute()` ตัดสินสถานะตามกติกาข้อ 5.3 เดิม: ถ้ามี Offer เปิดอยู่ รอคำตอบก่อน (ไม่ส่ง Wave ซ้อน) ถ้ามีแต่คำขอรออนุมัติแต่ยังขาด ส่ง Wave ถัดไปจาก Plan เดิมทันที (Plan มีผู้สมัครที่ผ่านทุกคนเรียงลำดับไว้แล้ว)
+* Audit `CASE_EVENTS_JOINED` ของเคส (`event_ids`, `shift_id`, `status` ตอนเข้า) บอกว่า Event ไหนเข้าเคสที่เดินอยู่
+
+#### 6.40.3 คนที่แจ้งลาแล้วมี Offer หรือคำขออนุมัติค้าง
+
+* หลังทำ Event ทุกตัว Offer ที่ยังมีผล (`SENT`, `ACCEPTED`) ของคนที่ลาหรือไม่มาเข้าเวร ในเคสที่ยังเดินอยู่ ที่ช่วงเวลาของ Offer (ช่วงของ Candidate Item หรือทั้งเวรที่เสนอ) ทับช่วงไม่พร้อมของเขา ถูกยกเลิก พร้อม Audit `OFFER_CANCELLED_STAFF_UNAVAILABLE` (`cancelled_outreach_id`, `staff_id`, `event_id`) คำขออนุมัติของ Offer นั้นจึงไม่มี Offer ที่ตอบรับแล้วและอนุมัติไม่ได้ (Q38 ไม่ตรวจ Hard Rules ตอน Execute จึงต้องตัดที่นี่) หน้า My offers แสดงเหตุ `STAFF_UNAVAILABLE` เคสอื่นที่เสีย Offer คำนวณใหม่หลัง Commit
+* คนที่เพิ่งแจ้งลาไม่ได้ Offer ใหม่ในช่วงที่ลา เพราะ Hard Rules ของการเลือก Wave และ Safety เห็นช่วงไม่พร้อมแล้ว
+* แจ้งลาซ้ำของคนเดิมในเวรเดียวกัน: แถว Roster ถูกยกเลิกไปแล้ว การรับ Event จึงปฏิเสธเหมือนเดิม (`NoAssignedRosterError`) หรือ Event ที่รออยู่ใน Window เดียวกันเป็น `IGNORED` (`NO_ASSIGNED_ROSTER`) Gap ไม่เพิ่มซ้ำเพราะคำนวณจากข้อมูล
+
+#### 6.40.4 คำตอบและหน้าเว็บ
+
+* `EventResult` (`POST /events`, `GET /events/{id}`, `POST /me/unavailability`, `POST /demo/events`) เพิ่ม `joined_running_case` (เข้าเคสที่เดินอยู่), `ignored_reason` (เหตุของ `IGNORED`) และ `window_closes_at` (เวลาเร็วที่สุดที่ Window ปิด ขณะ `RECEIVED`)
+* หน้าแจ้งลาและ Demo control บอกผลเป็นคำ: เปิดเคสใหม่, เพิ่มเข้าเคสที่หาคนอยู่แล้ว, รับแล้วจะมีผลเมื่อ Window ปิด (พร้อมเวลา) หรือไม่มีอะไรเปลี่ยนพร้อมเหตุ ไม่แสดงแค่ "ยังไม่มีเคส"
+
+#### 6.40.5 จุดที่เสี่ยงพังเงียบ (มีเทสต์)
+
+| ข้อกำหนด | เทสต์ |
+|---|---|
+| Reset → 101 ลา → 102 ลาในเวร 1 โดยไม่ตอบ Offer ทั้งสองไม่พร้อมทำงาน Gap สะท้อนทั้งสองคน Offer เดิมไม่ถูกล้าง | `test_leave_joins_running_case.py` (`test_two_leaves_in_a_row_both_count_without_answering_the_first_offers`) |
+| ส่งพร้อมกันจากคนละ Connection ไม่ทำ Event หาย ไม่เปิดเคสซ้ำ ไม่ Deadlock | `test_leaves_sent_at_once_lose_nothing_and_open_one_case` |
+| แจ้งลาซ้ำคนเดิม Gap ไม่เพิ่ม | `test_the_same_person_reporting_again_adds_nothing` |
+| ลาเพิ่มระหว่าง `WAITING_RESPONSE` และ `WAITING_APPROVAL` คำขอเดิมยังอยู่และส่ง Wave เพิ่ม | `test_two_leaves_in_a_row_...`, `test_a_leave_while_waiting_for_approval_keeps_the_accepted_candidate` |
+| คนที่ลามี Offer หรือคำขอค้างไม่ถูกจัดเข้าเวร และ Offer นอกช่วงลาไม่ถูกยกเลิก | `test_a_person_on_leave_loses_live_offers_for_that_time`, `test_an_offer_outside_the_leave_is_kept` |
+| คนที่อนุมัติและจัดเข้าเวรแล้วนับครั้งเดียวใน Gap ใหม่ | `test_a_leave_after_one_approval_counts_the_replacement_once` |
+| Window ยังรอครบเวลา และเคสที่หยุดแล้วยังให้เคสใหม่ (Q43 เดิม) | `test_merge_window.py` (`test_event_joins_the_case_that_waits_on_its_shift`, `test_event_of_a_shift_whose_case_stopped_opens_a_case_of_its_own`, `test_window_of_zero_seconds_joins_the_running_case_at_once`) |
+| หน้าเว็บบอกว่าเข้าเคสไหน รอถึงเมื่อไร หรือทำไมไม่มีผล | `demoControl.test.ts`, `login.test.tsx` |
+
 ## 7. Audit
 
 PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้ามี Offer ใหม่ Commit ระหว่างรอ Lock ให้ Rollback ก่อนเขียนคำตัดสิน แล้วเริ่มล็อกใหม่ตามลำดับเดิม (สูงสุด 5 ครั้ง ถ้ายังเปลี่ยนตอบ 409 ให้ลองใหม่) ไม่ล็อก Offer เพิ่มภายหลังเคส/Staff เพื่อกัน Deadlock
@@ -2672,7 +2715,7 @@ payload ที่เปลี่ยนจาก Skeleton เพราะ Wave
 * ตารางนี้เขียนด้วย `STAFF_UNAVAILABLE` Event อีกสามชนิดเขียน Action ของตัวเองแทน `UNAVAILABILITY_CREATED` ในตำแหน่งเดียวกัน: `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` (ข้อ 3 Q40)
 * `UNAVAILABILITY_CREATED` อยู่คอลัมน์ขวาทุกกรณี เพราะ Update table ทำตอน Window ปิด (Q41) ผลคือใน ต3 ลำดับตาม `id` เป็น `EVENT_RECEIVED` ทุกตัวก่อน แล้วจึงเป็นแถวของ PART B ตามลำดับในตาราง ไม่สลับเป็นคู่กับ `EVENT_RECEIVED`
 * ต3: Event ที่ไม่ผ่าน Threshold แต่อยู่ Window เดียวกับตัวที่ผ่าน เป็น `PROCESSED` และ Link เข้าเคส ไม่มี `EVENT_IGNORED` (Q42)
-* ไม่มีกรณี Event เข้าเคสเดิม: Event ของเวรที่มีเคสเดินอยู่รอเป็น `RECEIVED` จนเคสนั้นจบ แล้วเดินตาม ต3, ต4 หรือ ต5 (Q43)
+* ไม่มีกรณี Event เข้าเคสเดิม: Event ของเวรที่มีเคสเดินอยู่รอเป็น `RECEIVED` จนเคสนั้นจบ แล้วเดินตาม ต3, ต4 หรือ ต5 (Q43) (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40)
 * Event ที่ Update table ไม่ได้ (Q44): Event ตัวนั้นได้ `EVENT_IGNORED` พร้อมเหตุผลใน payload ไม่มี `UNAVAILABILITY_CREATED`
 
 #### ช่วงหาคน: เคสขาด 1 คน (Golden Case)
@@ -3526,6 +3569,7 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-23 | รอบ 6 PR EV5a: Backend ของโหมดทดสอบ (ข้อ 6.35) นาฬิกาโหมด `scenario`, `/demo/test-runs` (เริ่ม จบ ยกเลิก รายการ CSV), ห้าม Reset/Freeze/Unfreeze ขณะมีรอบค้าง, เลื่อนเวลาในรอบเป็นแถว audit, สถานการณ์ `cross_ward` (`seed/scenarios/cross_ward.py`), ตัวละครจำลองใน `run_due_work`, KPI จาก audit log, Reset เก็บแถว `TEST_RUN`; ไม่มี Migration | คน 1 |
 | 2026-10-23 | รอบ 6 PR EV5b: หน้าเว็บของโหมดทดสอบ (ข้อ 6.35.5) ส่วนรอบทดสอบใน Demo control (เริ่ม จบ ยกเลิก, ปิด Reset/Freeze/Unfreeze ขณะมีรอบค้าง), หน้า `/demo/test-runs` (มัธยฐาน ต่ำสุดถึงสูงสุด CSV), แถบนาฬิกาแสดงโหมด scenario, สองภาษา; Backend: การเลื่อนนาฬิกาของรอบทีละ 30 วินาที รวมไม่เกิน 2 ชั่วโมงต่อรอบ และไม่แทรกกับ Finish/Abort | คน 1 |
 | 2026-10-24 | รอบ 6 PR EV7 (ข้อ 6.37): เคสตัวอย่างของชุดโรงพยาบาลที่เล่นผ่าน flow จริงหลัง Reset (`demo_example_service`); `overview` ของ `GET /cases/{id}` และส่วน "ใครและเพราะอะไร" ของหน้าเคส; Supervisor ในโหมด session เห็นคำขออนุมัติหลัง `supervisor_from`; หน้าเว็บกันหน้าตามบทบาท (`lib/routeAccess.ts`); กระดิ่งแจ้งเตือนกับ toast; ช่องรหัสผ่านแสดงได้; โลโก้ชิดซ้าย; `skills`, `has_account` ใน `GET /admin/staff`; กดแถวดูเคส; Demo control เลื่อนเวลาเลือกได้ ผู้ป่วยเพิ่ม และ `GET /demo/offers`, `POST /demo/offers/{id}/response`; `DEMO_ACCOUNT_PASSWORD` สร้างบัญชีทดสอบของพยาบาล และ `DEMO_MANAGER_ACCOUNTS` เพิ่ม head nurse กับ supervisor (`demo_account_service`); สถานการณ์ `surge`, `no_show`, `handoff`, `supervisor`; ไม่มี Migration | คน 1 |
+| 2026-10-25 | รอบ 6 PR EV10 (ข้อ 6.40): เคสของเวรที่อยู่จุดรอไม่กั้น Window; Event เข้าเคสนั้น (`CASE_EVENTS_JOINED`) Gap คำนวณใหม่จากเวรตอนนี้โดยไม่นับแถวที่เคสนับเอง, `trim()` ตัด Offer ที่ไม่ต้องใช้ แล้ว `recompute()`; Offer ที่ยังมีผลของคนที่ลาในช่วงที่ลาถูกยกเลิก (`OFFER_CANCELLED_STAFF_UNAVAILABLE`); `EventResult` เพิ่ม `joined_running_case`, `ignored_reason`, `window_closes_at`; หน้าแจ้งลาและ Demo control บอกผลเป็นคำ; ไม่มี Migration | คน 1 |
 | 2026-10-24 | รอบ 6 PR EV8 (ข้อ 6.38): Caddy ถาม `GET /auth/demo-gate` ก่อน Basic Auth ของ Demo จึงถามเฉพาะ head nurse และ supervisor (ผู้เยี่ยมชมไป login พยาบาลไป My offers); หน้า Demo ต้องล็อกอิน; หน้า `/status` แทนตรวจระบบท้าย Dashboard; staff มีเฉพาะเคส Roster My offers แจ้งลา (Dashboard และ Gap 403, เคสเฉพาะที่ลาเองหรือถูกจัดเข้าเวร, Roster เฉพาะเวรที่อยู่); My offers เช็คอินบนสุด ใหม่ก่อน สองรายการ แบ่งหน้า; Dashboard มี `summary`, `shortage_by_ward`, `in_progress`, ผู้ที่คำขอรอใน `pending_approvals`, `demo_data`; Emergency และ Cardiology มีห้าคนในวัน D+1 และเคสตัวอย่างข้ามหอห้าแบบ; `overview` มี `shift`, `requests`, `open_offers` และหน้าเคสมี "สรุปการจัดคนแทน"; Manage ในหน้า `/cases`; คอลัมน์ผู้สมัครที่เหมือนกันทุกแถวถูกซ่อน; ไม่มี Migration | คน 2 |
 | 2026-10-23 | รอบ 6 PR EV6 (ข้อ 6.36): นาฬิกาโหมด `running` กับ `POST /demo/clock/set` และ `/resume`; Reset เก็บ `AUTH_SESSION` และ `CONTACTS`; Demo ชุดโรงพยาบาล (`seed/hospital_demo.py`, `POST /demo/reset {hospital}`) พร้อมเช็คอินเอง; `GET /demo/wards`, `GET /demo/shifts`; `GET /dashboard?ward_id=` และ `ward_options`; `GET /cases/search` กับหน้า `/cases`; handoff ค้นหา แบ่งหน้า และ modal; Roster ตามสิทธิ์; Demo control ในเมนูของผู้จัดการ; น้ำหนัก Ranking ตามลำดับความสำคัญและ OT แบบคาดการณ์; เพดาน 10 Wave และ 90 นาทีใน `OUTREACH_POLICY` (Migration `c3e5a7b9d1f2`) | คน 1 |
 | 2026-10-24 | PR #148: ย้าย Manage ไปหัวหน้า `/cases/{id}` เปิด modal เดิม, Cases/Handoff ใช้เลขเคสและกดแถวเพื่อเปิดรายละเอียด ไม่มี See details/Manage/จัดการไม่ได้ ในรายการ; แถบบัญชีใช้ `home_ward_name` แสดงหอประจำ; ค้นเลขเคสที่ตรงเป๊ะก่อนผลอื่นเพื่อไม่หลุดหน้าแรก; ไม่มี Migration | คน 3 |

@@ -342,6 +342,8 @@ class AuditAction(StrEnum):
     WORKFLOW_FAILED = "WORKFLOW_FAILED"
     # Steps
     GAP_ASSESSED = "GAP_ASSESSED"
+    # Events of a shift joined the case already running on it (round 6 PR EV10, 6.40)
+    CASE_EVENTS_JOINED = "CASE_EVENTS_JOINED"
     SOLVER_EXECUTED = "SOLVER_EXECUTED"
     OFFER_SENT = "OFFER_SENT"
     OFFER_ACCEPTED = "OFFER_ACCEPTED"
@@ -372,6 +374,8 @@ class AuditAction(StrEnum):
     ATTENDANCE_CHECKED_IN = "ATTENDANCE_CHECKED_IN"
     # Round 5 PR N2: a late arrival made an offer or request unneeded (6.24). Not written yet
     OFFER_CANCELLED_NOT_NEEDED = "OFFER_CANCELLED_NOT_NEEDED"
+    # The person reported leave (or did not come) for the time of the offer (round 6 PR EV10)
+    OFFER_CANCELLED_STAFF_UNAVAILABLE = "OFFER_CANCELLED_STAFF_UNAVAILABLE"
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
     UNAVAILABILITY_UPDATED = "UNAVAILABILITY_UPDATED"

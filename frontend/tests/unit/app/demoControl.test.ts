@@ -130,13 +130,15 @@ describe("demo control page", () => {
 
   it("shows that the leave of 203 on shift 2 opened no case", async () => {
     const fetchMock = stubFetch(
-      { event_id: 4, event_status: "IGNORED", case_id: null, case_status: null },
+      { event_id: 4, event_status: "IGNORED", case_id: null, case_status: null, ignored_reason: "NO_GAP" },
       201,
     );
     render(createElement(DemoControl));
     click("203 reports leave (shift 2, no gap)");
 
-    expect(await screen.findByText("No case opened")).toBeTruthy();
+    expect(
+      await screen.findByText("Recorded. The shift still has enough people, so no case is needed."),
+    ).toBeTruthy();
     expect(screen.getByText("4 (IGNORED)")).toBeTruthy();
     expect(screen.queryByRole("link", { name: CASE_LINK })).toBeNull();
     const request = fetchMock.mock.calls[0][1];
@@ -148,17 +150,34 @@ describe("demo control page", () => {
     });
   });
 
-  it("says that an event is waiting when its merge window is still open", async () => {
+  it("says that a leave joined the case already running on its shift (round 6 PR EV10)", async () => {
     stubFetch(
-      { event_id: 5, event_status: "RECEIVED", case_id: null, case_status: null },
+      { event_id: 6, event_status: "PROCESSED", case_id: 1, case_status: "WAITING_RESPONSE", joined_running_case: true },
       201,
     );
     render(createElement(DemoControl));
     click("105 reports leave (shift 1)");
 
-    expect(await screen.findByText("Not decided yet. The event is waiting.")).toBeTruthy();
+    expect(
+      await screen.findByText(/Added to case 1, which was already looking for people for this shift/),
+    ).toBeTruthy();
+    expect(screen.getByRole("link", { name: CASE_LINK })).toBeTruthy();
+  });
+
+  it("says that an event is waiting when its merge window is still open", async () => {
+    stubFetch(
+      { event_id: 5, event_status: "RECEIVED", case_id: null, case_status: null, window_closes_at: "2026-10-09T21:10:00+07:00" },
+      201,
+    );
+    render(createElement(DemoControl));
+    click("105 reports leave (shift 1)");
+
+    expect(
+      await screen.findByText(
+        "Received. It is applied when the shift's merge window closes, at 2026-10-09 21:10:00 at the earliest.",
+      ),
+    ).toBeTruthy();
     expect(screen.getByText("5 (RECEIVED)")).toBeTruthy();
-    expect(screen.queryByText("No case opened")).toBeNull();
     expect(screen.queryByRole("link", { name: CASE_LINK })).toBeNull();
   });
 

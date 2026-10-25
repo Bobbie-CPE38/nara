@@ -637,7 +637,7 @@ describe("leave page", () => {
   it("lists only the assigned shifts of the person and sends only the shift", async () => {
     session(ME, {
       "GET /roster?staff_id=201": () => ({ status: 200, body: ROSTER }),
-      "POST /me/unavailability": () => ({ status: 201, body: { event_id: 7, event_status: "RECEIVED", case_id: null, case_status: null } }),
+      "POST /me/unavailability": () => ({ status: 201, body: { event_id: 7, event_status: "RECEIVED", case_id: null, case_status: null, window_closes_at: "2026-10-22T21:10:00+07:00" } }),
     });
     app(<LeavePage />);
     const select = (await screen.findByLabelText("Shift you cannot work")) as HTMLSelectElement;
@@ -645,7 +645,7 @@ describe("leave page", () => {
     expect(select.options[0].textContent).toContain("Shift 21");
     fireEvent.click(screen.getByRole("button", { name: "Report leave" }));
     expect((await screen.findByText(/Event 7 is RECEIVED/)).textContent).toBeTruthy();
-    expect(screen.getByText(/There is no case yet/)).toBeTruthy();
+    expect(screen.getByText(/applied when the shift's merge window closes, at 2026-10-22 21:10:00/)).toBeTruthy();
     // No staff ID, no event type, no reason: the Backend knows who is logged in
     expect(sentOf("POST", "/me/unavailability")[0].body).toEqual({ shift_id: 21 });
   });
@@ -659,7 +659,7 @@ describe("leave page", () => {
     await screen.findByLabelText("Shift you cannot work");
     fireEvent.change(screen.getByLabelText("Back at (optional)"), { target: { value: "2026-10-23T02:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Report leave" }));
-    expect(await screen.findByText(/Case 3 is OPEN/)).toBeTruthy();
+    expect(await screen.findByText(/Case 3 was opened for this shift \(OPEN\)/)).toBeTruthy();
     expect(sentOf("POST", "/me/unavailability")[0].body).toEqual({ shift_id: 21, end_at: "2026-10-23T02:00:00+07:00" });
   });
 

@@ -421,6 +421,36 @@ def _assigned_spans(db: Session, case: StaffingCase, staff_ids: set[int]) -> lis
     ]
 
 
+def credited_assignment_ids(db: Session, case: StaffingCase) -> set[int]:
+    """The roster rows of the case's shift the case counts as its own people (6.40).
+
+    The replacement rows of the people it assigned and the rows of late arrivals it got
+    credit for: the same people load_case_facts() adds to the shift's roster. A gap
+    measured again for a running case leaves these rows out, so nobody counts twice.
+    """
+    with db.no_autoflush:
+        assigned_ids = _assigned_staff_ids(db, case.id)
+        replacement = set(
+            db.scalars(
+                select(RosterAssignment.id).where(
+                    RosterAssignment.shift_id == case.shift_id,
+                    RosterAssignment.staff_id.in_(assigned_ids),
+                    RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
+                    RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
+                )
+            )
+        )
+        returned = set(
+            db.scalars(
+                select(AuditLog.payload["roster_assignment_id"].as_integer()).where(
+                    AuditLog.case_id == case.id,
+                    AuditLog.action == AuditAction.UNAVAILABILITY_UPDATED,
+                )
+            )
+        )
+        return replacement | {row_id for row_id in returned if row_id is not None}
+
+
 def _returned_spans(db: Session, case_id: int) -> list[_Span]:
     """Late arrivals the case gets credit for (workflow.md 6.24).
 

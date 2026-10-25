@@ -6,6 +6,11 @@ under the shift lock applies every waiting event in order, checks the threshold
 after each, and then judges the shift once from its final state: at most one
 case per window, and every event of the window ends PROCESSED or IGNORED.
 
+A case of the shift that waits (WAITING_RESPONSE or WAITING_APPROVAL) no longer holds
+the window back (round 6 PR EV10, 6.40): the events apply at once and join that case,
+which measures its gap again from the shift as it is now and goes on from there. Still
+one running case per shift.
+
 If anything raises on the way, nothing of the close is stored: every event is
 still RECEIVED and the window is closed again on the next try.
 """
@@ -15,12 +20,15 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.db.models import (
+    ApprovalRequest,
     Attendance,
+    CandidateItem,
+    CandidateOutreach,
     HardConstraintPolicy,
     RosterAssignment,
     Shift,
@@ -33,6 +41,7 @@ from app.db.models import (
 from app.domain.enums import (
     AUTOMATION_STOPPED_STATUSES,
     COVERING_ROSTER_STATUSES,
+    WAITING_CASE_STATUSES,
     ActorName,
     AuditAction,
     AvailabilityReason,
@@ -41,6 +50,7 @@ from app.domain.enums import (
     EventIgnoredReason,
     EventStatus,
     EventType,
+    OutreachStatus,
     RosterStatus,
 )
 from app.domain.errors import ShiftNotFoundError
@@ -50,9 +60,12 @@ from app.services import (
     actor_service,
     attendance_service,
     audit_service,
+    case_facts_service,
     gap_service,
     handoff_service,
+    hard_rule_service,
     late_arrival_service,
+    outreach_service,
     policy_service,
     requirement_service,
     unavailability_service,
@@ -73,6 +86,10 @@ SIMULATED_SOURCE = "SIMULATED"
 # wrote (stage 1, workflow.md 6.24). A leave event has no such key
 NO_SHOW_REASON = "NO_SHOW"
 
+# Tries of one close when a running case gets a new offer or request while its locks
+# are taken (6.40): the close starts again, like the late check-in of 6.11
+CLOSE_LOCK_TRIES = 5
+
 
 @dataclass(frozen=True)
 class ClosedWindow:
@@ -82,6 +99,20 @@ class ClosedWindow:
     event_ids: tuple[int, ...]
     case_id: int | None
     case_status: CaseStatus | None
+
+
+@dataclass(frozen=True)
+class _Absence:
+    """A person the window took off the shift for a time: their live offers there end."""
+
+    staff_id: int
+    start_at: datetime
+    end_at: datetime | None
+    event_id: int
+
+
+class WindowLockChangedError(Exception):
+    """The running case got an offer or a request while the close took its locks."""
 
 
 class _NotApplicableError(Exception):
@@ -148,12 +179,20 @@ def close_window(db: Session, shift_id: int) -> ClosedWindow | None:
     Returns None, with nothing written, when the shift has no waiting event,
     the window is still open, or a case of the shift is still running.
     """
-    shift = lock_shift(db, shift_id)
-    closed = close_locked_window(db, shift)
-    if closed is None:
-        # Nothing was written: this only releases the shift lock
-        db.commit()
-    return closed
+    for _ in range(CLOSE_LOCK_TRIES):
+        shift = lock_shift(db, shift_id)
+        try:
+            closed = close_locked_window(db, shift)
+        except WindowLockChangedError:
+            # Nothing of the close is kept: the events are still RECEIVED
+            db.rollback()
+            continue
+        if closed is None:
+            # Nothing was written: this only releases the shift lock
+            db.commit()
+        return closed
+    logger.warning("Shift %s: the running case kept changing; the job closes it later", shift_id)
+    return None
 
 
 def close_due_windows(db: Session) -> list[ClosedWindow]:
@@ -181,6 +220,9 @@ def close_locked_window(db: Session, shift: Shift) -> ClosedWindow | None:
 
     Commits only when a window was closed. Returns None without writing or
     committing when it is not due; the caller then ends its own transaction.
+
+    Raises WindowLockChangedError, with writes the caller must roll back, when a waiting
+    case of the shift got a new offer or request while its locks were taken (6.40).
     """
     # The caller may have just added an event (a window of 0 seconds)
     db.flush()
@@ -195,12 +237,14 @@ def close_locked_window(db: Session, shift: Shift) -> ClosedWindow | None:
     # Events that only record history, like a NO_SHOW of a shift that has ended
     history_only: set[int] = set()
     first_passed: StaffingEvent | None = None
+    absences: list[_Absence] = []
+    running = _waiting_case(db, shift.id)
 
     # Every event updates its tables first. Whether a case opens is decided
     # only after the last one: a later event can undo what an earlier one did
     for event in events:
         try:
-            counts_for_threshold = _apply(db, shift, event)
+            counts_for_threshold = _apply(db, shift, event, absences)
         except _NotApplicableError as error:
             skipped.add(event.id)
             _ignore(db, event, now=now, actor_id=orchestrator_actor, reason=error.reason)
@@ -210,6 +254,23 @@ def close_locked_window(db: Session, shift: Shift) -> ClosedWindow | None:
             continue
         if first_passed is None and _check_threshold(db, shift, policy).passed:
             first_passed = event
+
+    if running is not None:
+        return _join_running_case(
+            db,
+            shift,
+            running.id,
+            events,
+            skipped=skipped,
+            history_only=history_only,
+            absences=absences,
+            now=now,
+            actor_id=orchestrator_actor,
+        )
+
+    # The people the window took off the shift lose their live offers of that time
+    # elsewhere, before any case of this window can take more locks (6.40)
+    ended_offers = _end_absent_offers(db, absences, _lock_absent_offers(db, absences))
 
     case: StaffingCase | None = None
     reason = EventIgnoredReason.THRESHOLD_NOT_PASSED
@@ -253,6 +314,7 @@ def close_locked_window(db: Session, shift: Shift) -> ClosedWindow | None:
 
     if case is None or first_passed is None:
         db.commit()
+        _recompute_after(db, ended_offers, own_case_id=None)
         return ClosedWindow(shift_id=shift.id, event_ids=event_ids, case_id=None, case_status=None)
 
     audit_service.log(
@@ -274,10 +336,291 @@ def close_locked_window(db: Session, shift: Shift) -> ClosedWindow | None:
     # head nurse was still handling by hand (section 6.12, R2-Q19)
     handoff_service.close_superseded(db, shift_id=shift.id, successor_case_id=case.id)
     # Commits the whole transaction, also when the round ends in FAILED (D11)
-    orchestrator.advance(db, case.id)
-    return ClosedWindow(
-        shift_id=shift.id, event_ids=event_ids, case_id=case.id, case_status=case.status
+    case_id = case.id
+    orchestrator.advance(db, case_id)
+    status = case.status
+    _recompute_after(db, ended_offers, own_case_id=case_id)
+    return ClosedWindow(shift_id=shift.id, event_ids=event_ids, case_id=case_id, case_status=status)
+
+
+def _join_running_case(
+    db: Session,
+    shift: Shift,
+    case_id: int,
+    events: list[StaffingEvent],
+    *,
+    skipped: set[int],
+    history_only: set[int],
+    absences: list[_Absence],
+    now: datetime,
+    actor_id: int,
+) -> ClosedWindow:
+    """The window's events join the case that waits on the shift (6.40). Commits.
+
+    No threshold and no new case: the case is already looking for people. Locks, after
+    the shift and the roster rows (6.11, like the late check-in): the case's pending
+    requests, then in one query the case's unfinished offers with the live offers of the
+    people the window took off the shift, then the case, then the Staff of its whole
+    plan. The case then measures its gap again from the shift as it is now, without the
+    rows it counts itself, cancels offers it no longer needs (trim()) and recomputes its
+    status like after any answer. Raises WindowLockChangedError when the case got a new
+    offer or request while the locks were taken: nothing may be kept then.
+    """
+    event_ids = tuple(event.id for event in events)
+    joined = [event for event in events if event.id not in skipped | history_only]
+    for event in events:
+        if event.id in history_only:
+            _ignore(db, event, now=now, actor_id=actor_id, reason=EventIgnoredReason.SHIFT_ENDED)
+    if not joined:
+        db.commit()
+        return ClosedWindow(shift_id=shift.id, event_ids=event_ids, case_id=None, case_status=None)
+
+    request_ids = _pending_request_ids(db, case_id, lock=True)
+    absent = _absent_offer_ids(db, absences)
+    case_offers = _unfinished_offer_ids(db, case_id)
+    locked = set(
+        db.scalars(
+            select(CandidateOutreach.id)
+            .where(CandidateOutreach.id.in_(case_offers | absent))
+            .order_by(CandidateOutreach.id)
+            .with_for_update(key_share=True)
+        )
     )
+    case = db.scalars(
+        select(StaffingCase)
+        .where(StaffingCase.id == case_id)
+        .with_for_update(key_share=True)
+        .execution_options(populate_existing=True)
+    ).one()
+    hard_rule_service.lock_staff(db, _plan_staff_ids(db, case_id))
+    if (
+        case.status not in WAITING_CASE_STATUSES
+        or not _unfinished_offer_ids(db, case_id) <= locked
+        or _pending_request_ids(db, case_id) != request_ids
+    ):
+        raise WindowLockChangedError(f"Case {case_id} changed while the window took its locks")
+    ended_offers = _end_absent_offers(db, absences, absent & locked)
+
+    for event in joined:
+        event.status = EventStatus.PROCESSED
+        event.processed_at = now
+        event.case_id = case_id
+    joined_ids = [event.id for event in joined]
+    audit_service.log(
+        db,
+        case_id=case_id,
+        actor_id=actor_id,
+        action=AuditAction.CASE_EVENTS_JOINED,
+        entity_type=EntityType.STAFFING_CASES,
+        entity_id=case_id,
+        payload={"event_ids": joined_ids, "shift_id": shift.id, "status": case.status.value},
+    )
+    trimmed: list[int] = []
+
+    def prepare(db: Session, case: StaffingCase) -> None:
+        try:
+            previous: gap_service.CaseGap | None = gap_service.get_case_gap(db, case.id)
+        except gap_service.GapNotFoundError:
+            previous = None
+        assessment = gap_service.assess_shift(
+            db,
+            shift,
+            exclude_assignment_ids=case_facts_service.credited_assignment_ids(db, case),
+        )
+        gap = gap_service.record_gap(db, case, assessment)
+        result = assessment.result
+        audit_service.log(
+            db,
+            case_id=case.id,
+            actor_id=actor_service.component_id(db, ActorName.STAFFING_GAP_ASSESSMENT_AGENT),
+            action=AuditAction.GAP_ASSESSED,
+            entity_type=EntityType.STAFFING_GAP,
+            entity_id=gap.id,
+            payload={
+                "gap_id": gap.id,
+                "headcount_gap": gap.headcount_gap,
+                "role_gaps": _gap_counts("role_id", result.role_gaps),
+                "skill_gaps": _gap_counts("skill_id", result.skill_gaps),
+                "previous_gap_id": None if previous is None else previous.gap.id,
+                "previous_headcount_gap": None if previous is None else previous.gap.headcount_gap,
+                "event_ids": joined_ids,
+            },
+        )
+        trimmed.extend(late_arrival_service.trim(db, case, event_ids=joined_ids))
+
+    status = orchestrator.recompute(db, case_id, prepare=prepare)
+    _recompute_after(
+        db,
+        ended_offers + [(staff_id, case_id) for staff_id in trimmed],
+        own_case_id=case_id,
+    )
+    return ClosedWindow(shift_id=shift.id, event_ids=event_ids, case_id=case_id, case_status=status)
+
+
+def _gap_counts(id_key: str, gaps: Any) -> list[dict[str, Any]]:
+    """The short roles or skills of a gap, ordered by ID, as GAP_ASSESSED lists them."""
+    return [
+        {
+            id_key: item_id,
+            "required_count": count.required_count,
+            "current_count": count.current_count,
+            "gap_count": count.gap_count,
+        }
+        for item_id, count in sorted(gaps.items())
+    ]
+
+
+def _waiting_case(db: Session, shift_id: int) -> StaffingCase | None:
+    """The case of the shift that waits for answers or approvals, if any (6.40)."""
+    return db.scalar(
+        select(StaffingCase)
+        .where(
+            StaffingCase.shift_id == shift_id,
+            StaffingCase.status.in_(list(WAITING_CASE_STATUSES)),
+        )
+        .order_by(StaffingCase.id.desc())
+        .limit(1)
+    )
+
+
+def has_waiting_case(db: Session, shift_id: int) -> bool:
+    return _waiting_case(db, shift_id) is not None
+
+
+def _pending_request_ids(db: Session, case_id: int, *, lock: bool = False) -> set[int]:
+    query = (
+        select(ApprovalRequest.id)
+        .where(ApprovalRequest.case_id == case_id, ApprovalRequest.is_pending.is_(True))
+        .order_by(ApprovalRequest.id)
+    )
+    if lock:
+        query = query.with_for_update(key_share=True)
+    return set(db.scalars(query))
+
+
+def _unfinished_offer_ids(db: Session, case_id: int) -> set[int]:
+    return set(
+        db.scalars(
+            select(CandidateOutreach.id).where(
+                CandidateOutreach.case_id == case_id,
+                CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
+            )
+        )
+    )
+
+
+def _plan_staff_ids(db: Session, case_id: int) -> list[int]:
+    # Imported here: wave_service reaches this module through the workflow
+    from app.services import wave_service
+
+    try:
+        return [item.staff_id for item in wave_service.plan_items(db, case_id)]
+    except LookupError:
+        return []
+
+
+def _absent_offer_ids(db: Session, absences: list[_Absence]) -> set[int]:
+    """Live offers of running cases that the time of an absence overlaps. Read-only.
+
+    The cover of an offer is its candidate item's window, or the whole proposed shift.
+    """
+    ids: set[int] = set()
+    for absence in absences:
+        start = func.coalesce(CandidateItem.cover_start_at, Shift.start_at)
+        end = func.coalesce(CandidateItem.cover_end_at, Shift.end_at)
+        query = (
+            select(CandidateOutreach.id)
+            .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+            .join(Shift, Shift.id == CandidateItem.proposed_shift_id)
+            .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
+            .where(
+                CandidateItem.staff_id == absence.staff_id,
+                CandidateOutreach.status.in_([OutreachStatus.SENT, OutreachStatus.ACCEPTED]),
+                StaffingCase.status.not_in(list(AUTOMATION_STOPPED_STATUSES)),
+                unavailability_service.leave_overlaps_shift_sql(
+                    absence.start_at, absence.end_at, start, end
+                ),
+            )
+        )
+        ids |= set(db.scalars(query))
+    return ids
+
+
+def _lock_absent_offers(db: Session, absences: list[_Absence]) -> set[int]:
+    """Lock the absent people's live offers in one query ordered by ID (6.11)."""
+    absent = _absent_offer_ids(db, absences)
+    if not absent:
+        return set()
+    return set(
+        db.scalars(
+            select(CandidateOutreach.id)
+            .where(CandidateOutreach.id.in_(absent))
+            .order_by(CandidateOutreach.id)
+            .with_for_update(key_share=True)
+        )
+    )
+
+
+def _end_absent_offers(
+    db: Session, absences: list[_Absence], offer_ids: set[int]
+) -> list[tuple[int, int]]:
+    """Cancel the locked live offers of people now away, with their audit. No commit.
+
+    Nobody may be offered or put on a shift for a time they reported off (6.40); an
+    ACCEPTED offer's pending request is left without its offer, so nobody can approve
+    it any more. Returns (staff ID, case ID) of each cancelled offer.
+    """
+    if not offer_ids:
+        return []
+    by_staff = {absence.staff_id: absence for absence in absences}
+    system = actor_service.component_id(db, ActorName.SYSTEM)
+    ended: list[tuple[int, int]] = []
+    rows = db.execute(
+        select(CandidateOutreach, CandidateItem.staff_id)
+        .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
+        .where(CandidateOutreach.id.in_(offer_ids))
+        .order_by(CandidateOutreach.id)
+        .execution_options(populate_existing=True)
+    ).all()
+    for offer, staff_id in rows:
+        if offer.status not in {OutreachStatus.SENT, OutreachStatus.ACCEPTED}:
+            continue
+        absence = by_staff[staff_id]
+        outreach_service.cancel_offer(db, offer)
+        audit_service.log(
+            db,
+            case_id=offer.case_id,
+            actor_id=system,
+            action=AuditAction.OFFER_CANCELLED_STAFF_UNAVAILABLE,
+            entity_type=EntityType.CANDIDATE_OUTREACH,
+            entity_id=offer.id,
+            # Singular like OFFER_CANCELLED_NOT_NEEDED: _cancellation_reasons() reads it
+            payload={
+                "cancelled_outreach_id": offer.id,
+                "staff_id": staff_id,
+                "event_id": absence.event_id,
+                "reason": "STAFF_UNAVAILABLE",
+            },
+        )
+        ended.append((staff_id, offer.case_id))
+    db.flush()
+    return ended
+
+
+def _recompute_after(db: Session, ended: list[tuple[int, int]], *, own_case_id: int | None) -> None:
+    """After the commit: every other case that lost an offer looks at its gap again."""
+    for staff_id in sorted({staff_id for staff_id, _ in ended}):
+        cases = {case_id for person, case_id in ended if person == staff_id}
+        try:
+            outreach_service.recompute_affected_cases(
+                db,
+                staff_id=staff_id,
+                own_case_id=own_case_id if own_case_id is not None else 0,
+                additional_case_ids=cases,
+            )
+        except Exception:
+            db.rollback()
+            logger.exception("Staff %s needs a foreign-case recompute retry", staff_id)
 
 
 def _waiting_events(db: Session, shift_id: int) -> list[StaffingEvent]:
@@ -294,22 +637,37 @@ def _waiting_events(db: Session, shift_id: int) -> list[StaffingEvent]:
     )
 
 
+def window_closes_at(db: Session, shift_id: int) -> datetime | None:
+    """When the shift's waiting events can be applied at the earliest. Read-only."""
+    shift = db.get(Shift, shift_id)
+    events = _waiting_events(db, shift_id)
+    if shift is None or not events:
+        return None
+    return min(event.occurred_at for event in events) + timedelta(
+        seconds=shift.merge_window_seconds
+    )
+
+
 def _is_due(db: Session, shift: Shift, events: list[StaffingEvent]) -> bool:
-    """The window is open, long enough, and no case of the shift is still running (Q43)."""
+    """The window is open, long enough, and no case of the shift is in a round (Q43).
+
+    A case that waits for answers or approvals takes the events in (6.40): only a case
+    between two of those, which never stays so after a commit, holds the window back.
+    """
     if not events:
         return False
     opened_at = min(event.occurred_at for event in events)
     if opened_at + timedelta(seconds=shift.merge_window_seconds) > clock.now():
         return False
-    running_case = db.scalar(
-        select(StaffingCase.id)
+    running = db.scalar(
+        select(StaffingCase.status)
         .where(
             StaffingCase.shift_id == shift.id,
             StaffingCase.status.not_in(AUTOMATION_STOPPED_STATUSES),
         )
         .limit(1)
     )
-    return running_case is None
+    return running is None or running in WAITING_CASE_STATUSES
 
 
 def _check_threshold(db: Session, shift: Shift, policy: HardConstraintPolicy) -> ThresholdResult:
@@ -351,7 +709,7 @@ def _ignore(
 # --------------------------------------------------------------------------- #
 # The tables each event type updates (section 3.4)
 # --------------------------------------------------------------------------- #
-def _apply(db: Session, shift: Shift, event: StaffingEvent) -> bool:
+def _apply(db: Session, shift: Shift, event: StaffingEvent, absences: list[_Absence]) -> bool:
     """Update the tables of one event and write its audit row.
 
     Raises _NotApplicableError before the first write when it cannot. Returns
@@ -360,8 +718,8 @@ def _apply(db: Session, shift: Shift, event: StaffingEvent) -> bool:
     """
     if event.event_type is EventType.STAFF_UNAVAILABLE:
         if event.payload.get("reason") == NO_SHOW_REASON:
-            return _apply_no_show(db, shift, event)
-        _apply_leave(db, shift, event)
+            return _apply_no_show(db, shift, event, absences)
+        _apply_leave(db, shift, event, absences)
     elif event.event_type is EventType.ASSIGNMENT_CANCELLED:
         _apply_cancellation(db, event)
     elif event.event_type is EventType.PATIENT_SURGE:
@@ -403,7 +761,7 @@ def _reporter_actor(db: Session, event: StaffingEvent) -> int:
     return actor_service.user_id(db, int(event.payload[REPORTED_BY]))
 
 
-def _apply_leave(db: Session, shift: Shift, event: StaffingEvent) -> None:
+def _apply_leave(db: Session, shift: Shift, event: StaffingEvent, absences: list[_Absence]) -> None:
     roster = _assigned_roster(db, event)
     end_at = event.payload.get("end_at")
     unavailability = unavailability_service.record_unplanned_leave(
@@ -411,6 +769,9 @@ def _apply_leave(db: Session, shift: Shift, event: StaffingEvent) -> None:
         roster=roster,
         shift=shift,
         end_at=None if end_at is None else datetime.fromisoformat(end_at),
+    )
+    absences.append(
+        _Absence(roster.staff_id, unavailability.start_at, unavailability.end_at, event.id)
     )
     audit_service.log(
         db,
@@ -435,7 +796,9 @@ def _apply_leave(db: Session, shift: Shift, event: StaffingEvent) -> None:
     )
 
 
-def _apply_no_show(db: Session, shift: Shift, event: StaffingEvent) -> bool:
+def _apply_no_show(
+    db: Session, shift: Shift, event: StaffingEvent, absences: list[_Absence]
+) -> bool:
     """Stage 2 of NO_SHOW (workflow.md 6.24): record the absence and cancel the row.
 
     The row is the one stage 1 named in the payload, locked after the shift. A
@@ -480,6 +843,9 @@ def _apply_no_show(db: Session, shift: Shift, event: StaffingEvent) -> bool:
     db.add(unavailability)
     roster.status = RosterStatus.CANCELLED
     db.flush()
+    absences.append(
+        _Absence(roster.staff_id, unavailability.start_at, unavailability.end_at, event.id)
+    )
     audit_service.log(
         db,
         case_id=None,

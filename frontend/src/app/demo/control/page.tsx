@@ -19,6 +19,7 @@ import { describeError } from "@/lib/errors";
 import { openRun } from "@/lib/testRuns";
 import { formatDateTime } from "@/lib/format";
 import type { MessageKey, Params, Translate } from "@/lib/i18n";
+import { eventOutcome } from "@/lib/eventOutcome";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import type { CheckInResult, ClockView } from "@/lib/types/attendance";
 import type { ClockAdvanceResult, EventResult } from "@/lib/types/event";
@@ -662,18 +663,15 @@ export default function DemoControl() {
             <dd>{outcome.result.case_status ?? t("dash.noCaseYet")}</dd>
             <dt className="font-medium">{t("ctl.caseCurrent")}</dt>
             <dd>
-              {outcome.result.case_id !== null ? (
+              {outcome.result.case_id !== null && (
                 <CaseLink
                   key={outcome.result.case_id}
                   id={outcome.result.case_id}
                   status={outcome.result.case_status}
                 />
-              ) : outcome.result.event_status === "RECEIVED" ? (
-                // Its shift has an open merge window, or a case that is still running
-                t("ctl.eventWaiting")
-              ) : (
-                t("ctl.noCaseOpenedCap")
               )}
+              {/* Opened, joined the running case, waits for its window, or changed nothing (6.40) */}
+              <p className="text-sm">{t(eventOutcome(outcome.result).key, eventOutcome(outcome.result).params)}</p>
             </dd>
           </dl>
         </Card>

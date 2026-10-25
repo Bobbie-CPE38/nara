@@ -119,8 +119,9 @@ def test_a_no_show_run_keeps_its_own_case_when_another_is_reported(client: TestC
     with SessionLocal() as db:
         no_show = db.scalars(select(StaffingEvent).where(StaffingEvent.staff_id == 104)).one()
         started = db.get(AuditLog, run["test_run_id"])
-        assert started is not None and no_show.case_id not in (None, surge_case)
-        # The first case of the shift is the surge's: the run must not take it
+        # Round 6 PR EV10 (6.40): one running case per shift, so the NO_SHOW joins the
+        # surge's case, and the run follows the case of its own NO_SHOW event
+        assert started is not None and no_show.case_id == surge_case
         assert simulated_replies_service.run_case_id(db, started.payload) == no_show.case_id
 
 

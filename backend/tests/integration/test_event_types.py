@@ -24,7 +24,7 @@ from app.db.models import (
     StaffingRequirementSkill,
     StaffUnavailability,
 )
-from app.domain.enums import AuditAction, EntityType, EventStatus, RosterStatus
+from app.domain.enums import AuditAction, EntityType, RosterStatus
 from app.main import app
 from app.services import actor_service
 
@@ -429,18 +429,21 @@ def test_unknown_requirement_item_names_what_is_missing(client: TestClient) -> N
     assert response.json() == {"detail": "Not in the requirement of shift 1: roles [], skills [2]"}
 
 
-def test_event_of_a_head_nurse_type_waits_like_any_other_while_a_case_runs(
+def test_event_of_a_head_nurse_type_joins_the_running_case_like_any_other(
     client: TestClient, seeded: Session
 ) -> None:
-    """Q43 holds for every event type, also on a shift with a window of 0."""
-    client.post("/events", headers=AS_105, json={"event_type": "STAFF_UNAVAILABLE", "shift_id": 1})
+    """Round 6 PR EV10 (6.40): every event type joins the case that waits on its shift."""
+    first = client.post(
+        "/events", headers=AS_105, json={"event_type": "STAFF_UNAVAILABLE", "shift_id": 1}
+    ).json()
 
     body = client.post("/events", headers=AS_HEAD_NURSE, json=SURGE_TO_12).json()
 
-    assert (body["event_status"], body["case_id"]) == ("RECEIVED", None)
+    assert (body["event_status"], body["case_id"], body["joined_running_case"]) == (
+        "PROCESSED",
+        first["case_id"],
+        True,
+    )
     shift = seeded.get(Shift, NIGHT_SHIFT)
     assert shift is not None
-    assert shift.patient_count == 10
-    event = seeded.get(StaffingEvent, body["event_id"])
-    assert event is not None
-    assert event.status is EventStatus.RECEIVED
+    assert shift.patient_count == 12

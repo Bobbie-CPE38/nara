@@ -106,7 +106,15 @@ def test_own_leave_runs_the_leave_flow_as_the_user(
 
     assert response.status_code == 201
     body = response.json()
-    assert set(body) == {"event_id", "event_status", "case_id", "case_status"}
+    assert set(body) == {
+        "event_id",
+        "event_status",
+        "case_id",
+        "case_status",
+        "joined_running_case",
+        "ignored_reason",
+        "window_closes_at",
+    }
     db.expire_all()
     event = db.get(StaffingEvent, body["event_id"])
     assert event is not None

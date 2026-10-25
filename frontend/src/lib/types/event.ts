@@ -6,6 +6,12 @@ export type EventResult = {
   // RECEIVED: the event waits for the merge window of its shift to close
   case_id: number | null;
   case_status: string | null;
+  /** PROCESSED: the event joined the case already running on the shift (round 6 PR EV10) */
+  joined_running_case?: boolean;
+  /** IGNORED: why, e.g. NO_ASSIGNED_ROSTER when the person was already off the shift */
+  ignored_reason?: string | null;
+  /** RECEIVED: the earliest time its merge window closes */
+  window_closes_at?: string | null;
 };
 
 /** One merge window that was closed. No case when its events were IGNORED. */
