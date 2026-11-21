@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core import clock
 from app.db.models import LlmCallLog, RankExplanation
-from app.domain.enums import ExplanationStatus, LlmCallStatus
+from app.domain.enums import ExplanationStatus, LlmCallStatus, LlmWorkType
 from tests.integration.case_rows import short_case
 
 BACKEND = Path(__file__).resolve().parents[2]
@@ -98,6 +98,7 @@ def test_one_log_row_per_attempt(production_seeded):
 
     def log(attempt: int) -> LlmCallLog:
         return LlmCallLog(
+            work_type=LlmWorkType.RANK_EXPLANATION,
             explanation_id=explanation.id,
             case_id=case.id,
             plan_id=plan_id,

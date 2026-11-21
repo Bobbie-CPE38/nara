@@ -45,6 +45,9 @@ export type Offer = {
     | "AWAITING_OTHER_CASE"
     | null;
   cancellation_reason: string | null;
+  final_outcome?: string | null;
+  final_message?: string | null;
+  final_delivery_status?: string | null;
   is_assigned: boolean;
   is_reserve: boolean;
 };

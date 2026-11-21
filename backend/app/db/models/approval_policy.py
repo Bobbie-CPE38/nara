@@ -17,6 +17,10 @@ class ApprovalPolicy(Base):
             "supervisor_after_seconds > 0 AND supervisor_after_seconds < approval_timeout_seconds",
             name="supervisor_delay_valid",
         ),
+        CheckConstraint(
+            "supervisor_ratio >= 0 AND supervisor_incoming_count >= 0",
+            name="supervisor_capacity_valid",
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -26,3 +30,7 @@ class ApprovalPolicy(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=clock.now)
     approval_timeout_seconds: Mapped[int] = mapped_column(Integer)
     supervisor_after_seconds: Mapped[int] = mapped_column(Integer)
+    # The Supervisor queue's capacity (round 6 PR EV9, 6.39): ratio x active Supervisors,
+    # at most incoming_count, apart from the Head Nurse's ratio and incoming_count above
+    supervisor_ratio: Mapped[Decimal] = mapped_column(Numeric)
+    supervisor_incoming_count: Mapped[int] = mapped_column(Integer)

@@ -34,7 +34,16 @@
 >
 > * `f2a7c9d4e6b8` (รอบ 4 PR S) `APPROVAL_WARD_DECISION` และ `APPROVAL_POLICY.supervisor_after_seconds`
 >
-> **Migration head ปัจจุบัน: `f2a7c9d4e6b8`** ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `a4d8e1b7c3f5` (รอบ 5 N1) ผูก ATTENDANCE กับ SHIFT
+> * `e8c4b2a6f0d9` (รอบ 5 H1) ผูก STRUCTURED_HANDOVER กับ ROSTER_ASSIGNMENT
+> * `f6b2d8a4c0e1` (รอบ 5 H2) สถานะส่ง Handover ทาง LINE
+> * `b4e7a9c2d6f0` (Issue #98) ผลสุดท้ายของ Offer และ outbox แยก ไม่มี Backfill
+>
+> * `c5f8b0d3e7a1` (Issue #98 ต่อ) accepted_as_reserve และชนิดข้อความ FINAL/RESERVE_PROMOTED
+>
+> * `e7b9d1f3a5c8` (รอบ 6 PR EV9) ค่าตั้งคิว Supervisor ใน `APPROVAL_POLICY` และแถวตัดสินของระบบใน `APPROVAL_WARD_DECISION`
+>
+> **Migration head ปัจจุบัน: `e7b9d1f3a5c8`** (รอบ 6 PR EV9 ต่อจาก `c3e5a7b9d1f2` ของ EV6) ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -42,10 +51,10 @@
 
 | เรื่อง | ตัดสินว่า |
 |---|---|
-| จำนวนตาราง | 32 ตาราง (29 เดิม + `ACTORS` + `OUTREACH_POLICY` + `CANDIDATE_ITEM_TARGET`) |
-| ชนิด ID | `bigint` ทุกตาราง (รวม FK ทุกตัว) |
+| จำนวนตาราง | 49 ตาราง รวม Auth/LLM และ `DEMO_DATASET` ของ profile แบบ opt-in |
+| ชนิด ID | ตารางที่ Implement แล้วใช้ `bigint`; planned auth subject UUID ของ AU1/AU5 เป็นข้อยกเว้นตามหัวข้อ AU0 ท้ายไฟล์ |
 | เก็บ Enum | Python `StrEnum` → คอลัมน์ `text` ยังไม่ใส่ DB ENUM / CHECK |
-| `created_at` / `updated_at` | `timestamptz` ตั้งค่าจาก `core/clock.py` ไม่พึ่ง Default ของ DB |
+| `created_at` / `updated_at` | ตารางธุรกิจใช้ `core/clock.py`; planned Auth ของ AU1/AU5 ใช้ real UTC ตามข้อ 6.33 ไม่ตาม Demo Clock |
 | Event ที่ไม่มี Gap | `STAFFING_EVENTS.status = IGNORED` ไม่สร้างเคส |
 | การลาและช่วงที่ไม่พร้อม | เก็บที่ `STAFF_UNAVAILABILITY` เท่านั้น `STAFF.status` ไม่เก็บการลา |
 | ไม่มีแถวใน `STAFF_UNAVAILABILITY` | ถือว่าพร้อม (เฉพาะ `STAFF.status = ACTIVE`) |
@@ -366,6 +375,7 @@ PR K เพิ่ม `uq_contacts_line_uid` UNIQUE ทุก line_uid ที่�
 | `response_at` | timestamptz | NULL |  |  |
 | `expires_at` | timestamptz | NULL |  | เวลาหมดอายุของ Offer ตั้งตอนส่ง = `sent_at` + `OUTREACH_POLICY.offer_timeout_seconds` เมื่อ `clock.now() >= expires_at` แล้วยัง `SENT` จะเป็น `TIMEOUT` โดย Job; CHECK `status != SENT OR expires_at IS NOT NULL` |
 | `status` | text | NOT NULL |  | `OutreachStatus` |
+| `accepted_as_reserve` | boolean | NOT NULL | | default false; True เมื่อรับเป็นสำรองจริง ไม่ใช่อันดับใน Plan; c5f8b0d3e7a1 ทำเครื่องหมายสำรองที่ยังรออยู่จากข้อมูลเดิมโดยไม่ส่งข้อความ |
 
 
 **งานส่ง LINE (รอบ 3 PR L, Migration `c6e9a2b4d8f1`)**
@@ -429,6 +439,8 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | `ratio` | numeric | NOT NULL |  | จำนวนคำขอรออนุมัติที่ Head Nurse หนึ่งคนรับไหว ใช้คำนวณเพดานของ Auto-Approval (`docs/workflow.md` ข้อ 6.22, รอบ 4 PR A) Seed = 2 ความหมายเดิม (ตัวคูณ Ratio ผู้ป่วยต่อพยาบาล) ยกเลิกในรอบ 4 |
 | `approval_timeout_seconds` | integer | NOT NULL | CHECK > 0 | Seed = 900; ใช้ตั้งเส้นตายตอนสร้างคำขอ PR T |
 | `supervisor_after_seconds` | integer | NOT NULL | CHECK > 0 และ < approval_timeout_seconds | Seed = 600; Supervisor กดแทนได้ตั้งแต่ requested_at + ค่านี้ (PR S) |
+| `supervisor_ratio` | numeric | NOT NULL | CHECK >= 0 (ร่วมกับ `supervisor_incoming_count`) | จำนวนคำขอที่เลย `supervisor_from` แล้วที่ Supervisor หนึ่งคนรับไหว เพดานคิว Supervisor คือ `min(supervisor_ratio × Supervisor ที่ Active, supervisor_incoming_count)` ไม่มี Supervisor ที่ Active คิวนี้ไม่อนุมัติ (`docs/workflow.md` ข้อ 6.39, รอบ 6 PR EV9) Seed และแถวเดิม = 5 |
+| `supervisor_incoming_count` | integer | NOT NULL | CHECK >= 0 | เพดานสูงสุดของคิว Supervisor Seed และแถวเดิม = 10 |
 | `incoming_count` | integer | NOT NULL |  | เพดานสูงสุดของคิวคำขอรออนุมัติต่อหอ เพดานของ Auto-Approval คือค่าที่ต่ำกว่าระหว่าง `ratio` × จำนวน Head Nurse ที่ Active ของหอ กับค่านี้ (`docs/workflow.md` ข้อ 6.22) Seed = 10 |
 | `version` | text | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |
@@ -630,9 +642,9 @@ UNIQUE `(gap_id, skill_id, start_at)`
 | `requested_at` | timestamptz | NOT NULL |  |  |
 
 
-### 28.1 APPROVAL_WARD_DECISION (PR S)
+### 28.1 APPROVAL_WARD_DECISION (PR S, EV9)
 
-หนึ่งแถวต่อการตัดสินของคนในแต่ละฝั่ง คำขอหอเดียวใช้ DESTINATION; การย้ายใช้ DESTINATION และ SOURCE ตามหอของเวรต้นทาง ไม่ใช่หอบ้านของผู้สมัคร UNIQUE (`approval_request_id`, `side`) คำขอก่อน S ไม่ Backfill แถวประวัติ
+หนึ่งแถวต่อการตัดสินของแต่ละฝั่ง ของคน หรือของระบบตั้งแต่รอบ 6 PR EV9 คำขอหอเดียวใช้ DESTINATION; การย้ายใช้ DESTINATION และ SOURCE ตามหอของเวรต้นทาง ไม่ใช่หอบ้านของผู้สมัคร UNIQUE (`approval_request_id`, `side`) คำขอก่อน S ไม่ Backfill แถวประวัติ
 
 | Field | Type | Null | Key | Enum / หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |
@@ -640,13 +652,19 @@ UNIQUE `(gap_id, skill_id, start_at)`
 | `approval_request_id` | bigint | NOT NULL | FK APPROVAL_REQUEST.id | |
 | `ward_id` | bigint | NOT NULL | FK WARD.id | |
 | `side` | text | NOT NULL | UNIQUE ร่วม | `ApprovalSide`: DESTINATION / SOURCE |
-| `approver_id` | bigint | NOT NULL | FK STAFF.id | ผู้กดจริง |
+| `approver_id` | bigint | NULL | FK STAFF.id | ผู้กดจริง ว่างเมื่อระบบอนุมัติ (`approval_mode = AUTO`) |
 | `decided_as` | text | NOT NULL | | `ApproverCapacity`: HEAD_NURSE / SUPERVISOR |
 | `is_approved` | boolean | NOT NULL | | |
 | `reason` | text | NULL | | เหตุผลของฝั่งนั้น |
 | `decided_at` | timestamptz | NOT NULL | | |
+| `approval_mode` | text | NOT NULL | | `ApprovalMode`: MANUAL (คนกด, แถวก่อน EV9 ทั้งหมด) / AUTO (ระบบอนุมัติเพราะคิวเกินเพดาน) |
+| `queue_count` | integer | NULL | | AUTO เท่านั้น: จำนวนในคิวที่เกินเพดานตอนตัดสิน |
+| `queue_cap` | numeric | NULL | | AUTO เท่านั้น: เพดานของคิวนั้น |
+| `queue_approver_count` | integer | NULL | | AUTO เท่านั้น: Head Nurse ที่ Active ของหอ (คิวของหอ) หรือ Supervisor ที่ Active (คิว Supervisor) |
 
-การอนุมัติฝั่งแรกไม่เปลี่ยนผลรวมของ APPROVAL_REQUEST (`is_pending=true`, `is_approved/approver_id/decided_at=null`) ฝั่งสุดท้ายหรือการปฏิเสธจึงเขียนผลรวม Timeout คงประวัติฝั่งที่กดแล้ว Auto-Approval ไม่เขียนตารางนี้
+CHECK `mode_matches_decider`: MANUAL ต้องมี `approver_id` และไม่มีค่าคิว AUTO ต้องไม่มี `approver_id` เป็นการอนุมัติเท่านั้น และมีค่าคิวครบที่ `queue_count > queue_cap` แถว AUTO ใช้ `decided_as` บอกคิว: HEAD_NURSE = คิวของหอของฝั่งนั้น, SUPERVISOR = คิว Supervisor (`docs/workflow.md` ข้อ 6.39)
+
+การอนุมัติฝั่งแรกไม่เปลี่ยนผลรวมของ APPROVAL_REQUEST (`is_pending=true`, `is_approved/approver_id/decided_at=null`) ฝั่งสุดท้ายหรือการปฏิเสธจึงเขียนผลรวม Timeout คงประวัติฝั่งที่กดแล้ว Auto-Approval ก่อน EV9 ไม่เขียนตารางนี้ (คำขอเก่าเหล่านั้นอ่านจาก `APPROVAL_REQUEST.approval_mode`) ตั้งแต่ EV9 ระบบเขียนหนึ่งแถว AUTO ต่อฝั่งที่อนุมัติ และ `APPROVAL_REQUEST.approval_mode = AUTO` เมื่อระบบตัดสินฝั่งสุดท้าย
 
 Migration ตั้ง delay ของ Policy เดิมเป็น `min(600, approval_timeout_seconds - 1)` เพื่อรองรับ Policy ที่สั้นกว่า 600 วินาที ถ้า timeout <= 1 หยุดก่อน DDL ต้องแก้ Policy ก่อนอัปเกรด ไม่เปลี่ยนเส้นตายของคำขอเดิม `supervisor_from` คำนวณจากเวลาสร้างกับ Policy ปัจจุบันเมื่ออ่าน
 
@@ -734,31 +752,39 @@ CHECK `used_at IS NULL OR revoked_at IS NULL`; รหัสที่ใช้แ
 | `id` | bigint | NOT NULL | PK |
 | `case_id` | bigint | NOT NULL | FK STAFFING_CASES |
 | `plan_id` | bigint | NOT NULL | FK CANDIDATE_PLANS |
-| `prompt_version` | text | NOT NULL | เช่น `rank-explanation-v2` |
+| `prompt_version` | text | NOT NULL | เช่น `rank-explanation-v4` |
 | `status` | text | NOT NULL | `ExplanationStatus` (ไม่มี CHECK ตาม D8) |
 | `input_hash` | text | NULL | SHA-256 hex ของ `input_payload` แบบ Canonical |
 | `input_payload` | jsonb | NULL | ที่ส่งให้ LLM จริง มีแต่ตัวเลข อันดับ ชื่อพจน์ ไม่มีชื่อหรือ `staff_id` |
 | `text` | text | NULL | ตั้งเมื่อ `READY` เท่านั้น |
 | `provider`, `model_id` | text | NULL | ตั้งเมื่อ `READY` (`model_id` เป็น NULL ของ `fake`) |
 | `attempts` | integer | NOT NULL | default 0; นับ Attempt ถาวร |
+| `attempt_limit` | integer | NULL | รอบ 6 PR E1: Attempt ที่แถวไปถึงได้ในคำขอปัจจุบันของผู้ใช้ (`min(attempts + 1 + LLM_MAX_RETRIES, LLM_MAX_ATTEMPTS_PER_ROW)`) NULL = ยังไม่มีผู้ใช้ขอ (แถวที่เข้าคิวก่อน E1) Sweep ไม่รับแถวนั้น |
 | `claim` | uuid | NULL | ผู้ถือ Claim ของ Sweep |
 | `lease_until` | timestamptz | NULL | Claim หมดอายุหลังเวลานี้ |
-| `failure_reason` | text | NULL | ค่าของ `LlmCallStatus` หรือ `INVALID_INPUT`, `NO_CANDIDATES`, `ATTEMPTS_EXHAUSTED`; ไม่เก็บข้อความ Error ของ SDK |
+| `failure_reason` | text | NULL | ค่าของ `LlmCallStatus` หรือ `INVALID_INPUT`, `NO_CANDIDATES`, `ATTEMPTS_EXHAUSTED` และ `QUOTA_EXHAUSTED`, `INPUT_TOO_LARGE` (`SKIPPED`, รอบ 6 PR B1); ไม่เก็บข้อความ Error ของ SDK |
 | `created_at`, `updated_at` | timestamptz | NOT NULL | Backend Clock |
 | `ready_at` | timestamptz | NULL | |
 
-UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending` บน `id` เมื่อ `status = 'PENDING'` แถวเกิดใน Transaction ของ Plan (เมื่อ `LLM_ENABLED`) และ Job เป็นผู้เติมผล
+UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending` บน `id` เมื่อ `status = 'PENDING'` แถวเกิดเมื่อผู้ใช้ขอผ่าน `POST /cases/{id}/explanation` (รอบ 6 PR E1 ก่อนหน้านี้เกิดใน Transaction ของ Plan เมื่อ `LLM_ENABLED`) และ Job เป็นผู้เติมผล
 
-### 35. LLM_CALL_LOG (รอบ 3 PR X)
+### 35. LLM_CALL_LOG (รอบ 3 PR X, รอบ 6 PR B1)
+
+หนึ่งแถวต่อ Attempt ของทุกประเภทงาน เขียนโดย `app/services/llm_gateway.py` เท่านั้น
 
 | Field | Type | Null | หมายเหตุ |
 |---|---|---|---|
 | `id` | bigint | NOT NULL | PK |
-| `explanation_id` | bigint | NOT NULL | FK RANK_EXPLANATION |
-| `case_id`, `plan_id` | bigint | NOT NULL | ไม่มี FK; `plan_id` มี index |
+| `work_type` | text | NOT NULL | `LlmWorkType` (รอบ 6 PR B1) แถวก่อน B1 เป็น `RANK_EXPLANATION` ไม่มี server default |
+| `explanation_id` | bigint | NULL | FK RANK_EXPLANATION; มีเฉพาะ `RANK_EXPLANATION` |
+| `case_id` | bigint | NULL | ไม่มี FK; มีใน `RANK_EXPLANATION` และ `CASE_SUMMARY` |
+| `plan_id` | bigint | NULL | ไม่มี FK มี index; มีเฉพาะ `RANK_EXPLANATION` |
+| `subject_id` | bigint | NULL | รหัสแถวสรุปเคส (PR S) ไม่มี FK; มีเฉพาะ `CASE_SUMMARY` |
+| `trial_run_id`, `trial_case_key` | text | NULL | รหัสชุดทดลอง และคู่เคสกับโมเดลในชุด (เช่น `case-07/nova-lite`); มีเฉพาะ `MODEL_TRIAL` |
+| `detached_at` | timestamptz | NULL | เวลาที่ Demo reset ลบแถวที่แถวนี้อ้าง (คำอธิบายอันดับหรือสรุปเคส) ตัวอ้างอิงทั้งหมดเป็น NULL แถวยังอยู่เพื่อเก็บค่าใช้จ่าย (`workflow.md` ข้อ 6.27) |
 | `provider`, `prompt_version` | text | NOT NULL | |
 | `model_id`, `region`, `input_hash` | text | NULL | |
-| `attempt` | integer | NOT NULL | เริ่มที่ 1; UNIQUE (`explanation_id`, `attempt`) |
+| `attempt` | integer | NOT NULL | เริ่มที่ 1; Unique ต่อชนิดตามข้างล่าง |
 | `status` | text | NOT NULL | `LlmCallStatus` เริ่มที่ `IN_FLIGHT` ก่อนเรียก; ถ้าค้าง = เครื่องล่มและไม่ทราบ Token |
 | `error_type` | text | NULL | ชื่อ Exception หรือรหัส Error เท่านั้น |
 | `input_tokens`, `output_tokens`, `total_tokens` | integer | NULL | NULL = ไม่ทราบ ไม่ใช่ 0 |
@@ -770,6 +796,51 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `created_at` | timestamptz | NOT NULL | Backend Clock |
 
 ไม่เก็บ Prompt หรือข้อความตอบ
+
+* CHECK `ck_llm_call_log_work_type_subject`: เมื่อ `detached_at` เป็น NULL แต่ละชนิดมีคอลัมน์อ้างอิงของตัวเองครบ และคอลัมน์อ้างอิงของชนิดอื่นเป็น NULL (`RANK_EXPLANATION`: `explanation_id`, `case_id`, `plan_id`; `CASE_SUMMARY`: `subject_id`, `case_id`; `MODEL_TRIAL`: `trial_run_id`, `trial_case_key`) เมื่อ `detached_at` มีค่า ชนิดต้องเป็น `RANK_EXPLANATION` หรือ `CASE_SUMMARY` และตัวอ้างอิงทุกคอลัมน์เป็น NULL ค่า `work_type` อื่นจึงเขียนไม่ได้
+* Unique: (`explanation_id`, `attempt`) เดิม, `uq_llm_call_log_case_summary_attempt` (`subject_id`, `attempt`) เมื่อ `CASE_SUMMARY` และ `uq_llm_call_log_model_trial_attempt` (`trial_run_id`, `trial_case_key`, `attempt`) เมื่อ `MODEL_TRIAL`
+* Demo reset เก็บตารางนี้ไว้ (ไม่ถูกล้าง) และตั้ง `detached_at` ให้แถวที่ไม่ใช่ชุดทดลอง
+* Downgrade ของ B1 ลบแถวที่ไม่ใช่ `RANK_EXPLANATION` และแถวที่มี `detached_at` เพราะใส่ในรูปเดิมไม่ได้
+
+### 36. LLM_DAILY_USAGE (รอบ 6 PR B1)
+
+ตัวนับคำขอ LLM ต่อวัน เฉพาะขอบเขต `DEMO` ข้อ 6.27 ของ `workflow.md`
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `usage_date` | date | NOT NULL | PK วันตามเวลา Asia/Bangkok (`LLM_QUOTA_TIMEZONE`) |
+| `used` | integer | NOT NULL | จำนวน Attempt ที่ส่งผ่านตัวห่อรวม Retry (รวม `fake`); CHECK `used >= 0` |
+
+จองด้วยคำสั่งเดียวแบบ `INSERT ... ON CONFLICT DO UPDATE SET used = used + 1 WHERE used < :cap RETURNING used` ไม่เก็บเพดาน เพดานมาจาก `settings.llm_daily_call_cap` ตอนจอง (ลดกลางวันมีผลทันที เพดาน 0 ไม่จองเลย) วันคิดจาก `clock_timestamp()` ของฐานข้อมูล ไม่ใช่ Demo Clock (ข้อ 6.27) Demo reset ไม่ล้างตารางนี้และ `LLM_TRIAL_USAGE`
+
+### 36b. LLM_TRIAL_USAGE (รอบ 6 PR B1)
+
+ตัวนับสะสมของชุดทดลองเลือกโมเดลหนึ่งชุด ไม่ผูกกับวัน ข้อ 6.27 และ 6.28 ของ `workflow.md`
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `trial_run_id` | text | NOT NULL | PK |
+| `cap` | integer | NOT NULL | เพดานของชุดนี้ ตั้งครั้งเดียวตอนสร้างแถว ไม่เกิน `LLM_TRIAL_CALL_CAP` ไม่แก้ภายหลัง; CHECK `cap >= 0` |
+| `used` | integer | NOT NULL | จำนวน Attempt สะสมของชุดนี้; CHECK `used >= 0 AND used <= cap` |
+| `created_at` | timestamptz | NOT NULL | Backend Clock |
+
+จองด้วยคำสั่งเดียวแบบ `UPDATE LLM_TRIAL_USAGE SET used = used + 1 WHERE trial_run_id = :id AND used < cap RETURNING used` ไม่มีวันในคีย์ จึงไม่รีเซ็ตเมื่อข้ามเที่ยงคืนหรือรีสตาร์ต
+
+### 37. LLM_CASE_SUMMARY (รอบ 6 PR S ยังไม่มี Migration)
+
+สรุปสถานการณ์ของเคสที่ผู้ใช้กดขอ ผูกกับ Snapshot ของข้อมูล ข้อ 6.27 ของ `workflow.md`
+
+| Field | Type | Null | หมายเหตุ |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `case_id` | bigint | NOT NULL | FK STAFFING_CASES |
+| `input_hash` | text | NOT NULL | SHA-256 ของ Payload แบบ Canonical = Snapshot |
+| `prompt_version` | text | NOT NULL | |
+| `status` | text | NOT NULL | `ExplanationStatus` |
+| `text` | text | NULL | ตั้งเมื่อ `READY` เท่านั้น |
+| `created_at`, `updated_at` | timestamptz | NOT NULL | Backend Clock |
+
+UNIQUE (`case_id`, `input_hash`, `prompt_version`) ข้อมูลเปลี่ยน = `input_hash` ใหม่ = แถวใหม่ แถวเก่าอยู่เป็นประวัติ ชื่อและคอลัมน์ที่แน่นอน S ยืนยันใน PR ของตัวเอง
 
 ## Enum
 
@@ -797,7 +868,7 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `CandidateResponse` | API ของ LINE / LINE Sim (ไม่เก็บใน DB) | `ACCEPT`, `REJECT` |
 | `Channel` | CANDIDATE_OUTREACH.channel | `LINE` |
 | `ValidationResult` | ผลตรวจรายข้อใน validation_snapshot | `PASS`, `FAIL` |
-| `ApprovalMode` | APPROVAL_REQUEST.approval_mode | `MANUAL`, `AUTO` |
+| `ApprovalMode` | APPROVAL_REQUEST.approval_mode, APPROVAL_WARD_DECISION.approval_mode (รอบ 6 PR EV9) | `MANUAL`, `AUTO` |
 | `ApprovalOutcome` | API การตัดสิน (ไม่เก็บเป็นคอลัมน์) | `WAITING_OTHER_WARD`, `ASSIGNED`, `REJECTED`, `TRANSFER_CANCELLED`, `EXECUTION_FAILED` |
 | `ApprovalSide` | APPROVAL_WARD_DECISION.side (รอบ 4 PR S) | `DESTINATION`, `SOURCE` |
 | `ApproverCapacity` | APPROVAL_WARD_DECISION.decided_as (รอบ 4 PR S) | `HEAD_NURSE`, `SUPERVISOR` |
@@ -806,6 +877,9 @@ UNIQUE (`plan_id`, `prompt_version`); partial index `ix_rank_explanation_pending
 | `ActorName` | ACTORS.name (ที่ไม่ใช่ user) | `system`, `workflow_orchestrator`, `staffing_gap_assessment_agent`, `constraint_fair_scheduling_agent`, `outreach_agent`, `safety_rule_engine` |
 | `EntityType` | AUDIT_LOG.entity_type | `STAFFING_EVENTS`, `STAFFING_CASES`, `STAFFING_GAP`, `CANDIDATE_PLANS`, `CANDIDATE_OUTREACH`, `SAFETY_VALIDATION`, `APPROVAL_REQUEST`, `ROSTER_ASSIGNMENT`, `STRUCTURED_HANDOVER`, `STAFF_UNAVAILABILITY`, `SHIFT`, `STAFFING_REQUIREMENTS` และค่าที่เพิ่มในรอบ 3: `CONTACTS`, `ATTENDANCE` |
 | `ExplanationStatus` | RANK_EXPLANATION.status (รอบ 3 PR X) | `PENDING`, `READY`, `FAILED`, `SKIPPED` |
+| `LlmWorkType` | LLM_CALL_LOG.work_type (รอบ 6 PR B1) | `RANK_EXPLANATION`, `CASE_SUMMARY`, `MODEL_TRIAL` |
+| `LlmQuotaScope` | ขอบเขตที่ตัวห่อการเรียกจองโควตา (รอบ 6 PR B1): `DEMO` ใช้ LLM_DAILY_USAGE, `TRIAL` ใช้ LLM_TRIAL_USAGE ได้จาก `work_type` (`MODEL_TRIAL` เป็น `TRIAL`) ไม่เก็บเป็นคอลัมน์ | `DEMO`, `TRIAL` |
+| `LlmRefusal` | เหตุที่ตัวห่อไม่ส่งคำขอ (รอบ 6 PR B1) และ RANK_EXPLANATION.failure_reason ของ `SKIPPED` | `QUOTA_EXHAUSTED`, `INPUT_TOO_LARGE`, `DISABLED`, `NOT_CONFIGURED` |
 | `LlmCallStatus` | LLM_CALL_LOG.status (รอบ 3 PR X) | `IN_FLIGHT`, `SUCCEEDED`; ลองซ้ำได้: `TIMEOUT`, `THROTTLED`, `SERVICE_ERROR`; ไม่ลองซ้ำ: `CONFIG_ERROR`, `TRUNCATED`, `INVALID_OUTPUT` |
 | `AuditAction` | AUDIT_LOG.action | `EVENT_RECEIVED`, `EVENT_IGNORED`, `CASE_OPENED`, `CASE_STATUS_CHANGED`, `CASE_RESOLVED`, `MANUAL_HANDOFF`, `WORKFLOW_FAILED`, `GAP_ASSESSED`, `SOLVER_EXECUTED`, `OFFER_SENT`, `OFFER_ACCEPTED`, `OFFER_REJECTED`, `OFFER_TIMEOUT`, `SAFETY_PASSED`, `SAFETY_FAILED`, `APPROVAL_REQUESTED`, `APPROVAL_APPROVED`, `APPROVAL_REJECTED`, `APPROVAL_TIMEOUT`, `ASSIGNMENT_CREATED`, `HANDOVER_GENERATED`, `ATTENDANCE_CHECKED_IN`, `OFFER_CANCELLED_NOT_NEEDED` **[รอบ 5 · PR N2]**, `UNAVAILABILITY_CREATED`, `UNAVAILABILITY_UPDATED`, `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` และค่าที่เพิ่มในรอบ 2: `MANUAL_ASSIGNMENT_CREATED`, `CASE_CLOSED_UNRESOLVED`, `OFFER_CANCELLED_BY_ASSIGNMENT` และค่าที่เพิ่มในรอบ 3: `OFFER_DELIVERY_FAILED`, `LINE_ACCOUNT_LINKED`, `LINE_ACCOUNT_UNLINKED` และค่าที่เพิ่มในรอบ 4 ที่ยังไม่มีโค้ดเขียน: `APPROVAL_WARD_APPROVED`, `ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED` |
 | `CheckInSource` | AUDIT_LOG.payload.source ของ `ATTENDANCE_CHECKED_IN` | `SELF`, `SIMULATED` |
@@ -1008,3 +1082,113 @@ Previously contacted candidates may also explain why no candidate remains, but t
 `b7d2f8a1c6e4` ต่อจาก `a4b8c2d6e9f1`: เติมเส้นตายทุกคำขอเดิมเป็น requested_at + 900 วินาที และจับคู่ Safety/Approval กับ Offer ของ case/item เดียวกัน ถ้าจับคู่ไม่ได้หรือพบหลาย Offer ให้หยุดก่อน DDL เพื่อให้ซ่อมข้อมูล ไม่เลือกแถวเอง ไม่มีการ Reset ข้อมูล Job ข้ามคำขอประวัติที่ Offer ไม่ ACCEPTED และเคสที่หยุดแล้ว
 
 มี partial index `ix_approval_request_pending_expiry` บน expires_at ของแถว is_pending=true; ค่า policy ต้อง > 0 และไม่มี server default ของระยะเวลา
+
+
+### OFFER_OUTCOME_NOTIFICATION (Issue #98, หลังปิดรอบ 5)
+
+Migration `b4e7a9c2d6f0` ต่อ `f6b2d8a4c0e1` เพิ่มตารางว่าง ไม่ backfill Offer/Audit เก่า
+
+| Field | Type | Null | Key / หมายเหตุ |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `outreach_id` | bigint | NOT NULL | FK CANDIDATE_OUTREACH.id, UNIQUE ร่วมกับ kind |
+| `kind` | text | NOT NULL | default FINAL; CHECK FINAL หรือ RESERVE_PROMOTED; หนึ่งข้อความต่อชนิดต่อ Offer attempt |
+| `case_id` | bigint | NOT NULL | FK STAFFING_CASES.id |
+| `staff_id` | bigint | NOT NULL | FK STAFF.id |
+| `audit_id` | bigint | NOT NULL | FK AUDIT_LOG.id หลักฐานต้นเหตุ |
+| `reason` | text | NOT NULL | รหัสผลสุดท้ายที่กำหนดใน workflow.md 6.26 |
+| `message` | text | NOT NULL | ข้อความ Snapshot สำหรับ LINE และหน้า Offer |
+| `created_at` | timestamptz | NOT NULL | Backend Clock |
+| `delivery_status` | text | NULL | NULL = simulation; CHECK PENDING, ACCEPTED, FAILED, CANCELLED, NO_CONTACT |
+| `delivery_payload` | jsonb | NULL | ผู้รับ/ข้อความคงที่ |
+| `delivery_retry_key` | text | NULL | UUID คงที่ทุก retry |
+| `delivery_attempts` | integer | NOT NULL | default 0, CHECK 0 ถึง 3 |
+| `delivery_next_attempt_at` | timestamptz | NULL | Partial Index เมื่อ PENDING |
+| `delivery_lease_until` | timestamptz | NULL | Lease 60 วินาที |
+| `delivery_claim` | text | NULL | Token ของ worker |
+| `delivery_last_result` | text | NULL | รหัส HTTP หรือ TIMEOUT ไม่มี remote body |
+
+เขียนพร้อมผลสุดท้าย/Audit ส่งหลัง Commit; การส่งล้มไม่เปลี่ยนผลของ Offer หรือการจัดเวร ไม่มีข้อมูลผู้ป่วยรายบุคคลหรือ LINE credentials ในข้อความ
+
+
+### CASE_SUMMARY (รอบ 6 PR S)
+
+Snapshot นิรนามหนึ่งฉบับต่อ (`case_id`, `input_hash`, `prompt_version`) ที่ผู้ใช้ขอเท่านั้น ไม่มี Backfill; Migration `f9a1c3e5b7d2` ต่อจาก `e7c3a5d9b1f4`
+
+| Column | Type | Null | Meaning |
+|---|---|---|---|
+| `id` | bigint | NOT NULL | PK |
+| `case_id` | bigint | NOT NULL | FK STAFFING_CASES; index |
+| `input_hash` | text | NOT NULL | SHA-256 ของ Canonical JSON |
+| `input_payload` | jsonb | NOT NULL | Snapshot ไม่แก้ไข ไม่มี Staff ID/ชื่อบุคคล/LINE ID |
+| `prompt_version` | text | NOT NULL | `case-summary-v3` |
+| `status` | text | NOT NULL | ExplanationStatus: PENDING, READY, FAILED, SKIPPED |
+| `text` | text | NULL | ข้อความที่ผ่านตัวตรวจรูปแบบ/ตัวเลขแล้ว |
+| `attempts` | integer | NOT NULL | default 0 ไม่ถูกล้าง |
+| `attempt_limit` | integer | NOT NULL | ขอบ Attempt ของคำขอปัจจุบัน; CHECK attempts >= 0 และ attempt_limit >= attempts |
+| `claim` | uuid | NULL | UUID ป้องกัน Worker เก่าเขียนทับ |
+| `lease_until` | timestamptz | NULL | Lease ตามเวลาจริง DB |
+| `failure_reason` | text | NULL | รหัสภายใน ไม่มีข้อความจาก SDK |
+| `created_at` | timestamptz | NOT NULL | Backend Clock ตอนขอ |
+| `ready_at` | timestamptz | NULL | Backend Clock ตอนสร้างสำเร็จ |
+
+Partial index บน `id` เมื่อ PENDING; UNIQUE (`case_id`, `input_hash`, `prompt_version`) การเรียก LLM บันทึกใน `LLM_CALL_LOG` ชนิด CASE_SUMMARY โดย `subject_id` = id นี้ (ไม่มี FK ตาม B1) Reset/Downgrade ถอดอ้างอิงและคงค่าใช้จ่าย/โควตา
+
+
+## AU0: Schema สำหรับบัญชีและ session (AU1/AU5 Implement แล้ว)
+
+AU5 เพิ่ม Migration `b8f3d5a0c2e4` ต่อ `a7e2c4f9b1d3` หนึ่ง head รวม 48 ตาราง application; upgrade สร้าง registration table ว่าง ไม่สร้างบัญชีหรือแก้ binding เดิม downgrade ลบเฉพาะรหัสสมัคร ไม่ลบบัญชี/session ที่ AU1 มีอยู่
+
+กติกาฝั่ง API/สิทธิ์อยู่ `workflow.md` 6.33; AU0 เพิ่มเฉพาะสัญญา ไม่เปลี่ยนจำนวนตารางที่ migrate แล้ว ไม่กำหนด revision ล่วงหน้า AU1 เพิ่ม Migration ต่อ head ปัจจุบันและทดสอบให้มี head เดียว AU5 เพิ่มตาราง registration code ภายหลังต่อ AU1 ใช้ UUID เฉพาะ permanent staff subject; ID ธุรกิจและ surrogate ID เดิมเป็น bigint ตามเดิม
+
+### STAFF.auth_subject (AU1)
+
+**AU1:** Migration `a7e2c4f9b1d3` ต่อ `f9a1c3e5b7d2` ใส่ subject สุ่มให้แถวเดิมด้วย `gen_random_uuid()` แล้วเอา default ออก (แอปสร้างเอง) และเพิ่ม trigger `staff_auth_subject_immutable` ที่ปฏิเสธ UPDATE ที่เปลี่ยนค่า จำนวนตารางเป็น 47
+
+เพิ่ม `auth_subject uuid NOT NULL UNIQUE` สุ่ม UUIDv4 ครั้งเดียวให้แต่ละแถวที่มีอยู่และตอนสร้าง staff ใหม่ immutable: ห้ามเปลี่ยน/นำกลับไปให้บุคคลใหม่ Reset ที่รักษาบัญชีต้องรักษา Staff row/subject ต้นฉบับและแก้ seed loader ตาม workflow 6.33.7 ไม่ใช้ชื่อ/email/staff_id ที่สร้างใหม่มาตัดสินว่าเป็นบุคคลเดิม `STAFF.password_hash` เดิมยังคงเพื่อ compatibility (seed `!`) แต่ auth ใหม่ไม่อ่านค่านี้ ไม่ migrate เป็นรหัสที่เปิดใช้โดยอัตโนมัติ
+
+### AUTH_ACCOUNT (AU1)
+
+| Field | Type / Constraint | ความหมาย |
+|---|---|---|
+| staff_subject | uuid PK, FK STAFF.auth_subject ON DELETE RESTRICT | หนึ่งบัญชีต่อพนักงานถาวร ไม่สร้างบัญชีให้ staff ทุกคนโดยอัตโนมัติ |
+| password_hash | text NOT NULL | Argon2id encoded hash พร้อม salt/parameters ไม่ใช่รหัสจริง |
+| must_change_password | boolean NOT NULL default false | script ตั้งรหัสชั่วคราวต้องตั้ง true |
+| disabled_at | timestamptz NULL | ปิดบัญชีแยกจากสถานะการจ้าง; ทั้งคู่ต้องพร้อมใช้จึง login ได้ |
+| credential_version | bigint NOT NULL default 1 CHECK > 0 | เพิ่มเมื่อเปลี่ยน/รีเซ็ตรหัส ใช้กัน session จาก password generation เก่า |
+| created_at, updated_at, password_changed_at | timestamptz NOT NULL | real UTC จาก auth clock ไม่ใช้ Demo clock |
+
+การเปลี่ยนรหัส/ปิดบัญชีถือ lock บัญชี เพิ่ม credential_version เมื่อเปลี่ยนรหัสและ revoke session ใน transaction เดียว การสร้าง/เปลี่ยนบัญชี concurrent กับ reset ต้องรอ lock ไม่ถูก snapshot เก่าทับ ไม่มีตาราง role/user ใหม่ Role/หออ่านจาก STAFF ปัจจุบัน
+
+### AUTH_SESSION (AU1)
+
+| Field | Type / Constraint | ความหมาย |
+|---|---|---|
+| id | bigint PK | surrogate ภายใน ไม่ใช่ cookie |
+| account_subject | uuid NOT NULL FK AUTH_ACCOUNT.staff_subject ON DELETE CASCADE; INDEX | เจ้าของ session |
+| token_hash | text NOT NULL UNIQUE CHECK SHA-256 lowercase hex 64 ตัว | hash ของ token สุ่ม >=256 bit; ไม่เก็บ raw token |
+| credential_version | bigint NOT NULL CHECK > 0 | generation ของบัญชีตอนออก ต้องเท่าปัจจุบันทุก request |
+| created_at, last_seen_at, expires_at | timestamptz NOT NULL | real UTC; CHECK created_at <= last_seen_at <= expires_at และ expires_at > created_at |
+| revoked_at | timestamptz NULL | revoke ถาวร ไม่เอากลับมาใช้อีก |
+
+Valid เมื่อ real now ยังไม่ถึง absolute/idle expiry, ไม่ revoke, generation ตรง, account ไม่ disabled, Staff ACTIVE และมี USER actor เงื่อนไขต้องถูกอ่านจาก DB ไม่ cache ใน cookie อัปเดต last_seen แบบไม่ย้อนเวลาและไม่ยืด expires_at; request ที่หมดอายุห้ามปลุก session กลับมา Reset สำเร็จไม่คืน session ใดๆ แม้ bigint id เริ่มใหม่
+
+### AUTH_REGISTRATION_CODE (AU5 · Migration `b8f3d5a0c2e4`)
+
+| Field | Type / Constraint | ความหมาย |
+|---|---|---|
+| id | bigint PK | ภายใน |
+| staff_subject | uuid NOT NULL FK STAFF.auth_subject ON DELETE RESTRICT; INDEX | staff ที่ยังไม่มี AUTH_ACCOUNT |
+| code_hash | text NOT NULL UNIQUE CHECK SHA-256 lowercase hex 64 ตัว | SHA-256 ของ domain `AUTH_REGISTER` กับโค้ดสุ่ม >=192 bit; ไม่ reuse LINK token/table |
+| contact_id | bigint NOT NULL FK contacts.id | binding ที่ออก code ให้; schema จริงชื่อ table คือ contacts |
+| line_uid_hash | text NOT NULL CHECK SHA-256 lowercase hex 64 ตัว | digest ของ UID ขณะออก ใช้เทียบกับ binding ปัจจุบัน ไม่เก็บ raw code/UID เพิ่ม |
+| created_at, expires_at | timestamptz NOT NULL CHECK expires_at > created_at | real UTC อายุ 600 วินาที ไม่ใช่ Demo clock |
+| used_at, revoked_at | timestamptz NULL | consume ครั้งเดียว หรือ revoke เมื่อออก code ใหม่/reset |
+
+มี account แล้วห้ามสมัครทับ การตรวจ binding ต้องยืนยัน contact ของ subject เดียวกัน ACTIVE และ UID digest ตรง ณ ตอนใช้ ไม่เชื่อ code ที่บอก staff_id จาก client Consume กับ insert account ใน transaction เดียว มี UNIQUE ของ account subject เป็นชั้นกัน race อีกชั้น การออก/consume code ใช้ลำดับ shared Auth reset gate → Staff → registration code → Contacts → AUTH_ACCOUNT ที่เกี่ยวข้อง โดย gate ของ auth write ต้องมาก่อน row lock; การผูก LINK เดิมใช้ Staff → link code → Contacts ตาม PR K ไม่สลับลำดับเดิม; AU5 ทดสอบสอง connection และ rebase migration ถ้า head เปลี่ยน ห้ามออก session อัตโนมัติจากการสมัคร
+
+ไม่มีประวัติ raw password/code/token ใน Audit หรือ DB บัญชี/Session/Registration ใช้ real UTC เป็นข้อยกเว้นจากกติกา `core.clock` เดิม Session/code เก่าถูกล้างเมื่อ Demo reset สำเร็จ บัญชีและ permanent identity คงอยู่; reset rollback ต้องคง session/code เดิมและโควตา LLM ตามเดิม
+
+## DEMO_DATASET — profile ข้อมูลทดสอบแบบ opt-in
+
+Migration `f2c9a1d6e8b4` เพิ่มตารางที่ 49: `id bigint PK`, `profile text UNIQUE NOT NULL`, `reference_at timestamptz NOT NULL` ชื่อ profile ระบุ generator รุ่นคงที่ เช่น `large-500-20-30-v1` ไม่มี password, token หรือข้อมูลติดต่อในตารางนี้ CLI สร้าง marker พร้อมข้อมูลใน transaction เดียว Reset จดจำเฉพาะ profile ที่รู้จักและ replay ก่อนคืน permanent identities; profile ไม่รู้จักทำให้ rollback รายละเอียดปริมาณ/namespace/การนำเข้าอยู่ใน [large-demo-data.md](large-demo-data.md)

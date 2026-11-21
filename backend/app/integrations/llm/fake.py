@@ -21,6 +21,11 @@ def _largest_term(candidate: dict[str, Any]) -> tuple[str, str] | None:
 
 
 def _text(payload: Any) -> str:
+    if isinstance(payload, dict) and payload.get("work_type") == "CASE_SUMMARY":
+        return (
+            f"[fake] สถานะเคส {payload['case_status']} "
+            f"ข้อเสนอที่บันทึกไว้ {payload['offer_count']} รายการ"
+        )
     candidates = payload.get("candidates") if isinstance(payload, dict) else None
     if not isinstance(candidates, list) or not candidates:
         return "[fake] ไม่มีข้อมูลผู้สมัครสำหรับแผนนี้"

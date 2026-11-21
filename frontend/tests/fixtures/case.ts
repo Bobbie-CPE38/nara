@@ -61,6 +61,7 @@ export function caseDetail(overrides: Partial<CaseDetail> = {}): CaseDetail {
         cover_start_at: null, cover_end_at: null, source_assignment: null },
     ],
     explanation: null,
+    summary: null,
     partial_plan: false,
     handovers: [],
     ...overrides,

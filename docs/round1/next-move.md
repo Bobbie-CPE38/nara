@@ -11,7 +11,7 @@
 | **3** | งานค้างของ Roster และการลา (R3-Q1) | คะแนนและคำอธิบายอันดับ พร้อมประโยคจาก LLM (ใช้ `fake` ในรอบนี้) | LINE จริง + Webhook + ตรวจ Signature, ผูกบัญชี LINE (ลองผ่าน Quick Tunnel และตัวกรอง HTTP ในเครื่อง ไม่ต้องมีโดเมน) | ตกลงแล้ว อยู่ใน `docs/round3/round3-contract-draft.md` หน้าเว็บพยาบาลตกลงแล้ว คน 1 ทำ (PR #69) สภาพแวดล้อม AWS เลื่อนไปรอบ 6 (มติทีม 2026-10-14) |
 | **4** | Gap ตามเวลา (PR T3), ข้อมูล Demo หลายหอ (PR W4), หน้าเว็บ (PR U) | Cover Window ของผู้สมัคร (PR T1), Solver รายช่วงเวลาและแผนบางส่วน (PR T4), Cross-Ward และ Float Pool (PR C1), ย้ายคนทั้งเวร (PR C2) และกลางเวร (PR C3) | เวลาจริงของ Roster (PR T2), อนุมัติสองหอและ Supervisor (PR S), Auto-Approval (PR A) | ตกลงแล้ว อยู่ใน `docs/round4/round4-contract-draft.md` และย้ายเข้า `docs/workflow.md` แล้ว (รอบ 4 PR 0) Supervisor ย้ายจากคน 2 มาคน 3 (ข้อตกลงการแบ่ง PR ใน `docs/round4/round4-questions.md`) |
 | **5** | ห่อ Orchestrator ด้วย LangGraph | `NO_SHOW` | Handover | Orchestrator เปลี่ยนโครง ต้องไม่ทำ Handler ของคนอื่นพัง |
-| **6** | LLM สรุปสถานการณ์, Deploy บน AWS (PR D) | Bedrock จริง (IAM Role และ Budget) | LLM ตีความคำตอบอิสระ, ย้าย Webhook จาก Tunnel มาที่ AWS | ทีมต้องเลือกก่อนว่าจะทำทางนี้ไหม เปิดเครื่อง AWS ก่อน แล้วจึงลอง Bedrock และย้าย Webhook (มติทีม 2026-10-14) |
+| **6** | หน้าเว็บ: Dashboard, เช็ค Gap, เตรียมเว็บก่อน Deploy; Deploy บน AWS (PR D); LLM สรุปสถานการณ์ของเคส | Bedrock จริง (IAM Role, เพดานคำขอ 100 ครั้งต่อวัน, Budget Alert 20 USD ต่อเดือน), ที่เก็บบันทึกการเรียก LLM, คำอธิบายอันดับที่ผู้ใช้กดขอ, Route อ่านอย่างเดียวของ Dashboard และเช็ค Gap | ย้าย Webhook จาก Tunnel มาที่ AWS; ข้อความอิสระที่ไม่ใช่ปุ่มตอบด้วยคำแนะนำให้กดปุ่ม ไม่ใช้ LLM (R6-Q11 ค); Pagination ของ `/me/handovers`; ปิดรอบ | ตกลงแล้ว อยู่ใน `docs/round6/round6-contract-draft.md` (PR #104) ลำดับ: เปิดเครื่อง AWS ตรวจเว็บบนเครื่องก่อน แล้วจึงลอง Bedrock และย้าย Webhook (มติทีม 2026-10-14 และ R6-Q3) |
 
 งานที่ถูกดึงมารอบ 1
 
@@ -75,4 +75,6 @@
 13. จัดงานของรอบ 5 ใหม่ (เสร็จแล้ว PR #91) รอบ 5 มี LangGraph, check-in และ `NO_SHOW`, Handover
 14. คน 1 เปิด PR 0 ของรอบ 5: ย้าย Contract เข้า `workflow.md` และค่าใหม่ใน `enums.py`, `constants.py` (เสร็จแล้ว PR #92)
 15. แตก branch งานตามลำดับ PR ในข้อ 7 ของร่างรอบ 5 (เสร็จแล้ว PR ทุกตัวเข้า `staging` ครบ #93 ถึง #97, #99 และ #100 รายชื่ออยู่ที่ `docs/workflow.md` ส่วน "สถานะของรอบ 5")
-16. จัดงานของรอบ 6 ก่อนเริ่มรอบ 6 **ยังไม่ได้ทำ และเป็นขั้นถัดไปของทีม** เรื่องที่เปิดไว้จากรอบ 5 อยู่ที่ `docs/workflow.md` ส่วน "สถานะของรอบ 5"
+16. จัดงานของรอบ 6 ใหม่ (เสร็จแล้ว PR #104) รอบ 6 มี Bedrock จริง, เครื่อง AWS, ผู้ใช้กดขอคำอธิบายจาก AI, Dashboard และเช็ค Gap
+17. คน 1 เปิด PR 0 ของรอบ 6: ย้าย Contract เข้า `workflow.md` และค่าใหม่ใน `enums.py`, `constants.py`
+18. แตก branch งานตามลำดับ PR ในข้อ 7 ของร่างรอบ 6 ลำดับ Merge และ PR ที่รอกันอยู่ที่ `docs/workflow.md` ส่วน "สถานะของรอบ 6"

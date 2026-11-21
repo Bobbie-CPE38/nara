@@ -6,12 +6,20 @@ from pydantic import BaseModel
 
 from app.domain.enums import (
     ActorType,
+    ApprovalMode,
+    ApprovalSide,
+    ApproverCapacity,
     AuditAction,
     CandidateSource,
     CaseStatus,
     EntityType,
+    EventType,
+    ExplanationBlock,
+    ExplanationViewStatus,
     OutreachStatus,
+    ShiftType,
 )
+from app.schemas.case_summary import CaseSummaryView
 from app.schemas.handover import HandoverView
 from app.schemas.types import AppDatetime
 
@@ -133,13 +141,164 @@ class CandidateView(BaseModel):
 
 
 class RankExplanationView(BaseModel):
-    """The one-sentence LLM explanation of the rank. Never carries a failure reason."""
+    """The LLM explanation of the rank, made only when a user asks (round 6 PR E1).
+    Never carries a failure reason, tokens or the payload."""
 
-    status: Literal["PENDING", "READY", "UNAVAILABLE"]
+    status: ExplanationViewStatus
     # The next three are set only when READY (model_id is null for the fake provider)
     text: str | None
-    provider: Literal["fake", "bedrock"] | None
+    provider: Literal["fake", "bedrock", "lambda"] | None
     model_id: str | None
+    # True when POST /cases/{id}/explanation would queue the explanation now
+    can_request: bool
+    # null exactly when can_request is true
+    request_blocked_reason: ExplanationBlock | None
+
+
+class OverviewPerson(BaseModel):
+    """Someone the case overview names: who left, who came, who decided (round 6 PR EV7)."""
+
+    staff_id: int | None
+    # "System" (or the component) when no person did it, e.g. auto-approval
+    name: str
+    role: str | None
+    ward_name: str | None
+
+
+class OverviewEvent(BaseModel):
+    event_id: int
+    event_type: EventType
+    # The person the event is about (who is on leave, who did not come); None for a surge
+    staff: OverviewPerson | None
+    occurred_at: AppDatetime
+    # payload.reason: NO_SHOW for the check-in job's event (6.24), the words of a cancel
+    reason: str | None = None
+    # The new total of a PATIENT_SURGE
+    patient_count: int | None = None
+
+
+class OverviewShift(BaseModel):
+    """The shift the case is about: the day and the shift that are short (round 6 PR EV8)."""
+
+    shift_id: int
+    ward_id: int
+    ward_name: str
+    shift_type: ShiftType
+    start_at: AppDatetime
+    end_at: AppDatetime
+
+
+class OverviewMove(BaseModel):
+    """The shift a candidate is moved off when they come (6.19): their source ward."""
+
+    shift_id: int
+    ward_name: str
+    start_at: AppDatetime
+    end_at: AppDatetime
+
+
+class OverviewAutoBasis(BaseModel):
+    """Why the system approved a side (round 6 PR EV9, 6.39): the queue over its cap.
+
+    HEAD_NURSE_QUEUE is the queue of the side's own ward (`approver_count` its active Head
+    Nurses); SUPERVISOR_QUEUE the requests the Supervisor may decide (the active Supervisors).
+    """
+
+    basis: Literal["HEAD_NURSE_QUEUE", "SUPERVISOR_QUEUE"]
+    queue_count: int
+    cap: float
+    approver_count: int
+
+
+class OverviewSide(BaseModel):
+    """One ward's approval of a request: the destination, and the source of a move."""
+
+    side: ApprovalSide
+    ward_name: str
+    # NOT_NEEDED: the request ended before this ward decided (the other ward said no, it
+    # timed out, or the case stopped)
+    status: Literal["PENDING", "APPROVED", "REJECTED", "AUTO_APPROVED", "TIMED_OUT", "NOT_NEEDED"]
+    by: OverviewPerson | None
+    decided_as: ApproverCapacity | None
+    reason: str | None
+    at: AppDatetime | None
+    # While PENDING: the ward's active head nurses, and when the Supervisor may decide too
+    waiting_for: list[OverviewPerson]
+    supervisor_from: AppDatetime | None
+    # AUTO_APPROVED by a queue over its cap (6.39): `by` is then None, never a person
+    auto: OverviewAutoBasis | None = None
+
+
+class OverviewRequest(BaseModel):
+    """One accepted offer and its approval, bound to its candidate (round 6 PR EV8)."""
+
+    approval_id: int
+    candidate: OverviewPerson
+    destination_ward_name: str
+    # None: the candidate is free that day; a move needs both wards (6.21)
+    moved_from: OverviewMove | None
+    # CANCELLED: still undecided, but the case stopped, so nobody decides it any more
+    status: Literal["PENDING", "APPROVED", "REJECTED", "TIMED_OUT", "CANCELLED"]
+    approval_mode: ApprovalMode
+    # The candidate is on the case's shift now: the replacement or the move was made
+    assigned: bool
+    requested_at: AppDatetime
+    sides: list[OverviewSide]
+
+
+class OverviewReplacement(BaseModel):
+    staff: OverviewPerson
+    # APPROVED (offer and approval), TRANSFERRED (moved from another ward's shift) or MANUAL
+    how: Literal["APPROVED", "TRANSFERRED", "MANUAL"]
+    at: AppDatetime
+
+
+class OverviewDecision(BaseModel):
+    """One human or automatic decision on the case, with its ward side for an approval."""
+
+    kind: Literal[
+        "APPROVED",
+        "REJECTED",
+        "AUTO_APPROVED",
+        "APPROVAL_TIMEOUT",
+        "MANUAL_ASSIGNMENT",
+        "CLOSED_UNRESOLVED",
+    ]
+    by: OverviewPerson
+    # The ward the decision speaks for: each side of a cross-ward move has its own
+    ward_name: str | None
+    side: ApprovalSide | None
+    # The candidate the decision is about
+    candidate: OverviewPerson | None
+    reason: str | None
+    at: AppDatetime
+    # An automatic side's queue (6.39); None for a person and for older automatic approvals
+    auto: OverviewAutoBasis | None = None
+
+
+class OverviewOutcome(BaseModel):
+    """Why the case stopped where it is: a handoff, a close, or a failure."""
+
+    kind: Literal["MANUAL_HANDOFF", "CLOSED_UNRESOLVED", "FAILED"]
+    # A ManualHandoffReason code, the words of whoever closed it, or the error type
+    reason: str | None
+    by: OverviewPerson | None
+    at: AppDatetime
+
+
+class CaseOverview(BaseModel):
+    """The top of the case page: what happened, who came, who decided, why it stopped
+    (round 6 PR EV7, docs/workflow.md 6.37.2). All of it is in the timeline too."""
+
+    events: list[OverviewEvent]
+    replacements: list[OverviewReplacement]
+    decisions: list[OverviewDecision]
+    outcome: OverviewOutcome | None
+    # Round 6 PR EV8: the shift, every approval request with each ward's side, and how many
+    # offers still wait for an answer (the current step while nobody has come yet)
+    shift: OverviewShift | None = None
+    requests: list[OverviewRequest] = []
+    open_offers: int = 0
 
 
 class CaseDetail(BaseModel):
@@ -160,12 +319,14 @@ class CaseDetail(BaseModel):
     assigned_count: int
     # Empty until the solver stored a plan. Ordered by rank
     candidates: list[CandidateView]
-    # null when the latest plan has no explanation row
+    # null when there is no plan or the latest plan has no candidates
     explanation: RankExplanationView | None
     # True when the latest plan's first wave comes from the max-coverage stages: no
     # group could cover every target (round 4 PR T4). False without a plan
     partial_plan: bool
     handovers: list[HandoverView]
+    summary: CaseSummaryView | None
+    overview: CaseOverview
 
 
 class AuditEntry(BaseModel):

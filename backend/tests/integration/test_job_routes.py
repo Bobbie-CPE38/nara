@@ -56,6 +56,10 @@ def _waiting_event(client: TestClient) -> int:
         "event_status": "RECEIVED",
         "case_id": None,
         "case_status": None,
+        # Round 6 PR EV10 (6.40): what the reporter is told while the event waits
+        "joined_running_case": False,
+        "ignored_reason": None,
+        "window_closes_at": "2026-10-09T21:10:00+07:00",
     }
     return int(body["event_id"])
 
@@ -78,6 +82,9 @@ def test_reporter_can_follow_an_event_from_received_to_its_case(
         "event_status": "RECEIVED",
         "case_id": None,
         "case_status": None,
+        "joined_running_case": False,
+        "ignored_reason": None,
+        "window_closes_at": "2026-10-09T21:10:00+07:00",
     }
     case_id = seeded.scalars(select(StaffingCase.id)).one()
     assert closed.json() == {
@@ -85,6 +92,9 @@ def test_reporter_can_follow_an_event_from_received_to_its_case(
         "event_status": "PROCESSED",
         "case_id": case_id,
         "case_status": "WAITING_RESPONSE",
+        "joined_running_case": False,
+        "ignored_reason": None,
+        "window_closes_at": None,
     }
 
 
@@ -339,3 +349,26 @@ def test_due_work_routes_sort_auto_approval_result_ids(client, job_secret, monke
     assert response.status_code == 200
     assert response.json()["auto_approved_request_ids"] == [3, 8]
     assert response.json()["failed_auto_approval_ward_ids"] == [2, 9]
+
+
+# --------------------------------------------------------------------------- #
+# POST /demo/clock/freeze and /demo/clock/unfreeze
+# --------------------------------------------------------------------------- #
+def test_the_clock_can_be_unfrozen_and_frozen_again(client: TestClient) -> None:
+    assert clock.is_frozen()
+    try:
+        unfrozen = client.post("/demo/clock/unfreeze")
+        assert unfrozen.status_code == 200
+        assert unfrozen.json()["frozen"] is False
+        assert client.get("/clock").json()["frozen"] is False
+
+        frozen = client.post("/demo/clock/freeze")
+        assert frozen.status_code == 200
+        assert frozen.json()["frozen"] is True
+        assert client.get("/clock").json()["now"] == frozen.json()["now"]
+
+        # a second freeze keeps the time it froze at
+        assert client.post("/demo/clock/freeze").json()["now"] == frozen.json()["now"]
+    finally:
+        # a failure above must not leave a running clock for the tests after this one
+        clock.set_time(DEMO_NOW)

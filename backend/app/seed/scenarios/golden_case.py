@@ -23,7 +23,7 @@ from app.db.models import (
     Ward,
 )
 from app.domain.enums import ActorType, AssignmentType, RosterStatus, ShiftType, StaffStatus
-from app.seed import sync_sequences
+from app.seed import staff_subject, sync_sequences
 
 # (staff ID, first name, role ID, skill IDs). Last names are absent from the contract.
 STAFF_DATA = (
@@ -72,6 +72,7 @@ def seed(db: Session) -> None:
                 role_id=role_id,
                 home_ward_id=1,
                 status=StaffStatus.ACTIVE,
+                auth_subject=staff_subject(db, staff_id),
                 created_at=now,
                 updated_at=now,
             )

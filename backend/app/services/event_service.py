@@ -12,6 +12,7 @@ transaction, so the answer already carries the case. That does not happen while
 another case of the shift is still running: the event then waits as RECEIVED.
 """
 
+import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -22,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.core import clock
 from app.core.constants import HEAD_NURSE_ROLE, MAX_EVENT_REASON_LENGTH
-from app.db.models import Role, RosterAssignment, Shift, StaffingCase, StaffingEvent
+from app.db.models import AuditLog, Role, RosterAssignment, Shift, StaffingCase, StaffingEvent
 from app.domain.enums import (
     STAFF_EVENT_TYPES,
     ActorName,
@@ -42,7 +43,13 @@ from app.services import (
     requirement_service,
     unavailability_service,
 )
-from app.services.merge_window_service import NO_SHOW_REASON, REPORTED_BY
+from app.services.merge_window_service import (
+    EVENT_SOURCE,
+    NO_SHOW_REASON,
+    REPORTED_BY,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class EventNotFoundError(LookupError):
@@ -67,6 +74,10 @@ class EventOutcome:
     event_status: EventStatus
     case_id: int | None
     case_status: CaseStatus | None
+    # Round 6 PR EV10 (6.40): what the reporter is told besides the status
+    joined_running_case: bool = False
+    ignored_reason: str | None = None
+    window_closes_at: datetime | None = None
 
 
 def receive_event(
@@ -83,6 +94,7 @@ def receive_event(
     patient_count: int | None = None,
     roles: Mapping[int, int] | None = None,
     skills: Mapping[int, int] | None = None,
+    source: str | None = None,
 ) -> EventOutcome:
     """Take in one event reported by a staff member and commit the result.
 
@@ -93,6 +105,9 @@ def receive_event(
       * ASSIGNMENT_CANCELLED: `target_staff_id` and `reason`.
       * PATIENT_SURGE: `patient_count`, the new total of the shift.
       * REQUIREMENT_CHANGED: `roles` and `skills`, ID to new required count.
+
+    `source`, when given, is kept as payload.source: POST /demo/events sends SIMULATED so
+    a demo event is never mistaken for a report of a web account (6.33.4).
 
     Every check runs before the first write, so a rejected request leaves no
     trace: ShiftNotFoundError, requirement_service.RequirementNotFoundError,
@@ -116,6 +131,8 @@ def receive_event(
         else:
             subject_staff_id, payload = None, _requirement_details(db, shift, roles, skills)
         payload[REPORTED_BY] = staff_id
+    if source is not None:
+        payload[EVENT_SOURCE] = source
     if event_type in STAFF_EVENT_TYPES:
         assert subject_staff_id is not None
         # Taken after the shift lock, always in this order. It does not stop a
@@ -207,13 +224,26 @@ def _write_event(
 def _close_or_commit(db: Session, shift: Shift) -> None:
     """End the intake transaction, closing the window first when it is due at once.
 
-    A window of 0 seconds is due at once, unless a case of the shift is still
-    running. close_locked_window() commits when it closes the window.
+    A window of 0 seconds is due at once. close_locked_window() commits when it closes
+    the window. With a case of the shift waiting (6.40) the event is committed first and
+    the window closes in a transaction of its own, which starts again when the case
+    changes while its locks are taken: the report is kept even when that close has to be
+    left to the job.
     """
-    if (
-        shift.merge_window_seconds > 0
-        or merge_window_service.close_locked_window(db, shift) is None
-    ):
+    if shift.merge_window_seconds > 0:
+        db.commit()
+        return
+    if merge_window_service.has_waiting_case(db, shift.id):
+        shift_id = shift.id
+        db.commit()
+        try:
+            merge_window_service.close_window(db, shift_id)
+        except Exception:
+            # The event stays RECEIVED and the job closes the window on its next tick
+            db.rollback()
+            logger.exception("Closing the window of shift %s after intake failed", shift_id)
+        return
+    if merge_window_service.close_locked_window(db, shift) is None:
         db.commit()
 
 
@@ -226,12 +256,41 @@ def get_event(db: Session, event_id: int) -> EventOutcome:
 
 
 def _outcome(db: Session, event: StaffingEvent) -> EventOutcome:
+    db.refresh(event)
     case = None if event.case_id is None else db.get(StaffingCase, event.case_id)
+    if case is not None:
+        db.refresh(case)
+    joined = case is not None and (
+        db.scalar(
+            select(AuditLog.id)
+            .where(
+                AuditLog.case_id == case.id,
+                AuditLog.action == AuditAction.CASE_EVENTS_JOINED,
+                AuditLog.payload.contains({"event_ids": [event.id]}),
+            )
+            .limit(1)
+        )
+        is not None
+    )
+    ignored = (
+        db.scalar(
+            select(AuditLog.payload["reason"].as_string())
+            .where(AuditLog.event_id == event.id, AuditLog.action == AuditAction.EVENT_IGNORED)
+            .limit(1)
+        )
+        if event.status is EventStatus.IGNORED
+        else None
+    )
     return EventOutcome(
         event_id=event.id,
         event_status=event.status,
         case_id=None if case is None else case.id,
         case_status=None if case is None else case.status,
+        joined_running_case=joined,
+        ignored_reason=ignored,
+        window_closes_at=merge_window_service.window_closes_at(db, event.shift_id)
+        if event.status is EventStatus.RECEIVED
+        else None,
     )
 
 

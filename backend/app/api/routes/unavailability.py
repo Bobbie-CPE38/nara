@@ -4,7 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, status
 
-from app.api.dependencies import DbSession, DemoUser
+from app.api.dependencies import DbSession, DemoUser, access_viewer
 from app.core.constants import MAX_BIGINT
 from app.schemas.unavailability import EndAtChange, EndAtChangeResult, OverlappingOfferView
 from app.services import unavailability_service
@@ -28,7 +28,7 @@ def change_end_at(
             db,
             unavailability_id=unavailability_id,
             end_at=body.end_at,
-            role_id=user.staff.role_id,
+            role=access_viewer(db, user).role,
             home_ward_id=user.staff.home_ward_id,
             actor_id=user.actor_id,
         )

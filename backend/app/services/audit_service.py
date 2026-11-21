@@ -51,17 +51,22 @@ def log(
     if "password_hash" in payload:
         raise ValueError("payload must not contain password_hash")
 
-    db.add(
-        AuditLog(
-            case_id=case_id,
-            event_id=event_id,
-            actor_id=actor_id,
-            action=action,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            payload=payload,
-        )
+    row = AuditLog(
+        case_id=case_id,
+        event_id=event_id,
+        actor_id=actor_id,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        payload=payload,
     )
+    db.add(row)
     # Surface FK errors here, inside the caller's round, and make the row
     # visible to later queries (SessionLocal has autoflush=False)
     db.flush()
+    # Final-offer messages project the authoritative audit in this transaction.
+    # This writes only an outbox/UI snapshot, never sends or commits. Keeping the
+    # boundary here covers every workflow/manual/job path, including D11 rollback.
+    from app.services import offer_outcome_service
+
+    offer_outcome_service.prepare_audit(db, row)

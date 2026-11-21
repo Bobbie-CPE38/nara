@@ -2,13 +2,14 @@
 
 The orchestrator owns decision commits."""
 
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
+from decimal import Decimal
 from fractions import Fraction
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.engine import Connection, RowMapping, Transaction
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.sql import ColumnElement, Select
@@ -38,13 +39,13 @@ from app.domain.enums import (
     ApprovalSide,
     ApproverCapacity,
     AuditAction,
-    CandidateSource,
     CaseStatus,
     EntityType,
     OutreachStatus,
 )
 from app.schemas.approval import ApprovalDecisionResult, AutoApprovedApproval, PendingApproval
 from app.services import (
+    access_service,
     actor_service,
     approval_wards,
     audit_service,
@@ -89,14 +90,30 @@ class InvalidApprovalReasonError(ValueError):
 
 
 @dataclass(frozen=True)
-class AutoApprovalBatch:
-    """Authorization for one locked ward snapshot, bound to its outer transaction."""
+class AutoSide:
+    """Why the system may decide one side: the queue that was over its cap (6.39).
 
-    ward_id: int
-    pending_count: int
-    approver_count: int
+    `basis` HEAD_NURSE is the Head Nurse queue of the side's own ward; SUPERVISOR is the
+    queue of requests the Supervisor may already decide. `approver_count` is the active
+    Head Nurses of that ward, or the active Supervisors.
+    """
+
+    basis: ApproverCapacity
+    queue_count: int
     cap: Fraction
-    approval_ids: frozenset[int]
+    approver_count: int
+
+
+@dataclass(frozen=True)
+class AutoApprovalBatch:
+    """Authorization for one locked snapshot, bound to its outer transaction (6.39).
+
+    `ward_ids` are the WARD rows the job holds: the destination ward of every request it
+    may decide. `sides` maps (approval ID, side) to the queue that made that side eligible.
+    """
+
+    ward_ids: frozenset[int]
+    sides: Mapping[tuple[int, ApprovalSide], AutoSide]
     connection: Connection
     transaction: Transaction
 
@@ -161,8 +178,12 @@ def decide(
     approved: bool,
     reason: str | None = None,
     side: str | None = None,
+    audit_source: str | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase]:
     """Decide one candidate and execute immediately, then recompute the case.
+
+    `audit_source` is kept as payload.source: the scripted head nurse of a test run
+    sends SIMULATED (round 6 PR EV5a, 6.35.3).
 
     The approver needs the required role and must be of the ward of the shift
     (workflow.md section 6.12). Both refusals come before the pending check.
@@ -185,6 +206,7 @@ def decide(
         approved=approved,
         reason=reason,
         side=side,
+        audit_source=audit_source,
     )
 
 
@@ -192,17 +214,18 @@ def decide_automatic(
     db: Session,
     *,
     approval_id: int,
+    side: ApprovalSide,
     batch: AutoApprovalBatch,
     notifications: list[tuple[int, int, tuple[int, ...]]],
 ) -> tuple[ApprovalRequest, StaffingCase]:
-    """System-only decision authorized by an explicit, still-locked ward snapshot."""
+    """System-only approval of one side, authorized by an explicit, still-locked snapshot."""
+    basis = batch.sides.get((approval_id, side)) if isinstance(batch, AutoApprovalBatch) else None
     if (
-        not isinstance(batch, AutoApprovalBatch)
+        basis is None
         or batch.connection is not db.connection()
         or batch.transaction is not db.connection().get_transaction()
         or not batch.transaction.is_active
-        or batch.pending_count <= batch.cap
-        or approval_id not in batch.approval_ids
+        or basis.queue_count <= basis.cap
     ):
         raise ApproverRoleError("Automatic approval requires a locked ward batch")
     return _decide(
@@ -214,6 +237,7 @@ def decide_automatic(
         actor_id=None,
         approved=True,
         batch=batch,
+        side=side.value,
         notifications=notifications,
     )
 
@@ -231,6 +255,7 @@ def _decide(
     batch: AutoApprovalBatch | None = None,
     side: str | None = None,
     notifications: list[tuple[int, int, tuple[int, ...]]] | None = None,
+    audit_source: str | None = None,
 ) -> tuple[ApprovalRequest, StaffingCase]:
     """Shared lock, validation, assignment and audit path for both decision entry points."""
     request, case, item, offers = lock_approval_attempt(
@@ -242,14 +267,17 @@ def _decide(
         restart_batch=batch is not None,
         side=side,
     )
+    auto: AutoSide | None = None
     if batch is not None:
         target_shift = db.get(Shift, case.shift_id)
+        auto_side = ApprovalSide(side) if side is not None else None
+        auto = batch.sides.get((request.id, auto_side)) if auto_side is not None else None
         if (
-            not isinstance(batch, AutoApprovalBatch)
+            auto is None
+            or auto_side is None
             or target_shift is None
-            or target_shift.ward_id != batch.ward_id
-            or item.source != CandidateSource.SAME_WARD
-            or item.source_assignment_id is not None
+            or target_shift.ward_id not in batch.ward_ids
+            or auto_side not in approval_wards.required_wards(db, item)
         ):
             raise ApprovalNotPendingError("This request requires a human approver")
         actor_id = actor_service.component_id(db, ActorName.SYSTEM)
@@ -272,8 +300,14 @@ def _decide(
     }
     if clock.now() >= request.expires_at:
         raise ApprovalNotPendingError("The approval request has expired")
-    selected_side = None
-    if batch is None:
+    if auto is not None:
+        assert side is not None
+        selected_side = ApprovalSide(side)
+        # Nobody looks at this request, so the rules a person would rely on are checked
+        # again here, under the locks, as Safety checked them at the answer (6.39)
+        if _fails_hard_rules(db, case, item):
+            raise ApprovalNotPendingError("The candidate no longer passes the hard rules")
+    else:
         assert role_id is not None
         selected_side = approval_wards.select_side(
             db,
@@ -283,16 +317,16 @@ def _decide(
             home_ward_id=home_ward_id,
             side=side,
         )
-        if (
-            db.scalar(
-                select(ApprovalWardDecision.id).where(
-                    ApprovalWardDecision.approval_request_id == request.id,
-                    ApprovalWardDecision.side == selected_side,
-                )
+    if (
+        db.scalar(
+            select(ApprovalWardDecision.id).where(
+                ApprovalWardDecision.approval_request_id == request.id,
+                ApprovalWardDecision.side == selected_side,
             )
-            is not None
-        ):
-            raise ApprovalNotPendingError("This ward side has already decided")
+        )
+        is not None
+    ):
+        raise ApprovalNotPendingError("This ward side has already decided")
     stored_reason = reason if approved or reason is None else reason.strip()
     if stored_reason is not None and len(stored_reason) > MAX_APPROVAL_REASON_LENGTH:
         raise InvalidApprovalReasonError(
@@ -300,56 +334,66 @@ def _decide(
         )
     if not approved and not stored_reason:
         raise InvalidApprovalReasonError("A rejection requires a nonblank reason")
-    if selected_side is not None:
-        assert staff_id is not None
+    if auto is not None:
+        capacity = auto.basis
+    else:
         role_name = db.scalar(select(Role.name).where(Role.id == role_id))
         capacity = (
             ApproverCapacity.SUPERVISOR
             if role_name == SUPERVISOR_ROLE
             else ApproverCapacity.HEAD_NURSE
         )
-        wards = approval_wards.required_wards(db, item)
-        db.add(
-            ApprovalWardDecision(
-                approval_request_id=request.id,
-                ward_id=wards[selected_side],
-                side=selected_side,
-                approver_id=staff_id,
-                decided_as=capacity,
-                is_approved=approved,
-                reason=stored_reason,
-                decided_at=clock.now(),
+    wards = approval_wards.required_wards(db, item)
+    db.add(
+        ApprovalWardDecision(
+            approval_request_id=request.id,
+            ward_id=wards[selected_side],
+            side=selected_side,
+            approver_id=staff_id,
+            decided_as=capacity,
+            is_approved=approved,
+            reason=stored_reason,
+            decided_at=clock.now(),
+            approval_mode=ApprovalMode.MANUAL if auto is None else ApprovalMode.AUTO,
+            queue_count=None if auto is None else auto.queue_count,
+            queue_cap=None if auto is None else Decimal(display_number(auto.cap)),
+            queue_approver_count=None if auto is None else auto.approver_count,
+        )
+    )
+    db.flush()
+    side_payload: dict[str, Any] = {
+        "ward_id": wards[selected_side],
+        "side": selected_side.value,
+        "decided_as": capacity.value,
+    }
+    if auto is not None:
+        side_payload |= _auto_payload(auto)
+    approved_sides = set(
+        db.scalars(
+            select(ApprovalWardDecision.side).where(
+                ApprovalWardDecision.approval_request_id == request.id,
+                ApprovalWardDecision.is_approved.is_(True),
             )
         )
-        db.flush()
-        approved_sides = set(
-            db.scalars(
-                select(ApprovalWardDecision.side).where(
-                    ApprovalWardDecision.approval_request_id == request.id,
-                    ApprovalWardDecision.is_approved.is_(True),
-                )
-            )
+    )
+    if approved and not set(wards) <= approved_sides:
+        assert actor_id is not None
+        audit_service.log(
+            db,
+            case_id=case.id,
+            actor_id=actor_id,
+            action=AuditAction.APPROVAL_WARD_APPROVED,
+            entity_type=EntityType.APPROVAL_REQUEST,
+            entity_id=request.id,
+            payload={"approval_id": request.id}
+            | side_payload
+            | ({} if audit_source is None else {"source": audit_source}),
         )
-        if approved and not set(wards) <= approved_sides:
-            assert actor_id is not None
-            audit_service.log(
-                db,
-                case_id=case.id,
-                actor_id=actor_id,
-                action=AuditAction.APPROVAL_WARD_APPROVED,
-                entity_type=EntityType.APPROVAL_REQUEST,
-                entity_id=request.id,
-                payload={
-                    "approval_id": request.id,
-                    "ward_id": wards[selected_side],
-                    "side": selected_side.value,
-                    "decided_as": capacity.value,
-                },
-            )
-            db.commit()
-            return request, case
+        db.commit()
+        return request, case
     outreach = own[0]
-    if batch is not None:
+    # The request is AUTO when the system made its last decision; each side keeps its own
+    if auto is not None:
         request.approval_mode = ApprovalMode.AUTO
     request.approver_id = staff_id
     request.is_approved = approved
@@ -357,13 +401,11 @@ def _decide(
     request.decided_at = clock.now()
     request.is_pending = False
     payload: dict[str, Any] = {"approval_id": request.id, "reason": request.reason}
-    if isinstance(batch, AutoApprovalBatch):
-        payload |= {
-            "approval_mode": ApprovalMode.AUTO.value,
-            "pending_count": batch.pending_count,
-            "approver_count": batch.approver_count,
-            "cap": display_number(batch.cap),
-        }
+    if auto is not None:
+        # A person's final decision keeps its payload; its side is in its ward row
+        payload |= side_payload
+    if audit_source is not None:
+        payload["source"] = audit_source
     if not approved:
         outreach_service.cancel_offer(db, outreach)
         payload |= {"staff_id": item.staff_id, "outreach_id": outreach.id}
@@ -470,6 +512,26 @@ def _decide(
                 additional_case_ids=additional,
             )
     return request, case
+
+
+def _auto_payload(auto: AutoSide) -> dict[str, Any]:
+    """What made an automatic side eligible, kept in its audit to explain it later (6.39)."""
+    return {
+        "approval_mode": ApprovalMode.AUTO.value,
+        "basis": f"{auto.basis.value}_QUEUE",
+        "pending_count": auto.queue_count,
+        "approver_count": auto.approver_count,
+        "cap": display_number(auto.cap),
+    }
+
+
+def _fails_hard_rules(db: Session, case: StaffingCase, item: CandidateItem) -> bool:
+    """The Safety check of the answer, run again for an automatic decision (6.39)."""
+    shift = db.get(Shift, case.shift_id)
+    if shift is None:
+        raise LookupError(f"No shift {case.shift_id}")
+    db.flush()
+    return not hard_rule_service.check_items(db, shift=shift, items=[item])[item.id].result.passed
 
 
 def lock_approval_attempt(
@@ -617,7 +679,7 @@ def decision_offers_query(
     )
 
 
-def list_pending(db: Session) -> list[PendingApproval]:
+def list_pending(db: Session, viewer: access_service.Viewer | None = None) -> list[PendingApproval]:
     """Read pending requests of running cases by ID, without writes or locks.
 
     Do not hide other cases when a case has duplicate pending requests. Any
@@ -626,6 +688,10 @@ def list_pending(db: Session) -> list[PendingApproval]:
     cases keep undecided requests as history, but those cannot be acted on and
     are excluded here, including requests left behind by D11 failures. Pending
     requests whose offers were cancelled are also excluded on running cases.
+
+    With a viewer (session mode, a manager) the requests are those that have a side in their ward
+    (a supervisor: all), filtered in the query, and a head nurse gets only the approval sides of
+    their own ward: the other ward's side and its status are not theirs to read (6.33.4).
     """
     with db.no_autoflush:
         rows = db.execute(
@@ -643,10 +709,21 @@ def list_pending(db: Session) -> list[PendingApproval]:
             )
             .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
             .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
-            .where(*actionable_pending())
+            .where(
+                *actionable_pending(),
+                # By request, not by case: a request without a side in the reader's ward is not
+                # in their queue even when they may read its case
+                access_service.approval_request_condition(viewer),
+            )
             .order_by(ApprovalRequest.id)
         ).mappings()
-        return [PendingApproval.model_validate(row) for row in _enrich_wards(db, list(rows))]
+        enriched = _enrich_wards(db, list(rows))
+        if viewer is not None and viewer.role == "head_nurse":
+            enriched = [
+                row | {"wards": [w for w in row["wards"] if w["ward_id"] == viewer.home_ward_id]}
+                for row in enriched
+            ]
+        return [PendingApproval.model_validate(row) for row in enriched]
 
 
 def actionable_pending() -> tuple[ColumnElement[bool], ...]:
@@ -675,11 +752,32 @@ def lock_ward_row(db: Session, ward_id: int) -> None:
 def list_auto_approved(
     db: Session, *, role_id: int, home_ward_id: int
 ) -> list[AutoApprovedApproval]:
-    """Newest 50 system decisions: own ward for Head Nurse, all wards for Supervisor."""
+    """Newest 50 requests the system approved, fully or one side of (6.22, 6.39).
+
+    A Supervisor reads every ward. A Head Nurse reads the requests where the system approved
+    the side of their own ward, and only that side: the other ward's side and its status are
+    not theirs to read (6.33.4), as in the pending list. A request a person rejected or that
+    timed out afterwards is not listed.
+    """
     with db.no_autoflush:
         role = db.scalar(select(Role.name).where(Role.id == role_id))
         if role not in {HEAD_NURSE_ROLE, SUPERVISOR_ROLE}:
             raise ApproverRoleError("Only Head Nurses and Supervisors can read auto approvals")
+        head_nurse = role == HEAD_NURSE_ROLE
+        sides = select(
+            ApprovalWardDecision.approval_request_id.label("request_id"),
+            func.max(ApprovalWardDecision.decided_at).label("decided_at"),
+        ).where(ApprovalWardDecision.approval_mode == ApprovalMode.AUTO)
+        if head_nurse:
+            sides = sides.where(ApprovalWardDecision.ward_id == home_ward_id)
+        automatic = sides.group_by(ApprovalWardDecision.approval_request_id).subquery()
+        # Before 6.39 an automatic approval had no ward decision rows: the destination's
+        legacy = (ApprovalRequest.approval_mode == ApprovalMode.AUTO) & ~exists().where(
+            ApprovalWardDecision.approval_request_id == ApprovalRequest.id
+        )
+        if head_nurse:
+            legacy = legacy & (Shift.ward_id == home_ward_id)
+        decided_at = func.coalesce(automatic.c.decided_at, ApprovalRequest.decided_at)
         query = (
             select(
                 ApprovalRequest.id,
@@ -690,26 +788,32 @@ def list_auto_approved(
                 ApprovalRequest.is_pending,
                 ApprovalRequest.requested_at,
                 ApprovalRequest.expires_at,
-                ApprovalRequest.decided_at,
+                decided_at.label("decided_at"),
                 CandidateItem.staff_id,
                 CandidateItem.proposed_shift_id,
             )
             .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
-            .join(StaffingCase, StaffingCase.id == ApprovalRequest.case_id)
-            .join(Shift, Shift.id == StaffingCase.shift_id)
+            .join(Shift, Shift.id == CandidateItem.proposed_shift_id)
+            .outerjoin(automatic, automatic.c.request_id == ApprovalRequest.id)
             .where(
-                ApprovalRequest.approval_mode == ApprovalMode.AUTO,
-                ApprovalRequest.is_pending.is_(False),
-                ApprovalRequest.is_approved.is_(True),
-                ApprovalRequest.decided_at.is_not(None),
+                or_(
+                    automatic.c.request_id.is_not(None),
+                    legacy & ApprovalRequest.is_pending.is_(False),
+                ),
+                ApprovalRequest.is_approved.is_not(False),
+                ApprovalRequest.is_timed_out.is_(False),
             )
         )
-        if role == HEAD_NURSE_ROLE:
-            query = query.where(Shift.ward_id == home_ward_id)
         rows = db.execute(
-            query.order_by(ApprovalRequest.decided_at.desc(), ApprovalRequest.id.desc()).limit(50)
+            query.order_by(decided_at.desc(), ApprovalRequest.id.desc()).limit(50)
         ).mappings()
-        return [AutoApprovedApproval.model_validate(row) for row in _enrich_wards(db, list(rows))]
+        enriched = _enrich_wards(db, list(rows))
+        if head_nurse:
+            enriched = [
+                row | {"wards": [w for w in row["wards"] if w["ward_id"] == home_ward_id]}
+                for row in enriched
+            ]
+        return [AutoApprovedApproval.model_validate(row) for row in enriched]
 
 
 def _enrich_wards(db: Session, rows: Sequence[RowMapping]) -> list[dict[str, Any]]:
@@ -733,17 +837,19 @@ def _enrich_wards(db: Session, rows: Sequence[RowMapping]) -> list[dict[str, Any
             .where(ApprovalRequest.id.in_(ids))
         )
     }
-    decided = set(
-        db.execute(
+    decided = {
+        (approval_id, side): mode
+        for approval_id, side, mode in db.execute(
             select(
                 ApprovalWardDecision.approval_request_id,
                 ApprovalWardDecision.side,
+                ApprovalWardDecision.approval_mode,
             ).where(
                 ApprovalWardDecision.approval_request_id.in_(ids),
                 ApprovalWardDecision.is_approved.is_(True),
             )
         )
-    )
+    }
     delay = policy_service.get_approval_policy(db).supervisor_after_seconds
     result = []
     for row in rows:
@@ -758,19 +864,29 @@ def _enrich_wards(db: Session, rows: Sequence[RowMapping]) -> list[dict[str, Any
                 "source_ward_id": source,
                 "supervisor_from": row["requested_at"] + timedelta(seconds=delay),
                 "wards": [
-                    {
-                        "ward_id": ward_id,
-                        "side": side,
-                        "status": "APPROVED"
-                        if (row["id"], side) in decided
-                        or (not row["is_pending"] and row["approval_mode"] == ApprovalMode.AUTO)
-                        else "PENDING",
-                    }
-                    for side, ward_id in wards.items()
+                    _ward_view(row, side, ward_id, decided) for side, ward_id in wards.items()
                 ],
             }
         )
     return result
+
+
+def _ward_view(
+    row: RowMapping,
+    side: ApprovalSide,
+    ward_id: int,
+    decided: Mapping[tuple[int, ApprovalSide], ApprovalMode],
+) -> dict[str, Any]:
+    mode = decided.get((row["id"], side))
+    if mode is None and not row["is_pending"] and row["approval_mode"] == ApprovalMode.AUTO:
+        # An automatic approval from before 6.39 decided the request without side rows
+        mode = ApprovalMode.AUTO
+    return {
+        "ward_id": ward_id,
+        "side": side,
+        "status": "PENDING" if mode is None else "APPROVED",
+        "approval_mode": mode,
+    }
 
 
 def decision_result(

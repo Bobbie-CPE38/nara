@@ -197,10 +197,12 @@ def test_shift_whose_close_fails_does_not_stop_the_other_shifts(
     clock.advance(timedelta(seconds=WINDOW))
     real_apply = merge_window_service._apply
 
-    def apply_but_not_on_the_night_shift(db: Session, shift: Shift, event: StaffingEvent) -> None:
+    def apply_but_not_on_the_night_shift(
+        db: Session, shift: Shift, event: StaffingEvent, *rest: Any
+    ) -> bool:
         if shift.id == NIGHT_SHIFT:
             raise RuntimeError("database went away")
-        real_apply(db, shift, event)
+        return real_apply(db, shift, event, *rest)
 
     monkeypatch.setattr(merge_window_service, "_apply", apply_but_not_on_the_night_shift)
 

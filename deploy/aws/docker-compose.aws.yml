@@ -1,0 +1,102 @@
+# Layer for the AWS test machine (round 6 PR D, docs/deploy-aws.md). Used on top
+# of the main file, with /etc/nara/nara.env (Parameter Store or manual setup):
+#
+#   docker compose --env-file /etc/nara/nara.env \
+#     -f docker-compose.yml -f deploy/aws/docker-compose.aws.yml up -d
+#
+# Only Caddy publishes ports. Every other service is reachable inside the
+# compose network only. `!reset` and `!override` need Docker Compose 2.24.4 or later.
+#
+# The frontend is a production image (round 6 PR F3, docs/workflow.md 6.30): `next build`
+# runs while the image is built and `next start` serves it, with no code mounted in.
+# Add --build to `up` after the code changes (nara.service does).
+
+services:
+  postgres:
+    ports: !reset []
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the deployment env file}
+
+  redis:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-staffing}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in the deployment env file}@postgres:5432/${POSTGRES_DB:-staffing}
+      # The pages and the API share one origin; this only covers direct calls
+      CORS_ORIGINS: '["https://${SITE_DOMAIN:?SITE_DOMAIN must be set in the deployment env file}"]'
+      INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must be set in the deployment env file}
+      # HTTPS through Caddy: the session cookie is always Secure here, whatever the main
+      # file's local default (round 6 PR AU1). AU4 pins APP_ENV=aws and AUTH_MODE=session
+      APP_ENV: "aws"
+      AUTH_MODE: "session"
+      AUTH_COOKIE_SECURE: "true"
+    # One serving process: the auth limiter is process-local. No reload on AWS.
+    command: >-
+      sh -c 'pip install --no-cache-dir -e ".[dev]" &&
+      exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
+      --proxy-headers --forwarded-allow-ips=172.30.64.2'
+
+  job:
+    environment:
+      INTERNAL_JOB_SECRET: ${INTERNAL_JOB_SECRET:?INTERNAL_JOB_SECRET must be set in the deployment env file}
+
+  frontend:
+    image: nara-staffing-frontend:aws
+    build:
+      context: ./frontend
+      dockerfile: ../deploy/aws/frontend.Dockerfile
+      args:
+        # Written into the browser bundle by `next build`. The only value that gets there
+        NEXT_PUBLIC_API_BASE_URL: https://${SITE_DOMAIN:?SITE_DOMAIN must be set in the deployment env file}/api
+    ports: !reset []
+    # No bind mount: the code and node_modules are in the image
+    volumes: !reset []
+    # The image starts `next start`; the main file's command runs the dev server
+    command: !reset []
+    # Nothing is read from the environment when the server runs
+    environment: !override {}
+    healthcheck:
+      # No dev compile to wait for
+      start_period: 30s
+
+  caddy:
+    image: caddy:2.10-alpine
+    container_name: nara-staffing-caddy
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?SITE_DOMAIN must be set in the deployment env file}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL must be set in the deployment env file}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?BASIC_AUTH_USER must be set in the deployment env file}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?BASIC_AUTH_HASH must be set in the deployment env file}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/aws/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates live here; keeping them avoids asking Let's Encrypt again
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      staffing_net:
+        ipv4_address: 172.30.64.2
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+# A fixed Caddy address makes proxy trust exact, rather than trusting every container.
+# Check for subnet overlap before first AU4 start; changing an existing network requires down/up.
+networks:
+  staffing_net:
+    ipam:
+      config:
+        - subnet: 172.30.64.0/24
+          # Dynamic containers must not claim the fixed proxy address before Caddy starts.
+          ip_range: 172.30.64.128/25

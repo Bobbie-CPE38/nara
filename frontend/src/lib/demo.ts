@@ -8,7 +8,7 @@ export const DEMO_SHIFT_IDS = [1, 2, 21, 22] as const;
 export const DEMO_APPROVER_ID = 900;
 
 /** A shift of the seed and the people on its roster before any event. */
-export type DemoShift = { id: number; label: string; staffIds: readonly number[] };
+export type DemoShift = { id: number; kind: "night" | "day"; staffIds: readonly number[] };
 export type DemoWard = { id: number; name: string; shifts: readonly DemoShift[] };
 
 /**
@@ -22,16 +22,16 @@ export const DEMO_WARDS: readonly DemoWard[] = [
     id: 1,
     name: "ICU",
     shifts: [
-      { id: 1, label: "Shift 1 (night)", staffIds: [101, 102, 103, 104, 105] },
-      { id: 2, label: "Shift 2 (day)", staffIds: [202, 203] },
+      { id: 1, kind: "night", staffIds: [101, 102, 103, 104, 105] },
+      { id: 2, kind: "day", staffIds: [202, 203] },
     ],
   },
   {
     id: 2,
     name: "Medicine",
     shifts: [
-      { id: 21, label: "Shift 21 (night)", staffIds: [301, 302, 401, 902, 950] },
-      { id: 22, label: "Shift 22 (day)", staffIds: [301, 302, 401, 902, 950] },
+      { id: 21, kind: "night", staffIds: [301, 302, 401, 902, 950] },
+      { id: 22, kind: "day", staffIds: [301, 302, 401, 902, 950] },
     ],
   },
 ];
@@ -41,6 +41,27 @@ const DEMO_WARD_NAMES = new Map<number, string>([
   [1, "ICU"],
   [2, "Medicine"],
   [3, "Float Pool"],
+  // Keep labels aligned with app.seed.large_demo.WARD_NAMES.
+  [10001, "Demo ICU 01"],
+  [10002, "Demo Medicine 02"],
+  [10003, "Demo Surgery 03"],
+  [10004, "Demo Emergency 04"],
+  [10005, "Demo Pediatrics 05"],
+  [10006, "Demo Cardiology 06"],
+  [10007, "Demo Neurology 07"],
+  [10008, "Demo Orthopedics 08"],
+  [10009, "Demo Oncology 09"],
+  [10010, "Demo Recovery 10"],
+  [10011, "Demo ICU 11"],
+  [10012, "Demo Medicine 12"],
+  [10013, "Demo Surgery 13"],
+  [10014, "Demo Emergency 14"],
+  [10015, "Demo Pediatrics 15"],
+  [10016, "Demo Cardiology 16"],
+  [10017, "Demo Neurology 17"],
+  [10018, "Demo Orthopedics 18"],
+  [10019, "Demo Oncology 19"],
+  [10020, "Demo Recovery 20"],
 ]);
 
 export function wardName(wardId: number): string {
@@ -50,14 +71,31 @@ export function wardName(wardId: number): string {
 /** Who the approvals page can act as (docs/workflow.md, section 6.21). Not a real login. */
 export const DEMO_APPROVERS: readonly {
   id: number;
-  label: string;
+  role: "headNurse" | "supervisor";
   /** The ward a head nurse decides for; null for the Supervisor, who may decide any */
   wardId: number | null;
 }[] = [
-  { id: 900, label: "900 — Head Nurse, ICU", wardId: 1 },
-  { id: 902, label: "902 — Head Nurse, Medicine", wardId: 2 },
-  { id: 950, label: "950 — Supervisor, every ward", wardId: null },
+  { id: 900, role: "headNurse", wardId: 1 },
+  { id: 902, role: "headNurse", wardId: 2 },
+  { id: 950, role: "supervisor", wardId: null },
 ];
+/**
+ * The demo user travels from one page to the next in this query parameter, so a link of the
+ * Dashboard opens the destination for the same user (round 6 PR F2 review). Not a real login.
+ */
+export const ACTOR_QUERY = "as";
+
+/** The user a page opens for: the one in the query, or the Golden Case head nurse. */
+export function actorFromQuery(value: string | null | undefined): number {
+  const id = Number(value);
+  return DEMO_APPROVERS.some((approver) => approver.id === id) ? id : DEMO_APPROVER_ID;
+}
+
+/** A link to `path` that opens for `actorId`. */
+export function withActor(path: string, actorId: number): string {
+  return `${path}?${ACTOR_QUERY}=${actorId}`;
+}
+
 /** Where the nurse page keeps its demo sign-in (docs/workflow.md, section 6.17). Not a real login. */
 export const DEMO_SIGNED_IN_STORAGE_KEY = "nara.demo.signedInStaffId";
 

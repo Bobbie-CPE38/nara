@@ -1,13 +1,13 @@
 """Models owned by person 1 must match docs/database-schema.md exactly."""
 
 import pytest
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Numeric, Text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 import app.db.models  # noqa: F401  registers all tables on Base.metadata
-from app.core import clock
+from app.core import auth_clock, clock
 from app.db.base import Base, StrEnumText
 
 NOT_NULL = False
@@ -24,6 +24,8 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "role_id": (BigInteger, NOT_NULL),
         "home_ward_id": (BigInteger, NOT_NULL),
         "status": (StrEnumText, NOT_NULL),
+        # Round 6 PR AU1: the permanent person behind the row
+        "auth_subject": (postgresql.UUID, NOT_NULL),
         "created_at": (DateTime, NOT_NULL),
         "updated_at": (DateTime, NOT_NULL),
     },
@@ -178,11 +180,16 @@ EXPECTED: dict[str, dict[str, tuple[type, bool]]] = {
         "approval_request_id": (BigInteger, NOT_NULL),
         "ward_id": (BigInteger, NOT_NULL),
         "side": (StrEnumText, NOT_NULL),
-        "approver_id": (BigInteger, NOT_NULL),
+        "approver_id": (BigInteger, NULL),
         "decided_as": (StrEnumText, NOT_NULL),
         "is_approved": (Boolean, NOT_NULL),
         "reason": (Text, NULL),
         "decided_at": (DateTime, NOT_NULL),
+        # Round 6 PR EV9: a side the system approved, and the queue that made it eligible
+        "approval_mode": (StrEnumText, NOT_NULL),
+        "queue_count": (Integer, NULL),
+        "queue_cap": (Numeric, NULL),
+        "queue_approver_count": (Integer, NULL),
     },
 }
 
@@ -313,14 +320,22 @@ def test_staffing_event_constraint() -> None:
     )
 
 
+# Accounts and sessions expire on real time, not the Demo Clock (docs/database-schema.md)
+REAL_TIME_TABLES = {"auth_account", "auth_session", "auth_registration_code"}
+
+
 def test_created_and_updated_timestamps_default_to_the_clock() -> None:
-    """Team convention for all 30 tables: these two columns never rely on the caller."""
+    """Team convention for all tables: these two columns never rely on the caller."""
     missing = [
         f"{table.name}.{column.name}"
         for table in Base.metadata.tables.values()
         for column in table.columns
         if column.name in {"created_at", "updated_at"}
-        and (column.default is None or column.default.arg.__wrapped__ is not clock.now)
+        and (
+            column.default is None
+            or column.default.arg.__wrapped__
+            is not (auth_clock.now if table.name in REAL_TIME_TABLES else clock.now)
+        )
     ]
 
     assert missing == []

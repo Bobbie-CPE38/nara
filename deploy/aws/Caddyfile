@@ -1,0 +1,65 @@
+# AU4: session identity for the app; Basic Auth is an additional gate only for Demo.
+# EV8: the Backend first checks the web session of a Demo request, so only a head nurse or
+# a supervisor is ever asked for the Basic Auth password (docs/workflow.md 6.38.1).
+# Match the webhook exception on the original URI, before any prefix is stripped.
+{
+	email {$ACME_EMAIL}
+}
+
+(backend_proxy) {
+	reverse_proxy backend:8000 {
+		# This deployment terminates HTTPS here (no external trusted proxy).
+		# Replace, rather than trust, headers supplied by an Internet client.
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+{$SITE_DOMAIN} {
+	encode gzip
+	route {
+		# Caddy path matching decodes and normalizes. Reject alternate API/Demo
+		# spellings before they can bypass a gate or become an exact webhook.
+		@noncanonicalApi {
+			path /api /api/*
+			not expression {http.request.orig_uri}.matches("^/api(/[a-z0-9_-]+)*/?([?].*)?$")
+		}
+		respond @noncanonicalApi 404
+		@noncanonicalDemo {
+			path /demo /demo/*
+			not expression {http.request.orig_uri}.matches("^/demo(/[a-z0-9_-]+)*/?([?].*)?$")
+		}
+		respond @noncanonicalDemo 404
+
+		@private path /api/internal /api/internal/* /api/docs /api/docs/* /api/redoc /api/redoc/* /api/openapi.json
+		respond @private 404
+
+		@webhook {
+			method POST
+			expression {http.request.orig_uri} == "/api/line/webhook"
+		}
+		handle @webhook {
+			uri strip_prefix /api
+			import backend_proxy
+		}
+		# Even an authenticated client cannot use a normalized variant as a webhook.
+		@otherWebhook path /api/line/webhook*
+		respond @otherWebhook 404
+
+		@demo path /demo /demo/* /api/demo /api/demo/*
+		# 204 goes on to the Basic Auth. Anything else goes back to the visitor as it is:
+		# /login, the nurse's own page, or the JSON error of an /api/demo call
+		forward_auth @demo backend:8000 {
+			uri /auth/demo-gate
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+		basic_auth @demo {
+			{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+		}
+		handle_path /api/* {
+			import backend_proxy
+		}
+		reverse_proxy frontend:3000
+	}
+}

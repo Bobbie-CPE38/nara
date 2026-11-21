@@ -46,15 +46,37 @@ export type ScoreTerm = { name: string; value: number; weight: number; points: n
 /** Terms are in formula order. first_wave tells a first-wave pick from a reserve */
 export type CandidateScore = { total: number; terms: ScoreTerm[]; first_wave: boolean };
 
-/** The LLM sentence about the plan's ranking. PENDING and UNAVAILABLE carry no text. The numbers stay the source of truth */
+/** Why the explanation cannot be asked for now (docs/workflow.md 9.8) */
+export type ExplanationBlock =
+  | "ALREADY_READY" | "PENDING" | "NOT_CONFIGURED" | "INVALID_INPUT" | "ATTEMPTS_EXHAUSTED" | "QUOTA_EXHAUSTED";
+
+/** Requested case summary for the current snapshot, with earlier successful summaries. */
+export type CaseSummaryView = {
+  current: {
+    summary_id: number | null;
+    status: "NOT_REQUESTED" | "PENDING" | "READY" | "UNAVAILABLE" | "QUOTA_EXHAUSTED";
+    text: string | null;
+    generated_at: string | null;
+    stale: boolean;
+    can_request: boolean;
+    request_blocked_reason: ExplanationBlock | null;
+  };
+  history: { summary_id: number; text: string; generated_at: string }[];
+};
+
+/** The LLM sentence about the plan's ranking, made only when a user asks (round 6 PR E1). Only READY carries text. The numbers stay the source of truth */
 export type RankExplanation = {
-  status: "PENDING" | "READY" | "UNAVAILABLE";
+  status: "NOT_REQUESTED" | "PENDING" | "READY" | "UNAVAILABLE" | "QUOTA_EXHAUSTED";
   /** Only when READY */
   text: string | null;
   /** Only when READY. "fake" is a test adapter, not a real model */
-  provider: "fake" | "bedrock" | null;
+  provider: "fake" | "bedrock" | "lambda" | null;
   /** Only when READY. null for fake */
   model_id: string | null;
+  /** True when POST /cases/{id}/explanation would queue it now */
+  can_request: boolean;
+  /** null exactly when can_request is true */
+  request_blocked_reason: ExplanationBlock | null;
 };
 
 /** The roster row a candidate is moved out of when they take this shift */
@@ -119,6 +141,96 @@ export type CaseDetail = {
   /** true when no group could cover every target, so the solver used the partial plan */
   partial_plan: boolean;
   handovers: HandoverView[];
+  summary: CaseSummaryView | null;
+  /** Round 6 PR EV7: who left, who came, who decided, why it stopped. Absent from an older Backend */
+  overview?: CaseOverview;
+};
+
+/** Someone the case overview names */
+export type OverviewPerson = {
+  staff_id: number | null;
+  name: string;
+  role: string | null;
+  ward_name: string | null;
+};
+
+/** Why the system approved a side (round 6 PR EV9, 6.39): the queue that was over its cap */
+export type OverviewAutoBasis = {
+  /** HEAD_NURSE_QUEUE: the side's own ward; SUPERVISOR_QUEUE: requests the Supervisor may decide */
+  basis: "HEAD_NURSE_QUEUE" | "SUPERVISOR_QUEUE";
+  queue_count: number;
+  cap: number;
+  approver_count: number;
+};
+
+/** One ward's approval of a request (round 6 PR EV8): the destination, and the source of a move */
+export type OverviewSide = {
+  side: "DESTINATION" | "SOURCE";
+  ward_name: string;
+  /** NOT_NEEDED: the request ended before this ward decided */
+  status: "PENDING" | "APPROVED" | "REJECTED" | "AUTO_APPROVED" | "TIMED_OUT" | "NOT_NEEDED";
+  by: OverviewPerson | null;
+  decided_as: "HEAD_NURSE" | "SUPERVISOR" | null;
+  reason: string | null;
+  at: string | null;
+  /** While PENDING: the ward's head nurses */
+  waiting_for: OverviewPerson[];
+  /** While PENDING: when the Supervisor may decide too */
+  supervisor_from: string | null;
+  /** AUTO_APPROVED by a queue over its cap: `by` is then null, never a person */
+  auto?: OverviewAutoBasis | null;
+};
+
+/** One accepted offer and its approval, bound to its candidate (round 6 PR EV8) */
+export type OverviewRequest = {
+  approval_id: number;
+  candidate: OverviewPerson;
+  destination_ward_name: string;
+  /** null: free that day; a move needs both wards */
+  moved_from: { shift_id: number; ward_name: string; start_at: string; end_at: string } | null;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "TIMED_OUT" | "CANCELLED";
+  approval_mode: "MANUAL" | "AUTO";
+  /** The candidate is on the case's shift now */
+  assigned: boolean;
+  requested_at: string;
+  sides: OverviewSide[];
+};
+
+export type OverviewShift = {
+  shift_id: number;
+  ward_id: number;
+  ward_name: string;
+  shift_type: string;
+  start_at: string;
+  end_at: string;
+};
+
+export type CaseOverview = {
+  events: {
+    event_id: number;
+    event_type: string;
+    staff: OverviewPerson | null;
+    occurred_at: string;
+    /** NO_SHOW for the check-in job's event; the words of a cancel (round 6 PR EV8) */
+    reason?: string | null;
+    patient_count?: number | null;
+  }[];
+  replacements: { staff: OverviewPerson; how: "APPROVED" | "TRANSFERRED" | "MANUAL"; at: string }[];
+  decisions: {
+    kind: "APPROVED" | "REJECTED" | "AUTO_APPROVED" | "APPROVAL_TIMEOUT" | "MANUAL_ASSIGNMENT" | "CLOSED_UNRESOLVED";
+    by: OverviewPerson;
+    ward_name: string | null;
+    side: "DESTINATION" | "SOURCE" | null;
+    candidate: OverviewPerson | null;
+    reason: string | null;
+    at: string;
+  }[];
+  outcome: { kind: "MANUAL_HANDOFF" | "CLOSED_UNRESOLVED" | "FAILED"; reason: string | null; by: OverviewPerson | null; at: string } | null;
+  /** Round 6 PR EV8; absent from an older Backend */
+  shift?: OverviewShift | null;
+  requests?: OverviewRequest[];
+  /** Offers still waiting for an answer */
+  open_offers?: number;
 };
 
 /** One item of GET /cases/{id}/audit */

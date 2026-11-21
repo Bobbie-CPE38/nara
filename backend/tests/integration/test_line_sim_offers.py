@@ -148,6 +148,9 @@ def test_offer_contract_and_demo_staff_selection(
             "can_reject": True,
             "blocked_reason": None,
             "cancellation_reason": None,
+            "final_outcome": None,
+            "final_message": None,
+            "final_delivery_status": None,
             "is_assigned": False,
             "is_reserve": False,
         }

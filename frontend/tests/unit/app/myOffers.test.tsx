@@ -57,6 +57,8 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
+const emptyHandovers = { active: [], history: [], next_cursor: null };
+
 function replies(handler: (path: string) => unknown) {
   request.mockImplementation(async <T,>(path: string) => {
     const result = handler(path);
@@ -79,7 +81,7 @@ function requestedPaths(): string[] {
 
 describe("My shift offers", () => {
   it("asks for a demo sign-in first and calls no API before it", async () => {
-    replies(() => [offer]);
+    replies((path) => path === "/me/handovers" ? emptyHandovers : [offer]);
     render(<MyOffersPage />);
     expect(await screen.findByRole("button", { name: "Sign in (demo)" })).toBeTruthy();
     expect(screen.getByText(/This is not a real login/)).toBeTruthy();
@@ -89,7 +91,7 @@ describe("My shift offers", () => {
   });
 
   it("reads only its own /me routes as the signed-in nurse, never the simulator or a staff_id", async () => {
-    replies(() => [offer]);
+    replies((path) => path === "/me/handovers" ? emptyHandovers : [offer]);
     render(<MyOffersPage />);
     await signInAs(202);
     await screen.findByText("SENT");
@@ -108,7 +110,7 @@ describe("My shift offers", () => {
   });
 
   it("says that Accept is not a shift assignment", async () => {
-    replies(() => [offer]);
+    replies((path) => path === "/me/handovers" ? emptyHandovers : [offer]);
     render(<MyOffersPage />);
     await signInAs(202);
     expect(
@@ -118,7 +120,7 @@ describe("My shift offers", () => {
 
   it("answers with only the response in the body, as the signed-in nurse", async () => {
     replies((path) =>
-      path === "/me/offers"
+      path === "/me/handovers" ? emptyHandovers : path === "/me/offers"
         ? [offer]
         : {
             outreach_id: 1,
@@ -144,6 +146,7 @@ describe("My shift offers", () => {
   it("shows a 409 from another channel and refreshes the list", async () => {
     let reads = 0;
     replies((path) => {
+      if (path === "/me/handovers") return emptyHandovers;
       if (path !== "/me/offers") return new ApiError(409, { detail: "Offer 1 is not open" });
       reads += 1;
       return reads === 1 ? [offer] : [{ ...offer, status: "REJECTED", can_accept: false, can_reject: false }];
@@ -157,7 +160,7 @@ describe("My shift offers", () => {
 
   it("keeps the sign-in after a reload", async () => {
     window.localStorage.setItem(DEMO_SIGNED_IN_STORAGE_KEY, "203");
-    replies(() => []);
+    replies((path) => path === "/me/handovers" ? emptyHandovers : []);
     render(<MyOffersPage />);
     expect(await screen.findByText("You have no shift offers.")).toBeTruthy();
     expect(request).toHaveBeenCalledWith(
@@ -177,7 +180,7 @@ describe("My shift offers", () => {
   );
 
   it("signs out back to the demo sign-in", async () => {
-    replies(() => [offer]);
+    replies((path) => path === "/me/handovers" ? emptyHandovers : [offer]);
     render(<MyOffersPage />);
     await signInAs(202);
     await screen.findByText("SENT");
@@ -195,7 +198,7 @@ describe("My shift offers", () => {
           releaseSecond = resolve;
         }) as Promise<T>;
       }
-      return [offer] as T;
+      return (path === "/me/handovers" ? emptyHandovers : [offer]) as T;
     });
     render(<MyOffersPage />);
     await signInAs(202);
@@ -218,7 +221,7 @@ describe("My shift offers", () => {
 
   it("shows a 503 and lets the nurse try again", async () => {
     replies((path) =>
-      path === "/me/offers"
+      path === "/me/handovers" ? emptyHandovers : path === "/me/offers"
         ? [offer]
         : new ApiError(503, { detail: "The offer is busy. Try again." }),
     );
@@ -231,7 +234,7 @@ describe("My shift offers", () => {
   });
 
   it("explains an expired offer and disables both buttons", async () => {
-    replies(() => [
+    replies((path) => path === "/me/handovers" ? emptyHandovers : [
       {
         ...offer,
         status: "TIMEOUT",
@@ -256,7 +259,7 @@ describe("My shift offers", () => {
       throw new Error("blocked");
     });
     try {
-      replies(() => [offer]);
+      replies((path) => path === "/me/handovers" ? emptyHandovers : [offer]);
       render(<MyOffersPage />);
       await signInAs(202);
       expect(await screen.findByText("SENT")).toBeTruthy();
@@ -268,7 +271,7 @@ describe("My shift offers", () => {
 
   it("checks the nurse in to a seeded shift and says the arrival was late", async () => {
     replies((path) =>
-      path === "/me/attendance/check-in"
+      path === "/me/handovers" ? emptyHandovers : path === "/me/attendance/check-in"
         ? {
             attendance_id: 4,
             shift_id: 1,
@@ -291,7 +294,7 @@ describe("My shift offers", () => {
 
   it("explains a refused check-in", async () => {
     replies((path) =>
-      path === "/me/attendance/check-in" ? new ApiError(409, { detail: "busy" }) : [],
+      path === "/me/handovers" ? emptyHandovers : path === "/me/attendance/check-in" ? new ApiError(409, { detail: "busy" }) : [],
     );
     render(<MyOffersPage />);
     await signInAs(101);
@@ -307,7 +310,7 @@ describe("My shift offers", () => {
       generated_at: "2026-10-09T21:05:00+07:00",
       content: { version: 1, shift: { id: 21, ward_name: "Medicine" }, reason: "NO_SHOW", co_workers: [] },
     };
-    replies((path) => (path === "/me/handovers" ? [handover] : []));
+    replies((path) => (path === "/me/handovers" ? { active: [handover], history: [], next_cursor: null } : []));
     render(<MyOffersPage />);
     await signInAs(201);
     expect(await screen.findByText(/Shift 21 \(Medicine\)/)).toBeTruthy();
@@ -329,7 +332,7 @@ describe("My shift offers", () => {
     replies((path) => {
       if (path !== "/me/handovers") return [];
       reads += 1;
-      return reads === 1 ? [handover] : new ApiError(503, { detail: "down" });
+      return reads === 1 ? { active: [handover], history: [], next_cursor: null } : new ApiError(503, { detail: "down" });
     });
     render(<MyOffersPage />);
     await signInAs(201);
@@ -339,4 +342,52 @@ describe("My shift offers", () => {
     ).toBeTruthy();
     expect(screen.getByText(/Shift 21 \(Medicine\)/)).toBeTruthy();
   });
+});
+
+it("loads older handovers on demand and keeps the active handover", async () => {
+  const make = (id: number, active: boolean) => ({
+    handover_id: id, roster_assignment_id: id, active,
+    generated_at: "2026-10-09T21:05:00+07:00",
+    content: { version: 1, shift: { id, ward_name: "ICU" }, co_workers: [] },
+  });
+  replies((path) => {
+    if (path === "/me/handovers") {
+      return { active: [make(21, true)], history: [make(20, false)], next_cursor: "opaque+cursor=" };
+    }
+    if (path === "/me/handovers?cursor=opaque%2Bcursor%3D") {
+      return { active: [make(21, true)], history: [make(19, false)], next_cursor: null };
+    }
+    return [];
+  });
+  render(<MyOffersPage />);
+  await signInAs(201);
+  await screen.findByText(/Shift 20 \(ICU\)/);
+  expect(screen.queryByText(/Shift 19 \(ICU\)/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Load more history" }));
+  expect(await screen.findByText(/Shift 19 \(ICU\)/)).toBeTruthy();
+  expect(screen.getAllByText(/Shift 21 \(ICU\)/)).toHaveLength(1);
+  expect(screen.getByText(/Shift 20 \(ICU\)/)).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Load more history" })).toBeNull();
+});
+
+it("keeps loaded handovers visible when the next page fails", async () => {
+  const handover = {
+    handover_id: 20, roster_assignment_id: 20, active: false,
+    generated_at: "2026-10-09T21:05:00+07:00",
+    content: { version: 1, shift: { id: 20, ward_name: "ICU" }, co_workers: [] },
+  };
+  replies((path) => {
+    if (path === "/me/handovers") return { active: [], history: [handover], next_cursor: "older" };
+    if (path.includes("cursor=")) return new ApiError(503, { detail: "offline" });
+    return [];
+  });
+  render(<MyOffersPage />);
+  await signInAs(201);
+  await screen.findByText(/Shift 20 \(ICU\)/);
+  fireEvent.click(screen.getByRole("button", { name: "Load more history" }));
+  const warning = await screen.findByText(/Could not load more history/);
+  expect(warning.textContent).toContain("Click Load more history to try again.");
+  expect(warning.textContent).not.toContain("Retrying");
+  expect(screen.getByText(/Shift 20 \(ICU\)/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Load more history" })).toBeTruthy();
 });

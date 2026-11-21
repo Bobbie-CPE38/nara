@@ -22,7 +22,9 @@ from app.services import (
     no_show_service,
     offer_timeout_service,
     roster_completion_service,
+    simulated_replies_service,
 )
+from app.services.hospital_arrival_service import check_in_arrivals
 from app.services.merge_window_service import ClosedWindow
 
 
@@ -36,6 +38,24 @@ class DueWork:
     auto_approved_request_ids: list[int] = field(default_factory=list)
     failed_auto_approval_ward_ids: list[int] = field(default_factory=list)
     no_show_event_ids: list[int] = field(default_factory=list)
+
+
+def merge(works: list[DueWork]) -> DueWork:
+    """The work of several rounds as one answer, in round order."""
+    return DueWork(
+        closed_windows=[window for work in works for window in work.closed_windows],
+        timed_out_outreach_ids=[i for work in works for i in work.timed_out_outreach_ids],
+        timed_out_approval_request_ids=[
+            i for work in works for i in work.timed_out_approval_request_ids
+        ],
+        recovered_case_ids=[i for work in works for i in work.recovered_case_ids],
+        completed_assignment_ids=[i for work in works for i in work.completed_assignment_ids],
+        auto_approved_request_ids=[i for work in works for i in work.auto_approved_request_ids],
+        failed_auto_approval_ward_ids=sorted(
+            {i for work in works for i in work.failed_auto_approval_ward_ids}
+        ),
+        no_show_event_ids=[i for work in works for i in work.no_show_event_ids],
+    )
 
 
 def run_due_work(db: Session) -> DueWork:
@@ -55,6 +75,10 @@ def run_due_work(db: Session) -> DueWork:
     recovered = offer_timeout_service.recover_waiting_cases(
         db, excluded_case_ids=expired.failed_case_ids | approvals.failed_case_ids
     )
+    # Scripted people of a test run (6.35.3); nothing outside a run that asked for them
+    simulated_replies_service.answer_due(db)
+    # The people of the hospital demo come to work, before NO_SHOW looks for them (6.36.3)
+    check_in_arrivals(db)
     # Stage 1 of NO_SHOW writes only events; the windows below apply them (6.24)
     no_shows = no_show_service.detect_due_no_shows(db)
     closed = merge_window_service.close_due_windows(db)

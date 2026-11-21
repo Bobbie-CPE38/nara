@@ -1,54 +1,62 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ApiError, apiRequest } from "@/lib/api";
+import { Suspense, useCallback, useMemo, useState } from "react";
+import { ActingAs } from "@/components/ActingAs";
+import { DashboardView } from "@/components/dashboard/DashboardView";
+import { Notice } from "@/components/ui/Notice";
+import { PageHeader } from "@/components/ui/PageHeader";
+import { useActor } from "@/hooks/useActor";
+import { usePolling } from "@/hooks/usePolling";
+import { createDemoApi } from "@/lib/api";
+import { describeError } from "@/lib/errors";
+import { useT } from "@/lib/i18n/LanguageProvider";
+import type { Dashboard } from "@/lib/types/dashboard";
 
-type Health = { status: string; database: string; detail?: string };
-
-export default function Home() {
-  const [health, setHealth] = useState<Health | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    apiRequest<Health>("/health", { signal: controller.signal })
-      .then((result) => {
-        if (!controller.signal.aborted) setHealth(result);
-      })
-      .catch((cause: unknown) => {
-        if (controller.signal.aborted) return;
-        // /health returns its system-check details with HTTP 503 when the DB is down.
-        if (
-          cause instanceof ApiError &&
-          cause.status === 503 &&
-          typeof cause.body === "object" &&
-          cause.body !== null &&
-          "status" in cause.body && typeof cause.body.status === "string" &&
-          "database" in cause.body && typeof cause.body.database === "string"
-        ) {
-          setHealth({ status: cause.body.status, database: cause.body.database });
-        } else {
-          setError(cause instanceof ApiError
-            ? cause.message
-            : "Cannot reach the API. Check that the backend is running.");
-        }
-      });
-    return () => controller.abort();
-  }, []);
+function DashboardPage() {
+  const t = useT();
+  const [actorId, setActorId] = useActor();
+  // One ward of the user's, or every ward (round 6 PR EV6); a new user starts with every ward
+  const [ward, setWard] = useState<{ actorId: number; id: number | null }>({ actorId, id: null });
+  const wardId = ward.actorId === actorId ? ward.id : null;
+  const api = useMemo(() => createDemoApi(actorId), [actorId]);
+  const load = useCallback(
+    (signal: AbortSignal) =>
+      api<Dashboard>(wardId === null ? "/dashboard" : `/dashboard?ward_id=${wardId}`, { signal }),
+    [api, wardId],
+  );
+  // Read again every 2 seconds like the approvals page; the read writes nothing
+  const { data, error, isLoading } = usePolling(load);
 
   return (
-    <main className="mx-auto max-w-xl p-8">
-      <h1 className="text-2xl font-semibold">System check</h1>
-      {error && <p className="mt-4 text-red-700">{error}</p>}
-      {!error && !health && <p className="mt-4">Checking…</p>}
-      {health && (
-        <dl className="mt-4 grid grid-cols-2 gap-2">
-          <dt>API</dt>
-          <dd className={health.status === "ok" ? "text-green-700" : "text-red-700"}>{health.status}</dd>
-          <dt>Database</dt>
-          <dd className={health.database === "ok" ? "text-green-700" : "text-red-700"}>{health.database}</dd>
-        </dl>
+    <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
+      <PageHeader title={t("dash.title")}>
+        <ActingAs id="viewing-as" value={actorId} onChange={setActorId} />
+      </PageHeader>
+      {error && (
+        <div className="mb-4">
+          <Notice kind="error" role="alert">
+            {describeError(error, t)}
+            {data && t("dash.staleNote")}
+          </Notice>
+        </div>
+      )}
+      {isLoading && !data && <p>{t("common.loading")}</p>}
+      {data && (
+        <DashboardView
+          data={data}
+          actorId={actorId}
+          wardId={wardId}
+          onWardChange={(id) => setWard({ actorId, id })}
+        />
       )}
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense>
+      <DashboardPage />
+    </Suspense>
   );
 }

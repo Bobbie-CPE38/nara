@@ -22,7 +22,24 @@ nara/
 │   ├── approval.md
 │   ├── audit.md
 │   ├── api.md
-│   └── demo.md
+│   ├── demo.md
+│   └── deploy-aws.md
+│
+├── deploy/
+│   └── aws/                    # เครื่องทดสอบบน AWS (รอบ 6 PR D)
+│       ├── Caddyfile           # HTTPS และด่าน Basic Auth
+│       ├── docker-compose.aws.yml
+│       ├── load-env.sh         # Parameter Store → env file
+│       ├── nara.service        # systemd
+│       ├── iam-parameter-read-policy.json
+│       ├── check-gate.sh       # ลองด่านจากภายนอก
+│       ├── test_gate.py        # รัน Caddyfile จริงกับ Upstream ปลอมบน Docker (CI)
+│       ├── test_region.py      # Region ของ Parameter Store กับ Bedrock ไม่ปนกัน (CI)
+│       ├── test_lambda_proxy.py  # Lambda ที่พา Backend ไปเรียก Bedrock ทดสอบโดยไม่ใช้ AWS (CI)
+│       ├── lambda/             # bedrock_proxy.py และ Policy ของ Role (round 6 PR B3)
+│       ├── frontend.Dockerfile # image production ของ Frontend (รอบ 6 PR F3)
+│       ├── test_frontend.py    # build image แล้วตรวจ Container, ทุกหน้า และ Bundle (CI)
+│       └── fake_upstream.py    # Upstream ปลอมของ test_gate.py
 │
 ├── scripts/
 │   ├── reset-demo.sh

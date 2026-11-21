@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { formatDateTime } from "@/lib/format";
+import type { MessageKey, Translate } from "@/lib/i18n";
+import { useT } from "@/lib/i18n/LanguageProvider";
 import type { HandoverView } from "@/lib/types/case";
 
 // Content keys of version 1 (docs/workflow.md 6.25). Other versions show these keys only.
@@ -7,12 +11,12 @@ type Shift = { id?: unknown; ward_name?: unknown; start_at?: unknown; end_at?: u
 type CoWorker = { staff_id?: unknown; name?: unknown; role_name?: unknown };
 type Need = { name?: unknown; required_count?: unknown };
 
-const REASON_TEXT: Record<string, string> = {
-  UNPLANNED_LEAVE: "Unplanned leave",
-  NO_SHOW: "No-show",
-  ASSIGNMENT_CANCELLED: "Assignment cancelled",
-  PATIENT_SURGE: "Patient surge",
-  REQUIREMENT_CHANGED: "Requirement changed",
+const REASON_KEYS: Record<string, MessageKey> = {
+  UNPLANNED_LEAVE: "handoverReason.UNPLANNED_LEAVE",
+  NO_SHOW: "handoverReason.NO_SHOW",
+  ASSIGNMENT_CANCELLED: "handoverReason.ASSIGNMENT_CANCELLED",
+  PATIENT_SURGE: "handoverReason.PATIENT_SURGE",
+  REQUIREMENT_CHANGED: "handoverReason.REQUIREMENT_CHANGED",
 };
 
 function text(value: unknown): string {
@@ -36,53 +40,55 @@ export function isHandover(value: unknown): value is HandoverView {
 }
 
 /** "RN × 4, Head nurse × 1" from the role or skill list of content.requirement. */
-function needs(value: unknown): string {
-  if (!Array.isArray(value) || value.length === 0) return "None";
+function needs(value: unknown, t: Translate): string {
+  if (!Array.isArray(value) || value.length === 0) return t("handover.none");
   return (value as Need[]).map((need) => `${text(need.name)} × ${text(need.required_count)}`).join(", ");
 }
 
 function HandoverCard({ handover, linkCase }: { handover: HandoverView; linkCase: boolean }) {
+  const t = useT();
   const content = handover.content;
   const shift = (typeof content.shift === "object" && content.shift !== null
     ? content.shift
     : {}) as Shift;
   const coWorkers = Array.isArray(content.co_workers) ? (content.co_workers as CoWorker[]) : [];
   const reason = typeof content.reason === "string" ? content.reason : null;
+  const reasonKey = reason === null ? undefined : REASON_KEYS[reason];
   const requirement = (typeof content.requirement === "object" && content.requirement !== null
     ? content.requirement
     : {}) as { roles?: unknown; skills?: unknown };
   return (
-    <li className="rounded border border-slate-300 p-3">
+    <li className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
       <p className="font-semibold">
-        Shift {text(shift.id)} ({text(shift.ward_name)}){" "}
-        {!handover.active && <span className="font-normal text-slate-500">— history, no longer active</span>}
+        {t("handover.shiftTitle", { id: text(shift.id), ward: text(shift.ward_name) })}{" "}
+        {!handover.active && <span className="font-normal text-slate-500">{t("handover.history")}</span>}
       </p>
       <dl className="mt-1 grid grid-cols-2 gap-1 text-sm">
-        <dt>Your hours</dt>
+        <dt>{t("handover.yourHours")}</dt>
         <dd>
           {time(content.cover_start_at)} – {time(content.cover_end_at)}
         </dd>
-        <dt>Shift hours</dt>
+        <dt>{t("handover.shiftHours")}</dt>
         <dd>
           {time(shift.start_at)} – {time(shift.end_at)}
         </dd>
-        <dt>Why the shift was short</dt>
-        <dd>{reason === null ? "—" : (REASON_TEXT[reason] ?? reason)}</dd>
-        <dt>Patients</dt>
+        <dt>{t("handover.why")}</dt>
+        <dd>{reason === null ? "—" : (reasonKey ? t(reasonKey) : reason)}</dd>
+        <dt>{t("handover.patients")}</dt>
         <dd>{text(content.patient_count)}</dd>
-        <dt>Roles needed</dt>
-        <dd>{needs(requirement.roles)}</dd>
-        <dt>Skills needed</dt>
-        <dd>{needs(requirement.skills)}</dd>
-        <dt>Working with</dt>
+        <dt>{t("handover.rolesNeeded")}</dt>
+        <dd>{needs(requirement.roles, t)}</dd>
+        <dt>{t("handover.skillsNeeded")}</dt>
+        <dd>{needs(requirement.skills, t)}</dd>
+        <dt>{t("handover.workingWith")}</dt>
         <dd>
           {coWorkers.length === 0
-            ? "Nobody else"
+            ? t("handover.nobody")
             : coWorkers.map((person) => `${text(person.name)} (${text(person.role_name)})`).join(", ")}
         </dd>
         {linkCase && typeof content.case_id === "number" && (
           <>
-            <dt>Case</dt>
+            <dt>{t("common.case")}</dt>
             <dd>
               <Link className="underline" href={`/cases/${content.case_id}`}>
                 {content.case_id}
@@ -90,7 +96,7 @@ function HandoverCard({ handover, linkCase }: { handover: HandoverView; linkCase
             </dd>
           </>
         )}
-        <dt>Written</dt>
+        <dt>{t("handover.written")}</dt>
         <dd>{formatDateTime(handover.generated_at)}</dd>
       </dl>
     </li>

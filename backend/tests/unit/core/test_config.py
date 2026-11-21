@@ -137,3 +137,87 @@ def test_llm_ready_for_bedrock_with_model_and_region(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("AWS_REGION", "ap-southeast-1")
 
     assert Settings(_env_file=None).llm_ready is True
+
+
+QUOTA_VARIABLES = (
+    "LLM_DAILY_CALL_CAP",
+    "LLM_QUOTA_TIMEZONE",
+    "LLM_MONTHLY_BUDGET_USD",
+    "LLM_MAX_INPUT_TOKENS",
+    "LLM_MAX_ATTEMPTS_PER_ROW",
+    "LLM_TRIAL_CALL_CAP",
+)
+
+
+def test_llm_quota_defaults_come_from_the_constants(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    for name in QUOTA_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_daily_call_cap == 100
+    assert settings.llm_quota_timezone == "Asia/Bangkok"
+    assert settings.llm_monthly_budget_usd == Decimal(20)
+    assert settings.llm_max_input_tokens == 5_000
+    assert settings.llm_max_attempts_per_row == 4
+    assert settings.llm_trial_call_cap == 180
+
+
+def test_blank_llm_quota_variables_keep_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Compose passes an unset variable as ""
+    monkeypatch.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    for name in QUOTA_VARIABLES:
+        monkeypatch.setenv(name, "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_daily_call_cap == 100 and settings.llm_trial_call_cap == 180
+    assert settings.llm_quota_timezone == "Asia/Bangkok"
+
+
+def test_llm_quota_can_change_without_a_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    monkeypatch.setenv("LLM_DAILY_CALL_CAP", "40")
+    monkeypatch.setenv("LLM_MAX_INPUT_TOKENS", "3000")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_daily_call_cap == 40 and settings.llm_max_input_tokens == 3000
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("LLM_DAILY_CALL_CAP", "-1"),
+        ("LLM_MAX_INPUT_TOKENS", "0"),
+        ("LLM_MAX_ATTEMPTS_PER_ROW", "0"),
+        ("LLM_TRIAL_CALL_CAP", "-1"),
+        ("LLM_MONTHLY_BUDGET_USD", "-1"),
+    ],
+)
+def test_llm_quota_bounds_are_validated(
+    monkeypatch: pytest.MonkeyPatch, name: str, value: str
+) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValidationError, match=name.lower()):
+        Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("zone", ["Asia/Bangkokk", "Not/AZone", "../etc/passwd"])
+def test_an_unknown_quota_timezone_fails_at_startup(monkeypatch: pytest.MonkeyPatch, zone) -> None:
+    """Review of PR #108: PostgreSQL would reject it only at the first reservation."""
+    monkeypatch.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    monkeypatch.setenv("LLM_QUOTA_TIMEZONE", zone)
+
+    with pytest.raises(ValidationError, match="llm_quota_timezone"):
+        Settings(_env_file=None)
+
+
+def test_a_known_quota_timezone_loads(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    monkeypatch.setenv("LLM_QUOTA_TIMEZONE", "UTC")
+
+    assert Settings(_env_file=None).llm_quota_timezone == "UTC"

@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
 from app.db.models.staffing_case import StaffingCase
 from app.domain.enums import (
     ActorName,
@@ -10,7 +9,7 @@ from app.domain.enums import (
     ManualHandoffReason,
     SolverStatus,
 )
-from app.services import actor_service, audit_service, explanation_service, optimization_service
+from app.services import actor_service, audit_service, optimization_service
 from app.workflow.handlers.base import HandlerResult
 
 
@@ -31,9 +30,8 @@ def handle(db: Session, case: StaffingCase) -> HandlerResult:
             "candidate_count": len(result.items),
         },
     )
-    if settings.llm_enabled and result.items:
-        # A small PENDING row in this transaction; the Job writes the sentence later (PR X)
-        explanation_service.enqueue(db, result.plan, candidate_count=len(result.items))
+    # No explanation row here: the ranking explanation is made only when a user asks for
+    # it (round 6 PR E1, POST /cases/{id}/explanation)
     if result.items:
         return HandlerResult(next_status=CaseStatus.OUTREACH)
 

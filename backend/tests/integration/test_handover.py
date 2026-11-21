@@ -543,15 +543,14 @@ def test_nurse_and_case_api_share_views_and_keep_history(production_seeded):
     try:
         with TestClient(app) as client:
             assert client.get("/me/handovers").status_code == 401
-            assert (
-                client.get("/me/handovers?staff_id=201", headers={"X-Demo-User": "202"}).json()
-                == []
-            )
-            mine = client.get("/me/handovers", headers={"X-Demo-User": "201"}).json()
+            assert client.get(
+                "/me/handovers?staff_id=201", headers={"X-Demo-User": "202"}
+            ).json() == {"active": [], "history": [], "next_cursor": None}
+            mine = client.get("/me/handovers", headers={"X-Demo-User": "201"}).json()["active"]
             assert mine[0]["handover_id"] == handover.id and mine[0]["active"]
             assert client.get(f"/cases/{case.id}").json()["handovers"] == mine
             clock.set_time(db.get(Shift, row.shift_id).end_at)
-            history = client.get("/me/handovers", headers={"X-Demo-User": "201"}).json()
+            history = client.get("/me/handovers", headers={"X-Demo-User": "201"}).json()["history"]
             assert not history[0]["active"] and history[0]["content"] == mine[0]["content"]
     finally:
         app.dependency_overrides.pop(get_db, None)

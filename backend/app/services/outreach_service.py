@@ -19,6 +19,7 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
+    OfferOutcomeNotification,
     RosterAssignment,
     SafetyValidation,
     Shift,
@@ -57,6 +58,14 @@ class OutreachLockRetryError(ValueError):
 
 def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
     """Read history with per-offer actions and ward/shift context; no writes."""
+    return list_offers_of(db, {staff_id})
+
+
+def list_offers_of(db: Session, staff_ids: set[int]) -> list[OfferView]:
+    """list_offers of many people in the same few queries, in offer ID order (round 6 PR EV7:
+    the Demo control answers for every candidate, and polls)."""
+    if not staff_ids:
+        return []
     with db.no_autoflush:
         assigned = (
             select(ApprovalRequest.id)
@@ -94,6 +103,9 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                     CandidateOutreach.expires_at,
                     Shift.ward_id,
                     Ward.name.label("ward_name"),
+                    OfferOutcomeNotification.reason.label("final_outcome"),
+                    OfferOutcomeNotification.message.label("final_message"),
+                    OfferOutcomeNotification.delivery_status.label("final_delivery_status"),
                     Shift.start_at.label("shift_start_at"),
                     Shift.end_at.label("shift_end_at"),
                 )
@@ -101,7 +113,12 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                 .join(StaffingCase, StaffingCase.id == CandidateOutreach.case_id)
                 .join(Shift, Shift.id == CandidateItem.proposed_shift_id)
                 .join(Ward, Ward.id == Shift.ward_id)
-                .where(CandidateItem.staff_id == staff_id)
+                .outerjoin(
+                    OfferOutcomeNotification,
+                    (OfferOutcomeNotification.outreach_id == CandidateOutreach.id)
+                    & (OfferOutcomeNotification.kind == "FINAL"),
+                )
+                .where(CandidateItem.staff_id.in_(staff_ids))
                 .order_by(CandidateOutreach.id)
             )
             .mappings()
@@ -124,9 +141,9 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                 )
             )
         )
-        # One set of unresolved acceptances for the staff, independent of the
+        # One set of unresolved acceptances per staff member, independent of the
         # number of displayed offers. Keep the shared pausing semantics.
-        waiting_cases = case_facts_service.staff_waiting_case_ids(db, staff_id)
+        waiting = case_facts_service.waiting_case_ids_by_staff(db, staff_ids)
         cancelled = {row["id"] for row in rows if row["status"] == OutreachStatus.CANCELLED}
         reasons = _cancellation_reasons(db, cancelled)
         result = []
@@ -137,7 +154,7 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                 and row["expires_at"] is not None
                 and row["expires_at"] > now
             )
-            paused = live and bool(waiting_cases - {row["case_id"]})
+            paused = live and bool(waiting.get(row["staff_id"], set()) - {row["case_id"]})
             blocked = (
                 "CASE_STOPPED"
                 if row["case_status"] in AUTOMATION_STOPPED_STATUSES
@@ -162,6 +179,11 @@ def list_offers(db: Session, *, staff_id: int) -> list[OfferView]:
                         "can_reject": live,
                         "blocked_reason": blocked,
                         "cancellation_reason": reason,
+                        "final_outcome": row["final_outcome"] if not row["is_assigned"] else None,
+                        "final_message": row["final_message"] if not row["is_assigned"] else None,
+                        "final_delivery_status": row["final_delivery_status"]
+                        if not row["is_assigned"]
+                        else None,
                         "is_reserve": reserve,
                     }
                 )
@@ -186,7 +208,13 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
             AuditLog.payload.contains({"outreach_id": outreach_id}),
             # A late arrival made the offer surplus (workflow.md 6.24)
             and_(
-                AuditLog.action == AuditAction.OFFER_CANCELLED_NOT_NEEDED,
+                AuditLog.action.in_(
+                    [
+                        AuditAction.OFFER_CANCELLED_NOT_NEEDED,
+                        # The person reported leave for that time (round 6 PR EV10, 6.40)
+                        AuditAction.OFFER_CANCELLED_STAFF_UNAVAILABLE,
+                    ]
+                ),
                 AuditLog.payload.contains({"cancelled_outreach_id": outreach_id}),
             ),
         )
@@ -211,6 +239,11 @@ def _cancellation_reasons(db: Session, outreach_ids: set[int]) -> dict[int, str]
                 and payload.get("cancelled_outreach_id") == outreach_id
             ):
                 reasons[outreach_id] = "NO_LONGER_NEEDED"
+            elif (
+                row.action == AuditAction.OFFER_CANCELLED_STAFF_UNAVAILABLE
+                and payload.get("cancelled_outreach_id") == outreach_id
+            ):
+                reasons[outreach_id] = "STAFF_UNAVAILABLE"
             elif payload.get("outreach_id") == outreach_id:
                 if row.action == AuditAction.APPROVAL_TIMEOUT:
                     reasons[outreach_id] = "APPROVAL_TIMEOUT"
@@ -405,8 +438,12 @@ def record_response(
     outreach_id: int,
     response: CandidateResponse,
     after_lock: Callable[[Session], None] | None = None,
+    audit_source: str | None = None,
 ) -> tuple[CandidateOutreach, StaffingCase]:
-    """Answer the authenticated user's selected offer, even if other offers are open."""
+    """Answer the authenticated user's selected offer, even if other offers are open.
+
+    `audit_source` is kept as payload.source: a scripted nurse of a test run sends
+    SIMULATED (round 6 PR EV5a, 6.35.3)."""
     from app.workflow import orchestrator
 
     if not isinstance(response, CandidateResponse):
@@ -423,12 +460,21 @@ def record_response(
     # outside D11's savepoint, alongside the response, never a separate commit.
     if after_lock is not None:
         after_lock(db)
+    # Keep the same explicit deadline reply before and after the expiry job,
+    # including when expiry has already stopped the case. Never reclassify an
+    # accepted/cancelled offer as an unanswered timeout just because time passed.
+    if outreach.status == OutreachStatus.TIMEOUT or (
+        outreach.status == OutreachStatus.SENT
+        and outreach.expires_at is not None
+        and clock.now() >= outreach.expires_at
+    ):
+        raise OfferExpiredError("The selected offer has expired; refresh offers")
     if case.status in AUTOMATION_STOPPED_STATUSES:
         raise OpenOfferConflictError("This case has stopped; the offer cannot be answered")
     if outreach.status is not OutreachStatus.SENT:
         raise OpenOfferConflictError("The selected offer is no longer SENT; refresh offers")
     now = clock.now()
-    if outreach.expires_at is None or outreach.expires_at <= now:
+    if outreach.expires_at is None:
         raise OfferExpiredError("The selected offer has expired; refresh offers")
     if response is CandidateResponse.ACCEPT and case_facts_service.staff_waiting_on_another_case(
         db, case.id, {staff_id}
@@ -440,6 +486,12 @@ def record_response(
         OutreachStatus.ACCEPTED if response is CandidateResponse.ACCEPT else OutreachStatus.REJECTED
     )
     outreach.response_at = now
+    if response == CandidateResponse.ACCEPT:
+        # Snapshot the actual response order, not the Solver's PRIMARY/RESERVE
+        # credits. The later APPROVAL_REQUESTED audit can identify a promotion.
+        outreach.accepted_as_reserve = case_facts_service.load_case_facts(
+            db, case
+        ).gap_closed_with_pending
     audit_service.log(
         db,
         case_id=case.id,
@@ -449,7 +501,8 @@ def record_response(
         else AuditAction.OFFER_REJECTED,
         entity_type=EntityType.CANDIDATE_OUTREACH,
         entity_id=outreach.id,
-        payload={"outreach_id": outreach.id, "staff_id": staff_id},
+        payload={"outreach_id": outreach.id, "staff_id": staff_id}
+        | ({} if audit_source is None else {"source": audit_source}),
     )
     orchestrator.recompute(db, case.id, prepare=promote_reserves)
     # Save IDs: rollback between independent notifications expires ORM objects.

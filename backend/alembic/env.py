@@ -3,7 +3,7 @@ from typing import Any, Literal
 
 from alembic import context
 from alembic.autogenerate.api import AutogenContext
-from sqlalchemy import create_engine, pool
+from sqlalchemy import Connection, create_engine, pool
 
 import app.db.models  # noqa: F401  registers all tables on Base.metadata
 from app.core.config import settings
@@ -44,19 +44,29 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _run_on(connection: Connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        render_item=render_item,
+    )
+
+    # Inside a caller's transaction this neither begins nor commits one
+    with context.begin_transaction():
+        context.run_migrations()
+
+
 def run_migrations_online() -> None:
+    # The demo reset passes its own connection, so the rebuild is one transaction
+    shared = config.attributes.get("connection")
+    if shared is not None:
+        _run_on(shared)
+        return
+
     connectable = create_engine(database_url, poolclass=pool.NullPool)
-
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            compare_type=True,
-            render_item=render_item,
-        )
-
-        with context.begin_transaction():
-            context.run_migrations()
+        _run_on(connection)
 
 
 if context.is_offline_mode():

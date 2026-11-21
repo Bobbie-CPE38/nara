@@ -111,3 +111,24 @@ jobs:
           python-version: "3.11"
       - name: Test real nginx config with isolated fake backend
         run: python3 dev/line-webhook-proxy/test_proxy.py
+
+  aws-gate:
+    name: AWS test machine gate (Caddy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Test real Caddyfile with isolated fake upstreams
+        run: python3 deploy/aws/test_gate.py
+      - name: Test that the Parameter Store Region and the Bedrock Region stay apart
+        run: python3 deploy/aws/test_region.py
+      - name: Test pinned AWS session and proxy configuration
+        run: python3 deploy/aws/test_session_deploy.py
+      - name: Test manual environment-file startup validation
+        run: python3 deploy/aws/test_manual_env.py
+      - name: Test the production frontend image of the machine
+        run: python3 deploy/aws/test_frontend.py
+      - name: Test the Bedrock proxy Lambda without AWS
+        run: python3 deploy/aws/test_lambda_proxy.py

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CaseView } from "../../../../src/components/case/CaseView";
 import {
@@ -14,15 +14,24 @@ import {
   waitingResponseAudit,
 } from "../../../fixtures/case";
 
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+
 type Reply = () => Response | Promise<Response>;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 // The fake backend. A test swaps what the two routes answer between polls.
-let backend: { detail: Reply; audit: Reply };
+let backend: { detail: Reply; audit: Reply; post?: Reply };
 const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
   // Like the real fetch, it sends nothing for a request that is already aborted.
   if (init?.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+  if (init?.method === "POST") {
+    // Like the real fetch, a request that is given up rejects with an AbortError
+    return new Promise<Response>((resolve, reject) => {
+      init.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")));
+      Promise.resolve((backend.post ?? (() => json({}, 500)))()).then(resolve, reject);
+    });
+  }
   return url.endsWith("/audit") ? backend.audit() : backend.detail();
 });
 
@@ -49,6 +58,10 @@ function requests() {
   return fetchMock.mock.calls.map(([url]) => new URL(url).pathname);
 }
 
+function posts() {
+  return fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
+}
+
 function status() {
   return screen.getByText("Status:").querySelector("strong")?.textContent;
 }
@@ -63,7 +76,20 @@ function actions() {
   return rows("Timeline").map(cells => cells[2]);
 }
 
+const inScrollBox = (table: HTMLElement) =>
+  // A table wider than a phone scrolls inside its box, not the whole page (round 6 PR F3)
+  expect(table.parentElement?.className, table.getAttribute("aria-label") ?? "table").toContain("overflow-x-auto");
+
 describe("CaseView", () => {
+  it("keeps every table in a box that scrolls sideways, so a phone does not scroll the whole page", async () => {
+    render(<CaseView caseId="1" />);
+    await tick();
+    const tables = screen.getAllByRole("table");
+    // Gap, candidates, score tables and the timeline
+    expect(tables.length).toBeGreaterThanOrEqual(5);
+    tables.forEach(inScrollBox);
+  });
+
   it("loads the case, then its audit, and shows status, gap, ranked candidates and timeline", async () => {
     render(<CaseView caseId="1" />);
     expect(screen.getByRole("status").textContent).toBe("Loading…");
@@ -83,9 +109,9 @@ describe("CaseView", () => {
       ["Skill", "ICU", "2", "2", "OK"],
     ]);
     expect(rows("Candidates")).toEqual([
-      ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU", "Whole shift", "—"],
-      ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "1013", "ICU", "Whole shift", "—"],
-      ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "1020", "ICU", "Whole shift", "—"],
+      ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU"],
+      ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "1013", "ICU"],
+      ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "1020", "ICU"],
     ]);
     expect(actions()).toEqual(waitingResponseAudit().map(entry => entry.action));
   });
@@ -109,7 +135,7 @@ describe("CaseView", () => {
     expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
 
     await tick(10000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
     expect(vi.getTimerCount()).toBe(0);
     expect(status()).toBe("RESOLVED");
   });
@@ -130,7 +156,7 @@ describe("CaseView", () => {
       await tick();
       await tick(4000);
       expect(status()).toBe(open);
-      expect(fetchMock).toHaveBeenCalledTimes(6);
+      expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
     },
   );
 
@@ -278,7 +304,7 @@ describe("CaseView", () => {
     );
     await tick(2000);
     expect(status()).toBe("WAITING_RESPONSE");
-    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU", "Whole shift", "—"]]);
+    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU"]]);
     expect(actions()).toEqual(["EVENT_RECEIVED", "UNAVAILABILITY_CREATED", "CASE_OPENED", "CASE_STATUS_CHANGED"]);
   });
 
@@ -387,7 +413,7 @@ describe("CaseView", () => {
 
     // Status changes stay in sequence but lighter than the real steps.
     const tableRows = within(screen.getByRole("table", { name: "Timeline" })).getAllByRole("row").slice(1);
-    expect(tableRows.map(row => row.className.includes("text-gray-500"))).toEqual([
+    expect(tableRows.map(row => row.className.includes("text-slate-500"))).toEqual([
       false, false, false, true, false, false, false,
     ]);
   });
@@ -467,7 +493,7 @@ describe("CaseView", () => {
       ["Handoff", "204", "—", "A_REASON_ADDED_LATER"],
     ]);
     await tick(4000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
   });
 
   it("lists skipped people without names when the case stopped without a plan", async () => {
@@ -582,10 +608,13 @@ describe("CaseView", () => {
     describe("ranking explanation", () => {
       const sentence = "[fake] อันดับ 1 อยู่ในกลุ่มแรก";
       const ready = (provider: "fake" | "bedrock", modelId: string | null) => caseDetail({
-        explanation: { status: "READY", text: sentence, provider, model_id: modelId },
+        explanation: { status: "READY", text: sentence, provider, model_id: modelId, can_request: false, request_blocked_reason: "ALREADY_READY" },
       });
       const section = () => screen.getByRole("region", { name: "Ranking explanation" });
-      const notReady = "คำอธิบายยังไม่พร้อม";
+      const notReady = "The explanation is not ready";
+      const unrequested = (status: string, extra: Record<string, unknown> = {}) => ({
+        status, text: null, provider: null, model_id: null, can_request: false, request_blocked_reason: null, ...extra,
+      });
 
       it("shows a fake sentence with the source note and the fake note", async () => {
         serve(ready("fake", null), waitingResponseAudit());
@@ -609,40 +638,41 @@ describe("CaseView", () => {
       });
 
       it.each([
-        ["PENDING", { status: "PENDING", text: null, provider: null, model_id: null }],
-        ["UNAVAILABLE", { status: "UNAVAILABLE", text: null, provider: null, model_id: null }],
-        ["null", null],
-      ])("shows the not-ready text for %s", async (_name, explanation) => {
+        ["PENDING", unrequested("PENDING", { request_blocked_reason: "PENDING" }), "Creating the AI explanation"],
+        ["UNAVAILABLE", unrequested("UNAVAILABLE", { can_request: true }), "The AI explanation could not be created"],
+        ["NOT_REQUESTED", unrequested("NOT_REQUESTED", { can_request: true }), "No AI explanation requested yet"],
+        ["null", null, notReady],
+      ])("shows the status text for %s, never a sentence", async (_name, explanation, text) => {
         serve(caseDetail({ explanation } as Parameters<typeof caseDetail>[0]), waitingResponseAudit());
         render(<CaseView caseId="1" />);
         await tick();
 
-        expect(within(section()).getByText(notReady)).toBeTruthy();
+        expect(within(section()).getByText(text)).toBeTruthy();
         expect(within(section()).queryByText(/^Generated by an LLM/)).toBeNull();
         expect(screen.getByRole("table", { name: "Score of staff 201" })).toBeTruthy();
       });
 
       it("picks up a sentence that turns READY on the next poll", async () => {
-        serve(caseDetail({ explanation: { status: "PENDING", text: null, provider: null, model_id: null } }), waitingResponseAudit());
+        serve(caseDetail({ explanation: unrequested("PENDING", { request_blocked_reason: "PENDING" }) } as Parameters<typeof caseDetail>[0]), waitingResponseAudit());
         render(<CaseView caseId="1" />);
         await tick();
-        expect(within(section()).getByText(notReady)).toBeTruthy();
+        expect(within(section()).getByText("Creating the AI explanation")).toBeTruthy();
 
         serve(ready("fake", null), waitingResponseAudit());
         await tick(2000);
         expect(within(section()).getByText(sentence)).toBeTruthy();
-        expect(within(section()).queryByText(notReady)).toBeNull();
+        expect(within(section()).queryByText("Creating the AI explanation")).toBeNull();
       });
 
       describe("when the case is already final", () => {
-        const pending = { status: "PENDING", text: null, provider: null, model_id: null } as const;
-        const unavailable = { status: "UNAVAILABLE", text: null, provider: null, model_id: null } as const;
+        const pending = unrequested("PENDING", { request_blocked_reason: "PENDING" }) as never;
+        const unavailable = unrequested("UNAVAILABLE", { request_blocked_reason: "INVALID_INPUT" }) as never;
 
         it("keeps polling while PENDING, then shows the sentence and stops", async () => {
           serve(caseDetail({ status: "RESOLVED", explanation: pending }), resolvedAudit());
           render(<CaseView caseId="1" />);
           await tick();
-          expect(within(section()).getByText(notReady)).toBeTruthy();
+          expect(within(section()).getByText("Creating the AI explanation")).toBeTruthy();
           expect(screen.getByText(/^Final status\. Still updating/)).toBeTruthy();
 
           await tick(30000);
@@ -666,7 +696,7 @@ describe("CaseView", () => {
 
           serve(caseDetail({ status: "UNRESOLVED", explanation: unavailable }), []);
           await tick(2000);
-          expect(within(section()).getByText(notReady)).toBeTruthy();
+          expect(within(section()).getByText("The AI explanation could not be created")).toBeTruthy();
           expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
 
           const calls = fetchMock.mock.calls.length;
@@ -688,6 +718,225 @@ describe("CaseView", () => {
       });
     });
 
+    describe("asking for the AI explanation (round 6 PR E2)", () => {
+      const section = () => screen.getByRole("region", { name: "Ranking explanation" });
+      const button = () => within(section()).queryByRole("button", { name: "Explain with AI" }) as HTMLButtonElement | null;
+      const view = (status: string, extra: Record<string, unknown> = {}) => ({
+        status, text: null, provider: null, model_id: null, can_request: false, request_blocked_reason: null, ...extra,
+      });
+      const withExplanation = (explanation: unknown, status = "WAITING_RESPONSE") =>
+        caseDetail({ status, explanation } as Parameters<typeof caseDetail>[0]);
+      const ready = () => ({ ...view("READY", { request_blocked_reason: "ALREADY_READY" }), text: "[fake] x", provider: "fake" });
+      const quotaMessage = "Today's AI explanation quota is used up. Please try again tomorrow. You can still view the ranking and continue staffing as usual.";
+      const click = async () => {
+        await act(async () => { button()?.click(); });
+        await tick();
+      };
+
+      it("opens the button when can_request is true and sends nothing until it is pressed", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+
+        expect(button()?.disabled).toBe(false);
+        expect(posts()).toHaveLength(0);
+      });
+
+      it("posts once with no identity header, reads the case again and shows PENDING", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+
+        const before = fetchMock.mock.calls.length;
+        serve(withExplanation(view("PENDING", { request_blocked_reason: "PENDING" })), waitingResponseAudit());
+        backend.post = () => json(view("PENDING", { request_blocked_reason: "PENDING" }));
+        await click();
+
+        const [[url, init]] = posts();
+        expect(new URL(url).pathname).toBe("/cases/1/explanation");
+        expect(new Headers(init?.headers).has("X-Demo-User")).toBe(false);
+        expect(fetchMock.mock.calls.length).toBeGreaterThan(before + 1);
+        expect(within(section()).getByText("Creating the AI explanation")).toBeTruthy();
+        expect(button()).toBeNull();
+      });
+
+      it("makes one request for two clicks in a row", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        let release: (response: Response) => void = () => {};
+        backend.post = () => new Promise<Response>(resolve => { release = resolve; });
+        render(<CaseView caseId="1" />);
+        await tick();
+
+        await act(async () => { button()?.click(); button()?.click(); });
+        expect(button()?.disabled).toBe(true);
+        expect(posts()).toHaveLength(1);
+
+        await act(async () => { release(json(view("PENDING"))); });
+        await tick();
+        expect(posts()).toHaveLength(1);
+      });
+
+      it("works on a final case whose polling already stopped, and polls again while PENDING", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true }), "RESOLVED"), resolvedAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+        await tick(10000);
+        expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+
+        serve(withExplanation(view("PENDING", { request_blocked_reason: "PENDING" }), "RESOLVED"), resolvedAudit());
+        backend.post = () => json(view("PENDING"));
+        await click();
+        expect(screen.getByText(/^Final status\. Still updating/)).toBeTruthy();
+
+        serve(withExplanation(ready(), "RESOLVED"), resolvedAudit());
+        await tick(2000);
+        expect(within(section()).getByText("[fake] x")).toBeTruthy();
+        expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+      });
+
+      it("closes the button at the daily cap with the contract text, and a READY sentence stays readable", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { request_blocked_reason: "QUOTA_EXHAUSTED" })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+        expect(button()?.disabled).toBe(true);
+        expect(within(section()).getByText(quotaMessage)).toBeTruthy();
+        cleanup();
+
+        serve(withExplanation(ready()), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+        expect(within(section()).getByText("[fake] x")).toBeTruthy();
+        expect(button()).toBeNull();
+        expect(screen.queryByText(quotaMessage)).toBeNull();
+      });
+
+      it.each([
+        ["NOT_CONFIGURED", "AI explanations are not enabled"],
+        ["INVALID_INPUT", "An AI explanation of this plan cannot be created"],
+        ["ATTEMPTS_EXHAUSTED", "This plan's AI explanation has been requested the maximum number of times"],
+      ])("closes the button with its own text for %s", async (reason, text) => {
+        serve(withExplanation(view("UNAVAILABLE", { request_blocked_reason: reason })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+
+        expect(button()?.disabled).toBe(true);
+        expect(within(section()).getByText(new RegExp(`^${text}`))).toBeTruthy();
+        expect(posts()).toHaveLength(0);
+      });
+
+      it("lets the user ask again after a failure that can be asked again", async () => {
+        serve(withExplanation(view("UNAVAILABLE", { can_request: true })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+
+        expect(within(section()).getByText("The AI explanation could not be created")).toBeTruthy();
+        expect(button()?.disabled).toBe(false);
+      });
+
+      const attemptsMessage = "This plan's AI explanation has been requested the maximum number of times";
+      const notConfiguredMessage = "AI explanations are not enabled";
+      const invalidMessage = "An AI explanation of this plan cannot be created";
+      const neutral = "An AI explanation cannot be requested right now";
+      it.each([
+        // status, code, what the case says when read again, texts shown, texts not shown
+        [429, "LLM_QUOTA_EXHAUSTED", "QUOTA_EXHAUSTED", [quotaMessage], [neutral]],
+        [409, "LLM_ATTEMPTS_EXHAUSTED", "ATTEMPTS_EXHAUSTED", [attemptsMessage], [neutral]],
+        // One code for two causes: the page says the cause the case reports, never the other one
+        [409, "LLM_UNAVAILABLE", "INVALID_INPUT", [invalidMessage], [notConfiguredMessage, neutral]],
+        [409, "LLM_UNAVAILABLE", "NOT_CONFIGURED", [notConfiguredMessage], [invalidMessage, neutral]],
+      ])("after a refusal (%s %s, case now %s) says the cause once, from the case, not the server", async (status, code, now, shown, hidden) => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+        serve(withExplanation(view("NOT_REQUESTED", { request_blocked_reason: now })), waitingResponseAudit());
+        backend.post = () => json({ detail: { code, message: "SERVER WORDS" } }, status);
+        await click();
+
+        for (const text of shown as string[]) {
+          expect(within(section()).getAllByText(new RegExp(`^${text}`))).toHaveLength(1);
+        }
+        for (const text of hidden as string[]) expect(screen.queryByText(new RegExp(`^${text}`))).toBeNull();
+        expect(screen.queryByText(/SERVER WORDS/)).toBeNull();
+        expect(within(section()).queryByRole("alert")).toBeNull();
+        expect(button()?.disabled).toBe(true);
+      });
+
+      it.each([
+        [409, "LLM_UNAVAILABLE", neutral],
+        [404, "CASE_NOT_FOUND", "This case was not found"],
+      ])("shows a message of its own for a refusal (%s %s) the case does not explain", async (status, code, text) => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+        backend.post = () => json({ detail: { code, message: "SERVER WORDS" } }, status);
+        await click();
+
+        expect(within(section()).getByRole("alert").textContent).toBe(text);
+        expect(screen.queryByText(/SERVER WORDS/)).toBeNull();
+        expect(button()?.disabled).toBe(false);
+      });
+
+      it("gives up a request that never answers, frees the button and says to try again", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        backend.post = () => new Promise<Response>(() => {});
+        render(<CaseView caseId="1" />);
+        await tick();
+
+        await act(async () => { button()?.click(); });
+        await tick(9000);
+        expect(button()?.disabled).toBe(true);
+
+        await tick(1500);
+        expect(within(section()).getByRole("alert").textContent).toBe("The request was not sent. Please try again.");
+        expect(button()?.disabled).toBe(false);
+        expect(vi.getTimerCount()).toBeGreaterThan(0);
+        // The case is read again after giving up: a request that timed out may still have been accepted
+        serve(withExplanation(view("PENDING", { request_blocked_reason: "PENDING" })), waitingResponseAudit());
+        await tick(2000);
+        expect(within(section()).getByText("Creating the AI explanation")).toBeTruthy();
+        expect(within(section()).queryByRole("alert")).toBeNull();
+      });
+
+      it("drops an old message when the explanation changes", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+        backend.post = () => { throw new TypeError("Failed to fetch"); };
+        await click();
+        expect(within(section()).getByRole("alert")).toBeTruthy();
+
+        serve(withExplanation(view("UNAVAILABLE", { can_request: true })), waitingResponseAudit());
+        await tick(2000);
+        expect(within(section()).getByText("The AI explanation could not be created")).toBeTruthy();
+        expect(within(section()).queryByRole("alert")).toBeNull();
+      });
+
+      it("cancels the request and does not read the case again when the page is left", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        backend.post = () => new Promise<Response>(() => {});
+        const { unmount } = render(<CaseView caseId="1" />);
+        await tick();
+        await act(async () => { button()?.click(); });
+        const calls = fetchMock.mock.calls.length;
+
+        unmount();
+        await tick(20000);
+        expect(fetchMock).toHaveBeenCalledTimes(calls);
+        expect(vi.getTimerCount()).toBe(0);
+      });
+
+      it("says the request failed when the server cannot be reached, and lets the user try again", async () => {
+        serve(withExplanation(view("NOT_REQUESTED", { can_request: true })), waitingResponseAudit());
+        render(<CaseView caseId="1" />);
+        await tick();
+        backend.post = () => { throw new TypeError("Failed to fetch"); };
+        await click();
+
+        expect(within(section()).getByRole("alert").textContent).toBe("The request was not sent. Please try again.");
+        expect(button()?.disabled).toBe(false);
+      });
+    });
+
     it("shows no explanation section when no candidate has a score", async () => {
       const candidates = caseDetail().candidates.map(candidate => ({ ...candidate, score: null }));
       serve(caseDetail({ candidates }), waitingResponseAudit());
@@ -696,12 +945,12 @@ describe("CaseView", () => {
 
       expect(screen.queryByRole("heading", { name: "Score breakdown" })).toBeNull();
       expect(screen.queryByRole("region", { name: "Ranking explanation" })).toBeNull();
-      expect(screen.queryByText("คำอธิบายยังไม่พร้อม")).toBeNull();
+      expect(screen.queryByText("The explanation is not ready")).toBeNull();
       expect(screen.queryByRole("table", { name: /^Score of staff/ })).toBeNull();
       expect(rows("Candidates")).toEqual([
-        ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—", "ICU", "Whole shift", "—"],
-        ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "—", "ICU", "Whole shift", "—"],
-        ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "—", "ICU", "Whole shift", "—"],
+        ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—", "ICU"],
+        ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "—", "ICU"],
+        ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "—", "ICU"],
       ]);
     });
 
@@ -775,7 +1024,7 @@ describe("CaseView", () => {
     expect(status()).toBe("WAITING_APPROVAL");
     expect(actions()).toEqual(["CASE_OPENED"]);
     await tick(2000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
   });
 
   it("stops polling when the page is left", async () => {
@@ -938,4 +1187,64 @@ describe("CaseView", () => {
     await tick(10000);
     expect(fetchMock.mock.calls.length).toBe(calls);
   });
+});
+
+
+it("restarts final-case polling after a summary request and stops only after READY", async () => {
+  const notRequested = { current: { summary_id: null, status: "NOT_REQUESTED" as const,
+    text: null, generated_at: null, stale: false, can_request: true, request_blocked_reason: null }, history: [] };
+  serve(caseDetail({ status: "RESOLVED", summary: notRequested }), resolvedAudit());
+  render(<CaseView caseId="1" />);
+  await tick();
+  expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+  const pending = { current: { ...notRequested.current, summary_id: 1, status: "PENDING" as const,
+    can_request: false, request_blocked_reason: "PENDING" as const }, history: [] };
+  serve(caseDetail({ status: "RESOLVED", summary: pending }), resolvedAudit());
+  const regular = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url, init) => init?.method === "POST" && url.endsWith("/summary")
+    ? json(pending) : regular(url, init));
+  fireEvent.click(screen.getByRole("button", { name: "Summarise with AI" }));
+  await tick();
+  expect(screen.getByText("Creating the summary, please wait")).toBeTruthy();
+  const ready = { current: { ...pending.current, status: "READY" as const, text: "สรุปหลังเคสจบแล้ว",
+    generated_at: DEMO_TIME, request_blocked_reason: "ALREADY_READY" as const }, history: [] };
+  serve(caseDetail({ status: "RESOLVED", summary: ready }), resolvedAudit());
+  await tick(2000);
+  expect(screen.getByText("สรุปหลังเคสจบแล้ว")).toBeTruthy();
+  expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
+});
+
+
+it("keeps polling until both ranking explanation and case summary finish", async () => {
+  const summary = { current: { summary_id: 1, status: "PENDING" as const,
+    text: null, generated_at: null, stale: false, can_request: false,
+    request_blocked_reason: "PENDING" as const }, history: [] };
+  const explanation = { status: "PENDING" as const, text: null, provider: null,
+    model_id: null, can_request: false, request_blocked_reason: "PENDING" as const };
+  serve(caseDetail({ status: "RESOLVED", summary, explanation }), resolvedAudit());
+  render(<CaseView caseId="1" />);
+  await tick();
+  expect(screen.getByText("Creating the AI explanation")).toBeTruthy();
+  expect(screen.getByText("Creating the summary, please wait")).toBeTruthy();
+
+  const readyExplanation = { ...explanation, status: "READY" as const,
+    text: "[fake] ranking complete", provider: "fake" as const,
+    request_blocked_reason: "ALREADY_READY" as const };
+  serve(caseDetail({ status: "RESOLVED", summary, explanation: readyExplanation }), resolvedAudit());
+  await tick(2000);
+  expect(screen.getByText("[fake] ranking complete")).toBeTruthy();
+  expect(screen.getByText("Final status. Still updating every 2 seconds until the summary is ready.")).toBeTruthy();
+
+  const readySummary = { current: { ...summary.current, status: "READY" as const,
+    text: "สรุปเคสพร้อมแล้ว", generated_at: DEMO_TIME,
+    request_blocked_reason: "ALREADY_READY" as const }, history: [] };
+  serve(caseDetail({ status: "RESOLVED", summary: readySummary, explanation: readyExplanation }), resolvedAudit());
+  await tick(2000);
+  expect(screen.getByText("สรุปเคสพร้อมแล้ว")).toBeTruthy();
+  expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
+  const calls = fetchMock.mock.calls.length;
+  await tick(10000);
+  expect(fetchMock.mock.calls.length).toBe(calls);
+  expect(posts()).toHaveLength(0);
 });

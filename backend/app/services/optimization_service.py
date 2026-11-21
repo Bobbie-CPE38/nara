@@ -85,10 +85,15 @@ from app.db.models import (
     Ward,
 )
 from app.domain.constraints.codes import GAP_TIME_MISMATCH, OFFER_LIMIT_REACHED, HardRuleCode
-from app.domain.constraints.context import local_day, projected_consecutive_shifts, week_start
+from app.domain.constraints.context import (
+    hours,
+    local_day,
+    projected_consecutive_shifts,
+    week_start,
+)
 from app.domain.constraints.penalties import SoftWeights
 from app.domain.constraints.score_breakdown import display_number, exact_fields, weights_snapshot
-from app.domain.constraints.soft_metrics import SoftMetrics
+from app.domain.constraints.soft_metrics import SoftMetrics, projected_overtime_hours
 from app.domain.enums import (
     COMMITTED_ROSTER_STATUSES,
     CandidateSource,
@@ -178,7 +183,11 @@ def create_plan(db: Session, case: StaffingCase) -> PlanResult:
                 source=sources[staff_id],
                 hours_this_week=captured[staff_id].values.hours_this_week,
                 projected_consecutive_shifts=projected_consecutive_shifts(checks[staff_id].context),
-                overtime_hours=captured[staff_id].values.overtime_hours,
+                overtime_hours=projected_overtime_hours(
+                    overtime_worked=captured[staff_id].values.overtime_hours,
+                    hours_this_week=captured[staff_id].values.hours_this_week,
+                    added_hours=_added_hours(shift, _cover(covers, staff_id)),
+                ),
             ),
             source_shift_id=source_shifts.get(staff_id),
         )
@@ -423,6 +432,16 @@ def _source_shifts(
         for staff_id, assignment_id in sources.items()
         if assignment_id in shift_of
     }
+
+
+def _added_hours(shift: Shift, cover: Cover) -> Fraction:
+    """Hours the shift adds to the person's week (6.36.7): the cover window, or none for a
+    person moved out of another shift, whose hours are counted there already."""
+    if cover.source_assignment_id is not None:
+        return Fraction(0)
+    start = cover.start_at if cover.start_at is not None else shift.start_at
+    end = cover.end_at if cover.end_at is not None else shift.end_at
+    return hours(end - start)
 
 
 def _overlaps(cover: Cover, interval: IntervalGap) -> bool:

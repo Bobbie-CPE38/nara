@@ -14,20 +14,62 @@ from sqlalchemy.orm import Session
 from app.core import clock
 from app.core.config import settings
 from app.core.constants import MAX_BIGINT
+from app.core.rate_limit import MYID_PER_SENDER, Limit, RateLimiter
 from app.db.models import LineWebhookEvent
-from app.domain.enums import CandidateResponse, CheckInSource
+from app.domain.enums import (
+    AUTOMATION_STOPPED_STATUSES,
+    CandidateResponse,
+    CheckInSource,
+    OutreachStatus,
+)
 from app.domain.errors import ShiftNotFoundError
 from app.integrations.line import client
 from app.services import (
     attendance_service,
+    auth_service,
     line_account_service,
     line_contact_service,
     outreach_service,
+    registration_service,
     unavailability_service,
 )
 
 logger = logging.getLogger(__name__)
+myid_limiter = RateLimiter()
 _LINK_COMMAND = re.compile(r"LINK(?:\s+|$)", re.IGNORECASE | re.ASCII)
+_OFFER_BUTTON_GUIDANCE = (
+    "หากต้องการตอบข้อเสนอเข้าเวร กรุณากดปุ่มในข้อความข้อเสนอที่ยังตอบได้ เพื่อบันทึกคำตอบ "
+    "การพิมพ์แชตยังไม่ถือเป็นการตอบข้อเสนอค่ะ"
+)
+_LINK_GUIDANCE = (
+    "สวัสดีค่ะ กรุณาผูกบัญชี LINE กับ Nara ก่อนใช้งาน โดยขอรหัสผูกบัญชีจากผู้ดูแล "
+    "แล้วส่งข้อความ LINK <รหัสที่ได้รับ> มาที่แชตนี้ค่ะ"
+)
+_WAITING_GUIDANCE = "ระบบบันทึกการตอบรับของคุณแล้ว ขณะนี้อยู่ระหว่างรอผล กรุณารอการแจ้งยืนยันก่อนเข้าเวรค่ะ"
+_IDLE_GUIDANCE = (
+    "สวัสดีค่ะ นี่คือระบบแจ้งเตือนเวรของ Nara "
+    "ขณะนี้คุณไม่มีข้อเสนอเข้าเวรที่รอดำเนินการ "
+    "หากต้องการความช่วยเหลือ กรุณาติดต่อหัวหน้าหอค่ะ"
+)
+
+
+def _message_guidance(db: Session, uid: str) -> str:
+    """Read the sender's current offers; never infer a response from their text."""
+    staff = line_contact_service.staff_for_line_uid(db, uid)
+    if staff is None:
+        return _LINK_GUIDANCE
+    offers = outreach_service.list_offers(db, staff_id=staff[0])
+    if any(offer.can_accept or offer.can_reject for offer in offers):
+        return _OFFER_BUTTON_GUIDANCE
+    if any(
+        offer.status == OutreachStatus.ACCEPTED
+        and offer.case_status not in AUTOMATION_STOPPED_STATUSES
+        and not offer.is_assigned
+        and offer.final_outcome is None
+        for offer in offers
+    ):
+        return _WAITING_GUIDANCE
+    return _IDLE_GUIDANCE
 
 
 def valid_signature(body: bytes, signature: str | None) -> bool:
@@ -167,6 +209,88 @@ def _check_in_event(db: Session, event: dict[str, Any], event_id: str) -> bool:
     return True
 
 
+def _is_my_id(event: dict[str, Any]) -> bool:
+    message = event.get("message")
+    text = message.get("text") if isinstance(message, dict) else None
+    return bool(
+        event.get("type") == "message"
+        and isinstance(message, dict)
+        and message.get("type") == "text"
+        and isinstance(text, str)
+        and re.fullmatch(r"MYID[ \t\r\n]*", text, re.IGNORECASE | re.ASCII)
+    )
+
+
+def _my_id_event(db: Session, event: dict[str, Any], event_id: str) -> bool:
+    """MYID reveals only the active private sender's own staff ID, never a supplied ID."""
+    if not _is_my_id(event):
+        return False
+    source = event.get("source")
+    # Never disclose staff identity in a group or room.
+    if not isinstance(source, dict) or source.get("type") != "user":
+        _remember(db, event_id)
+        db.commit()
+        return True
+    uid = source.get("userId")
+    staff = (
+        line_contact_service.staff_for_line_uid(db, uid) if isinstance(uid, str) and uid else None
+    )
+    reply = f"รหัสพนักงาน NARA ของคุณคือ {staff[0]}" if staff is not None else _LINK_GUIDANCE
+    _remember(db, event_id)
+    db.commit()
+    _reply(db, event, reply)
+    return True
+
+
+def _is_register(event: dict[str, Any]) -> bool:
+    message = event.get("message")
+    text = message.get("text") if isinstance(message, dict) else None
+    return bool(
+        event.get("type") == "message"
+        and isinstance(message, dict)
+        and message.get("type") == "text"
+        and isinstance(text, str)
+        and re.fullmatch(r"REGISTER[ \t\r\n]*", text, re.IGNORECASE | re.ASCII)
+    )
+
+
+def _register_event(db: Session, event: dict[str, Any], event_id: str) -> None:
+    source = event.get("source")
+    uid = source.get("userId") if isinstance(source, dict) else None
+    try:
+        if (
+            not isinstance(source, dict)
+            or source.get("type") != "user"
+            or not isinstance(uid, str)
+            or not 1 <= len(uid) <= 255
+        ):
+            raise registration_service.RegistrationError("Invalid sender")
+        issued = registration_service.issue(db, uid)
+    except registration_service.RegistrationError as error:
+        if _business_refusal(db, event_id):
+            message = (
+                "คุณมีบัญชีเว็บแล้ว กรุณาเข้าสู่ระบบ หรือติดต่อผู้ดูแลหากลืมรหัสผ่าน"
+                if isinstance(error, registration_service.AlreadyRegisteredError)
+                else "ขอรหัสบ่อยเกินไป กรุณารออย่างน้อยหนึ่งนาทีแล้วส่ง REGISTER อีกครั้ง"
+                if isinstance(error, registration_service.IssuanceLimitedError)
+                else "กรุณาส่ง REGISTER จากบัญชี LINE ส่วนตัวที่ผูกกับพนักงานที่พร้อมใช้งานแล้ว"
+            )
+            _reply(db, event, message)
+        return
+    _remember(db, event_id)
+    db.commit()
+    _reply(
+        db,
+        event,
+        (
+            "รหัสสมัครบัญชีเว็บ Nara (ใช้ได้ครั้งเดียวภายใน 10 นาที):\n"
+            f"{issued.code.get_secret_value()}\n"
+            "เปิดหน้าสมัครสมาชิกของเว็บ Nara แล้วกรอกรหัสนี้พร้อมตั้งรหัสผ่าน "
+            "ห้ามส่งรหัสนี้ให้ผู้อื่น หากไม่ได้รับรหัสหรือรหัสหมดอายุให้ส่ง REGISTER ใหม่"
+        ),
+    )
+
+
 def process_event(db: Session, event: dict[str, Any]) -> None:
     """Process an event or raise for retry. Expected refusals are terminal, not HTTP errors.
 
@@ -176,10 +300,33 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
     event_id = event.get("webhookEventId")
     if not isinstance(event_id, str) or not event_id or len(event_id) > 256:
         raise ValueError("Missing or invalid webhook event ID")
+    if _is_my_id(event):
+        source = event.get("source")
+        uid = source.get("userId") if isinstance(source, dict) else None
+        # Limit BEFORE the shared reset gate, dedup read, or LINE reply. Throttled
+        # deliveries are acknowledged silently, without DB work or reply quota.
+        if (
+            isinstance(source, dict)
+            and source.get("type") == "user"
+            and isinstance(uid, str)
+            and 1 <= len(uid) <= 255
+        ):
+            key = hashlib.sha256(uid.encode()).hexdigest()
+            if myid_limiter.hit([Limit(f"myid:{key}", MYID_PER_SENDER)]) is not None:
+                db.rollback()
+                return
+    if _is_register(event) or _is_my_id(event):
+        # Before even the dedup read: reset takes the exclusive gate before table locks.
+        auth_service.hold_auth_gate(db)
     if db.get(LineWebhookEvent, event_id) is not None:
         db.rollback()
         return
     try:
+        if _is_register(event):
+            _register_event(db, event, event_id)
+            return
+        if _my_id_event(db, event, event_id):
+            return
         if _check_in_event(db, event, event_id):
             return
         message = event.get("message")
@@ -206,8 +353,22 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             _reply(db, event, "ผูกบัญชี LINE สำเร็จแล้ว")
             return
         if event.get("type") != "postback":
+            # Read status before dedup commits, then use the existing post-commit
+            # reply path. Incoming text is never persisted, interpreted or echoed.
+            source = event.get("source")
+            guidance = None
+            if (
+                event.get("type") == "message"
+                and isinstance(source, dict)
+                and source.get("type") == "user"
+                and isinstance(source.get("userId"), str)
+                and source["userId"]
+            ):
+                guidance = _message_guidance(db, source["userId"])
             _remember(db, event_id)
             db.commit()
+            if guidance is not None:
+                _reply(db, event, guidance)
             return
         source = event.get("source", {})
         uid = source.get("userId") if isinstance(source, dict) else None
@@ -235,7 +396,7 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             if _business_refusal(db, event_id):
                 _reply(db, event, "ข้อมูลข้อเสนอไม่ถูกต้อง กรุณาดูข้อเสนอล่าสุด")
             return
-        outreach_service.record_response(
+        outreach, _ = outreach_service.record_response(
             db,
             staff_id=staff[0],
             actor_id=staff[1],
@@ -243,6 +404,13 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             response=response,
             after_lock=lambda session: _remember(session, event_id),
         )
+        # Report the current response order, not the Solver's provisional rank.
+        accepted_as_reserve = False
+        if response == CandidateResponse.ACCEPT:
+            accepted_as_reserve = any(
+                view.id == outreach.id and view.is_reserve
+                for view in outreach_service.list_offers(db, staff_id=staff[0])
+            )
     except IntegrityError as error:
         db.rollback()
         if _duplicate(error):
@@ -263,7 +431,7 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
             _reply(
                 db,
                 event,
-                "ข้อเสนอนี้หมดเวลาแล้ว"
+                "ข้อเสนอนี้หมดเวลาตอบรับแล้ว จึงไม่สามารถรับข้อเสนอได้"
                 if isinstance(error, outreach_service.OfferExpiredError)
                 else "ข้อเสนอนี้ตอบไม่ได้แล้ว หรือกำลังรอผลอนุมัติจากเคสอื่น",
             )
@@ -283,5 +451,7 @@ def process_event(db: Session, event: dict[str, Any]) -> None:
         event,
         "บันทึกการปฏิเสธข้อเสนอแล้ว"
         if response == CandidateResponse.REJECT
+        else "บันทึกการตอบรับแล้ว ขณะนี้คุณเป็นตัวสำรอง กรุณารอการยืนยันก่อนเข้าเวร"
+        if accepted_as_reserve
         else "บันทึกคำตอบแล้ว โปรดตรวจสถานะล่าสุด การตอบรับยังไม่ยืนยันให้เข้าเวร",
     )

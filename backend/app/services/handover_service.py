@@ -1,13 +1,17 @@
 """Immutable database snapshots, in the assignment transaction; no network or commits."""
 
+import base64
+import binascii
+import json
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, aliased
 
 from app.core import clock
-from app.core.constants import HANDOVER_CONTENT_VERSION
+from app.core.constants import HANDOVER_CONTENT_VERSION, MAX_BIGINT
 from app.db.models import (
     AuditLog,
     Role,
@@ -28,8 +32,12 @@ from app.domain.enums import (
     HandoverReason,
     RosterStatus,
 )
-from app.schemas.handover import HandoverView
+from app.schemas.handover import HandoverPage, HandoverView
 from app.services import audit_service, requirement_service, roster_time_service
+
+
+class InvalidCursorError(ValueError):
+    """An invalid history cursor supplied by the caller."""
 
 
 class HandoverProvenanceError(ValueError):
@@ -234,3 +242,91 @@ def list_handovers(
         for h, status, end in db.execute(query)
     ]
     return sorted(rows, key=lambda h: (h.active, h.generated_at, h.handover_id), reverse=True)
+
+
+def _history_cursor(staff_id: int, row: HandoverView) -> str:
+    payload = {"v": 1, "staff": staff_id, "at": row.generated_at.isoformat(), "id": row.handover_id}
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+
+def _read_history_cursor(cursor: str, staff_id: int) -> tuple[datetime, int]:
+    try:
+        payload = json.loads(base64.b64decode(cursor, altchars=b"-_", validate=True))
+        if not isinstance(payload, dict) or set(payload) != {"v", "staff", "at", "id"}:
+            raise ValueError
+        if type(payload["v"]) is not int or payload["v"] != 1 or payload["staff"] != staff_id:
+            raise ValueError
+        oid = payload["id"]
+        if type(oid) is not int or not 1 <= oid <= MAX_BIGINT:
+            raise ValueError
+        at = datetime.fromisoformat(payload["at"])
+        if at.utcoffset() is None:
+            raise ValueError
+        # Normalize here: extreme offsets can overflow Python/driver UTC conversion.
+        at = at.astimezone(UTC)
+        return at, oid
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        OverflowError,
+        binascii.Error,
+        UnicodeDecodeError,
+    ) as error:
+        raise InvalidCursorError("Invalid handover history cursor") from error
+
+
+def page_handovers(
+    db: Session, *, staff_id: int, limit: int = 20, cursor: str | None = None
+) -> HandoverPage:
+    """Always return current assignments; keyset-page only history. No writes.
+
+    Generated time and ID are immutable; status is read anew on every request.
+    Case detail keeps its existing complete list through list_handovers().
+    """
+    if not 1 <= limit <= 100:
+        raise ValueError("Handover history limit must be between 1 and 100")
+    boundary = _read_history_cursor(cursor, staff_id) if cursor is not None else None
+    active = and_(
+        RosterAssignment.status == RosterStatus.ASSIGNED,
+        roster_time_service.end_at() > clock.now(),
+    )
+    query = (
+        select(StructuredHandover, active.label("active"))
+        .join(RosterAssignment, RosterAssignment.id == StructuredHandover.roster_assignment_id)
+        .join(Shift, Shift.id == RosterAssignment.shift_id)
+        .where(StructuredHandover.incoming_staff_id == staff_id)
+        .order_by(StructuredHandover.generated_at.desc(), StructuredHandover.id.desc())
+    )
+
+    def views(rows: Any) -> list[HandoverView]:
+        return [
+            HandoverView(
+                handover_id=h.id,
+                roster_assignment_id=h.roster_assignment_id,
+                active=is_active,
+                generated_at=h.generated_at,
+                content=h.content,
+            )
+            for h, is_active in rows
+        ]
+
+    with db.no_autoflush:
+        current = views(db.execute(query.where(active)))
+        history_query = query.where(~active)
+        if boundary is not None:
+            at, oid = boundary
+            history_query = history_query.where(
+                or_(
+                    StructuredHandover.generated_at < at,
+                    and_(StructuredHandover.generated_at == at, StructuredHandover.id < oid),
+                )
+            )
+        history = views(db.execute(history_query.limit(limit + 1)))
+    more = len(history) > limit
+    history = history[:limit]
+    return HandoverPage(
+        active=current,
+        history=history,
+        next_cursor=_history_cursor(staff_id, history[-1]) if more else None,
+    )

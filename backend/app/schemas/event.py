@@ -1,9 +1,10 @@
 from typing import Self
 
-from pydantic import AwareDatetime, BaseModel, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from app.core.constants import MAX_BIGINT, MAX_EVENT_REASON_LENGTH
 from app.domain.enums import CaseStatus, EventStatus, EventType
+from app.schemas.types import AppDatetime
 
 # The count columns are PostgreSQL integer: a larger number would fail in the database
 MAX_INTEGER = 2**31 - 1
@@ -73,6 +74,23 @@ class EventCreate(BaseModel):
         return self
 
 
+class DemoEventCreate(EventCreate):
+    """Body of POST /demo/events (6.33.4): an EventCreate plus the demo character who
+    reports it. The person on leave for STAFF_UNAVAILABLE, a head nurse for the others."""
+
+    reporter_staff_id: int = Field(gt=0, le=MAX_BIGINT)
+
+
+class SelfLeave(BaseModel):
+    """Body of POST /me/unavailability (6.33.3-4). The person, the event type and the actor
+    come from the session; a body that names any of them is refused (422)."""
+
+    model_config = ConfigDict(extra="forbid")
+    shift_id: int = Field(gt=0, le=MAX_BIGINT)
+    # The return time, under the rules of EventCreate.end_at. Omitted = until the shift ends
+    end_at: AwareDatetime | None = None
+
+
 class EventResult(BaseModel):
     """Answer of POST /events and GET /events/{event_id} (docs/workflow.md, section 9.3)."""
 
@@ -82,3 +100,10 @@ class EventResult(BaseModel):
     # RECEIVED = its merge window has not closed yet
     case_id: int | None
     case_status: CaseStatus | None
+    # PROCESSED: true when the event joined the case already running on the shift, false
+    # when its window opened the case (round 6 PR EV10, 6.40)
+    joined_running_case: bool = False
+    # IGNORED: why (EventIgnoredReason), e.g. NO_ASSIGNED_ROSTER for a second report
+    ignored_reason: str | None = None
+    # RECEIVED: the earliest time its merge window closes
+    window_closes_at: AppDatetime | None = None

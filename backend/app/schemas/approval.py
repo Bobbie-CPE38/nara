@@ -10,6 +10,9 @@ class ApprovalWardView(BaseModel):
     ward_id: int
     side: ApprovalSide
     status: Literal["PENDING", "APPROVED"]
+    # Who approved an APPROVED side: a person (MANUAL) or the system (AUTO, 6.39); None while
+    # PENDING
+    approval_mode: ApprovalMode | None = None
 
 
 class PendingApproval(BaseModel):
@@ -32,7 +35,12 @@ class PendingApproval(BaseModel):
 
 
 class AutoApprovedApproval(PendingApproval):
-    """History is a decision result; approval alone does not guarantee assignment."""
+    """History is a decision result; approval alone does not guarantee assignment.
+
+    Since round 6 PR EV9 (6.39) a request is here once the system approved any of its sides:
+    `is_pending` true means another side still waits; `decided_at` is when the system last
+    approved a side of it.
+    """
 
     decided_at: AppDatetime
 

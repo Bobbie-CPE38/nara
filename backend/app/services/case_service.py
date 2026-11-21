@@ -21,7 +21,6 @@ from app.db.models import (
     CandidateItem,
     CandidateOutreach,
     CandidatePlan,
-    RankExplanation,
     Role,
     RosterAssignment,
     SafetyValidation,
@@ -47,7 +46,7 @@ from app.domain.constraints.score_breakdown import (
     score_from_snapshot,
     weights_from_snapshot,
 )
-from app.domain.enums import ExplanationStatus, OutreachStatus
+from app.domain.enums import OutreachStatus
 from app.domain.errors import CaseNotFoundError
 from app.schemas.case import (
     AuditEntry,
@@ -63,7 +62,13 @@ from app.schemas.case import (
     ScoreTerm,
     SourceAssignmentView,
 )
-from app.services import case_facts_service, handover_service
+from app.services import (
+    case_facts_service,
+    case_overview_service,
+    case_summary_service,
+    explanation_service,
+    handover_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +98,8 @@ def get_case_detail(db: Session, case_id: int) -> CaseDetail:
         explanation=_latest_explanation(db, case.id),
         partial_plan=_partial_plan(db, case.id),
         handovers=handover_service.list_handovers(db, case_id=case.id),
+        summary=case_summary_service.view(db, case),
+        overview=case_overview_service.build(db, case.id),
     )
 
 
@@ -274,28 +281,13 @@ def _partial_plan(db: Session, case_id: int) -> bool:
 
 
 def _latest_explanation(db: Session, case_id: int) -> RankExplanationView | None:
-    """The newest explanation row of the latest plan; null if there is no plan or row.
+    """The explanation of the latest plan with whether it can be asked for now; null if
+    there is no plan or it has no candidates (round 6 PR E1).
 
-    FAILED and SKIPPED both read as UNAVAILABLE, and only a READY row exposes its
-    text, provider and model. The failure reason is never returned.
+    Only a READY row exposes its text, provider and model. The failure reason is never
+    returned.
     """
-    plan = _latest_plan(db, case_id)
-    if plan is None:
-        return None
-    row = db.scalar(
-        select(RankExplanation)
-        .where(RankExplanation.plan_id == plan.id)
-        .order_by(RankExplanation.id.desc())
-        .limit(1)
-    )
-    if row is None:
-        return None
-    if row.status == ExplanationStatus.READY:
-        return RankExplanationView(
-            status="READY", text=row.text, provider=row.provider, model_id=row.model_id
-        )
-    status = "PENDING" if row.status == ExplanationStatus.PENDING else "UNAVAILABLE"
-    return RankExplanationView(status=status, text=None, provider=None, model_id=None)
+    return explanation_service.view(db, _latest_plan(db, case_id))
 
 
 def _latest_candidates(db: Session, case_id: int) -> list[CandidateView]:

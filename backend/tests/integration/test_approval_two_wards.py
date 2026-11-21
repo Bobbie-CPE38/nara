@@ -242,8 +242,8 @@ def test_pending_list_reports_home_source_sides_and_supervisor_time(scene):
     assert row["home_ward_id"] == 1
     assert row["source_ward_id"] == source_ward
     assert row["wards"] == [
-        {"ward_id": 1, "side": "DESTINATION", "status": "APPROVED"},
-        {"ward_id": source_ward, "side": "SOURCE", "status": "PENDING"},
+        {"ward_id": 1, "side": "DESTINATION", "status": "APPROVED", "approval_mode": "MANUAL"},
+        {"ward_id": source_ward, "side": "SOURCE", "status": "PENDING", "approval_mode": None},
     ]
     assert row["supervisor_from"] == (DEMO_NOW + timedelta(seconds=600)).isoformat()
 
@@ -411,7 +411,9 @@ def test_missing_wrong_role_stale_and_bad_side_follow_error_order(scene, side):
     assert decide(client, request_id, supervisor, side=side).status_code == 403
 
 
-def test_supervisor_does_not_gain_head_nurse_event_or_leave_permissions(scene):
+def test_supervisor_reports_no_head_nurse_event_but_changes_any_leave(scene):
+    """A supervisor still cannot report a head nurse's events. Changing the end of a
+    leave period is open to supervisors of every ward since round 6 PR AU2 (6.33.4)."""
     from app.db.models import StaffUnavailability
     from app.domain.enums import AvailabilityReason
 
@@ -439,20 +441,33 @@ def test_supervisor_does_not_gain_head_nurse_event_or_leave_permissions(scene):
             headers=supervisor,
             json={"end_at": (DEMO_NOW + timedelta(days=1)).isoformat()},
         ).status_code
-        == 403
+        == 200
     )
 
 
-def test_automatic_decisions_write_no_human_ward_rows(production_seeded):
+def test_automatic_decisions_write_system_ward_rows(production_seeded):
+    """Round 6 PR EV9 (6.39): each side the system approves has its own row, with no person."""
+    from app.domain.enums import ApprovalMode, ApproverCapacity
     from app.services import auto_approval_service
     from tests.integration.test_auto_approval import queue
 
     db = production_seeded
     rows = queue(db)
     assert auto_approval_service.approve_due_requests(db).approval_ids == [row.id for row in rows]
-    assert db.scalar(select(func.count()).select_from(ApprovalWardDecision)) == 0
+    decisions = list(db.scalars(select(ApprovalWardDecision)))
+    assert len(decisions) == 3
+    assert all(
+        row.approver_id is None
+        and row.approval_mode == ApprovalMode.AUTO
+        and row.decided_as == ApproverCapacity.HEAD_NURSE
+        and (row.queue_count, row.queue_cap, row.queue_approver_count) == (3, 2, 1)
+        for row in decisions
+    )
     history = approval_service.list_auto_approved(db, role_id=2, home_ward_id=1)
-    assert all(row.wards[0].status == "APPROVED" for row in history)
+    assert all(
+        row.wards[0].status == "APPROVED" and row.wards[0].approval_mode == "AUTO"
+        for row in history
+    )
 
 
 def test_transfer_cancelled_result_keeps_approval_and_accepts_historical_reason(scene):

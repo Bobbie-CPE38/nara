@@ -8,6 +8,7 @@ from urllib.request import Request
 import pytest
 from alembic import command
 from alembic.config import Config
+from botocore.endpoint import Endpoint
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
@@ -36,6 +37,7 @@ from app.core import clock  # noqa: E402
 from app.core.config import settings  # noqa: E402
 from app.db.session import engine  # noqa: E402
 from app.integrations.line import client as line_client  # noqa: E402
+from app.integrations.llm import lambda_proxy  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
@@ -62,6 +64,45 @@ def isolated_line(monkeypatch: pytest.MonkeyPatch) -> None:
         return original_urlopen(url, *args, **kwargs)
 
     monkeypatch.setattr(line_client.urllib.request, "urlopen", guarded_http)
+
+
+@pytest.fixture(autouse=True)
+def isolated_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests own their LLM settings, regardless of the developer's real .env (R6-Q15 ก).
+
+    Every test starts with the fake provider and LLM off; a test may still opt in to
+    either. Below that, any botocore request to a Bedrock endpoint fails the test, so even
+    a test that switches to bedrock by mistake cannot reach AWS. botocore's Stubber
+    answers before this point, so Stubber tests of the adapter keep the guard on.
+    """
+    monkeypatch.setenv("LLM_PROVIDER", "fake")
+    monkeypatch.setenv("LLM_ENABLED", "false")
+    monkeypatch.setattr(settings, "llm_provider", "fake")
+    monkeypatch.setattr(settings, "llm_enabled", False)
+
+    def guarded_request(self: Endpoint, *args: Any, **kwargs: Any) -> Any:
+        hostname = urlsplit(self.host).hostname or ""
+        if "bedrock" in hostname:
+            # pytest.fail escapes the adapter's `except Exception`
+            pytest.fail("Unmocked Bedrock call: replace the adapter or stub the client")
+        return original_request(self, *args, **kwargs)
+
+    original_request = Endpoint.make_request
+    monkeypatch.setattr(Endpoint, "make_request", guarded_request)
+
+    # Round 6 PR B3: the Lambda proxy is plain HTTPS, not botocore. No test reaches API
+    # Gateway or any other AWS host; a test of the adapter replaces lambda_proxy._post
+    monkeypatch.setattr(settings, "llm_lambda_url", None)
+    monkeypatch.setattr(settings, "llm_lambda_api_key", None)
+    previous_open = lambda_proxy._OPENER.open
+
+    def guarded_aws_http(url: str | Request, *args: Any, **kwargs: Any) -> Any:
+        hostname = urlsplit(url.full_url if isinstance(url, Request) else url).hostname or ""
+        if hostname == "amazonaws.com" or hostname.endswith(".amazonaws.com"):
+            pytest.fail("Unmocked AWS HTTP call: replace lambda_proxy._post in this test")
+        return previous_open(url, *args, **kwargs)
+
+    monkeypatch.setattr(lambda_proxy._OPENER, "open", guarded_aws_http)
 
 
 @pytest.fixture(scope="session", autouse=True)
