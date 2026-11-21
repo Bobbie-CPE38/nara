@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AuditTimeline } from "@/components/audit/AuditTimeline";
 import { CandidateTable } from "@/components/candidate/CandidateTable";
 import { type ExplanationRequest, ScoreBreakdown } from "@/components/candidate/ScoreBreakdown";
 import { SkippedTable } from "@/components/candidate/SkippedTable";
+import { CANDIDATES_ID, CaseOverviewCard } from "@/components/case/CaseOverviewCard";
 import { CaseSummary } from "@/components/case/CaseSummary";
+import { CaseManagement } from "@/components/case/CaseManagement";
 import { GapTable } from "@/components/case/GapTable";
 import { HandoverList } from "@/components/handover/HandoverList";
 import { Badge } from "@/components/ui/Badge";
@@ -64,7 +66,7 @@ function liveKey(snapshot: CaseSnapshot): MessageKey {
   return "case.stopped";
 }
 
-function CaseSections({ detail, audit, request, onSummaryRequested }: CaseSnapshot & { request: ExplanationRequest; onSummaryRequested: () => Promise<void> }) {
+function CaseSections({ detail, audit, request, onSummaryRequested, management }: CaseSnapshot & { request: ExplanationRequest; onSummaryRequested: () => Promise<void>; management?: ReactNode }) {
   const t = useT();
   const info = CASE_STATUS_INFO.get(detail.status);
   const skips = collectSkips(audit);
@@ -74,18 +76,23 @@ function CaseSections({ detail, audit, request, onSummaryRequested }: CaseSnapsh
     : undefined;
   return (
     <div className="space-y-4">
-      <Card>
-        <p>
-          {t("case.status")}{" "}
-          <Badge tone={info?.tone ?? "neutral"} as="strong">{detail.status}</Badge>
-          {info && <span className="ml-2">{t(info.messageKey)}</span>}
-        </p>
-        {failure && (
-          <p className="text-red-700">
-            {t("case.failedAt", { at: formatValue(failure.payload.failed_at), error: formatValue(failure.payload.error_type) })}
-          </p>
-        )}
-        <p className="mt-1 text-sm text-slate-500">{t(liveKey({ detail, audit }))}</p>
+      <Card label={t("case.status")}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1 basis-64">
+            <p>
+              {t("case.status")}{" "}
+              <Badge tone={info?.tone ?? "neutral"} as="strong">{detail.status}</Badge>
+              {info && <span className="ml-2">{t(info.messageKey)}</span>}
+            </p>
+            {failure && (
+              <p className="text-red-700">
+                {t("case.failedAt", { at: formatValue(failure.payload.failed_at), error: formatValue(failure.payload.error_type) })}
+              </p>
+            )}
+            <p className="mt-1 text-sm text-slate-500">{t(liveKey({ detail, audit }), { seconds: POLL_INTERVAL_MS / 1000 })}</p>
+          </div>
+          {management && <div className="min-w-0 max-w-full break-words empty:hidden sm:ml-auto">{management}</div>}
+        </div>
         <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-[max-content_1fr]">
           <dt className="font-medium">{t("common.shift")}</dt>
           <dd>{detail.shift_id}</dd>
@@ -99,22 +106,26 @@ function CaseSections({ detail, audit, request, onSummaryRequested }: CaseSnapsh
           <dd>{formatDateTime(detail.updated_at)}</dd>
         </dl>
       </Card>
+      {detail.overview && <CaseOverviewCard overview={detail.overview} caseStatus={detail.status} />}
       <Card title={t("common.gap")}>
         {detail.gap ? <GapTable gap={detail.gap} /> : <p className="mt-2">{t("case.notAssessed")}</p>}
       </Card>
-      <Card title={t("case.candidates")}>
-        <CandidateTable
-          candidates={detail.candidates}
-          stopped={isFinal({ detail, audit }) || detail.status === "MANUAL_HANDOFF"}
-        />
-        <ScoreBreakdown candidates={detail.candidates} explanation={detail.explanation} partialPlan={detail.partial_plan} request={request} />
-        {skips.length > 0 && (
-          <>
-            <h3 className="mt-4">{t("case.skipped")}</h3>
-            <SkippedTable skips={skips} candidates={detail.candidates} />
-          </>
-        )}
-      </Card>
+      {/* The replacement summary's "See the candidates" jumps here */}
+      <div id={CANDIDATES_ID} className="scroll-mt-28">
+        <Card title={t("case.candidates")}>
+          <CandidateTable
+            candidates={detail.candidates}
+            stopped={isFinal({ detail, audit }) || detail.status === "MANUAL_HANDOFF"}
+          />
+          <ScoreBreakdown candidates={detail.candidates} explanation={detail.explanation} partialPlan={detail.partial_plan} request={request} />
+          {skips.length > 0 && (
+            <>
+              <h3 className="mt-4">{t("case.skipped")}</h3>
+              <SkippedTable skips={skips} candidates={detail.candidates} />
+            </>
+          )}
+        </Card>
+      </div>
       <CaseSummary caseId={detail.id} summary={detail.summary} onRequested={onSummaryRequested} />
       <Card title={t("case.handovers")}>
         <HandoverList handovers={detail.handovers ?? []} emptyText={t("case.noHandover")} />
@@ -200,7 +211,17 @@ export function CaseView({ caseId }: { caseId: string }) {
             </Notice>
           </div>
         )}
-        <CaseSections detail={data.detail} audit={data.audit} request={{ busy: requesting, message: requestMessage, onRequest: requestExplanation }} onSummaryRequested={refresh} />
+        <CaseSections
+          detail={data.detail}
+          audit={data.audit}
+          request={{ busy: requesting, message: requestMessage, onRequest: requestExplanation }}
+          onSummaryRequested={refresh}
+          management={httpStatus !== 403 && (
+            <Suspense>
+              <CaseManagement caseId={caseId} status={data.detail.status} onChanged={refresh} />
+            </Suspense>
+          )}
+        />
       </>
     );
   }

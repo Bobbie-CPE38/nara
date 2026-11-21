@@ -44,6 +44,7 @@ class AuthMe(BaseModel):
     staff_id: int
     role: ApiRole
     home_ward_id: int
+    home_ward_name: str | None = None
     must_change_password: bool
 
 

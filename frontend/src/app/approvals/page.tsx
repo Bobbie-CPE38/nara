@@ -76,10 +76,21 @@ function wardsText(row: PendingApproval, t: Translate): string {
       t("appr.wardLine", {
         ward: wardName(ward.ward_id),
         side: t(ward.side === "SOURCE" ? "appr.side.SOURCE" : "appr.side.DESTINATION"),
-        status: t(ward.status === "APPROVED" ? "appr.status.APPROVED" : "appr.status.WAITING"),
+        status: t(
+          ward.status !== "APPROVED"
+            ? "appr.status.WAITING"
+            : ward.approval_mode === "AUTO"
+              ? "appr.status.AUTO"
+              : "appr.status.APPROVED",
+        ),
       }),
     )
     .join("; ");
+}
+
+/** One ward already approved and the other still decides (round 6 PR EV9, 6.39) */
+function waitsForOtherSide(row: PendingApproval): boolean {
+  return (row.wards ?? []).some((ward) => ward.status === "APPROVED");
 }
 
 function shortByText(shortBy: number | null, t: Translate): string {
@@ -155,14 +166,21 @@ function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
   const load = useCallback((signal: AbortSignal) => loadAutoRows(api, signal), [api]);
   // History changes slowly, and each poll reads every case of up to 50 rows
   const { data, error } = usePolling(load, { intervalMs: AUTO_HISTORY_POLL_MS });
+  // A side approved while another ward still decides is apart from a finished approval (6.39)
+  const groups: { label: MessageKey; rows: AutoRow[] }[] = [
+    { label: "appr.auto.waitingOther", rows: (data ?? []).filter((row) => row.is_pending) },
+    { label: "appr.auto.complete", rows: (data ?? []).filter((row) => !row.is_pending) },
+  ];
   return (
     <Card label={t("appr.auto.title")} title={t("appr.auto.title")} className="mt-6">
       <p className="mt-1 text-sm">{t("appr.auto.help")}</p>
       {error && <p className="mt-2 text-red-700">{describeError(error, t)}</p>}
       {data && data.length === 0 && <p className="mt-2">{t("appr.auto.none", { id: actorId })}</p>}
-      {data && data.length > 0 && (
+      {groups.map(({ label, rows }) => rows.length > 0 && (
+        <section key={label} className="mt-3">
+        <h3 className="text-sm font-semibold">{t(label)}</h3>
         <ScrollX>
-          <table aria-label={t("appr.auto.title")} className="mt-2">
+          <table aria-label={t(label)} className="mt-2">
             <thead>
               <tr>
                 <th>{t("common.id")}</th>
@@ -174,7 +192,7 @@ function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
               </tr>
             </thead>
             <tbody>
-              {data.map((row) => (
+              {rows.map((row) => (
                 <tr key={row.id}>
                   <td>{row.id}</td>
                   <td>
@@ -197,7 +215,8 @@ function AutoHistory({ api, actorId }: { api: Api; actorId: number }) {
             </tbody>
           </table>
         </ScrollX>
-      )}
+        </section>
+      ))}
     </Card>
   );
 }
@@ -332,6 +351,11 @@ function ApprovalsPage() {
     return t(message.key, message.params);
   };
   const pending = (data ?? []).filter((row) => !decidedIds.includes(row.id));
+  // Requests no ward has approved yet, apart from those one ward approved (round 6 PR EV9, 6.39)
+  const pendingGroups: { label: MessageKey; rows: Row[] }[] = [
+    { label: "appr.group.new", rows: pending.filter((row) => !waitsForOtherSide(row)) },
+    { label: "appr.group.otherSide", rows: pending.filter(waitsForOtherSide) },
+  ];
   // By key, not by ID: the form never shows for a different request
   const rejecting = draft ? pending.find((row) => requestKey(row) === draft.key) : undefined;
   const reason = draft?.reason ?? "";
@@ -368,10 +392,10 @@ function ApprovalsPage() {
       </div>
       {isLoading && <p className="mt-4">{t("common.loading")}</p>}
       {data && pending.length === 0 && <p className="mt-4">{t("appr.noPending")}</p>}
-      {pending.length > 0 && (
-        <Card className="mt-4">
+      {pendingGroups.map(({ label, rows }) => rows.length > 0 && (
+        <Card key={label} className="mt-4" label={t(label)} title={t(label)}>
           <ScrollX>
-            <table>
+            <table aria-label={t(label)} className="mt-2">
               <thead>
                 <tr>
                   <th>{t("common.id")}</th>
@@ -389,7 +413,7 @@ function ApprovalsPage() {
                 </tr>
               </thead>
               <tbody>
-                {pending.map((row) => (
+                {rows.map((row) => (
                   <tr key={row.id}>
                     <td>{row.id}</td>
                     <td>
@@ -447,7 +471,7 @@ function ApprovalsPage() {
             </table>
           </ScrollX>
         </Card>
-      )}
+      ))}
       {rejecting && (
         <Card className="mt-4">
           <form className="max-w-xl" onSubmit={submitRejection}>

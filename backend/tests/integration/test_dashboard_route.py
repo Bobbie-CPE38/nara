@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_db
 from app.core import clock
 from app.core.config import settings
-from app.db.models import LlmCallLog, LlmDailyUsage, Shift, StaffingEvent
+from app.db.models import LlmCallLog, LlmDailyUsage, Shift, StaffingEvent, Ward
 from app.domain.enums import (
     CaseStatus,
     EventStatus,
@@ -81,6 +81,41 @@ def test_each_user_sees_their_ward_and_a_supervisor_sees_all(
     assert _dashboard(client, user)["wards"] == wards
 
 
+def test_the_ward_options_name_every_visible_ward(client: TestClient) -> None:
+    """Round 6 PR EV6 (6.36.4): the filter lists the wards by name, not a joined string."""
+    assert _dashboard(client, SUPERVISOR)["ward_options"] == [
+        {"id": 1, "name": "ICU", "is_active": True},
+        {"id": 2, "name": "Medicine", "is_active": True},
+        {"id": 3, "name": "Float Pool", "is_active": True},
+    ]
+    assert _dashboard(client)["ward_options"] == [{"id": 1, "name": "ICU", "is_active": True}]
+
+
+def test_a_ward_filter_narrows_every_number_to_that_ward(
+    client: TestClient, seeded: Session
+) -> None:
+    case_rows.make_case(seeded, CaseStatus.FAILED)
+    case_rows.make_case(seeded, CaseStatus.FAILED, shift_id=MEDICINE_NIGHT)
+
+    medicine = client.get(
+        "/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": str(SUPERVISOR)}
+    ).json()
+
+    assert medicine["wards"] == [2]
+    assert _counts(medicine)["FAILED"] == 1
+    assert {row["ward_id"] for row in medicine["shortages"]} <= {2}
+    # The options still list every ward, so the user can pick another
+    assert len(medicine["ward_options"]) == 3
+
+
+def test_a_ward_outside_the_users_wards_is_refused(client: TestClient) -> None:
+    refused = client.get(
+        "/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": str(HEAD_NURSE)}
+    )
+
+    assert refused.status_code == 403
+
+
 def test_cases_are_counted_by_status_within_the_visible_wards(
     client: TestClient, seeded: Session
 ) -> None:
@@ -124,6 +159,7 @@ def test_short_shifts_inside_the_window_are_listed(client: TestClient, seeded: S
             "role_gaps": [{"name": "RN", "gap_count": 2}],
             "skill_gaps": [{"name": "ICU", "gap_count": 1}],
             "case_id": running.id,
+            "in_progress": False,
         }
     ]
 
@@ -153,9 +189,74 @@ def test_pending_approvals_are_counted_per_ward(client: TestClient, seeded: Sess
     case_rows.offer(seeded, case, items[203], OutreachStatus.ACCEPTED)
     case_rows.approval(seeded, case, items[203], approved=True)
 
-    assert _dashboard(client)["pending_approvals"] == [{"ward_id": 1, "count": 2}]
-    assert _dashboard(client, SUPERVISOR)["pending_approvals"] == [{"ward_id": 1, "count": 2}]
+    # Round 6 PR EV8: who the requests wait for, the ward's head nurse until the Supervisor
+    # may decide them too
+    waiting = [
+        {
+            "ward_id": 1,
+            "count": 2,
+            "head_nurses": [{"staff_id": HEAD_NURSE, "name": "Malai Demo"}],
+            "supervisor": False,
+        }
+    ]
+    assert _dashboard(client)["pending_approvals"] == waiting
+    assert _dashboard(client, SUPERVISOR)["pending_approvals"] == waiting
     assert _dashboard(client, MEDICINE_HEAD_NURSE)["pending_approvals"] == []
+    # The card counts what the user may decide now, like the approvals page it links to
+    # (review of #147): the Supervisor's two wait for the head nurse until supervisor_from
+    assert _dashboard(client)["summary"]["pending_approvals"] == 2
+    assert _dashboard(client)["summary"]["pending_approvals_later"] == 0
+    supervisor = _dashboard(client, SUPERVISOR)["summary"]
+    assert (supervisor["pending_approvals"], supervisor["pending_approvals_later"]) == (0, 2)
+
+    clock.set_time(DEMO_NOW + timedelta(seconds=600))  # supervisor_after_seconds of the seed
+    assert _dashboard(client)["pending_approvals"] == [waiting[0] | {"supervisor": True}]
+    supervisor = _dashboard(client, SUPERVISOR)["summary"]
+    assert (supervisor["pending_approvals"], supervisor["pending_approvals_later"]) == (2, 0)
+
+
+def test_the_cards_and_the_chart_count_every_short_shift_of_the_window(
+    client: TestClient, seeded: Session
+) -> None:
+    """Round 6 PR EV8 (6.38.4): positions over shifts, not people; the busiest ward first."""
+    case_rows.leave(seeded, 105)
+    case_rows.leave(seeded, 101)
+    case_rows.cancel_roster(seeded, 301, MEDICINE_NIGHT)
+    case_rows.make_case(seeded, CaseStatus.MANUAL_HANDOFF)
+
+    body = _dashboard(client, SUPERVISOR)
+
+    assert body["window_hours"] == 24
+    assert body["summary"] == {
+        "short_shifts": 2,
+        "missing_positions": 3,
+        "pending_approvals": 0,
+        "pending_approvals_later": 0,
+        "handoff_cases": 1,
+    }
+    assert body["shortage_by_ward"] == [
+        {"ward_id": 1, "missing_positions": 2, "short_shifts": 1},
+        {"ward_id": 2, "missing_positions": 1, "short_shifts": 1},
+    ]
+    # The ward filter narrows the cards and the chart too
+    narrowed = client.get(
+        "/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": str(SUPERVISOR)}
+    ).json()
+    assert narrowed["summary"]["short_shifts"] == 1
+    assert narrowed["shortage_by_ward"] == [
+        {"ward_id": 2, "missing_positions": 1, "short_shifts": 1}
+    ]
+
+
+def test_a_running_shift_says_so(client: TestClient, seeded: Session) -> None:
+    case_rows.leave(seeded, 105)
+    clock.set_time(DEMO_NOW + timedelta(hours=3))  # D+1 00:00, inside the night shift
+
+    assert [row["in_progress"] for row in _dashboard(client)["shortages"]] == [True]
+
+
+def test_the_demo_seed_is_marked_as_demo_data(client: TestClient, seeded: Session) -> None:
+    assert _dashboard(client)["demo_data"] is True
 
 
 def test_open_offers_count_only_sent_and_unexpired(client: TestClient, seeded: Session) -> None:
@@ -335,3 +436,25 @@ def test_a_shift_without_a_requirement_does_not_break_the_dashboard(
     body = _dashboard(client)
 
     assert [row["shift_id"] for row in body["shortages"]] == [NIGHT_SHIFT]
+
+
+def test_a_supervisor_may_pick_a_paused_ward(client: TestClient, seeded: Session) -> None:
+    """Review of #145: a test run pauses the hospital wards, and their links gave 403."""
+    medicine = seeded.get(Ward, 2)
+    assert medicine is not None
+    medicine.is_active = False
+    seeded.flush()
+
+    every = _dashboard(client, SUPERVISOR)
+    paused = client.get(
+        "/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": str(SUPERVISOR)}
+    )
+
+    # The numbers still cover the active wards; the paused one is offered after them
+    assert every["wards"] == [1, 3]
+    assert every["ward_options"][-1] == {"id": 2, "name": "Medicine", "is_active": False}
+    assert paused.status_code == 200 and paused.json()["wards"] == [2]
+    assert (
+        client.get("/dashboard", params={"ward_id": 2}, headers={"X-Demo-User": "900"}).status_code
+        == 403
+    )

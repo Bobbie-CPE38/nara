@@ -216,7 +216,7 @@ def test_failed_account_insert_rolls_back_code_consumption(code, monkeypatch):
     assert register(code) == 201
 
 
-def test_reset_discards_codes_but_keeps_created_account_and_invalidates_session(code):
+def test_reset_discards_codes_but_keeps_created_account_and_its_session(code):
     assert register(code) == 201
     with SessionLocal() as db:
         token, user = auth_service.login(db, 201, PASSWORD)
@@ -224,7 +224,10 @@ def test_reset_discards_codes_but_keeps_created_account_and_invalidates_session(
     reset_demo()
     with SessionLocal() as db:
         assert db.scalar(select(func.count()).select_from(AuthRegistrationCode)) == 0
-        assert auth_service.resolve(db, token) is None
+        # Round 6 PR EV6 (6.36.2): the login survives the reset
+        kept = auth_service.resolve(db, token)
+        assert kept is not None and kept.staff.auth_subject == subject
+        db.rollback()
         login = auth_service.login(db, 201, PASSWORD)
         assert login is not None and login[1].staff.auth_subject == subject
     assert register(code) == "refused"

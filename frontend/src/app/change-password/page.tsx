@@ -6,6 +6,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Notice } from "@/components/ui/Notice";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { passwordProblem } from "@/lib/authForms";
@@ -98,9 +99,8 @@ export default function ChangePasswordPage() {
               <label className="block" htmlFor="change-current">
                 {t("auth.change.current")}
               </label>
-              <input
+              <PasswordInput
                 id="change-current"
-                type="password"
                 autoComplete="current-password"
                 value={current}
                 disabled={busy}
@@ -111,9 +111,8 @@ export default function ChangePasswordPage() {
               <label className="block" htmlFor="change-new">
                 {t("auth.change.new")}
               </label>
-              <input
+              <PasswordInput
                 id="change-new"
-                type="password"
                 autoComplete="new-password"
                 value={next}
                 disabled={busy}
@@ -125,9 +124,8 @@ export default function ChangePasswordPage() {
               <label className="block" htmlFor="change-repeat">
                 {t("auth.password.confirm")}
               </label>
-              <input
+              <PasswordInput
                 id="change-repeat"
-                type="password"
                 autoComplete="new-password"
                 value={repeat}
                 disabled={busy}

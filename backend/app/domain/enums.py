@@ -203,6 +203,10 @@ class ManualHandoffReason(StrEnum):
     NO_FEASIBLE_PLAN = "NO_FEASIBLE_PLAN"  # T6, written by optimize
     # Round 2: the solver hit its time limit without a plan (UNKNOWN), written by optimize
     SOLVER_TIMEOUT = "SOLVER_TIMEOUT"
+    # Round 6 PR EV6 (6.36.8), written by contact_candidate once nothing is left to wait for:
+    # the case sent its last allowed wave, or its time for new waves ran out
+    WAVE_LIMIT_REACHED = "WAVE_LIMIT_REACHED"
+    OUTREACH_DEADLINE_REACHED = "OUTREACH_DEADLINE_REACHED"
 
 
 # --------------------------------------------------------------------------- #
@@ -320,6 +324,8 @@ class EntityType(StrEnum):
     CONTACTS = "CONTACTS"
     # Round 5 PR N1: a check-in (docs/workflow.md 6.24)
     ATTENDANCE = "ATTENDANCE"
+    # Round 6 PR EV5a: a test run; entity_id is the id of its TEST_RUN_STARTED row (6.35.2)
+    TEST_RUN = "TEST_RUN"
 
 
 class AuditAction(StrEnum):
@@ -336,6 +342,8 @@ class AuditAction(StrEnum):
     WORKFLOW_FAILED = "WORKFLOW_FAILED"
     # Steps
     GAP_ASSESSED = "GAP_ASSESSED"
+    # Events of a shift joined the case already running on it (round 6 PR EV10, 6.40)
+    CASE_EVENTS_JOINED = "CASE_EVENTS_JOINED"
     SOLVER_EXECUTED = "SOLVER_EXECUTED"
     OFFER_SENT = "OFFER_SENT"
     OFFER_ACCEPTED = "OFFER_ACCEPTED"
@@ -366,6 +374,8 @@ class AuditAction(StrEnum):
     ATTENDANCE_CHECKED_IN = "ATTENDANCE_CHECKED_IN"
     # Round 5 PR N2: a late arrival made an offer or request unneeded (6.24). Not written yet
     OFFER_CANCELLED_NOT_NEEDED = "OFFER_CANCELLED_NOT_NEEDED"
+    # The person reported leave (or did not come) for the time of the offer (round 6 PR EV10)
+    OFFER_CANCELLED_STAFF_UNAVAILABLE = "OFFER_CANCELLED_STAFF_UNAVAILABLE"
     # Unavailability
     UNAVAILABILITY_CREATED = "UNAVAILABILITY_CREATED"
     UNAVAILABILITY_UPDATED = "UNAVAILABILITY_UPDATED"
@@ -376,6 +386,10 @@ class AuditAction(StrEnum):
     ASSIGNMENT_CANCELLED = "ASSIGNMENT_CANCELLED"
     PATIENT_COUNT_UPDATED = "PATIENT_COUNT_UPDATED"
     REQUIREMENT_UPDATED = "REQUIREMENT_UPDATED"
+    # Round 6 PR EV5a: test runs (docs/workflow.md 6.35.2), kept across a demo reset
+    TEST_RUN_STARTED = "TEST_RUN_STARTED"
+    TEST_RUN_CLOCK_ADVANCED = "TEST_RUN_CLOCK_ADVANCED"
+    TEST_RUN_FINISHED = "TEST_RUN_FINISHED"
 
 
 # Round 3 PR X: LLM ranking explanation

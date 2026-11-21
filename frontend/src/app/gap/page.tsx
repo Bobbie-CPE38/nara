@@ -148,7 +148,7 @@ function GapCheckPage() {
               >
                 {wardIds.map((id) => (
                   <option key={id} value={id}>
-                    {wardName(id)}
+                    {dashboard.ward_options?.find((option) => option.id === id)?.name ?? wardName(id)}
                   </option>
                 ))}
               </select>

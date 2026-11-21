@@ -11,6 +11,7 @@ no longer needs.
 """
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import select
@@ -157,7 +158,13 @@ def arrive_after_no_show(
     return restored
 
 
-def trim(db: Session, case: StaffingCase, *, late_staff_id: int) -> list[int]:
+def trim(
+    db: Session,
+    case: StaffingCase,
+    *,
+    late_staff_id: int | None = None,
+    event_ids: Sequence[int] = (),
+) -> list[int]:
     """Cancel the offers and requests the case no longer needs. No commit.
 
     Runs as the prepare step of orchestrator.recompute(), so every lock is held.
@@ -168,6 +175,9 @@ def trim(db: Session, case: StaffingCase, *, late_staff_id: int) -> list[int]:
     one not kept has its offer cancelled (a request stays as history) and gets
     OFFER_CANCELLED_NOT_NEEDED. An expired SENT offer is left to the timeout job.
     Returns the staff IDs of the cancelled offers.
+
+    Also the prepare step when events join a running case (round 6 PR EV10, 6.40): then
+    `event_ids` names them in the audit instead of `late_staff_id`.
     """
     intervals = gap_service.get_case_gap(db, case.id).intervals
     base = case_facts_service.get_assigned_fillers(db, case)
@@ -209,9 +219,10 @@ def trim(db: Session, case: StaffingCase, *, late_staff_id: int) -> list[int]:
                 "cancelled_outreach_id": outreach.id,
                 "approval_request_id": None if request is None else request.id,
                 "staff_id": item.staff_id,
-                "late_staff_id": late_staff_id,
                 "reason": NO_LONGER_NEEDED,
-            },
+            }
+            | ({} if late_staff_id is None else {"late_staff_id": late_staff_id})
+            | ({"event_ids": list(event_ids)} if event_ids else {}),
         )
         cancelled_staff.append(item.staff_id)
     db.flush()

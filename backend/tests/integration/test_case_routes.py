@@ -224,6 +224,8 @@ def test_case_detail_has_the_status_key_the_e2e_test_reads(
         "explanation",
         "partial_plan",
         "summary",
+        # Round 6 PR EV7 (6.37.2): who left, who came, who decided, why it stopped
+        "overview",
     }
     assert (body["id"], body["event_ids"], body["shift_id"]) == (
         case.id,

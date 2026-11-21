@@ -16,6 +16,8 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "AUTH_COOKIE_SECURE",
         "AUTH_SESSION_MAX_AGE_SECONDS",
         "AUTH_SESSION_IDLE_SECONDS",
+        "DEMO_ACCOUNT_PASSWORD",
+        "DEMO_MANAGER_ACCOUNTS",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -73,3 +75,36 @@ def test_timeouts_are_positive_and_idle_fits_in_max_age(
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+# Round 6 PR EV7 (6.37.9): the test accounts' password has the login's limits, 12 to 128
+@pytest.mark.parametrize("length", [12, 128])
+def test_the_demo_account_password_takes_12_to_128_characters(
+    monkeypatch: pytest.MonkeyPatch, length: int
+) -> None:
+    monkeypatch.setenv("DEMO_ACCOUNT_PASSWORD", "p" * length)
+
+    password = Settings(_env_file=None).demo_account_password
+
+    assert password is not None and len(password.get_secret_value()) == length
+
+
+@pytest.mark.parametrize("length", [11, 129])
+def test_a_demo_account_password_outside_the_login_limits_stops_startup(
+    monkeypatch: pytest.MonkeyPatch, length: int
+) -> None:
+    monkeypatch.setenv("DEMO_ACCOUNT_PASSWORD", "p" * length)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
+
+
+def test_no_demo_password_and_no_manager_accounts_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEMO_ACCOUNT_PASSWORD", "")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.demo_account_password is None
+    assert settings.demo_manager_accounts is False

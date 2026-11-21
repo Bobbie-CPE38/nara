@@ -42,6 +42,9 @@ def _result(outcome: EventOutcome) -> EventResult:
         event_status=outcome.event_status,
         case_id=outcome.case_id,
         case_status=outcome.case_status,
+        joined_running_case=outcome.joined_running_case,
+        ignored_reason=outcome.ignored_reason,
+        window_closes_at=outcome.window_closes_at,
     )
 
 

@@ -21,11 +21,20 @@ export type PendingApproval = {
   expires_at: string;
   home_ward_id: number;
   source_ward_id: number | null;
-  wards: { ward_id: number; side: ApprovalSide; status: "PENDING" | "APPROVED" }[];
+  wards: {
+    ward_id: number;
+    side: ApprovalSide;
+    status: "PENDING" | "APPROVED";
+    /** Who approved an APPROVED side: a person or the system (round 6 PR EV9, 6.39) */
+    approval_mode?: "MANUAL" | "AUTO" | null;
+  }[];
   supervisor_from: string;
 };
 
-/** One item of GET /approvals/auto: a request the system approved (workflow.md 6.22). */
+/**
+ * One item of GET /approvals/auto: a request the system approved on at least one side
+ * (workflow.md 6.22, 6.39). `is_pending` true: another ward still decides.
+ */
 export type AutoApprovedApproval = PendingApproval & { decided_at: string };
 
 /** Answer of POST /approvals/{id}/decision. */

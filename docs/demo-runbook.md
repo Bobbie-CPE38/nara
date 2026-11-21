@@ -19,3 +19,27 @@
 ## การตรวจชุดใหญ่
 
 ใช้ supervisor 950 ดู Dashboard และ Gap ของหอ 10001–10020; staff ทั่วไปยังอยู่ภายใต้ scope เดิม. วิธีโหลด/backup และหลักฐาน operator อยู่ใน [คู่มือชุดใหญ่](large-demo-data.md). ประวัติ RESOLVED/UNRESOLVED/FAILED เป็น synthetic ใช้ดูข้อมูล ไม่ใช่ผล live Solver/approval/LINE และไม่ปิด AU4 acceptance.
+
+## ผูก LINE ผ่านหน้าจัดการพนักงาน
+
+ล็อกอินเว็บด้วยบัญชี **SUPERVISOR** ที่เปลี่ยนรหัสผ่านเริ่มต้นแล้ว (เช่น 950) → **จัดการพนักงาน** (`/admin/staff`) → ค้นหาด้วยรหัสหรือชื่อ → ตรวจชื่อ/หอ → **สร้างโค้ดผูก LINE** → **คัดลอกข้อความ**. ส่ง `LINK <รหัส>` ให้เจ้าตัวเป็นการส่วนตัว เพื่อส่งจาก LINE ของตัวเองไปหา NARA. ไม่ต้องเข้า EC2 และไม่ต้องใช้ Demo Basic credential ในหน้านี้. บัญชี Head Nurse/Staff และ X-Demo-User ไม่มีสิทธิ์ออกโค้ด แม้ AUTH_MODE=demo; ต้องใช้ session ของ Supervisor จริง.
+
+โค้ดใช้กลไกเดิม: ใช้ได้ครั้งเดียว อายุ 10 นาทีตาม Backend clock (รวมการ freeze/advance ใน Demo). หน้าจอแสดงเวลาหมดอายุ; ถ้าซ่อน/เปลี่ยนหน้าแล้วจะไม่ดึง raw code เดิมกลับมา. ส่งให้เฉพาะบุคคลที่เลือก; หน้าเว็บไม่เก็บโค้ดใน URL/localStorage. การออกโค้ดใหม่ไม่ยกเลิกโค้ดเก่าที่ยังไม่หมดอายุ ตามพฤติกรรม CLI เดิม. พนักงานที่ไม่ Active/ไม่มี USER actor ออกโค้ดไม่ได้ และคนที่มี LINE binding อยู่แล้ว (รวม inactive contact) ต้องปลดก่อน; หน้านี้ไม่มีการแก้ข้อมูลพนักงาน.
+
+เมื่อผูกสำเร็จ พนักงานส่ง **`MYID`** ในแชตส่วนตัวกับ NARA เพื่อดูรหัสพนักงานของบัญชีที่ผูกอยู่ เช่น 201. ใช้ได้เฉพาะ active staff + active contact + USER actor ตามการตรวจเดิม; ไม่ตอบรหัสในกลุ่ม/ห้อง และไม่รองรับการระบุรหัสคนอื่น. หากยังไม่ผูก ระบบแนะนำให้ขอโค้ดจากผู้ดูแล. ถ้าต้องสมัครเว็บ พิมพ์ `REGISTER` เพื่อรับรหัสสมัครเว็บอายุ 10 นาที (real UTC) ตาม flow เดิม; MYID ไม่สร้างบัญชีหรือรหัสสมัคร.
+
+API เพิ่ม: `GET /admin/staff?q=&offset=0&limit=25` (สูงสุด 100 ต่อหน้า), `POST /admin/staff/{staff_id}/line-code` → `{code, expires_at}`. ทุก response ใต้ `/admin` เป็น `Cache-Control: no-store`; ทุก write ต้องมี allowed Origin ทั้ง demo/session. ออกโค้ดและปลด LINE ใช้งบรวมสูงสุด 20 attempts ต่อนาทีต่อ Supervisor ใน process เดียว (รีสตาร์ตล้าง limiter). ไม่มี migration และไม่มีการ deploy/live LINE test อัตโนมัติจาก PR.
+
+
+### ยกเลิกการผูก LINE พร้อมยืนยันรหัส
+
+ในหน้าจัดการพนักงาน กด **ยกเลิกการผูก LINE** ที่พนักงานซึ่งมี binding → ตรวจชื่อ/รหัส → พิมพ์ Staff ID ให้ตรงทุกหลัก → กด **ยืนยันยกเลิกการผูก**. ปุ่มยืนยันยังใช้ไม่ได้ถ้าเว้นว่างหรือกรอกผิด; Backend ตรวจซ้ำกับ staff_id ใน URL ด้วย (`confirm_staff_id` ต้องเป็น string ตรงกัน). กดยกเลิกแบบฟอร์มจะไม่ส่งคำสั่งและล้างค่าที่กรอก. หน้าโหลดสถานะใหม่หลังสำเร็จ จึงสร้างโค้ด LINK ใหม่ให้พนักงาน Active ได้.
+
+สิทธิ์ Supervisor/session/Origin/no-store เหมือนการออกโค้ด รวมการปลดพนักงาน Inactive ที่ยังมี binding. `POST /admin/staff/{staff_id}/line-unlink` รับ `{ "confirm_staff_id": "201" }` ตอบ `{ "unlinked_contacts": 1 }`; ID ยืนยันไม่ตรงตอบ 400 และ body ที่ขาด/ชนิดผิดตอบ 422 โดยไม่ปลดใคร. เมื่อไม่มี binding ให้ปลด ตอบ 409 `LINE_NOT_LINKED` โดยไม่เขียนข้อมูลหรือ revoke โค้ด (รวมการเรียกซ้ำ); หน้าเว็บไม่แสดงว่าปลดสำเร็จ. CLI เดิมยังคงพฤติกรรม idempotent. ใช้ `line_account_service.unlink` เดิม: ล้าง LINE binding, revoke โค้ด LINK และ REGISTER ที่ยังไม่ได้ใช้ และ Audit `LINE_ACCOUNT_UNLINKED` บันทึก actor ของ Supervisor ที่กดจริง พร้อมจำนวน `revoked_registration_codes` และ `revoked_link_codes` ที่ถูกยกเลิกใน transaction เดียวกัน (CLI เดิมยังใช้ SYSTEM). ไม่ลบบัญชีเว็บ รหัสผ่าน หรือประวัติเวร. LINE เดิมใช้ MYID/REGISTER/check-in/ตอบ Offer ในฐานะพนักงานนี้ต่อไม่ได้จนกว่าจะผูกใหม่.
+
+
+การค้นหาด้วยตัวเลขใช้ Staff ID ตรงตัวเท่านั้น เช่น 12 ไม่คืน 112/120; ชื่อใช้การค้นหาข้อความ literal. Count และรายการใช้ joined query/filter เดียวกัน. `line_linked` หมายถึง binding ที่ MYID ใช้ได้ (active staff/contact และมี USER actor); `line_binding_present` หมายถึงยังมี UID ผูกไว้แม้ inactive จึงต้องปลดก่อนออกโค้ดใหม่. หน้าแสดง binding ที่ใช้ไม่ได้แยกชัด ไม่แสดงว่าผูกพร้อมใช้งาน.
+
+หน้ายืนยันการปลดอธิบายชัดว่ารหัส REGISTER เก่าจะใช้ไม่ได้ รวมพนักงาน Inactive; หลังผูก LINE ที่ถูกต้อง ต้องส่ง REGISTER ใหม่. ระหว่างกรอกยืนยันจะปิดการค้นหา/เปลี่ยนหน้า/เริ่มงานอื่นจนกดยืนยันหรือยกเลิก เพื่อไม่ล้างค่าที่กรอกเงียบ ๆ. หลังปลดสำเร็จอัปเดตแถวเดิม ไม่ล้างตาราง และค้นหา/เปลี่ยนหน้าครั้งถัดไปจะล้าง notice ของผลเก่า.
+
+`MYID` จำกัด 5 deliveries ต่อนาทีต่อ LINE sender (เก็บเฉพาะ hash ของ UID ใน limiter, process-local). นับก่อน dedup/read/gate; เกินแล้ว webhook ตอบรับเงียบโดยไม่อ่าน DB/ส่ง reply และอาจลองใหม่หลังหนึ่งนาที. คำสั่งที่ผ่านใช้ **shared** auth/reset gate เดิม ไม่ใช่ exclusive gate ของ reset. ทุก POST `/admin` รวม client ที่ไม่ใช่ browser ต้องส่ง Origin ที่อยู่ใน CORS_ORIGINS; ไม่เปลี่ยนข้อยกเว้น webhook/internal.

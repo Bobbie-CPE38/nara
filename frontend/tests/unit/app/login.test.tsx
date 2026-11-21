@@ -182,6 +182,8 @@ describe("AuthGate", () => {
 
   it("holds the page back while it asks who the user is", async () => {
     session(ME);
+    // A nurse's own page: "/" is the Dashboard, which is not theirs (round 6 PR EV8)
+    pathname = "/me/offers";
     app(
       <AuthGate>
         <p>the page</p>
@@ -203,9 +205,9 @@ describe("AuthGate", () => {
     expect(screen.queryByText("secret page")).toBeNull();
   });
 
-  it("leaves the login pages and the Demo control to a visitor", async () => {
+  it("leaves the login pages and the status page to a visitor", async () => {
     session(null);
-    for (const path of ["/login", "/register", "/demo/control"]) {
+    for (const path of ["/login", "/register", "/status"]) {
       cleanup();
       pathname = path;
       app(
@@ -216,6 +218,18 @@ describe("AuthGate", () => {
       expect(await screen.findByText("open page")).toBeTruthy();
     }
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Demo control behind the login since round 6 PR EV8", async () => {
+    session(null);
+    pathname = "/demo/control";
+    app(
+      <AuthGate>
+        <p>demo control</p>
+      </AuthGate>,
+    );
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login?next=%2Fdemo%2Fcontrol"));
+    expect(screen.queryByText("demo control")).toBeNull();
   });
 
   it("keeps the LINE simulator behind the login: it answers as a person", async () => {
@@ -256,16 +270,16 @@ describe("AuthGate", () => {
 
   it("goes to /login when a later answer says the session is gone", async () => {
     session(ME, { "GET /cases": () => ({ status: 401, body: { detail: "AUTH_REQUIRED" } }) });
-    pathname = "/gap";
+    pathname = "/roster";
     const { apiRequest } = await import("@/lib/api");
     app(
       <AuthGate>
-        <p>gap page</p>
+        <p>roster page</p>
       </AuthGate>,
     );
-    await screen.findByText("gap page");
+    await screen.findByText("roster page");
     await expect(apiRequest("/cases")).rejects.toThrow();
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login?next=%2Fgap"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login?next=%2Froster"));
   });
 });
 
@@ -519,6 +533,13 @@ describe("change password page", () => {
 });
 
 describe("the menu follows the role", () => {
+  it("shows the real home ward from the session next to the role", async () => {
+    session({ ...HEAD, home_ward_id: 987, home_ward_name: "Surgical ICU" });
+    app(<SiteHeader />);
+    expect(await screen.findByText("Home ward Surgical ICU")).toBeTruthy();
+    expect(screen.getByText("Staff 900 · Head Nurse")).toBeTruthy();
+  });
+
   async function menuOf(me: unknown | null) {
     session(me);
     app(<SiteHeader />);
@@ -532,14 +553,19 @@ describe("the menu follows the role", () => {
 
   it("shows a staff nurse the pages of a nurse and no approvals, handoff or Demo pages", async () => {
     const links = await menuOf(ME);
-    expect(links).toEqual(["Dashboard", "Gap check", "Roster", "My offers", "Report leave"]);
+    // Round 6 PR EV8: no Dashboard and no gap check for a nurse
+    expect(links).toEqual(["Cases", "Roster", "My offers", "Report leave"]);
   });
 
-  it("adds Approvals and Handoff for a head nurse and a supervisor, never the Demo pages", async () => {
+  it("adds Demo control, Approvals and Handoff for a head nurse and a supervisor, no other Demo page", async () => {
+    // Round 6 PR EV6: the Demo control is in the menu of the people who run the demo
     for (const me of [HEAD, SUPERVISOR]) {
       cleanup();
       const links = await menuOf(me);
-      expect(links).toEqual(["Dashboard", "Gap check", "Approvals", "Handoff", "Roster", "My offers", "Report leave"]);
+      expect(links).toEqual([
+        "Dashboard", "Gap check", "Demo control", "Approvals", "Handoff", "Cases", "Roster", "My offers",
+        ...(me === SUPERVISOR ? ["Staff management"] : []), "Report leave",
+      ]);
     }
   });
 
@@ -591,7 +617,9 @@ describe("the menu follows the role", () => {
       "Demo control",
       "Approvals",
       "Handoff",
+      "Cases",
       "LINE simulator",
+      "Test runs",
       "Roster",
       "My offers",
     ]);
@@ -624,7 +652,7 @@ describe("leave page", () => {
   it("lists only the assigned shifts of the person and sends only the shift", async () => {
     session(ME, {
       "GET /roster?staff_id=201": () => ({ status: 200, body: ROSTER }),
-      "POST /me/unavailability": () => ({ status: 201, body: { event_id: 7, event_status: "RECEIVED", case_id: null, case_status: null } }),
+      "POST /me/unavailability": () => ({ status: 201, body: { event_id: 7, event_status: "RECEIVED", case_id: null, case_status: null, window_closes_at: "2026-10-22T21:10:00+07:00" } }),
     });
     app(<LeavePage />);
     const select = (await screen.findByLabelText("Shift you cannot work")) as HTMLSelectElement;
@@ -632,7 +660,7 @@ describe("leave page", () => {
     expect(select.options[0].textContent).toContain("Shift 21");
     fireEvent.click(screen.getByRole("button", { name: "Report leave" }));
     expect((await screen.findByText(/Event 7 is RECEIVED/)).textContent).toBeTruthy();
-    expect(screen.getByText(/There is no case yet/)).toBeTruthy();
+    expect(screen.getByText(/applied when the shift's merge window closes, at 2026-10-22 21:10:00/)).toBeTruthy();
     // No staff ID, no event type, no reason: the Backend knows who is logged in
     expect(sentOf("POST", "/me/unavailability")[0].body).toEqual({ shift_id: 21 });
   });
@@ -646,7 +674,7 @@ describe("leave page", () => {
     await screen.findByLabelText("Shift you cannot work");
     fireEvent.change(screen.getByLabelText("Back at (optional)"), { target: { value: "2026-10-23T02:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Report leave" }));
-    expect(await screen.findByText(/Case 3 is OPEN/)).toBeTruthy();
+    expect(await screen.findByText(/Case 3 was opened for this shift \(OPEN\)/)).toBeTruthy();
     expect(sentOf("POST", "/me/unavailability")[0].body).toEqual({ shift_id: 21, end_at: "2026-10-23T02:00:00+07:00" });
   });
 

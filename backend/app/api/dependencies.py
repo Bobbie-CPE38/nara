@@ -192,3 +192,11 @@ def deny_in_session() -> None:
 
 def access_viewer(db: Session, user: CurrentUser) -> access_service.Viewer:
     return access_service.viewer(db, user.staff, user.role)
+
+
+def managers_only(db: Session, user: CurrentUser) -> None:
+    """The Dashboard and the gap check are for head nurses and supervisors in session mode:
+    a nurse has cases, the roster, their offers and leave (round 6 PR EV8). Demo mode
+    keeps every reader."""
+    if session_mode() and access_viewer(db, user).role == "staff":
+        raise forbidden()

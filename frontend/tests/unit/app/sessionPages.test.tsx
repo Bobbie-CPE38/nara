@@ -14,9 +14,12 @@ import { setSessionMode } from "@/lib/api";
 import { LanguageProvider } from "@/lib/i18n/LanguageProvider";
 import { dashboard, withCounts } from "../../fixtures/dashboard";
 
+// The address the page is open at: a nurse has no Dashboard, so their pages open at their home
+// page (round 6 PR EV8), where the role guard of AuthGate lets the page show
+let pathname = "/";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn() }),
-  usePathname: () => "/",
+  usePathname: () => pathname,
   useSearchParams: () => new URLSearchParams(),
 }));
 
@@ -46,6 +49,7 @@ const PENDING = {
 };
 
 function login(me: { staff_id: number; role: string; home_ward_id: number }) {
+  pathname = me.role === "staff" ? "/me/offers" : "/";
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string, init: RequestInit = {}) => {

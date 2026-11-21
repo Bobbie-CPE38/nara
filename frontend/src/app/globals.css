@@ -80,6 +80,17 @@
     @apply rounded-md border border-slate-300 bg-white px-2 py-1 text-ink;
   }
 
+  /* A fieldset is as wide as its widest child by default, and a select as its longest
+     option: on a phone both pushed the page sideways (round 6 PR EV6) */
+  fieldset {
+    min-width: 0;
+  }
+
+  select,
+  input {
+    max-width: 100%;
+  }
+
   /* Tables of every page: a tinted header row and fine lines between rows */
   table {
     @apply w-full border-collapse text-left text-[0.9375rem];

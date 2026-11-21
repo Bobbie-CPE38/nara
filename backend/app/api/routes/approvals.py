@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import AfterValidator
 
 from app.api.dependencies import DbSession, DemoUser, access_viewer, forbidden, session_mode
+from app.core import clock
 from app.core.constants import MAX_BIGINT
 from app.schemas.approval import (
     ApprovalDecision,
@@ -73,6 +74,10 @@ def pending_approvals(
     Demo mode: any demo user reads every request. Session mode (6.33.4): a staff member
     may not read it (403), a head nurse gets the requests with a side in their own ward,
     a supervisor every request.
+
+    In session mode a supervisor gets only the requests they may decide now: from
+    `supervisor_from` on, once the head nurses had their time (round 6 PR EV7, 6.37.3).
+    Demo mode keeps every request, as before.
     """
     if not session_mode():
         return approval_service.list_pending(db)
@@ -80,7 +85,11 @@ def pending_approvals(
     if viewer.role == "staff":
         raise forbidden()
     # The filter and the trimming of the sides are in the query and the service, not here
-    return approval_service.list_pending(db, viewer)
+    rows = approval_service.list_pending(db, viewer)
+    if viewer.role == "supervisor":
+        now = clock.now()
+        rows = [row for row in rows if row.supervisor_from <= now]
+    return rows
 
 
 @router.get("/auto")

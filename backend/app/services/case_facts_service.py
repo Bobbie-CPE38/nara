@@ -64,7 +64,7 @@ from app.domain.enums import (
     RosterStatus,
 )
 from app.domain.workflow.case_status import CaseFacts, GapFiller, intervals_closed
-from app.services import gap_service, roster_time_service
+from app.services import gap_service, outreach_limit_service, roster_time_service
 from app.services.outreach_attempt_service import contactable_item
 
 # A replacement keeps counting after its shift ended and the row was closed
@@ -228,8 +228,16 @@ def _staff_waiting_on_another_case(db: Session, case_id: int, staff_ids: set[int
 
 def staff_waiting_case_ids(db: Session, staff_id: int) -> set[int]:
     """Batch offer reads: running cases holding this staff's unresolved acceptance."""
+    return waiting_case_ids_by_staff(db, {staff_id}).get(staff_id, set())
+
+
+def waiting_case_ids_by_staff(db: Session, staff_ids: set[int]) -> dict[int, set[int]]:
+    """staff_waiting_case_ids of many people in one query (round 6 PR EV7, /demo/offers)."""
+    waiting: dict[int, set[int]] = {}
     with db.no_autoflush:
-        return {case_id for _, case_id in _waiting_acceptances(db, {staff_id})}
+        for staff_id, case_id in _waiting_acceptances(db, staff_ids):
+            waiting.setdefault(staff_id, set()).add(case_id)
+    return waiting
 
 
 def assigned_staff_ids(db: Session, case_id: int) -> set[int]:
@@ -286,7 +294,11 @@ def _sent_staff_ids(db: Session, case_id: int) -> set[int]:
 def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
     """True when the latest plan holds an uncontacted item or an unused timeout retry.
 
-    "Latest" is the highest id (seam 1). A case without a plan has nobody to contact.
+    "Latest" is the highest id (seam 1). A case without a plan has nobody to contact, and
+    neither has a case past an outreach limit (round 6 PR EV6, 6.36.8): it only waits for
+    the offers it already sent.
+    The limit is read only when someone is left to contact, so a case with nobody left
+    pays nothing for it (review of #145).
     """
     plan_id = db.scalar(
         select(CandidatePlan.id)
@@ -296,7 +308,7 @@ def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
     )
     if plan_id is None:
         return False
-    return (
+    contactable = (
         db.scalar(
             select(CandidateItem.id)
             .where(CandidateItem.plan_id == plan_id, contactable_item(case_id))
@@ -304,6 +316,7 @@ def _has_uncontacted_candidate(db: Session, case_id: int) -> bool:
         )
         is not None
     )
+    return contactable and outreach_limit_service.stop_reason(db, case_id) is None
 
 
 def _assigned_staff_ids(db: Session, case_id: int) -> set[int]:
@@ -406,6 +419,36 @@ def _assigned_spans(db: Session, case: StaffingCase, staff_ids: set[int]) -> lis
             )
         )
     ]
+
+
+def credited_assignment_ids(db: Session, case: StaffingCase) -> set[int]:
+    """The roster rows of the case's shift the case counts as its own people (6.40).
+
+    The replacement rows of the people it assigned and the rows of late arrivals it got
+    credit for: the same people load_case_facts() adds to the shift's roster. A gap
+    measured again for a running case leaves these rows out, so nobody counts twice.
+    """
+    with db.no_autoflush:
+        assigned_ids = _assigned_staff_ids(db, case.id)
+        replacement = set(
+            db.scalars(
+                select(RosterAssignment.id).where(
+                    RosterAssignment.shift_id == case.shift_id,
+                    RosterAssignment.staff_id.in_(assigned_ids),
+                    RosterAssignment.status.in_(_ON_ROSTER_STATUSES),
+                    RosterAssignment.assignment_type == AssignmentType.REPLACEMENT,
+                )
+            )
+        )
+        returned = set(
+            db.scalars(
+                select(AuditLog.payload["roster_assignment_id"].as_integer()).where(
+                    AuditLog.case_id == case.id,
+                    AuditLog.action == AuditAction.UNAVAILABILITY_UPDATED,
+                )
+            )
+        )
+        return replacement | {row_id for row_id in returned if row_id is not None}
 
 
 def _returned_spans(db: Session, case_id: int) -> list[_Span]:

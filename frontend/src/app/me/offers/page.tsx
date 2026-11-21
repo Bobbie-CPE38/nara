@@ -232,6 +232,8 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut?: () => v
           </Button>
         </div>
       )}
+      {/* Check-in first: it is what a nurse does at the start of every shift (round 6 PR EV8) */}
+      <CheckIn staffId={staffId} handovers={handoverRows} />
       <p className="mt-4">
         {t("me.acceptNote", { seconds: DEFAULT_POLL_INTERVAL_MS / 1000 })}
       </p>
@@ -241,7 +243,6 @@ function SignedIn({ staffId, onSignOut }: { staffId: number; onSignOut?: () => v
         emptyText={t("me.noOffers")}
         onPendingChange={setResponding}
       />
-      <CheckIn staffId={staffId} handovers={handoverRows} />
       <Card title={t("me.handovers")} className="mt-4">
         {handovers.error && handovers.data === undefined ? (
           <p role="alert" className="mt-2 text-red-700">

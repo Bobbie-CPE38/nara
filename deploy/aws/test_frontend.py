@@ -40,7 +40,7 @@ ENV_FILE = (
 # Every page of the app (docs/workflow.md 6.30), with the kind of page that is a 404
 PAGES = [
     "/", "/gap", "/handoff", "/approvals", "/cases/1", "/me/offers", "/roster",
-    "/demo/control", "/demo/line-sim",
+    "/demo/control", "/demo/line-sim", "/status",
 ]  # fmt: skip
 # Names that exist only on the server side. None may be in what the browser downloads
 SERVER_ONLY_NAMES = [

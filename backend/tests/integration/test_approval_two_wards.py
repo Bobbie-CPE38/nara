@@ -242,8 +242,8 @@ def test_pending_list_reports_home_source_sides_and_supervisor_time(scene):
     assert row["home_ward_id"] == 1
     assert row["source_ward_id"] == source_ward
     assert row["wards"] == [
-        {"ward_id": 1, "side": "DESTINATION", "status": "APPROVED"},
-        {"ward_id": source_ward, "side": "SOURCE", "status": "PENDING"},
+        {"ward_id": 1, "side": "DESTINATION", "status": "APPROVED", "approval_mode": "MANUAL"},
+        {"ward_id": source_ward, "side": "SOURCE", "status": "PENDING", "approval_mode": None},
     ]
     assert row["supervisor_from"] == (DEMO_NOW + timedelta(seconds=600)).isoformat()
 
@@ -445,16 +445,29 @@ def test_supervisor_reports_no_head_nurse_event_but_changes_any_leave(scene):
     )
 
 
-def test_automatic_decisions_write_no_human_ward_rows(production_seeded):
+def test_automatic_decisions_write_system_ward_rows(production_seeded):
+    """Round 6 PR EV9 (6.39): each side the system approves has its own row, with no person."""
+    from app.domain.enums import ApprovalMode, ApproverCapacity
     from app.services import auto_approval_service
     from tests.integration.test_auto_approval import queue
 
     db = production_seeded
     rows = queue(db)
     assert auto_approval_service.approve_due_requests(db).approval_ids == [row.id for row in rows]
-    assert db.scalar(select(func.count()).select_from(ApprovalWardDecision)) == 0
+    decisions = list(db.scalars(select(ApprovalWardDecision)))
+    assert len(decisions) == 3
+    assert all(
+        row.approver_id is None
+        and row.approval_mode == ApprovalMode.AUTO
+        and row.decided_as == ApproverCapacity.HEAD_NURSE
+        and (row.queue_count, row.queue_cap, row.queue_approver_count) == (3, 2, 1)
+        for row in decisions
+    )
     history = approval_service.list_auto_approved(db, role_id=2, home_ward_id=1)
-    assert all(row.wards[0].status == "APPROVED" for row in history)
+    assert all(
+        row.wards[0].status == "APPROVED" and row.wards[0].approval_mode == "AUTO"
+        for row in history
+    )
 
 
 def test_transfer_cancelled_result_keeps_approval_and_accepts_historical_reason(scene):

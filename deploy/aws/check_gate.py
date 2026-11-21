@@ -29,6 +29,8 @@ class Gate:
             NoRedirect(), urllib.request.HTTPCookieProcessor(self.jar)
         )
         self.failures = 0
+        # Location of the last answer, for the redirects of the Demo gate (EV8)
+        self.location = None
 
     def request(self, method, path, *, basic=False, headers=None, body=None):
         h = {"Origin": self.base, **(headers or {})}
@@ -45,6 +47,7 @@ class Gate:
         except urllib.error.HTTPError as error:
             response = error
         with response:
+            self.location = response.headers.get("Location")
             raw = response.read(1_000_000)
             try:
                 payload = json.loads(raw)
@@ -63,6 +66,13 @@ class Gate:
         )
         self.failures += not ok
         return payload
+
+    def check_redirect(self, label, path, target, **kwargs):
+        """A Demo page the gate sends elsewhere (EV8): 302 to `target`, no Basic box."""
+        code, basic, _ = self.request("GET", path, **kwargs)
+        ok = code == 302 and not basic and (self.location or "").startswith(target)
+        print(f"{'ok' if ok else 'FAIL'}  {label}: HTTP {code}, Basic challenge={basic}")
+        self.failures += not ok
 
     def preflight(self, real_line):
         config = self.check("auth config", "GET", "/api/auth/config", {200})
@@ -100,8 +110,9 @@ class Gate:
         self.check(
             "Basic alone is not a session", "GET", "/api/dashboard", {401}, basic=True
         )
+        # EV8: no session, no Basic box: a page goes to the login, a call gets 401
         for path in ("/demo", "/demo/control", "/demo/line-sim"):
-            self.check("Demo gate " + path, "GET", path, {401}, challenge=True)
+            self.check_redirect("Demo gate " + path, path, "/login?next=")
         for path in (
             "/api/demo/reset",
             "/api/demo/clock/advance",
@@ -110,15 +121,10 @@ class Gate:
             "/api/demo/attendance/check-in",
             "/api/demo/events",
         ):
-            self.check(
-                "Demo mutation gate " + path,
-                "POST",
-                path,
-                {401},
-                challenge=True,
-                body={},
-            )
-        self.check("Demo page with Basic", "GET", "/demo/control", {200}, basic=True)
+            self.check("Demo mutation gate " + path, "POST", path, {401}, body={})
+        self.check_redirect(
+            "Basic alone does not open Demo", "/demo/control", "/login?next=", basic=True
+        )
         self.check(
             "simulator needs a session too",
             "GET",
@@ -133,16 +139,6 @@ class Gate:
             {401},
             basic=True,
             body={},
-        )
-        self.check(
-            "wrong Demo password",
-            "GET",
-            "/demo/control",
-            {401},
-            challenge=True,
-            headers={
-                "Authorization": "Basic " + base64.b64encode(b"wrong:wrong").decode()
-            },
         )
         for path in (
             "/api/internal/merge-windows/close-due",
@@ -209,12 +205,13 @@ class Gate:
                 self.failures += 1
                 print("FAIL  login did not return the requested identity")
                 return
-            for path in (
-                "/api/dashboard",
-                "/api/me/offers",
-                "/api/roster?staff_id=" + str(staff_id),
-            ):
+            nurse = me.get("role") == "staff"
+            for path in ("/api/me/offers", "/api/roster?staff_id=" + str(staff_id)):
                 self.check("logged in " + path, "GET", path, {200})
+            # EV8: the Dashboard is for head nurses and supervisors
+            self.check(
+                "logged in /api/dashboard", "GET", "/api/dashboard", {403} if nurse else {200}
+            )
             identity = self.check(
                 "identity header cannot change account",
                 "GET",
@@ -236,20 +233,10 @@ class Gate:
                     "patient_count": 12,
                 },
             )
-            self.check(
-                "own simulator",
-                "GET",
-                f"/api/demo/line-sim/offers?staff_id={staff_id}",
-                {200},
-                basic=True,
-            )
-            self.check(
-                "other simulator identity forbidden",
-                "GET",
-                f"/api/demo/line-sim/offers?staff_id={staff_id + 1}",
-                {403},
-                basic=True,
-            )
+            if nurse:
+                self.demo_as_nurse(staff_id)
+            else:
+                self.demo_as_manager(staff_id)
             self.check(
                 "approval role",
                 "GET",
@@ -267,6 +254,47 @@ class Gate:
                     {401},
                     headers={"Cookie": old_cookie},
                 )
+
+
+    def demo_as_nurse(self, staff_id):
+        """EV8: a nurse goes to their own page and never sees the Basic Auth box."""
+        self.check_redirect("nurse cannot open Demo", "/demo/control", "/me/offers", basic=True)
+        self.check(
+            "nurse cannot use the simulator",
+            "GET",
+            f"/api/demo/line-sim/offers?staff_id={staff_id}",
+            {403},
+            basic=True,
+        )
+
+    def demo_as_manager(self, staff_id):
+        """A head nurse or a supervisor: the Basic Auth box, then the Demo pages."""
+        self.check("Demo gate after login", "GET", "/demo/control", {401}, challenge=True)
+        self.check("Demo page with Basic", "GET", "/demo/control", {200}, basic=True)
+        self.check(
+            "wrong Demo password",
+            "GET",
+            "/demo/control",
+            {401},
+            challenge=True,
+            headers={
+                "Authorization": "Basic " + base64.b64encode(b"wrong:wrong").decode()
+            },
+        )
+        self.check(
+            "own simulator",
+            "GET",
+            f"/api/demo/line-sim/offers?staff_id={staff_id}",
+            {200},
+            basic=True,
+        )
+        self.check(
+            "other simulator identity forbidden",
+            "GET",
+            f"/api/demo/line-sim/offers?staff_id={staff_id + 1}",
+            {403},
+            basic=True,
+        )
 
 
 def main():

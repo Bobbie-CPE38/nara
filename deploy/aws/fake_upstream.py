@@ -29,13 +29,32 @@ class Handler(BaseHTTPRequestHandler):
                 "nara_session=test-session" in self.headers.get("Cookie", "")
                 and not Path("/tmp/nara-test-revoked").exists()
             )
+            role_flag = Path("/tmp/nara-test-role")
             me = {
                 "staff_id": 101,
-                "role": "staff",
+                "role": role_flag.read_text() if role_flag.exists() else "staff",
                 "home_ward_id": 1,
                 "must_change_password": False,
             }
-            if path == "/auth/login":
+            if path == "/auth/demo-gate":
+                # The real route (app/api/routes/auth.py): a page is sent elsewhere, an API
+                # call gets its JSON error, and only a manager's session passes with 204
+                api = self.headers.get("X-Forwarded-Uri", "").startswith("/api/")
+                if not logged_in:
+                    status, body = 401, {"detail": "AUTH_REQUIRED"}
+                    target = "/login?next=/demo/control"
+                elif me["role"] == "staff":
+                    status, body = 403, {"detail": "AUTH_FORBIDDEN"}
+                    target = "/me/offers"
+                else:
+                    status, body, target = 204, {}, None
+                if target and not api:
+                    status, body = 302, {}
+                    extra["Location"] = target
+            elif path == "/demo/echo-length":
+                # What reached the route after the gate: the body must not be lost on the way
+                body = {"length": length}
+            elif path == "/auth/login":
                 Path("/tmp/nara-test-revoked").unlink(missing_ok=True)
                 body = me
                 extra["Set-Cookie"] = (
@@ -67,13 +86,17 @@ class Handler(BaseHTTPRequestHandler):
             elif path != "/clock":
                 if not logged_in:
                     status, body = 401, {"detail": "AUTH_REQUIRED"}
-                elif path in ("/approvals", "/events") or (
-                    path == "/demo/line-sim/offers" and "staff_id=101" not in self.path
+                elif (
+                    path == "/events"
+                    or (path == "/demo/line-sim/offers" and "staff_id=101" not in self.path)
+                    # The approvals, and since EV8 the Dashboard, are for managers
+                    or (path in ("/approvals", "/dashboard") and me["role"] == "staff")
                 ):
                     status, body = 403, {"detail": "AUTH_FORBIDDEN"}
                 else:
                     body = me if path == "/auth/me" else []
-        raw = json.dumps(body).encode()
+        # A 204 or a redirect has no body
+        raw = b"" if status in (204, 302) else json.dumps(body).encode()
         self.send_response(status)
         for key, value in extra.items():
             self.send_header(key, value)

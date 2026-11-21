@@ -62,10 +62,13 @@ class WardScope:
         return ward_id in self.ward_ids
 
 
+def is_supervisor(db: Session, staff: Staff) -> bool:
+    return db.scalar(select(Role.name).where(Role.id == staff.role_id)) == SUPERVISOR_ROLE
+
+
 def ward_scope(db: Session, staff: Staff) -> WardScope:
     """Supervisor: every active ward. Anyone else: their home ward only (R6-Q16 ก)."""
-    role = db.scalar(select(Role.name).where(Role.id == staff.role_id))
-    if role == SUPERVISOR_ROLE:
+    if is_supervisor(db, staff):
         ward_ids = db.scalars(
             select(Ward.id).where(Ward.is_active.is_(True)).order_by(Ward.id)
         ).all()

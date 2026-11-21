@@ -14,6 +14,8 @@ import {
   waitingResponseAudit,
 } from "../../../fixtures/case";
 
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+
 type Reply = () => Response | Promise<Response>;
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
@@ -107,9 +109,9 @@ describe("CaseView", () => {
       ["Skill", "ICU", "2", "2", "OK"],
     ]);
     expect(rows("Candidates")).toEqual([
-      ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU", "Whole shift", "—"],
-      ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "1013", "ICU", "Whole shift", "—"],
-      ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "1020", "ICU", "Whole shift", "—"],
+      ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU"],
+      ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "1013", "ICU"],
+      ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "1020", "ICU"],
     ]);
     expect(actions()).toEqual(waitingResponseAudit().map(entry => entry.action));
   });
@@ -133,7 +135,7 @@ describe("CaseView", () => {
     expect(screen.getByText("Final status. Updates stopped.")).toBeTruthy();
 
     await tick(10000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
     expect(vi.getTimerCount()).toBe(0);
     expect(status()).toBe("RESOLVED");
   });
@@ -154,7 +156,7 @@ describe("CaseView", () => {
       await tick();
       await tick(4000);
       expect(status()).toBe(open);
-      expect(fetchMock).toHaveBeenCalledTimes(6);
+      expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
     },
   );
 
@@ -302,7 +304,7 @@ describe("CaseView", () => {
     );
     await tick(2000);
     expect(status()).toBe("WAITING_RESPONSE");
-    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU", "Whole shift", "—"]]);
+    expect(rows("Candidates")).toEqual([["1", "202", "Phanu Demo", "SAME_WARD", "Offer sent, waiting for reply", "1005", "ICU"]]);
     expect(actions()).toEqual(["EVENT_RECEIVED", "UNAVAILABILITY_CREATED", "CASE_OPENED", "CASE_STATUS_CHANGED"]);
   });
 
@@ -491,7 +493,7 @@ describe("CaseView", () => {
       ["Handoff", "204", "—", "A_REASON_ADDED_LATER"],
     ]);
     await tick(4000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
   });
 
   it("lists skipped people without names when the case stopped without a plan", async () => {
@@ -946,9 +948,9 @@ describe("CaseView", () => {
       expect(screen.queryByText("The explanation is not ready")).toBeNull();
       expect(screen.queryByRole("table", { name: /^Score of staff/ })).toBeNull();
       expect(rows("Candidates")).toEqual([
-        ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—", "ICU", "Whole shift", "—"],
-        ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "—", "ICU", "Whole shift", "—"],
-        ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "—", "ICU", "Whole shift", "—"],
+        ["1", "201", "Arunee Demo", "SAME_WARD", "Offer sent, waiting for reply", "—", "ICU"],
+        ["2", "202", "Phanu Demo", "SAME_WARD", "Not contacted", "—", "ICU"],
+        ["3", "203", "Chonthicha Demo", "SAME_WARD", "Not contacted", "—", "ICU"],
       ]);
     });
 
@@ -1022,7 +1024,7 @@ describe("CaseView", () => {
     expect(status()).toBe("WAITING_APPROVAL");
     expect(actions()).toEqual(["CASE_OPENED"]);
     await tick(2000);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(requests().filter((path) => path !== "/cases/search")).toHaveLength(6);
   });
 
   it("stops polling when the page is left", async () => {

@@ -8,7 +8,7 @@
 > รอบ 4 (Cross-Ward, การย้ายคนข้ามหอ, เวลาจริงของ Roster และ Gap รายช่วง, ผู้อนุมัติสองหอและ Supervisor, Auto-Approval) เสร็จแล้ว ดู "สถานะของรอบ 4"
 > รอบ 5 (LangGraph, check-in และ `NO_SHOW`, Handover) เสร็จแล้ว ดู "สถานะของรอบ 5"
 > รอบ 6 (Bedrock จริง, เครื่อง AWS และ Webhook บนเครื่อง, ผู้ใช้กดขอคำอธิบายจาก AI, Dashboard และเช็ค Gap) กำลังทำ กติกาที่มีป้าย **[รอบ 6 · PR X]** คือข้อตกลงที่ PR นั้นยังไม่ได้ทำ ดู "สถานะของรอบ 6"
-> อัปเดตล่าสุด: 2026-10-17
+> อัปเดตล่าสุด: 2026-10-24
 
 ## สถานะของรอบ 1
 
@@ -249,7 +249,7 @@ Contract ของรอบ 4 ตกลงแล้ว (PR #73) ไฟล์น�
 | Solver กับข้อมูลแบบเดิมให้ผลและเวลาเท่าเดิม (`solver_baseline.jsonl`, `SOLVER_TIMING=1`) | T4 | `tests/unit/optimization/test_solver_slices.py` (`test_one_whole_shift_slice_equals_the_legacy_call_on_every_baseline_case`), `tests/unit/optimization/test_solver_baseline.py`, เวลา: `tests/perf/test_solver_timing.py` (ข้ามในชุดปกติ รันเมื่อตั้ง `SOLVER_TIMING=1`) |
 | เงื่อนไขใหม่ที่เลือกครบไม่ได้ได้แผนบางส่วน ไม่ใช่ `MODEL_INVALID` หรือ `FAILED` รวมผู้สมัครที่เลือกพร้อมกันไม่ได้และครอบคนละ Skill | T4, C2 | `tests/unit/optimization/test_solver_slices.py` (`test_two_exclusive_candidates_for_two_skills_give_a_partial_plan_by_points`, `test_exclusive_candidates_in_different_slices_give_a_partial_plan`), `test_solver_intervals.py` (`test_candidates_of_one_source_shift_give_a_partial_plan`, `test_the_orchestrator_goes_on_with_a_partial_plan`), `test_transfer_planning.py` (`test_two_candidates_of_one_source_shift_give_a_partial_plan`) |
 | Auto-Approval ตรวจเงื่อนไขซ้ำหลังล็อก `WARD` Job กับ Job และ Job กับคนกดไม่อนุมัติเกินกติกา (สอง Connection) | A | `test_auto_approval.py` (`test_competing_connections_serialize_the_ward_snapshot` ทั้งกรณี Job กับ Job และ Job กับคนกด) |
-| Auto-Approval ไม่อนุมัติคนข้ามหอ, Float Pool และคำขอที่มีเวรต้นทาง | A | `test_auto_approval.py` (`test_manual_only_requests_count_toward_threshold_but_are_never_approved`, `test_recorded_source_prevents_auto_even_with_same_ward_source`) |
+| ~~Auto-Approval ไม่อนุมัติคนข้ามหอ, Float Pool และคำขอที่มีเวรต้นทาง~~ EV9 เปลี่ยน: ทุกชนิดอนุมัติเองได้ทีละฝั่ง (ข้อ 6.39) | A, EV9 | `test_auto_approval.py` (`test_cross_ward_and_float_pool_requests_are_approved_too`), `test_auto_approval_sides.py` |
 | Job ไม่ตัดสินคำขอซ้ำ และ Job Timeout ไม่ตั้งคำขอที่ตัดสินแล้วเป็นหมดเวลา | A | `test_auto_approval.py` (`test_competing_connections_serialize_the_ward_snapshot`, `test_timeout_job_never_times_out_an_automatically_decided_request`) |
 
 ## สถานะของรอบ 5
@@ -373,9 +373,20 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 | AU3b | คน 1 | ย้ายปุ่มจำลองเหตุของ Demo control จาก `POST /events` ไป `POST /demo/events` (ใน `session` ใช้ได้เมื่อล็อกอินเป็นผู้จัดการ) พร้อมเทสต์ | 6.33.4 | AU2 merge | AU2 | ไม่มี | ทำแล้ว (PR AU3b); ต้องมีก่อนตรวจ production ของ AU4 |
 | AU5 | คน 3 | REGISTER ผ่าน LINE, atomic register code, security/regression tests | 6.33.6 | AU1 | AU1 | มี | AU5 merge แล้ว (#126); live รอ AU4 |
 | AU4 | คน 1 (คน 3 ทำแทน) | ด่าน AWS/Compose/Gate ใหม่หลัง backend และหน้าเว็บพร้อม; LINE smoke | 6.33.5 | AU2, AU3, AU3b | AU2, AU3, AU3b | ไม่มี | โค้ด/เทสต์และคู่มืออยู่ใน PR AU4; production/LINE/register/reset ยัง PENDING ห้ามใช้ผล W แทน |
+| EV1 | คน 1 | ทดลองความปลอดภัยแบบออฟไลน์สำหรับสไลด์ before/after: การเลือกคนแทนแบบ manual เทียบกับ nara ตัดสินด้วยตัวตรวจกฎตัวเดียวกับแอป (8 จาก 11 กฎที่เกิดได้ในเคสนี้) | 6.34 | | | ไม่มี | merge แล้ว (#141) |
+| EV5-0 | ตกลงกัน | สัญญาของโหมดทดสอบและ KPI (ข้อ 6.35) | 6.35 | | | ไม่มี | merge แล้ว (#142) |
+| EV5a | คน 1 | Backend: นาฬิกาโหมด `scenario`, API รอบทดสอบและยกเลิกรอบ, สถานการณ์ข้ามหอ, ตัวละครจำลอง, KPI จาก audit log, เก็บผลข้าม Reset, เทสต์ | 6.35 | EV5-0 | EV5-0 | ไม่มี | merge แล้ว (#143) |
+| EV5b | คน 1 | หน้าเว็บ: ส่วนรอบทดสอบใน Demo control, หน้าสรุปผล, CSV, สองภาษา และการเลื่อนนาฬิกาของรอบทีละรอบของ Job | 6.35 | EV5a (รูป API) | EV5a | ไม่มี | merge แล้ว (#144) |
+| EV6 | คน 1 | Demo control เต็มระบบ (นาฬิกาตั้งเองแล้วเดินต่อ, เลือกคนและเวรอิสระ), Reset เก็บ session และ LINE, Demo ชุดโรงพยาบาล, Dashboard กรองหอ, Roster ตามสิทธิ์, หน้ารวมเคส, handoff ค้นหาแบ่งหน้าและ modal, ลำดับ Ranking, เพดาน Outreach | 6.36 | EV5b | EV5b | มี (`c3e5a7b9d1f2`) | merge แล้ว (#145) |
+| EV7 | คน 1 | เคสตัวอย่างของชุดโรงพยาบาล, หัวหน้าหน้าเคส (ใครมาแทน ใครตัดสิน เหตุผล), Approvals ของ Supervisor หลังถึงเวลา, กันหน้าตามบทบาท, กระดิ่งแจ้งเตือน, รหัสผ่านแสดงได้, โลโก้และเมนู, Staff management มีทักษะ, กดแถวดูเคส, Demo control (เลื่อนเวลาเลือกได้ ผู้ป่วยเพิ่ม ตอบ Offer), บัญชีทดสอบไม่ต้องผูก LINE, สถานการณ์ทดสอบเพิ่มสี่แบบ | 6.37 | EV6 | EV6 | ไม่มี | merge แล้ว (#146) |
+| EV8 | คน 2 | แก้ตามรายการของทีม: ด่าน Demo ถาม Basic Auth เฉพาะผู้จัดการ, Demo control ต้องล็อกอิน, หน้า `/status`, สิทธิ์ของพยาบาล (เมนู หน้าแรก เคส Roster), My offers (เช็คอินบนสุด ใหม่ก่อน สองรายการ แบ่งหน้า), Dashboard (การ์ด กราฟ รายการเร่งด่วน ผู้ที่คำขอรอ), เคสตัวอย่างข้ามหอ, สรุปการจัดคนแทน, Manage ในหน้าเคส, คอลัมน์ผู้สมัคร | 6.38 | EV7 | EV7 | ไม่มี | merge แล้ว (#147) |
+| #148 | คน 3 | ย้าย Manage ไปหัวหน้าเคสใน modal, เอาปุ่มจาก Cases/Handoff ออก, แสดงหอประจำบนแถบบัญชี | 6.33, 6.37.7, 6.38.7 | EV8 | EV8 | ไม่มี | [#148](https://github.com/Bobbie-CPE38/nara/pull/148) merge แล้ว |
+| #149 | คน 3 | เลขเคสไม่มีเส้นใต้; Manage อยู่มุมขวาของกล่องสถานะแรก ข้อความผลลัพธ์ตัดบรรทัดได้บนมือถือ | 6.37.7, 6.38.7 | #148 | #148 | ไม่มี | [#149](https://github.com/Bobbie-CPE38/nara/pull/149) รอรีวิว |
+| EV9 | คน 1 | Auto approve แยกฝั่ง SOURCE/DESTINATION ทุกชนิดผู้สมัคร (หอเดียวกัน Float Pool คนว่างข้ามหอ คนที่ย้ายเวร), คิว Head Nurse นับทั้งสองฝั่งของหอ, คิว Supervisor แยกค่าตั้ง, Audit และหน้า Who approved/Approvals แสดงฝั่งที่ระบบอนุมัติ | 6.39 | EV8 | EV8 | มี (`e7b9d1f3a5c8`) | PR นี้ |
+| EV10 | คน 1 | แจ้งลาหลายคนในเวรเดียว: Event เข้าเคสที่รออยู่ของเวรทันทีที่ Window ปิด, Gap คำนวณใหม่จากข้อมูลปัจจุบัน, ตัด Offer ที่ไม่ต้องใช้, ยกเลิก Offer ของคนที่ลาในช่วงที่ลา, หน้าเว็บบอกผลของ Event | 6.40 | EV8 | EV8 | ไม่มี | PR นี้ |
 | ปิดรอบ | คน 3 | เอกสารปิดรอบ แล้ว `staging` → `main` และ tag `v0.7-round6`; ต้องครบ AU0–AU5 และผล production session | 6.33 | ทุกตัวรวม AU | ทุกตัวรวม AU | ไม่มี | |
 
-ลำดับ merge: 0 ก่อนทุกตัว, B1 ก่อน E1, S และ B2, E1 ก่อน E2 และ S, F1 ก่อน F2, F2 และ D ก่อน F3, F3 ก่อน UI1, UI1 ก่อน UI2 (UI1 และ UI2 ทำก่อนขั้นที่ 6 เพื่อตรวจช่วง ข กับหน้าตาสุดท้ายครั้งเดียว ไม่เปลี่ยน API จึงเปิดเครื่องก่อนได้ถ้าไม่ทัน), F3 และ D ก่อนขั้นที่ 6, ขั้นที่ 6 ก่อน B2 และ W Migration ของ B1, S และ E1 (ถ้ามี) ต่อจาก `c5f8b0d3e7a1` เป็นเส้นเดียว ตัวที่ merge ทีหลัง Rebase `down_revision` และแก้ Test ของ Migration ตัวก่อนหน้าที่ตรวจ head ผู้ทำของ P1 และการให้คน 3 ปิดรอบเป็นข้อเสนอของร่างรอบ 6 ถ้าทีมเปลี่ยน แก้ตารางนี้ B2 ก่อน B3 และ B3 ก่อนปิดรอบ (B3 ทำให้แอปเรียก Bedrock จริงได้ ไม่ขึ้นกับ AU) Head ของ Migration หลัง AU5 คือ `b8f3d5a0c2e4` ต่อ `a7e2c4f9b1d3` (AU1); PR ถัดไปที่เพิ่ม Migration ต้องต่อ head ล่าสุดให้เป็นเส้นเดียว ส่วน B3 ไม่มี Migration
+ลำดับ merge: 0 ก่อนทุกตัว, B1 ก่อน E1, S และ B2, E1 ก่อน E2 และ S, F1 ก่อน F2, F2 และ D ก่อน F3, F3 ก่อน UI1, UI1 ก่อน UI2 (UI1 และ UI2 ทำก่อนขั้นที่ 6 เพื่อตรวจช่วง ข กับหน้าตาสุดท้ายครั้งเดียว ไม่เปลี่ยน API จึงเปิดเครื่องก่อนได้ถ้าไม่ทัน), F3 และ D ก่อนขั้นที่ 6, ขั้นที่ 6 ก่อน B2 และ W Migration ของ B1, S และ E1 (ถ้ามี) ต่อจาก `c5f8b0d3e7a1` เป็นเส้นเดียว ตัวที่ merge ทีหลัง Rebase `down_revision` และแก้ Test ของ Migration ตัวก่อนหน้าที่ตรวจ head ผู้ทำของ P1 และการให้คน 3 ปิดรอบเป็นข้อเสนอของร่างรอบ 6 ถ้าทีมเปลี่ยน แก้ตารางนี้ B2 ก่อน B3 และ B3 ก่อนปิดรอบ (B3 ทำให้แอปเรียก Bedrock จริงได้ ไม่ขึ้นกับ AU) Head ของ Migration หลัง AU5 คือ `b8f3d5a0c2e4` ต่อ `a7e2c4f9b1d3` (AU1); PR ถัดไปที่เพิ่ม Migration ต้องต่อ head ล่าสุดให้เป็นเส้นเดียว ส่วน B3 ไม่มี Migration EV6 เพิ่ม `c3e5a7b9d1f2` ต่อ `f2c9a1d6e8b4` (ตาราง `demo_dataset`) EV9 เพิ่ม `e7b9d1f3a5c8` ต่อ `c3e5a7b9d1f2` (ค่าตั้งคิว Supervisor และแถวตัดสินของระบบใน `APPROVAL_WARD_DECISION`)
 
 * **เปิด LLM ในแอปหลัง E1:** `LLM_ENABLED=true` ห้ามตั้งบนเครื่อง AWS จนกว่า E1 merge (ข้อ 6.27) B2 รันชุดทดลองผ่านตัวห่อของ B1 ได้ก่อน
 * **งานค้างจากรอบ 5 (R6-Q14 ก):** ข้อยกเว้นของ `NO_SHOW` แก้ที่ข้อ 6.24 แล้วใน PR 0 (ไม่มี PR โค้ด), Pagination ของ `/me/handovers` เป็น P1, Test อนุมัติลำดับ `[202, 201]` แก้แล้วโดย PR #103 (ไม่มี PR)
@@ -481,7 +492,7 @@ Contract ของรอบ 6 ตกลงแล้ว (PR #104) ไฟล์น
 
 ## 3. การรับ Event
 
-Event ของเวรเดียวกันถูกเก็บเป็น `RECEIVED` รอไว้ใน Window ก่อน ยังไม่เปิดเคส พอ Window ปิดจึงคิด Gap ครั้งเดียวจาก Event ทั้งชุด แล้วค่อยเปิดเคส หนึ่ง Window เปิดได้หนึ่งเคส Event ไม่ถูกเอาไปรวมกับเคสที่มีอยู่แล้ว (Q43) และเวรหนึ่งมีเคสที่เดินอยู่ได้เคสเดียว
+Event ของเวรเดียวกันถูกเก็บเป็น `RECEIVED` รอไว้ใน Window ก่อน ยังไม่เปิดเคส พอ Window ปิดจึงคิด Gap ครั้งเดียวจาก Event ทั้งชุด แล้วค่อยเปิดเคส หนึ่ง Window เปิดได้หนึ่งเคส Event ไม่ถูกเอาไปรวมกับเคสที่มีอยู่แล้ว (Q43) และเวรหนึ่งมีเคสที่เดินอยู่ได้เคสเดียว (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40)
 
 ### 3.1 สองช่วงของการรับ Event
 
@@ -492,7 +503,7 @@ Lock shift → ตรวจ Request → สร้าง Event (RECEIVED) เก�
           → ถ้าเป็น Event แรกที่ RECEIVED ของเวรนี้ = Window เปิด
 
 PART B: ปิด Window (หนึ่ง Transaction ต่อเวร)
-ถึงเวลาปิด = ครบ merge_window_seconds และเคสก่อนหน้าของเวรนี้จบแล้ว (Q43)
+ถึงเวลาปิด = ครบ merge_window_seconds และเคสก่อนหน้าของเวรนี้จบแล้ว (Q43) (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40)
          → Lock shift → อ่าน Event ที่ RECEIVED ทั้งหมดของเวรนี้
 
   วนทีละ Event (เรียงตาม occurred_at, id)
@@ -513,7 +524,7 @@ PART B: ปิด Window (หนึ่ง Transaction ต่อเวร)
                                   → บันทึก Gap หนึ่งแถว → Optimize
 
 Event ที่เข้ามาระหว่าง PART B: รอ Lock ของ shift แล้วเป็น Event แรกของ Window รอบถัดไป
-Event ที่เข้ามาตอนเวรมีเคสเดินอยู่: เก็บเป็น RECEIVED รอจนเคสนั้นจบ แล้วจึงเป็น Window รอบถัดไป (Q43)
+Event ที่เข้ามาตอนเวรมีเคสเดินอยู่: เก็บเป็น RECEIVED รอจนเคสนั้นจบ แล้วจึงเป็น Window รอบถัดไป (Q43) (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40)
 ```
 
 เหตุผลที่สร้างเคสและเขียน `required_staff` หลังวนครบ ไม่ทำกลางลูป: Event ตัวหลังเปลี่ยนข้อมูลที่ Event ตัวก่อนใช้ได้ ตัวอย่าง เวรมี 5 คน Ratio 2 Event แรกแจ้งผู้ป่วย 12 คน ผ่าน Threshold Event ที่สองแจ้งผู้ป่วยเหลือ 10 คน ไม่ผ่าน ถ้าเขียน `required_staff` = 6 ตั้งแต่ Event แรกแล้วไม่เขียนใหม่ Gap จะบอกว่าขาด 1 คน ทั้งที่ผู้ป่วย 10 คนต้องการแค่ 5 คน การเขียนจากค่าสุดท้ายได้ 5 และ Gap เป็น 0 จึงไม่เปิดเคส (ตรวจตัวเลขด้วยโค้ดแล้ว)
@@ -530,7 +541,7 @@ Event ที่เข้ามาตอนเวรมีเคสเดิน�
 |---|---|
 | เวรนี้มี Window เปิดอยู่ไหม | มี Event ที่ `shift_id` นี้ และ `status = RECEIVED` อย่างน้อย 1 แถว |
 | Window เปิดตอนไหน | `min(occurred_at)` ของ Event กลุ่มนั้น (`occurred_at` ตั้งจาก `clock.now()` ตอนรับ Event) |
-| Window ปิดตอนไหน | เวลาที่ช้ากว่าระหว่าง `min(occurred_at)` + `SHIFT.merge_window_seconds` กับเวลาที่เคสก่อนหน้าของเวรนั้นจบ ถ้าเวรไม่มีเคสเดินอยู่ ใช้ค่าแรกอย่างเดียว (Q43) |
+| Window ปิดตอนไหน | เวลาที่ช้ากว่าระหว่าง `min(occurred_at)` + `SHIFT.merge_window_seconds` กับเวลาที่เคสก่อนหน้าของเวรนั้นจบ ถ้าเวรไม่มีเคสเดินอยู่ ใช้ค่าแรกอย่างเดียว (Q43) (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40) |
 | Event ไหนอยู่ใน Window นี้ | Event ที่ `RECEIVED` ทุกแถวของเวรนั้น |
 | Event ไหนเคยอยู่ Window เดียวกัน (ดูย้อนหลัง) | `shift_id` เดียวกัน และ `processed_at` เท่ากัน |
 | Event ไหนเป็นของเคสไหน | `STAFFING_EVENTS.case_id` |
@@ -576,7 +587,7 @@ Event หนึ่งตัวจึงอยู่ได้ Window เดีย
 | Migration (Q34) | ทำเป็น Migration ใหม่ ไม่แก้ไฟล์ Migration เดิม ไม่เติมค่าให้ข้อมูลที่มีอยู่ ทุกคนรัน `make reset` ก่อน |
 | Job ปิด Window (Q35) | Service แยกใน `docker-compose.yml` เป็นตัวจับรอบ ทุก 30 วินาทีเรียก Route ภายในของ Backend ให้ Backend ปิด Window ที่ถึงเวลาด้วยนาฬิกาของ Backend เอง |
 | Event ของเคสใน Case API (Q36) | ตอบเป็น List `event_ids` แทน `event_id` ตัวเดียว |
-| Event ของเวรที่มีเคสเดินอยู่ (Q43) | ไม่เข้าเคสนั้น เก็บเป็น `RECEIVED` รอจนเคสนั้นจบ แล้ว Window ของมันจึงปิดและเปิดเคสใหม่ของตัวเอง แทนคำตอบเดิมของ Q26 |
+| Event ของเวรที่มีเคสเดินอยู่ (Q43) | ไม่เข้าเคสนั้น เก็บเป็น `RECEIVED` รอจนเคสนั้นจบ แล้ว Window ของมันจึงปิดและเปิดเคสใหม่ของตัวเอง แทนคำตอบเดิมของ Q26 (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40) |
 | เคสก่อนหน้า "จบ" (Q49) | นับ 4 สถานะ: `RESOLVED`, `UNRESOLVED`, `FAILED`, `MANUAL_HANDOFF` |
 
 ### 3.3 Threshold
@@ -1218,7 +1229,7 @@ Offer มี Timeout ตามข้อนี้ ส่วนคำขออน�
 * **เคสอื่นที่ได้รับผลกระทบ (ข้อ 5.3):** `recompute()` ของเคสอื่นทำหลัง Commit ใน Transaction ของตัวเอง จึงเริ่มล็อกจาก Offer ของเคสนั้นตามลำดับปกติ ไม่ถือ Lock ของเคสแรกค้างไว้
 * **Safety ไม่ผ่าน:** ตั้ง Offer ของผู้ตอบเป็น `CANCELLED` ใน Transaction ของการตอบรับ ซึ่งถือ Lock ของแถวนั้นอยู่แล้ว
 * **เลือกคนของ Wave:** `contact_candidate` ล็อกแถว `STAFF` ของทั้ง Plan เรียงตาม `id` (ข้อ 6.7) ถ้าถูกเรียกต่อจากการตอบ Offer, การอนุมัติ หรือ Job แถวพวกนี้ถูกล็อกไว้แล้วตั้งแต่ต้น Transaction จึงไม่มีการรอเพิ่ม
-* **ปิด Window (ข้อ 3):** ล็อก `SHIFT` ก่อน แล้วจึงแก้ Roster ตรงลำดับเดิม
+* **ปิด Window (ข้อ 3):** ล็อก `SHIFT` ก่อน แล้วจึงแก้ Roster ตรงลำดับเดิม **EV10:** เมื่อ Event เข้าเคสที่รออยู่ (ข้อ 6.40) ต่อด้วยลำดับเดียวกับ check-in สาย: `APPROVAL_REQUEST` ที่รอของเคส → Offer ที่ยังไม่จบของเคสรวมกับ Offer ที่ยังมีผลของคนที่ลาในช่วงเวลาที่ลา (Query เดียวเรียง `id`) → เคส → `STAFF` ของทั้ง Plan ถ้าเคสได้ Offer หรือคำขอใหม่ระหว่างล็อก Rollback แล้วปิด Window ใหม่ (สูงสุด 5 ครั้ง ไม่ครบ Job ปิดรอบถัดไป) เมื่อเปิดเคสใหม่ Offer ของคนที่ลาล็อกหลัง Roster และก่อนสร้างเคส
 * **จัดคนเองจาก `MANUAL_HANDOFF`:** สร้าง Roster และอาจยกเลิก Offer ของคนที่ถูกเลือกในเคสอื่น จึงใช้ลำดับเดียวกับการตัดสินอนุมัติ: `SHIFT` → Offer ที่ยังไม่จบของคนนั้นในเคสอื่น → เคส → แถว `STAFF` ของคนที่ถูกเลือก ซึ่งต้องล็อกแม้เขาไม่อยู่ใน Plan แล้วตรวจ Hard Rules ซ้ำหลังได้ Lock (ข้อ 6.12) เส้นทางนี้ไม่ล็อก `WARD`
 * **คำขออนุมัติหมดเวลา (Job):** ยกเลิก Offer และอาจทำให้เคสส่ง Wave ถัดไป จึงใช้ลำดับของการตัดสินอนุมัติ โดยเริ่มที่ `SHIFT` ไม่ล็อก `WARD`
 * **Solver:** `create_plan()` ยังล็อก `STAFF` ของทั้ง Pool ก่อนตรวจกติกาและถือจน Commit เพดานเวลาของ Solver จำกัดเวลาค้น ไม่ได้จำกัดเวลาที่ถือ Lock นี้ (ข้อ 6.14)
@@ -1685,7 +1696,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
   * ลำดับการตรวจเหมือนเดิม: `404`, `403`, `409` แล้วจึง `422` ของ `side` และ `reason` ตัวอย่าง: Supervisor กดฝั่ง `SOURCE` ที่ Head Nurse ของหอ B อนุมัติไปแล้ว ก่อน `supervisor_from` ได้ `403` ไม่ใช่ `409` เพราะยังไม่มีสิทธิ์กด S ต้องมี Test ของกรณีนี้
   * กดหนึ่งครั้งตัดสินฝั่งเดียว และเขียน `APPROVAL_WARD_DECISION` หนึ่งแถว Supervisor ที่จะตัดสินแทนทั้งสองหอต้องกดสองครั้ง
 * **การทำงานของ S:** `approval_wards` หาหอต้นทางจากเวรของ `source_assignment_id` (ไม่ใช่หอบ้าน), ตรวจสิทธิ์ก่อนสถานะค้าง แล้วจึงตรวจ `side`/`reason` หลังข้อขัดแย้งทั้งหมด การอนุมัติฝั่งแรก Commit แค่แถวการตัดสินและ Audit ไม่เรียก Execute ไม่ยืดเส้นตาย และคำขอยังอยู่ใน Pending API พร้อมสถานะของทั้งสองฝั่ง
-* **Lock และ Timeout:** คนกดล็อกหอปลายทางก่อน ตามด้วย Shift ของต้นทางและปลายทางใน Query เดียวเรียง ID → Request → Offers → เคส → Staff Timeout ใช้ Shift ทั้งสองตามลำดับเดียวกันแต่ไม่ล็อก Ward และไม่ต้องมีสิทธิ์ของผู้อนุมัติ คงประวัติฝั่งที่กดไปแล้ว Auto-Approval ใช้ Batch Context เดิมและไม่เขียนแถวตัดสินของคน
+* **Lock และ Timeout:** คนกดล็อกหอปลายทางก่อน ตามด้วย Shift ของต้นทางและปลายทางใน Query เดียวเรียง ID → Request → Offers → เคส → Staff Timeout ใช้ Shift ทั้งสองตามลำดับเดียวกันแต่ไม่ล็อก Ward และไม่ต้องมีสิทธิ์ของผู้อนุมัติ คงประวัติฝั่งที่กดไปแล้ว Auto-Approval ใช้ Batch Context เดิมและไม่เขียนแถวตัดสินของคน (**EV9 เปลี่ยน:** ระบบตัดสินทีละฝั่งและเขียนแถว `APPROVAL_WARD_DECISION` แบบ `AUTO` ไม่มีผู้อนุมัติ ข้อ 6.39)
 * **สิทธิ์ Handoff:** `can_decide()` ตัวเดียวกันให้ Supervisor จัด/ปิดเคสและอ่านรายการได้ทุกหอทันที ส่วนผู้สมัครที่จัดยังต้องเป็นพนักงานของหอปลายทางและผ่าน Hard Rules ทุกข้อ `manages_ward()` สำหรับการคัดคนคงเดิม Supervisor ไม่ได้สิทธิ์แจ้ง Event ของ Head Nurse หรือแก้วันกลับการลา
 * **ขอบเขตที่เหลือ:** S เพิ่ม Role SUPERVISOR ใน Seed แต่ผู้ใช้งานจริงของ Role นี้เป็นข้อมูล W4 หน้าควบคุมฝั่งและประวัติเต็มเป็น PR U หน้าปัจจุบันเพิ่มเพียงข้อความไม่เรียก WAITING_OTHER_WARD ว่าปฏิเสธ และยังไม่ส่ง `side` ดังนั้น Supervisor ที่รอทั้งสองฝั่งต้องใช้ API ระบุฝั่งจนกว่า PR U จะเพิ่มตัวเลือก การแจ้งผลให้พยาบาลผ่าน LINE ตาม issue #75 ยังไม่รวมใน S
 * **C2 ทำแล้ว:** ตัวเขียนการย้ายจริง (`transfer_service.execute()` และ `roster_service.create_transfer()`, ข้อ 6.19) แทนตัวกันของ T3 และตัวเขียนจำลองใน Test ของ S Test ของคำขอสองหอใช้ตัวเขียนจริง การย้ายที่ผ่านได้ผล `ASSIGNED` ส่วนที่ตรวจซ้ำไม่ผ่านได้ `TRANSFER_CANCELLED` ไม่ใช่ `EXECUTION_FAILED` S ยังไม่เขียน Roster ต้นทางเอง
@@ -1697,7 +1708,7 @@ NTT ยืนยันแล้วว่าการแข่งขันใช�
 
 * **เพดาน (R4-Q10, R4-Q11, R4-Q19):** ค่าที่ต่ำกว่าระหว่าง `APPROVAL_POLICY.ratio` × จำนวน Head Nurse ที่ Active ของหอปลายทาง กับ `APPROVAL_POLICY.incoming_count` `ratio` (Seed 2) หมายถึงจำนวนคำขอที่ผู้อนุมัติหนึ่งคนรับไหว (เดิมเขียนว่าเป็น Ratio ผู้ป่วย) Supervisor ไม่นับเป็นผู้อนุมัติของหอ หอที่ไม่มี Head Nurse ที่ Active เพดานเป็น 0 (R4-Q27 ข)
 * **คิวและการอนุมัติ (R4-Q28, R4-Q32, R4-Q33, R4-Q36):** นับทุกคำขอที่รออนุมัติของหอ ถ้าคิว**เกิน**เพดาน Job อนุมัติเองคำขอที่อนุมัติเองได้**ทั้งหมด**ของหอนั้นในรอบเดียว เรียงจากรอนานที่สุด หยุดเมื่อไม่เหลือคำขอที่อนุมัติเองได้ ไม่มีสถานะข้ามรอบ หอที่คิวเกินเพดานแค่หนึ่งรายการ คำขอที่อนุมัติเองได้ทุกรายการถูกอนุมัติโดยไม่มีคนดู
-* **อนุมัติเองไม่ได้:** คนข้ามหอ (`CROSS_WARD`), คน Float Pool (`FLOAT_POOL`) และคำขอที่มีเวรต้นทาง ไม่ว่า `source` จะเป็นอะไร
+* **อนุมัติเองไม่ได้:** คนข้ามหอ (`CROSS_WARD`), คน Float Pool (`FLOAT_POOL`) และคำขอที่มีเวรต้นทาง ไม่ว่า `source` จะเป็นอะไร (**EV9 เปลี่ยน:** ทุกชนิดอนุมัติเองได้ คำขอที่มีเวรต้นทางประเมินแต่ละฝั่งตามคิวของหอนั้น และเพิ่มคิว Supervisor ดูข้อ 6.39 ซึ่งแทนข้อนี้ เพดาน คิว และทางเดินในข้อ 6.22 ที่เหลือยังใช้ตามที่ข้อ 6.39 ไม่ได้เปลี่ยน)
 * **ทางเดิน (R4-Q12):** Safety ตรวจเหมือนเดิม การตอบรับสร้างคำขอตามปกติ Job ล็อก `WARD` (ข้อ 6.11) นับคิวและตรวจเงื่อนไขซ้ำ แล้วตัดสินผ่าน `approval_service.decide_automatic()` ซึ่งใช้ `_decide()` ร่วมกับ `decide()` ของคนกด ตรวจ Batch Context ที่ส่งเข้ามาโดยตรงกับ Connection และ Transaction ที่ยังล็อกอยู่ ตั้ง `approval_mode = AUTO` Actor `system` `approver_id` ว่าง และไม่เขียน `APPROVAL_WARD_DECISION` ไม่ตัดสินใน Transaction ของการตอบรับเพราะลำดับ Lock ช่อง `role_id = None` ที่ข้ามการตรวจสิทธิ์ใช้ได้เฉพาะเมื่อตรวจเงื่อนไขผ่านใน Transaction เดียวกัน
 * **การทำงานของ Job:** `auto_approval_service.approve_due_requests()` ทำหลัง Offer/Approval Timeout และก่อน Recovery/ปิด Merge Window คิวที่นับต้องยังไม่หมดเวลา เคสยังไม่หยุด และยังมี Offer ที่ `ACCEPTED` ตรงกับคำขอ คำขอ Cross-Ward/Float Pool/มีเวรต้นทางนับในคิวแต่ไม่ถูกอนุมัติเอง ค่าทศนิยมของเพดานเปรียบเทียบตรงโดยไม่ปัดเศษ
 * **Snapshot และ Transaction:** หลังล็อกหอ อ่านคิวและเพดาน แล้วล็อกชุดรวมของ `SHIFT` → `APPROVAL_REQUEST` → Offer → เคส → `STAFF` เรียง ID ภายในแต่ละชนิดก่อนเริ่มตัดสิน เพื่อไม่ไปล็อก Shift ใหม่หลัง Staff ของคำขอก่อนหน้า ตัวตัดสินร่วม Commit ผ่าน Savepoint แต่ Lock ของหอและทั้งชุดอยู่จน Commit ภายนอกครบทั้งหอ คำขอที่เข้าหลัง Snapshot รอรอบถัดไป ถ้าชุด Offer เพิ่มระหว่างล็อกให้เริ่มทั้งชุดใหม่สูงสุดห้าครั้ง ถ้าเกิดข้อผิดพลาดนอก D11 Rollback ทั้งหอและลองใหม่รอบถัดไป ส่วน D11 คงคำตัดสินและเคส `FAILED` ตามเดิม การคำนวณเคสอื่นและส่ง LINE ทำหลังปล่อย Lock ทั้งชุด การคำนวณเคสอื่นเป็น best-effort: ถ้าล้มเหลว log ระบุว่าไม่มีคิว retry โดยเฉพาะ จึงอาจค้างจนมีกิจกรรมอื่นหรือผู้ดูแลเรียกใหม่ ส่วนงานส่ง Offer เก็บใน DB อยู่แล้วและ Job เรียก `dispatch_pending()` ทุก tick แต่ไม่ได้รับประกันส่งข้อความสำเร็จ
@@ -2110,7 +2121,7 @@ Path ข้างล่างเป็นของ Backend (public เติม 
 | Method / Path | Request | ผลสำเร็จ / กติกา |
 |---|---|---|
 | POST `/auth/login` | `{staff_id, password}` | 200 พร้อม Set-Cookie และรูปเดียวกับ me; รหัสผิด/บัญชีไม่พร้อมใช้ 401 `AUTH_INVALID_CREDENTIALS` ไม่บอกเหตุเจาะจง |
-| GET `/auth/me` | cookie | 200 `{staff_id, role, home_ward_id, must_change_password}`; role เป็น `staff\|head_nurse\|supervisor` (map จาก ROLE เดิม RN/HEAD_NURSE/SUPERVISOR ที่ Backend เท่านั้น) ไม่ส่งข้อมูล hash/token |
+| GET `/auth/me` | cookie | 200 `{staff_id, role, home_ward_id, home_ward_name, must_change_password}`; role เป็น `staff\|head_nurse\|supervisor` (map จาก ROLE เดิม RN/HEAD_NURSE/SUPERVISOR ที่ Backend เท่านั้น) ไม่ส่งข้อมูล hash/token |
 | POST `/auth/logout` | cookie ถ้ามี | 204, idempotent แม้หมดอายุ; ล้าง cookie ด้วย attributes เดียวกับตอนตั้ง |
 | POST `/auth/change-password` | cookie, `{current_password, new_password}` | 204 และล้าง cookie/revoke ทั้งบัญชี; current_password ผิด 400 `AUTH_INVALID_PASSWORD` ไม่ใช้ 401 ที่หน้าเว็บตีความว่า session หาย |
 | POST `/auth/register` (AU5) | `{code, password}` | 201 `{staff_id}` ไม่ login อัตโนมัติ; code ไม่ถูกต้อง/หมดอายุ/ใช้แล้ว/เจ้าของไม่พร้อมใช้ 400 `AUTH_INVALID_REGISTRATION` แบบเดียวกัน; ไม่เขียนทับบัญชีเดิม |
@@ -2128,20 +2139,21 @@ login/register: ก่อน hash password ให้ตรวจหน้าต�
 
 **ขอบเขต:** staff = ตัวเองและเคสที่เกี่ยวข้อง, head_nurse = หอของตัวเอง, supervisor = ทุกหอ แต่การตัดสิน Approval ของ Supervisor ยังต้องรอ `supervisor_from` และใช้ side/กฎสองหอในข้อ 6.21 ห้ามข้าม Safety/Hard Rules/Timeout เดิม ใน MANUAL_HANDOFF ใช้สิทธิ์ Supervisor ทันทีตามเดิม
 
-เคสที่ staff เกี่ยวข้องหมายถึงมี CandidateOutreach ของตนในเคสนั้น (ไม่ใช่เพียงอยู่ในรายการผู้สมัครที่ยังไม่ติดต่อ), หรือเป็น staff ของ Event ที่เคสประมวลผล, หรือเป็นเจ้าของ Roster ที่เกิดจากเคสนั้น (รวมประวัติ) ตรวจจากความสัมพันธ์ใน DB ไม่รับ case scope จาก client Event ของเวรเดียวกันที่ยังไม่มีเคส staff อ่านได้เมื่อเป็นเจ้าของ Event เท่านั้น; หัวหน้าตรวจหอของ SHIFT; ถ้าเป็นคำขอสองหอ หัวหน้าหอ SOURCE ที่มีฝั่งอนุมัติของตนอ่านเคส/ประวัติที่จำเป็นต่อคำขอนั้นได้ด้วย แต่ไม่ทำให้เห็นเคสอื่นของหอปลายทาง Supervisor ทุกหอ ทั้ง list และ count ต้องกรองก่อน paginate/aggregate ห้ามคืนข้อมูลของเคสอื่นแล้วให้ browser ซ่อน
+เคสที่ staff เกี่ยวข้องหมายถึงเป็น staff ของ Event ที่เคสประมวลผล หรือเป็นเจ้าของ Roster ที่เกิดจากเคสนั้น (รวมประวัติ: คำขอที่อนุมัติแล้วพร้อมแถว Roster ของตนในเวร หรือการจัดคนเองของ handoff) **EV8 เลิกนับ CandidateOutreach อย่างเดียว (ข้อ 6.38.2):** คนที่ได้ Offer แต่ยังไม่ถูกจัดเข้าเวรเห็น Offer ของตนที่ My offers แต่ไม่เห็นเคส ตรวจจากความสัมพันธ์ใน DB ไม่รับ case scope จาก client Event ของเวรเดียวกันที่ยังไม่มีเคส staff อ่านได้เมื่อเป็นเจ้าของ Event เท่านั้น; หัวหน้าตรวจหอของ SHIFT; ถ้าเป็นคำขอสองหอ หัวหน้าหอ SOURCE ที่มีฝั่งอนุมัติของตนอ่านเคส/ประวัติที่จำเป็นต่อคำขอนั้นได้ด้วย แต่ไม่ทำให้เห็นเคสอื่นของหอปลายทาง Supervisor ทุกหอ ทั้ง list และ count ต้องกรองก่อน paginate/aggregate ห้ามคืนข้อมูลของเคสอื่นแล้วให้ browser ซ่อน
 
 | ความสามารถ | staff | head_nurse | supervisor |
 |---|---|---|---|
+| หน้าจัดการพนักงาน / ค้นหารายชื่อ / ออกโค้ดและปลด LINE พร้อมพิมพ์ Staff ID ยืนยัน (`/admin/staff`) | ไม่ได้ | ไม่ได้ | ใช้ session จริงและเปลี่ยนรหัสเริ่มต้นแล้ว ทั้ง demo/session; ดู `docs/demo-runbook.md` |
 | My offers / Handovers / ตอบ Offer / check-in | ตัวเอง | ตัวเอง | ตัวเอง |
 | แจ้งลา POST `/me/unavailability` | ตัวเองที่มี Roster ในเวร | ตัวเองที่มี Roster ในเวร | ตัวเองที่มี Roster ในเวร |
-| Roster / Gap | หอของตัวเอง; Roster ตัวเองอ่านเวรที่ถูกย้ายไปหออื่นได้ | หอของตัวเอง; Roster ตัวเองเช่นเดียวกัน | ทุกหอ |
-| Dashboard / รายการเคส / case detail / Audit / Handover ของเคส | เฉพาะเคสที่เกี่ยวข้อง; Roster/Gap ตามหอ | เคสของหอตัวเอง | ทุกหอ |
+| Roster / Gap | Roster ของตัวเอง และทั้งเวรเฉพาะเวรที่ตนมีแถว Roster; Gap ไม่ได้ (EV8, ข้อ 6.38.2) | หอของตัวเอง; Roster ตัวเองเช่นเดียวกัน | ทุกหอ |
+| Dashboard / รายการเคส / case detail / Audit / Handover ของเคส | Dashboard ไม่ได้ (EV8); ที่เหลือเฉพาะเคสที่เกี่ยวข้อง | เคสของหอตัวเอง | ทุกหอ |
 | ขอ LLM explanation / summary | เคสที่อ่านได้ | เคสที่อ่านได้ | เคสที่อ่านได้ |
 | อ่านรายการ Approval / auto-approval / ตัดสิน | ไม่ได้ | เฉพาะฝั่งหอตัวเอง | ทุกหอแต่กฎเวลา/side เดิมยังใช้ |
 | Handoff candidates / จัดคน / ปิดเคส | ไม่ได้ | หอตัวเอง | ทุกหอ |
 | PATCH `/unavailability/{id}` แก้วันกลับ | ไม่ได้ | หอของคนลา | ทุกหอ (ขยายตาม Q9; AU2 ปรับตัวตรวจเดิมที่ให้แค่ head_nurse) |
 | POST `/events` ทั่วไป | 403 | 403 | 403 |
-| Demo control / simulator | ซ่อนเมนูปกติ; URL ภายใต้ด่านพิเศษข้อ 6.33.5 | เช่นเดียวกัน | เช่นเดียวกัน |
+| Demo control / simulator | ไม่ได้: ด่านของข้อ 6.38.1 พาไป My offers ก่อนถึง Basic Auth (EV8) | Demo control อยู่ในเมนู (EV6, ข้อ 6.36.4); simulator ซ่อน | เช่นเดียวกับ head nurse |
 
 Roster แยก query ชัดเจน: `shift_id` ตรวจหอของเวร; `staff_id` เท่าตนอ่าน Roster ของตนทุกหอได้เพื่อเลือกเวรแจ้งลา ส่วน `staff_id` คนอื่นต้องอยู่ใน home ward ที่ผู้ใช้ดูได้ และคืนเฉพาะแถวของเวรในหอที่ดูได้ มิฉะนั้น 403 ไม่คืนประวัติข้ามหอแถมมา หน้า self-leave อ่าน `GET /roster?staff_id=<ตัวเองจาก auth/me>` แล้วให้เลือก assigned shift ของตน ไม่ต้องกรอกรหัสเวรด้วยการเดา และ Backend ตรวจเจ้าของซ้ำก่อนบันทึก
 
@@ -2154,8 +2166,8 @@ Roster แยก query ชัดเจน: `shift_id` ตรวจหอขอ�
 - โหมดมาจาก `GET /auth/config` ที่ `AuthProvider` (`components/AuthProvider.tsx`) อ่านครั้งเดียวหลังโหลดหน้า แล้ว `AuthGate` ไม่แสดงหน้าจนรู้โหมดและตัวตน; ไม่มี Provider (เทสต์ที่ render หน้าเดี่ยว) ถือเป็นโหมด `demo` หน้าเดิมจึงทำงานเหมือนก่อน AU3 ใน `session` `lib/api.ts` ส่ง cookie (`credentials: "include"`) และไม่ส่ง `X-Demo-User` ทุกคำขอ
 - 401 `AUTH_REQUIRED` ในโหมด `session` พาไป `/login?next=<path ภายใน>` (`safeNext` ปฏิเสธ URL ข้าม origin, `//`, `\` และ `/login`/`/register`); 403 `AUTH_PASSWORD_CHANGE_REQUIRED` พาไป `/change-password`; รหัส `AUTH_*` ทุกตัวแสดงเป็นประโยคสองภาษา (`describeError`) ไม่แสดงรหัสให้ผู้ใช้
 - หน้าใหม่: `/login`, `/register` (ส่งเฉพาะ `code` กับ `password` ไปที่ `POST /auth/register` ของ AU5), `/change-password` (หลังสำเร็จบอกว่าทุก session สิ้นสุดและมีลิงก์เข้าสู่ระบบ ไม่เด้งทันที), `/me/leave` (อ่าน `GET /roster?staff_id=<ตัวเอง>` เลือกเวรที่ `ASSIGNED` แล้วส่ง `POST /me/unavailability` เฉพาะ `{shift_id, end_at?}` โดย `end_at` เป็นเวรกรุงเทพฯ `+07:00`)
-- เมนูตามบทบาทของ `GET /auth/me`: ทุกบทบาทเห็น Dashboard, Gap check, Roster, My offers, แจ้งลา; `head_nurse` กับ `supervisor` เห็น Approvals กับ Handoff เพิ่ม; ผู้เยี่ยมชมไม่เห็นเมนู; หน้า Demo control และ LINE simulator ไม่อยู่ในเมนู `session` (Demo control เปิดได้โดยไม่ต้องมีบัญชี ตามข้อ 6.33.5, LINE simulator ต้องมี session และตอบได้เฉพาะในนามผู้ล็อกอิน) ช่อง "ทำในฐานะ" (`ActingAs`) หายไปใน `session`; `useActor` คืนผู้ล็อกอิน; Approvals ใช้ `home_ward_id` กับ `role` จาก `/auth/me` ตัดสินว่าปุ่มไหนกดได้ (Backend ตรวจซ้ำ)
-- **หน้า `/demo/*` เปิดให้ผู้เยี่ยมชมที่ไม่มีบัญชี ตั้งใจและเป็นกติกาของข้อ 6.33.1 และ 6.33.5:** Demo control เข้าได้โดยไม่ต้องล็อกอิน (ยกเว้น LINE simulator ที่ต้องมี session) เพราะด่านของหน้านี้คือ Basic Auth ของเครื่อง AWS ไม่ใช่ตัวตนของเว็บ หน้าเว็บไม่ใช่ตัวป้องกัน (ผู้ใช้ปิด JavaScript หรือเรียก API ตรงก็ข้ามได้) ที่ป้องกันจริงอยู่ฝั่ง Backend: Event ที่เปลี่ยน Roster ต้องมี session ของ head nurse หรือ supervisor (`POST /demo/events`) ส่วน `POST /demo/reset` และนาฬิกาไม่ใช้ตัวตนโดยออกแบบ **ผลคือ เครื่อง local หรือ staging ที่ตั้ง `AUTH_MODE=session` แต่ไม่มี Basic Auth หน้าหน้านี้ก่อนถึง Backend จะปล่อยให้ผู้เยี่ยมชมรีเซ็ตข้อมูลและหยุดนาฬิกาได้** จึงห้ามเปิดเครื่องแบบนั้นให้ภายนอกเข้า และถ้าทีมไม่ยอมรับความเสี่ยงนี้ ให้ตัดสินในรอบ AU4 ว่าจะให้ `/demo/reset` กับนาฬิกาต้องมี session ของ supervisor ใน `session` (เปลี่ยน Backend ไม่ใช่หน้าเว็บ)
+- เมนูตามบทบาทของ `GET /auth/me`: ทุกบทบาทเห็น Dashboard, Gap check, Roster, My offers, แจ้งลา (**EV8 เปลี่ยน:** staff เห็นเฉพาะเคส, Roster, My offers และแจ้งลา ข้อ 6.38.2); `head_nurse` กับ `supervisor` เห็น Approvals กับ Handoff เพิ่ม; ผู้เยี่ยมชมไม่เห็นเมนู; หน้า Demo control และ LINE simulator ไม่อยู่ในเมนู `session` (**EV6 เปลี่ยน:** Demo control อยู่ในเมนูของ `head_nurse` และ `supervisor` ตามข้อ 6.36.4; Demo control เปิดได้โดยไม่ต้องมีบัญชี ตามข้อ 6.33.5, LINE simulator ต้องมี session และตอบได้เฉพาะในนามผู้ล็อกอิน) ช่อง "ทำในฐานะ" (`ActingAs`) หายไปใน `session`; `useActor` คืนผู้ล็อกอิน; Approvals ใช้ `home_ward_id` กับ `role` จาก `/auth/me` ตัดสินว่าปุ่มไหนกดได้ (Backend ตรวจซ้ำ)
+- **EV8 เปลี่ยน (ข้อ 6.38.1): ย่อหน้านี้เป็นประวัติ หน้า `/demo/*` ต้องล็อกอินเป็น head nurse หรือ supervisor แล้ว ทั้งที่หน้าเว็บและที่ Caddy ก่อน Basic Auth** **หน้า `/demo/*` เปิดให้ผู้เยี่ยมชมที่ไม่มีบัญชี ตั้งใจและเป็นกติกาของข้อ 6.33.1 และ 6.33.5:** Demo control เข้าได้โดยไม่ต้องล็อกอิน (ยกเว้น LINE simulator ที่ต้องมี session) เพราะด่านของหน้านี้คือ Basic Auth ของเครื่อง AWS ไม่ใช่ตัวตนของเว็บ หน้าเว็บไม่ใช่ตัวป้องกัน (ผู้ใช้ปิด JavaScript หรือเรียก API ตรงก็ข้ามได้) ที่ป้องกันจริงอยู่ฝั่ง Backend: Event ที่เปลี่ยน Roster ต้องมี session ของ head nurse หรือ supervisor (`POST /demo/events`) ส่วน `POST /demo/reset` และนาฬิกาไม่ใช้ตัวตนโดยออกแบบ **ผลคือ เครื่อง local หรือ staging ที่ตั้ง `AUTH_MODE=session` แต่ไม่มี Basic Auth หน้าหน้านี้ก่อนถึง Backend จะปล่อยให้ผู้เยี่ยมชมรีเซ็ตข้อมูลและหยุดนาฬิกาได้** จึงห้ามเปิดเครื่องแบบนั้นให้ภายนอกเข้า และถ้าทีมไม่ยอมรับความเสี่ยงนี้ ให้ตัดสินในรอบ AU4 ว่าจะให้ `/demo/reset` กับนาฬิกาต้องมี session ของ supervisor ใน `session` (เปลี่ยน Backend ไม่ใช่หน้าเว็บ)
 - **AU3b ทำแล้ว:** ปุ่มจำลองเหตุและปุ่มแจ้งลาของ Demo control เรียก `POST /demo/events` พร้อม `reporter_staff_id` (ไม่ส่ง `X-Demo-User`; ใน `session` ส่ง cookie และต้องล็อกอินเป็น head nurse หรือ supervisor, nurse ได้ 403 `AUTH_FORBIDDEN` เป็นประโยคสองภาษา; ใน `demo` ไม่ถามใคร)
 - ผลตรวจ AU3b: `tsc`, `vitest` (568) และ `next build` ผ่าน; ตรวจในเบราว์เซอร์จริง (Chromium) กับ Backend ของ `staging` ที่ `AUTH_MODE=session`: ล็อกอินเป็น nurse (105) กดปุ่มได้ประโยคปฏิเสธ ไม่มีรหัสหลุด; ล็อกอินเป็น supervisor (950) และ head nurse (900) กดปุ่มแล้วสร้าง Event ได้ คำขอเดียวคือ `POST /demo/events` ไม่มี `X-Demo-User` (head nurse ตรวจที่ความกว้าง 390 พิกเซล ไม่ล้นแนวนอน); ผู้เยี่ยมชมที่ไม่ล็อกอินกดปุ่มได้ข้อความให้ล็อกอิน ยังไม่ได้ตรวจบนเครื่อง AWS (เป็นของ AU4)
 - **ที่ AU2 ทำให้แล้วหลังย่อหน้านี้เขียน:** Backend ตอบ 403 ตามบทบาทแล้ว (staff เปิดข้อมูล Approvals ไม่ได้), `POST /me/unavailability` มีแล้ว และ `POST /auth/register` มีแล้ว (AU5) หน้าเว็บที่เขียนตามรูปข้อ 6.33.3 จึงไม่ต้องแก้ ส่วนข้อความ "ทดสอบกับ stub เท่านั้น" ของ AU3 ใช้กับตอนที่เขียน ไม่ใช่สถานะปัจจุบัน
@@ -2182,6 +2194,8 @@ System Job/NO_SHOW เรียก service เดิมโดย SYSTEM actor �
 #### 6.33.5 ด่าน AWS และการเปลี่ยนโหมด (AU4)
 
 ก่อน deploy AU4 ใช้ Basic Auth PR D/W ที่ครอบทั้งเว็บตามเดิม หลัง AU1, AU2, AU3 merge และตรวจ session/สิทธิ์ครบ จึงเปลี่ยน Caddy: Basic Auth เฉพาะ `/demo` กับใต้ `/demo/` และ `/api/demo` กับใต้ `/api/demo/`; `/api/internal/*` ยัง 404 จากภายนอกทุกกรณี; **เฉพาะ POST `/api/line/webhook` URI ดิบตรงตัว** ยังผ่านไปตรวจลายเซ็น LINE ไม่มี session/Basic Auth เช่นเดิม รูป URI ที่ดัดแปลงต้องไม่กลายเป็นข้อยกเว้นไปถึง handler เดียวกัน; Caddy ต้องปฏิเสธหรือ Backend ต้องคืน 401/404 โดยไม่มีข้อมูล ไม่ใช้การ normalize URI เพื่อหลบด่าน
+
+**EV8 เปลี่ยน (ข้อ 6.38.1):** ก่อน Basic Auth ของ Demo Caddy ถาม `GET /auth/demo-gate` (`forward_auth`) ว่า session ของคำขอเป็นผู้จัดการหรือไม่ ผู้เยี่ยมชมไป `/login` และพยาบาลไป `/me/offers` (API ได้ 401/403 แบบ JSON) โดยไม่เห็นกล่อง Basic Auth รหัส Demo อย่างเดียวจึงไม่พอสำหรับ reset และนาฬิกาบนเครื่อง AWS อีกต่อไป
 
 public API มี GET `/health`, GET `/clock` (ไม่มีข้อมูลบุคคล), auth/login และ auth/register (anonymous แต่มี Origin/rate limit); `/docs`, `/redoc`, `/openapi.json` ต้องมี session หรือปิดบน AWS; logout ไม่ต้องมี session ที่ยัง valid เพื่อให้ล้าง cookie ได้ ส่วน `/demo/line-sim/offers` และ `/respond` ต้องผ่าน **ทั้ง Basic Auth และ session**: query staff_id ต้องเท่ากับผู้ล็อกอิน และ respond ต้องตรวจเจ้าของ outreach ใน DB ไม่สร้าง dependency สำหรับเลือกตัวตน Demo แยกใน session
 
@@ -2219,6 +2233,8 @@ AU1 เพิ่ม `STAFF.auth_subject` UUID immutable UNIQUE และเก�
 
 ห้ามคืนบัญชีกับคนอื่นเมื่อเลข ID ถูกใช้ซ้ำ: preserve Staff row/subject ต้นฉบับและตรวจ FK role/ward ก่อนโหลดสถานการณ์; ถ้าทำไม่ได้/ตัวตนขัดกัน ให้ rollback reset ทั้งหมด ไม่ drop บัญชีที่ไม่มีใน Golden Case เงียบๆ AU1 ต้องปรับ loader/reset ที่ตอนนี้ใช้ DROP SCHEMA ให้รักษา identity tables ได้และคืน sequence ต่อจาก max ID; ข้อมูลสถานการณ์/CONTACTS และ LINK เดิมใช้กติกา reset เดิม ไม่อ้างว่าผูก LINE คงอยู่หลัง reset ถ้าโค้ดเดิมล้าง
 
+**EV6 เปลี่ยน (ข้อ 6.36.2):** reset เก็บ AUTH_SESSION และ CONTACTS ไว้ด้วย ประโยคเรื่องล้าง session และไม่เก็บการผูก LINE ข้างล่างจึงใช้เฉพาะ AUTH_REGISTRATION_CODE และโค้ด LINK
+
 reset สำเร็จคง password hash/disabled/must_change/password-change generation เดิม แต่ล้าง AUTH_SESSION และ AUTH_REGISTRATION_CODE (เมื่อ AU5 migration มีแล้ว) ทั้งหมดใน transaction เดียว; cookie/code เก่าใช้ไม่ได้ หาก reset ล้มให้บัญชี/session/code ก่อนเริ่มยังคงเดิม Reset ไม่ต่อโควตาและยังเก็บ LLM ledger ตามข้อ 6.27 ต้องล็อกการสร้างบัญชี/เปลี่ยนรหัส/ปิดบัญชี/ออก session ตลอด snapshot→restore โดยใช้ transaction advisory lock กลางสำหรับ Auth reset: reset ถือ exclusive `(6210, 1)` ก่อนล็อกตาราง ส่วนทุก auth write/แก้ identity/logout ถือ shared key เดียวกันก่อน row lock และถือจนจบ transaction ไม่ทับ concurrent write หรือคืน session ที่ logout แล้ว หากชน deadlock ใช้ retry แบบ bounded ตาม reset เดิม ไม่ reset เป็นสำเร็จครึ่งหนึ่ง UI แจ้งให้ login ใหม่หลัง reset สำเร็จ; restart/migrate ปกติไม่ล้างบัญชี ห้ามใช้ destructive seed CLI บน AWS เป็นทางลัดข้าม reset ที่รองรับ auth
 
 | PR | ส่งต่อจาก AU0 / หลักฐานที่ต้องมี |
@@ -2231,6 +2247,424 @@ reset สำเร็จคง password hash/disabled/must_change/password-chang
 
 **เงื่อนไข AU2 tests:** ทุก method/path ของ business API ต้องมีผู้รับผิดชอบใน inventory ไม่ตรวจเฉพาะ route ที่เคยมี DemoUser; anonymous และ X-Demo-User-only ต้องไม่ผ่านใน session, staff ข้ามคน/หอ/เคสไม่ได้, list/count ไม่รั่ว, session เวลาเป็น real, logout/disable/password-change/reset ใช้ token เดิมไม่ได้, CSRF/Origin และ rate limit ตรวจ server-side, login/register ไม่เปิด role escalation, self-leave เฉพาะ Roster ตนและ no_show/การอนุมัติคนแทนไม่เปลี่ยน; ต้องมี test ส่ง POST `/me/unavailability` ซ้ำทั้งแบบต่อเนื่องและพร้อมกันบนเวรเดียวกัน ตรวจผลตามกฎ Event/merge/dedup เดิม รวมจำนวน Event/Window/Case/Unavailability/Audit และผลข้างเคียงการติดต่อ ไม่สร้าง workflow หรือส่ง Offer ซ้ำเกินกติกาเดิม ทุก mutation ที่ถูกปฏิเสธต้องไม่เขียนข้อมูล
 
+
+### 6.34 ทดลองความปลอดภัยแบบออฟไลน์ (EV1) [รอบ 6 · PR EV1, #141]
+
+ชื่อเดิมใน PR #141 คือ E1 ซึ่งซ้ำกับ PR E1 ของคำอธิบายอันดับ จึงเปลี่ยนเป็น EV1 (EValuation) งานวัดผลต่อจากนี้ใช้ EV
+
+เพิ่มเพื่อให้สไลด์ "Before vs. after" มีตัวเลขที่บอกที่มาได้ เพราะยังไม่ได้ใช้ nara ในโรงพยาบาลจริง เป็นสคริปต์ล้วน ไม่มี API ไม่มี Migration ไม่แตะฐานข้อมูล LINE หรือ Bedrock
+
+- **คำถาม:** ถ้าหัวหน้าพยาบาลเลือกคนแทนจากตารางเวรกระดาษอย่างเร่งรีบ จะผิดกฎความปลอดภัยบ่อยแค่ไหน และ nara ยังหาคนที่ปลอดภัยได้กี่เปอร์เซ็นต์ ทั้งในหอและข้ามหอ
+- **ข้อมูล:** สองหอ (ICU และ Medicine) หอละ 16, 20 หรือ 24 คน (`--nurses`) เวรเช้า 07:00-19:00 และเวรดึก 19:00-07:00 ตารางสองสัปดาห์จัดทีละเวร โดยทุกการจัดต้องผ่านกฎก่อน ตารางตั้งต้นจึงถูกกฎทั้งหมด พยาบาล 8% มีวันลาเขียนไว้ในตาราง
+- **เคส:** เวรดึกของ ICU ในสัปดาห์ที่สอง พยาบาลหนึ่งคนในเวรลา คนแทนต้องเป็น RN และต้องมีทักษะ ICU ถ้าเวรเหลือคนที่มีทักษะไม่ครบ **เคสไม่ซ้ำกัน:** แต่ละตารางให้คู่ (เวรดึก, คนที่ลา) ได้ครั้งเดียว (สุ่มโดยไม่ใส่คืน) ค่าเริ่มต้นคือ 1,000 เคสจาก 100 ตาราง ตารางละ 10 เคส ผลสรุปรายงาน `distinct_cases`
+- **การเลือกแบบ manual (baseline):** เห็นเฉพาะสิ่งที่ตารางกระดาษแสดง คือ Role ทักษะ ใครมีเวรที่เริ่มในวันนั้น (ทั้งเวรดึกนั้นเองและเวรเช้าของวันเดียวกัน) และวันลาที่เขียนไว้ "ว่าง" คือ RN ในหอเดียวกันที่มีทักษะที่เวรต้องการ (ตารางแสดงทักษะ หัวหน้าจึงไม่เลือกคนที่ไม่มีทักษะ ICU เมื่อเวรต้องการ) ไม่มีเวรเริ่มในวันนั้น และไม่ได้ลา สิ่งที่ตารางกระดาษไม่แสดงคือชั่วโมงสะสม เวลาพัก และจำนวนเวรติดกัน มีสามแบบ: B1 คนว่างคนแรกตามลำดับรายชื่อ, B2 คนว่างที่มีเวรน้อยที่สุดในสัปดาห์, B3 สุ่มจากคนว่าง
+- **ตัวตัดสิน:** `app.domain.constraints.evaluator.evaluate()` ตัวเดียวกับที่ Solver, Wave และ Safety ใช้ กับนโยบายของ seed (พัก 11 ชม., วันละไม่เกิน 12, สัปดาห์ละไม่เกิน 52, ติดกันไม่เกิน 7 เวร) การเลือกที่ผิดอย่างน้อยหนึ่งกฎนับเป็นการเลือกที่ไม่ปลอดภัย **กฎที่เกิดได้ในการทดลองนี้มี 8 จาก 11 ข้อ** (อยู่ในเวรแล้ว, ลา, เวรชนกัน, ทักษะ, พัก, ชั่วโมงต่อวัน, ชั่วโมงต่อสัปดาห์, เวรติดกัน) `STAFF_NOT_ACTIVE` และ `ROLE_MISMATCH` ไม่มีทางผิด เพราะทุกคนเป็น RN ที่ active และ `SOURCE_WARD_MINIMUM_VIOLATION` ไม่มีทางผิด เพราะไม่มีเคสที่ย้ายคนออกจากเวรอื่น ผลสรุปบอกไว้ในช่อง `rules_that_can_fail_here` และ `rules_not_modelled` กฎที่ baseline ผิดจริงในผลมีสามข้อ คือชั่วโมงต่อสัปดาห์ พัก และเวรติดกัน
+- **ฝั่ง nara:** เลือกเฉพาะคนที่ผ่านทุกกฎ ในหอก่อน แล้วจึงข้ามหอ (ใช้คนที่มีเวรน้อยสุดเป็นตัวแทนของการจัดอันดับ ไม่ได้เรียก Solver) **การเลือกที่ไม่ปลอดภัยของ nara เป็น 0 จากการออกแบบ ไม่ใช่สิ่งที่การทดลองค้นพบ** สคริปต์ยังส่งคนที่ nara เลือกเข้าตัวตรวจกฎอีกครั้งและนับผล (`unsafe_picks` และคอลัมน์ `nara_broken_rules`) เพื่อยืนยันว่าเป็น 0 จริง ตัวเลขที่วัดได้ของ nara คืออัตราที่หาคนที่ปลอดภัยได้ และจำนวนเคสที่ต้องค้นข้ามหอ
+- **วิธีรัน:** `python -m app.evaluation.safety --cases 1000 --seed 20261023 --nurses 16 --out <โฟลเดอร์>` ได้ `safety_cases.csv` (รายเคส) และ `safety_summary.json` (สรุปพร้อมช่วงความเชื่อมั่น 95%) **ช่วงหลักเป็น bootstrap ที่สุ่มทั้งตาราง** (2,000 รอบ) เพราะเคสจากตารางเดียวกันใช้พยาบาลและชั่วโมงชุดเดียวกัน จึงไม่เป็นอิสระต่อกัน ช่วง Wilson ระดับเคส (`*_95ci_wilson_cases`) แสดงไว้เทียบเท่านั้น เทสต์เทียบผลของสูตร Wilson กับค่าที่คำนวณด้วย `scipy.stats.binomtest(...).proportion_ci(method="wilson")` นอกแอปแล้วบันทึกไว้ (scipy ไม่ใช่ dependency ของ Backend)
+- **ผลที่ใช้ในสไลด์ (seed 20261023, 1,000 เคสไม่ซ้ำจาก 100 ตารางต่อชุด, ช่วง 95% แบบ bootstrap ตามตาราง):** หอละ 16 คน (เฉลี่ย 3.5 เวรต่อคนต่อสัปดาห์): B1 ผิดกฎ 68.7% (64.1-73.2%), **B2 26.7% (23.3-30.3%)**, B3 71.6% (68.7-74.8%), nara หาคนที่ปลอดภัยได้ 92.3% (89.9-94.4%) และค้นข้ามหอได้ 59 จาก 136 เคสที่ทั้งหอไม่มีใครปลอดภัย; หอละ 20 คน (2.8 เวร): B1 43.2%, **B2 9.3% (7.1-11.6%)**, B3 39.9%, nara 99.7%; หอละ 24 คน (2.3 เวร): B1 25.7%, **B2 3.6% (2.2-5.3%)**, B3 26.9%, nara 99.9% กฎที่ baseline ผิดบ่อยที่สุดคือชั่วโมงต่อสัปดาห์เกิน 52 และพักไม่ถึง 11 ชั่วโมงเพราะมีเวรเช้าวันถัดไป (หลังให้ baseline เคารพทักษะ ไม่มีการผิดเรื่องทักษะแล้ว)
+- **ห้ามอ้าง:** อัตราผิดของ baseline เป็นผลของตารางสังเคราะห์และกติกาการเลือกที่เขียนไว้ข้างบน ไม่ใช่อัตราความผิดพลาดของพยาบาลจริง สไลด์ต้องเขียนว่าเป็นข้อมูลสังเคราะห์
+- **ผลขึ้นกับภาระงานมาก:** อัตรา 69-72% ของ B1 และ B3 เกิดเฉพาะที่หอละ 16 คน (เฉลี่ย 3.5 เวรต่อคนต่อสัปดาห์) ที่หอละ 24 คนเหลือประมาณ 26% และ 99.9% ของ nara ที่ระดับนั้นสะท้อนว่ามีคนว่างเหลือ ไม่ใช่ความสามารถที่เพิ่มขึ้น สไลด์ควรยก B2 (คนที่มีเวรน้อยสุด ซึ่งใกล้วิธีของหัวหน้าที่รอบคอบที่สุด: 3.6-26.7% ตามภาระงาน) เป็นตัวเลขหลัก และต้องบอกภาระงานกับว่าเป็นข้อมูลสังเคราะห์ทุกครั้งที่ยกตัวเลข
+- **Test:** `tests/unit/evaluation/test_safety.py` (seed เดิมได้ผลเดิม, ตารางตั้งต้นถูกกฎทุกแถว, nara เลือกเฉพาะคนที่ผ่านทุกกฎและข้ามหอเฉพาะเมื่อในหอไม่มีใคร, baseline เลือกจากสิ่งที่ตารางกระดาษแสดงเท่านั้น, สูตร Wilson เทียบกับค่าของ scipy, การนับ `unsafe_picks` ของ nara และกฎที่ไม่ได้จำลอง, เคสไม่ซ้ำ, bootstrap สุ่มทั้งตาราง)
+
+### 6.35 โหมดทดสอบและ KPI (EV5) [รอบ 6 · สัญญา PR EV5-0; Backend PR EV5a; หน้าเว็บ PR EV5b]
+
+เพื่อวัด "เวลาจนได้คน" ของคนที่เล่นบทหัวหน้าพยาบาลบน narastaffing.com แบบอัตโนมัติ ให้ผู้ทดสอบทุกคนเริ่มจากจุดเดียวกันและเทียบกันได้ ไม่ต้องจับเวลาด้วยมือฝั่ง nara มติของทีม (2026-10-23): ทำในรอบ 6, ใช้ baseline ตามข้อ 6.34, **เก็บรอบทดสอบเป็นแถว audit (ไม่มี Migration)**, เพิ่มสถานการณ์ข้ามหอ, ผู้ทำแบ่งกันเอง ผู้ทดสอบคือคนที่มาเล่นบทหัวหน้าพยาบาล (ไม่ใช่สมาชิกทีม)
+
+**ปัญหาของนาฬิกาตอนนี้ [ตรวจแล้ว]:** `app/core/clock.py` มีสองสถานะ คือหยุด (`_frozen_at`) หรือเวลาจริงของเครื่อง ปุ่ม Unfreeze เรียก `clock.reset()` ซึ่งกระโดดไปเวลาจริงทันที แต่เวรของสถานการณ์ถูกโหลดตอน Reset รอบ D 21:00 จึงอาจอยู่ในอดีตหรือห่างหลายชั่วโมง เลื่อนเวลาจริงไม่ได้ และถ้าเวรเริ่มก่อนหาคนได้สถานการณ์ก็จบ ทดสอบกับคนจริงไม่ได้
+
+**หลักของข้อนี้:** สิ่งที่ทำให้รอบเสียต้อง **ถูกห้ามขณะมีรอบค้าง** ไม่ใช่ปล่อยให้เกิดแล้วค่อยตรวจย้อน เพราะนาฬิกาอยู่ในหน่วยความจำและ Reset ล้างทุกอย่าง สิ่งเดียวที่ป้องกันไม่ได้คือ API restart ซึ่งตรวจได้ตอนจบรอบ (ข้อ 6.35.2)
+
+#### 6.35.1 นาฬิกาโหมด `scenario`
+
+- สถานะที่สามของ `clock`: `run_from(start, test_run_id)` ตั้งให้ `now() = start + (เวลาจริงตอนนี้ − เวลาจริงตอนเรียก run_from) + advanced` และจำ `test_run_id` ไว้
+- **เลื่อนได้ และเลื่อนแล้วรอบยังใช้ได้:** `advance(delta)` ในโหมดนี้บวก `delta` เข้า `advanced` (ข้ามช่วงรอ เช่นรอ supervisor 10 นาที) KPI หักเวลาที่เลื่อนออกตามช่วง (ข้อ 6.35.4) `POST /demo/clock/advance` ยอมรับโหมด `scenario` ด้วย (ตอนนี้ตอบ 409 ถ้านาฬิกาไม่หยุด **[ตรวจแล้ว]** `demo.py`) และยังเรียก `job_service.run_due_work()` เหมือนเดิม ขณะมีรอบ ทุกการเลื่อนเขียนแถว audit `TEST_RUN_CLOCK_ADVANCED` (`entity_type = TEST_RUN`, `entity_id` = รอบ, payload `seconds` และเวลาระบบก่อนและหลังเลื่อน) เพื่อให้ KPI หักได้ถูกช่วง และรอดการ restart **[EV5b, ตรวจบนเบราว์เซอร์แล้ว]** ในโหมดนี้ route เลื่อนทีละ 30 วินาที (รอบของ Job) และเรียก `run_due_work()` ทุกช่วง เหมือนเวลาที่ผ่านไปจริงขณะ Job ทำงาน เพราะการกระโดด 10 นาทีครั้งเดียวทำให้ Offer หมดเวลา 5 นาทีก่อนคำตอบตามบทที่ 45 และ 120 วินาที การเลื่อนรวมทั้งรอบได้ไม่เกิน 2 ชั่วโมง (เวรของรอบเริ่ม 2 ชั่วโมงหลังเวลาเริ่ม) นับจาก `advanced_seconds` ทุกครั้ง เกินนั้นตอบ 422 การเลื่อนทั้งชุดถือ lock เดียวกับ Finish, Abort, Reset และปุ่มนาฬิกา ปุ่มเหล่านั้นจึงรอจนเลื่อนเสร็จ ไม่แทรกระหว่างสองช่วง หน้าเว็บก็ไม่ให้กดสองอย่างนี้พร้อมกัน
+- `freeze_now()` หยุดที่ `now()` และออกจากโหมดนี้; `reset()` กลับเวลาจริงของเครื่อง; `set_time()` หยุดที่เวลาที่ให้
+- `GET /clock` เพิ่ม `mode: "frozen" | "real" | "scenario"`, `advanced_seconds` และ `test_run_id` (ของโหมด `scenario` อย่างอื่นเป็น 0 และ null) ช่อง `frozen` เดิมคงไว้
+- **งานตามเวลาในโหมดนี้ [ตรวจแล้ว]:** Job (`app/jobs/ticker.py`, stdlib ล้วน) เรียก `POST /internal/merge-windows/close-due` ทุก 30 วินาที ซึ่งเรียก `job_service.run_due_work()` (หมดอายุ Offer และ Approval, auto-approve, กู้เคส, NO_SHOW, ปิด window, ส่ง LINE) ด้วยนาฬิกาของ API ในโหมด `scenario` เวลาเดินเอง งานเหล่านี้จึงเกิดตามเวลาโดยไม่ต้องกดอะไร ไม่ต้องแก้ ticker
+- ข้อจำกัดเดิมยังอยู่: นาฬิกาอยู่ในหน่วยความจำของ API process เดียว (ห้ามรันหลาย worker) และ restart แล้วกลับเป็นเวลาจริง เวลาที่ใช้ตรวจ session และรหัสลงทะเบียน (`auth_clock`, real UTC) ไม่เกี่ยวกับโหมดนี้
+
+#### 6.35.2 รอบทดสอบ (Test run)
+
+| Method / Path | Body | ผล |
+|---|---|---|
+| POST `/demo/test-runs` | `{tester_code, scenario: "golden" \| "cross_ward", auto_nurses: bool}` | Reset ข้อมูล (เก็บผลรอบก่อนไว้) → โหลดสถานการณ์ → `run_from(D 21:00, id)` → สร้าง Event ของสถานการณ์โดย SYSTEM actor (`source: SIMULATED`) → เขียน `TEST_RUN_STARTED` → 201 `{test_run_id, scenario, started_at, case_id}` มีรอบค้างอยู่ตอบ 409 |
+| POST `/demo/test-runs/{id}/finish` | ไม่มี | คำนวณ KPI จาก audit ของเคสในรอบ หยุดนาฬิกา เขียน `TEST_RUN_FINISHED` พร้อม KPI ทั้งชุด → 200; จบแล้ว 409; ไม่มี 404 |
+| POST `/demo/test-runs/{id}/abort` | `{reason?}` | ปิดรอบโดยไม่คำนวณ KPI: เขียน `TEST_RUN_FINISHED` ที่ `invalid: true`, `reason` (`ABORTED` หรือข้อความสั้นที่ส่งมา) หยุดนาฬิกาถ้ายังเป็นของรอบนี้ → 200; จบแล้ว 409 |
+| GET `/demo/test-runs` | ไม่มี | ทุกรอบเรียงตามเวลาเริ่ม (ที่จบแล้วพร้อม KPI หรือเหตุผลที่ใช้ไม่ได้, ที่ค้างพร้อมเวลาที่ผ่านไป) |
+| GET `/demo/test-runs.csv` | ไม่มี | CSV หนึ่งแถวต่อรอบที่จบแล้ว คอลัมน์ตาม KPI ข้อ 6.35.4 + `tester_code`, `scenario`, `auto_nurses`, `advanced_seconds`, `invalid`, `reason` ข้อความที่ขึ้นต้นด้วย `=`, `+`, `-`, `@`, tab หรือ CR ได้ `'` นำหน้า เพื่อไม่ให้ spreadsheet รันเป็นสูตร (เหตุผลของการยกเลิกเป็นข้อความอิสระ) |
+
+- **รอบที่ค้าง** คือมี `TEST_RUN_STARTED` แต่ยังไม่มี `TEST_RUN_FINISHED` ของรอบเดียวกัน อ่านจากฐานข้อมูล จึงรอดการ restart มีได้ทีละรอบ
+- **ห้ามขณะมีรอบค้าง (409 พร้อมข้อความให้จบหรือยกเลิกรอบก่อน):** `POST /demo/reset`, `POST /demo/clock/freeze`, `POST /demo/clock/unfreeze` และการเริ่มรอบใหม่ การเลื่อนเวลาทำได้ (ข้อ 6.35.1) ไม่มีทางที่ Reset ธรรมดาจะทำให้รอบค้างจนเริ่มรอบใหม่ไม่ได้
+- **API restart ระหว่างรอบ:** นาฬิกากลับเป็นเวลาจริง แต่รอบยังค้างในฐานข้อมูล ตอน `finish` ถ้า `clock.mode` ไม่ใช่ `scenario` ของรอบนี้ ให้จบรอบเป็น `invalid: true`, `reason: CLOCK_LOST` โดยไม่คำนวณ KPI (เวลาในบันทึกหลัง restart ไม่ต่อเนื่อง) หรือกด `abort` ก็ได้ เริ่มรอบใหม่ได้หลังรอบนี้ปิด
+- **เริ่มรอบไม่สำเร็จ:** ถ้าการตั้งนาฬิกาหรือ Job รอบแรกล้มหลังเขียน `TEST_RUN_STARTED` แล้ว ระบบปิดรอบนั้นเป็น `invalid: true`, `reason: START_FAILED` และหยุดนาฬิกาก่อนตอบ 500 จึงไม่มีรอบค้างที่ผู้เริ่มไม่รู้ id
+- **Large demo profile:** รอบทดสอบยังโหลด profile ไว้ (คนในนั้นมีบัญชีที่ต้องรักษา) แต่ตั้งหอของ profile เป็น inactive ระหว่างรอบ Plan จึงเอาคนจากหอเหล่านั้นไม่ได้ ผู้สมัครมีแค่ตัวละครตามบท Reset ธรรมดาครั้งถัดไปโหลด profile กลับมาเป็น active ตามเดิม
+- **ที่เก็บ (มติ: แถว audit ไม่มี Migration):** Action ใหม่ `TEST_RUN_STARTED`, `TEST_RUN_CLOCK_ADVANCED`, `TEST_RUN_FINISHED`, `entity_type` ใหม่ `TEST_RUN`, `entity_id` = id ของแถว `TEST_RUN_STARTED` (คือ `test_run_id`), actor = USER actor ของผู้เริ่ม (ใน demo ใช้ SYSTEM), `case_id` = เคสของสถานการณ์ **[ตรวจแล้ว]** `AUDIT_LOG.action` และ `entity_type` เป็น `StrEnumText` (ข้อความ ไม่มี DB enum หรือ CHECK) จึงเพิ่มค่าได้โดยไม่มี Migration
+- **ผลต้องรอด Reset:** **[ตรวจแล้ว]** `reset_demo()` ทำ `DROP SCHEMA` แล้วคืนเฉพาะบัญชี LLM (`LLM_LEDGER_TABLES`) Reset (ที่ทำได้เมื่อไม่มีรอบค้าง และ Reset ภายในของการเริ่มรอบ) จึงต้องเก็บแถว audit ที่ `entity_type = TEST_RUN` ไว้ในตารางชั่วคราวในทรานแซกชันเดียวกับที่เก็บบัญชี LLM แล้วใส่คืนหลังโหลด: `actor_id` ผูกใหม่ด้วยชื่อ actor (SYSTEM หรือ USER actor ของ staff เดิมที่ AU1 รักษาไว้), **`case_id` และ `event_id` ตั้งเป็น NULL** (ทั้งสองชี้ไปตารางที่ถูกล้าง) โดยเก็บค่าเดิมไว้ใน payload (`original_case_id`, `original_event_id`), คืน sequence ต่อจาก max id เหมือน `llm_call_log` Reset ที่ล้มต้องคืนทุกอย่างตามเดิม KPI ของรอบที่จบแล้วอยู่ใน payload ของ `TEST_RUN_FINISHED` ทั้งชุด ไม่คำนวณใหม่จาก audit ของเคสที่ถูกล้าง
+- **สิทธิ์:** เหมือน `POST /demo/events` (ข้อ 6.33.4): อยู่หลัง Basic Auth ของ Demo บน AWS และใน `AUTH_MODE=session` ต้องมี session ของ head nurse หรือ supervisor (401 ไม่มี session, 403 nurse) POST ต้องมี Origin ที่อนุญาต ทุก route อยู่ในตารางนโยบายของ `test_route_permissions.py` **[EV5a]** การเริ่มรอบคือ Reset จึงลบ session ทุกอันเหมือน `POST /demo/reset` (ข้อ 6.33.7) ใน `session` ผู้เริ่มรอบต้องล็อกอินใหม่หลังเริ่ม หน้าเว็บ (EV5b) ต้องพาไปหน้าล็อกอิน **[EV6 เปลี่ยน]** Reset เก็บ session และการผูก LINE แล้ว (ข้อ 6.36.2) ผู้เริ่มรอบจึงไม่ต้องล็อกอินใหม่
+- **`tester_code`:** 1-16 ตัวอักษร `[A-Za-z0-9_-]` เช่น `T01` ห้ามเก็บชื่อจริงหรือข้อมูลส่วนตัวของผู้ทดสอบ (422 ถ้าไม่ตรงรูป)
+- **ไม่มีผลต่อ workflow:** รอบทดสอบเริ่มเคสผ่านทางเดิม (Event → merge window → workflow) ไม่มีทางลัด KPI อ่านอย่างเดียว
+
+#### 6.35.3 สถานการณ์ บทบาทของผู้ทดสอบ และพยาบาลกับหัวหน้าจำลอง
+
+- **`golden`:** Golden Case เดิม (พยาบาล ICU ลาเวรดึก) ตามข้อ 10 ผู้ทดสอบเล่นเป็น **หัวหน้าพยาบาล ICU (บัญชี 900)** และอนุมัติคำขอของหอตัวเอง
+- **`cross_ward`:** เวรดึก ICU ขาดคนในแบบที่ในหอไม่มีใครผ่านกฎ แต่มีพยาบาล Medicine หรือ Float Pool ที่ผ่าน จึงต้องค้นข้ามหอและต้องอนุมัติสองหอ (ข้อ 6.21) **[ตรวจแล้ว]** ข้อมูลของ `seed/scenarios/multi_ward.py` อย่างเดียวไม่พอ เพราะ Medicine มีคนพอดีเป้า ทุกคนในนั้นจึงถูกข้ามด้วย `SOURCE_WARD_MINIMUM_VIOLATION` สถานการณ์นี้จึงเพิ่มข้อมูลสองอย่างหลัง `load()` (`seed/scenarios/cross_ward.py`): 201, 202 และ 203 ทำเวรกลางวัน ICU ที่จบก่อนเวรดึก 4 ชั่วโมง (ไม่ผ่าน `INSUFFICIENT_REST`) และพยาบาล Medicine คนที่หก (303 มีทักษะ ICU) ทำให้ Medicine เกินเป้าหนึ่งคน ทดลองแล้ว Plan มีผู้สมัคร `FLOAT_POOL` 1 คนและ `CROSS_WARD` 3 คน ทุกคนมีเวรต้นทางใน Medicine จึงต้องอนุมัติสองหอ ผู้ทดสอบเล่นเป็น **หัวหน้าพยาบาล ICU (900)** ตัดสินฝั่งปลายทาง; **ฝั่งต้นทางตัดสินโดยหัวหน้าหอจำลอง** (บัญชีหัวหน้าหอ Medicine 902 ตามบท ข้างล่าง) ไม่ใช่ supervisor เพื่อไม่ให้ต้องรอ `supervisor_from` 10 นาทีทุกรอบ ผู้ Implement ต้องเขียนในเทสต์ว่าสถานการณ์นี้ทำให้ Plan มีผู้สมัคร `CROSS_WARD` จริง และต้องได้การอนุมัติสองฝั่งจริง
+- **บทของตัวละครจำลอง (`auto_nurses = true`):** ต่อสถานการณ์มีบทคงที่ในโค้ด: พยาบาลแต่ละคนตอบรับ ปฏิเสธ หรือไม่ตอบ หลังกี่วินาทีของนาฬิการะบบนับจาก `OFFER_SENT` ของตัวเอง และ (เฉพาะ `cross_ward`) หัวหน้าหอต้นทางอนุมัติฝั่งของตัวเองหลังกี่วินาทีนับจาก `APPROVAL_REQUESTED` **[EV5a]** บทที่ใช้ (`simulated_replies_service.SCRIPTS`): `golden` 202 ปฏิเสธหลัง 45 วินาที, 201 ตอบรับหลัง 120 วินาที, 203 ไม่ตอบ; `cross_ward` 401 ปฏิเสธหลัง 60 วินาที, 301 ตอบรับหลัง 120 วินาที, 902 อนุมัติฝั่ง Medicine หลัง 90 วินาที **[ตรวจแล้ว]** Offer ข้ามหอส่งทีละคน เพราะ Medicine ให้ยืมได้ทีละคน (คนอื่นถูกข้ามด้วย `SOURCE_SHIFT_TAKEN`) คนที่ไม่ตอบจึงทำให้รอ 5 นาทีต่อคน บทจึงให้คนแรกปฏิเสธเร็ว
+- **กลไก:** เพิ่มขั้น "คำตอบจำลองที่ถึงเวลา" ใน `job_service.run_due_work()` (จึงทำงานทั้งจาก Job ทุก 30 วินาทีผ่าน `/internal/merge-windows/close-due` และจาก `POST /demo/clock/advance` ไม่ต้องแก้ ticker ไม่มี internal route ใหม่) ขั้นนี้ทำงานเฉพาะเมื่อมีรอบค้างที่ `auto_nurses = true` และเฉพาะ Offer หรือคำขออนุมัติของเคสในรอบนั้น คำตอบของพยาบาลใช้ service เดียวกับ LINE simulator (`record_response`) ในนามของพยาบาลคนนั้น การอนุมัติของหัวหน้าหอจำลองใช้ `approval_service` เดียวกับหน้า Approvals ในนามบัญชีนั้น ทั้งสองแบบมี payload `source: SIMULATED` ในแถว audit ความละเอียดของเวลาคือรอบของ Job (≤ 30 วินาที) และต้องบอกในผล คำตอบที่ service ปฏิเสธจะบันทึก log ครั้งเดียวและไม่ลองซ้ำในรอบนั้น Offer หรือคำขอนั้นจะรอหมดเวลาเหมือนไม่มีคนตอบ
+- **`auto_nurses = false`:** คนในทีมตอบผ่าน LINE simulator หรือ LINE จริง และ (ใน `cross_ward`) ล็อกอินเป็นหัวหน้าหอต้นทางเพื่ออนุมัติเอง
+
+#### 6.35.4 KPI (ต่อรอบ จาก audit log ของเคสในรอบ)
+
+ทุกค่าเป็นวินาทีระหว่างสอง Action ของเคสในรอบ คำนวณเป็น **เวลาจริงที่ผู้ทดสอบใช้** = เวลาระบบระหว่างสองจุด − ผลรวม `seconds` ของ `TEST_RUN_CLOCK_ADVANCED` ที่เกิดในช่วงนั้น และแสดงเวลาระบบก่อนหักไว้คู่กัน **[ตรวจแล้ว: ชื่อ Action ทั้งหมดมีใน `AuditAction`]**
+
+| KPI | จาก | ถึง |
+|---|---|---|
+| `detect_s` เวลาตรวจพบ Gap | `EVENT_RECEIVED` แรก | `GAP_ASSESSED` แรก |
+| `shortlist_s` เวลาถึงรายชื่อที่ปลอดภัย | `EVENT_RECEIVED` แรก | `SOLVER_EXECUTED` แรก |
+| `first_offer_s` | `EVENT_RECEIVED` แรก | `OFFER_SENT` แรก |
+| `first_accept_s` | `OFFER_SENT` แรก | `OFFER_ACCEPTED` แรก |
+| `approval_s` | `APPROVAL_REQUESTED` แรก | `APPROVAL_APPROVED` แรก |
+| **`time_to_fill_s`** | `EVENT_RECEIVED` แรก | `ASSIGNMENT_CREATED`, `ASSIGNMENT_TRANSFERRED` หรือ `MANUAL_ASSIGNMENT_CREATED` แรก |
+| `filled_before_shift_start` | เวลาได้คน (เวลาระบบ) เทียบกับ `required_replacement_time` ของเคส | |
+| `offers_sent` | จำนวน `OFFER_SENT` | |
+| `candidates_skipped_by_rules` | จำนวนผู้สมัครที่ Plan แรกข้ามเพราะกฎ (`input_snapshot.skipped` ทุกเหตุผล รวม `ALREADY_ON_SHIFT` และ `ROLE_MISMATCH`) + `SAFETY_FAILED` | |
+| `from_other_ward` | คนที่ได้มาจากหออื่นไหม | |
+
+- ค่าที่ไม่เกิดในรอบ (เช่นไม่มีใครตอบรับ) เป็น `null` ไม่ใช่ 0 และรอบที่ไม่ได้คนนับเป็น "ไม่ได้คน" ในสรุป
+- รอบที่จบเป็น `invalid` (ยกเลิก หรือ `CLOCK_LOST`) ไม่มี KPI และไม่ถูกนับในค่ามัธยฐาน แต่แสดงในรายการพร้อมเหตุผล
+- **ห้ามอ้าง:** KPI ของรอบทดสอบคือเวลาของการเล่นบทบนระบบจริง ไม่ใช่เวลาในโรงพยาบาล สไลด์ต้องบอกจำนวนผู้ทดสอบ สถานการณ์ และว่าใช้ตัวละครจำลองหรือคนจริงตอบ
+
+#### 6.35.5 หน้าเว็บ (EV5b)
+
+- Demo control: ส่วน "รอบทดสอบ" มีช่อง `tester_code`, เลือกสถานการณ์, ติ๊กตัวละครจำลอง, ปุ่มเริ่ม จบ และยกเลิกรอบ, แสดงเวลาที่ผ่านไปของรอบและ `mode` ของนาฬิกา (แถบนาฬิกาด้านบนแสดง "scenario" ด้วย) ขณะมีรอบค้าง ปุ่ม Reset demo, Freeze และ Unfreeze ปิดพร้อมบอกเหตุผล ปุ่มเริ่มปิด
+- หน้าสรุปผล: ตารางทุกรอบ, ค่ามัธยฐานและต่ำสุดถึงสูงสุดของรอบที่ใช้ได้, ป้าย `invalid` พร้อมเหตุผล, ปุ่มดาวน์โหลด CSV สองภาษาตามข้อ 6.32 ใน `session` ซ่อนจากเมนูเหมือนหน้า Demo อื่น
+- รอบ manual (ทำบนกระดาษ) ระบบไม่เห็น ทีมใช้ใบจดผลที่มีคอลัมน์เดียวกับ CSV (นอก repo)
+
+#### 6.35.6 จุดที่เสี่ยงพังเงียบ (ต้องมีเทสต์)
+
+| ข้อกำหนด | PR |
+|---|---|
+| โหมด `scenario` เดินตามเวลาจริงจาก `start`, `advance` บวกยอดเลื่อนและเขียน `TEST_RUN_CLOCK_ADVANCED`, `POST /demo/clock/advance` ใช้ได้ในโหมดนี้, `freeze_now`/`reset`/`set_time` ออกจากโหมดได้ถูกต้อง และงานตามเวลาของ Job ใช้เวลาเดียวกับ API | EV5a |
+| ขณะมีรอบค้าง Reset, Freeze, Unfreeze และการเริ่มรอบใหม่ตอบ 409 และไม่เปลี่ยนอะไร; `abort` ปิดรอบได้; restart ระหว่างรอบทำให้ `finish` จบเป็น `CLOCK_LOST` และเริ่มรอบใหม่ได้หลังจากนั้น | EV5a |
+| Reset เก็บแถว `TEST_RUN` ไว้ ผูก actor ใหม่ถูก ตั้ง `case_id` และ `event_id` เป็น NULL เก็บค่าเดิมใน payload ไม่ชนกับการเก็บบัญชี LLM และ Reset ที่ล้มคืนทุกอย่างตามเดิม | EV5a |
+| KPI หักเวลาที่เลื่อนตามช่วง, ค่าที่ไม่เกิดเป็น null, รอบ `invalid` ไม่มี KPI และไม่ถูกนับ | EV5a |
+| ตัวละครจำลองตอบเฉพาะในรอบค้างที่เปิดตัวเลือก ตามบท ในนามของตัวละคร มี `source: SIMULATED` และไม่แตะ Offer หรือคำขอของเคสอื่น | EV5a |
+| สถานการณ์ `cross_ward` ทำให้มีผู้สมัคร `CROSS_WARD` และต้องได้การอนุมัติสองฝั่งจริง | EV5a |
+| สิทธิ์: 401/403 ใน `session`, Origin, ทุก route อยู่ในตารางนโยบาย, `tester_code` ไม่รับข้อมูลส่วนตัว | EV5a |
+| หน้าเว็บเริ่ม จบ ยกเลิก และแสดงผลสองภาษา ปุ่มที่ห้ามขณะมีรอบค้างปิดอยู่ | EV5b |
+
+### 6.36 Demo control เต็มระบบ, ข้อมูล Demo ชุดโรงพยาบาล, รายการเคส, ลำดับ Ranking และเพดาน Outreach (EV6) [รอบ 6 · PR EV6]
+
+ปัญหาที่พบตอนลองบนเครื่อง AWS: Unfreeze กลับไปเวลาจริงจนเวลาที่เลื่อนไว้หาย, Reset ทำให้ทุกคนต้องล็อกอินและผูก LINE ใหม่, หน้า Roster ดูในนาม 900 และเลือกได้แค่ 4 เวร, Dashboard ของ supervisor แสดงชื่อหอเป็นข้อความยาว และไม่มีหน้ารวมเคส PR นี้แก้ทั้งหมดในครั้งเดียว ตามที่ผู้ใช้เลือก (คำตอบในแชท 2026-10-23: PR เดียว, 10 Wave ต่อเคส, 90 นาทีนับจากเปิดเคส, คงเผื่อ 10% ของ Target, OT นับเกิน 40 ชั่วโมงต่อสัปดาห์, เก็บเพดานใน `OUTREACH_POLICY`, seed เป็น Demo ชุดใหม่ขนาดกลางโดยคง Golden Case ไว้)
+
+#### 6.36.1 นาฬิกาที่ตั้งได้อิสระและเดินต่อได้
+
+- โหมดใหม่ `running` ของ `core/clock.py`: `run_from(start)` โดยไม่มี `test_run_id` เดินด้วยความเร็วจริงจาก `start` แบบเดียวกับ `scenario` (ข้อ 6.35.1) `GET /clock` ตอบ `mode = "running"` และ `frozen = false` `advance()` บวกเข้า offset แล้วเวลายังเดินต่อจากจุดนั้น `set_time()`, `freeze_now()` และ `reset()` ออกจากโหมดนี้
+- `POST /demo/clock/set {at, running}` ตั้งเวลาเป็นเวลาใดก็ได้ภายใน 366 วันจากเวลาจริง (นอกช่วงหรือไม่มี timezone ตอบ 422) `running = false` หยุดไว้ที่ `at`, `true` เดินต่อจาก `at` งานที่ถึงเวลาแล้ว Job ทำในรอบถัดไป การตั้งเวลาเริ่มนับใหม่ `advanced_seconds` จึงกลับเป็น 0 ซึ่งตั้งใจไว้ เพราะ `at` เป็นจุดเริ่มใหม่ ไม่ใช่การเลื่อน (รีวิว #145) ตั้งย้อนหลังได้ แถว audit ที่เขียนไปแล้วจึงอาจมีเวลาหลังเวลาของนาฬิกา นี่เป็นเรื่องปกติของเครื่อง Demo ขณะมีรอบทดสอบตั้งเวลาไม่ได้ (409) เวลาของรอบจึงไม่ถูกแตะ
+- `POST /demo/clock/resume` เดินต่อจากเวลาที่แสดงอยู่ ไม่ว่าตอนนั้นหยุดหรือไม่ `POST /demo/clock/unfreeze` ยังกลับไปเวลาจริงตาม D10 เหมือนเดิม
+- `POST /demo/clock/advance` ในโหมด `running` เลื่อนครั้งเดียวแบบโหมดหยุด การเลื่อนทีละ 30 วินาทีและเพดาน 2 ชั่วโมงใช้เฉพาะโหมด `scenario`
+- ทั้งสอง route ใหม่ตอบ 409 ขณะมีรอบทดสอบค้าง เหมือน Freeze และ Unfreeze (ข้อ 6.35.2)
+- หน้า Demo control มีส่วน "นาฬิกา": ช่องวันเวลา (เวลาไทย เริ่มที่เวลาของนาฬิกา), ปุ่มตั้งแล้วหยุด, ตั้งแล้วเดินต่อ, เดินต่อจากเวลาที่แสดง, เลื่อน 10 นาที, หยุด และกลับเวลาจริง
+
+#### 6.36.2 Reset เก็บการล็อกอินและการผูก LINE
+
+Reset (และการเริ่มรอบทดสอบซึ่งเป็น Reset) เก็บ `AUTH_SESSION` และ `CONTACTS` ไว้ด้วย นอกจากบัญชีและคน (ข้อ 6.33.7) คืนหลัง seed พร้อม id เดิมแล้วตั้ง sequence ต่อจาก id สูงสุด seed ไม่สร้างสองตารางนี้จึงไม่ชนกัน คืนเฉพาะ session ที่ยังใช้ได้ (ยังไม่ revoke, ยังไม่หมดอายุ, บัญชีไม่ปิด, ไม่มีการเปลี่ยนรหัสผ่านที่รออยู่, credential version ตรง, STAFF ACTIVE) และ contact ของคนที่ยังอยู่ (รีวิว #145) Reset จึงไม่ปลุก session ที่การตรวจ session จะปฏิเสธอยู่แล้ว
+
+**ปุ่ม LINE ข้าม Reset (รีวิว #145):** ปุ่มตอบ Offer ส่ง `outreach_id` เพราะการผูก LINE อยู่ข้าม Reset แล้ว ลำดับ id ของ `CANDIDATE_OUTREACH` จึงต่อจากค่าสูงสุดก่อน Reset (`reset._IDS_NEVER_REUSED`) Reset ล็อกตารางนี้แบบ `ACCESS EXCLUSIVE` ก่อนอ่านลำดับ และถือจน commit เพราะ INSERT ล็อกตารางก่อนเรียก `nextval()` การเขียนที่ค้างอยู่จึง commit ก่อนการอ่าน และการเขียนใหม่ต้องรอตารางที่สร้างใหม่ ไม่มี Offer ที่แทรกระหว่างการอ่านกับ `DROP` แล้วได้ id ซ้ำ ถ้าการเขียนที่ถือล็อกอื่นอยู่ทำให้เกิด deadlock PostgreSQL จะยกเลิกฝั่งหนึ่ง และ Reset เริ่มใหม่เหมือนกรณีบัญชี LLM (รีวิวรอบสองของ #145) ปุ่มเก่าไม่มีทางชี้ Offer ใหม่ ได้คำตอบว่า Offer ใช้ไม่ได้แล้วและไม่เขียนอะไร ปุ่มเช็คอินส่ง `shift_id` ซึ่ง seed กำหนดตายตัว ผลจึงเท่ากับให้คนเดิมพิมพ์ `CHECKIN <เลขเวร>` ซึ่งทำได้อยู่แล้ว และยังต้องอยู่ในช่วงเวลาเช็คอินของเวรนั้น ส่วน `AUTH_REGISTRATION_CODE` และโค้ด LINK ที่ยังไม่ใช้ยังถูกล้างเหมือนเดิม ข้อนี้แทนประโยค "ล้าง AUTH_SESSION" และ "ไม่อ้างว่าผูก LINE คงอยู่หลัง reset" ของข้อ 6.33.7 และ 6.35.2 หน้า Demo control จึงไม่เตือนให้ล็อกอินใหม่แล้ว
+
+#### 6.36.3 ข้อมูล Demo ชุดโรงพยาบาล
+
+- `seed/hospital_demo.py` (โปรไฟล์ `hospital-5-wards-7-days-v1` ในตาราง `DEMO_DATASET`) เพิ่ม 5 หอ (Surgery, Pediatrics, Emergency, Orthopedics, Cardiology, id 20001-20005) และ Hospital Float Pool (20006) บน Golden Case ที่ยังเหมือนเดิม หอละ head nurse 1 คนกับ RN 15 คนแบ่ง 3 ทีมตามเวรเช้า บ่าย ดึก (07-15, 15-23, 23-07) ทุกวันทีมละคนหนึ่งหยุดตามรอบ เวรละ 4 คน (required 4, minimum 3, RN 4, BLS 2) ตั้งแต่ D-3 ถึง D+3 (**EV8:** วัน D+1 Emergency และ Cardiology มีทีมละห้าคน เกินเป้าหมาย 1 คน ให้หออื่นย้ายคนได้ ข้อ 6.38.5) เวรที่จบก่อน Reset เป็น `COMPLETED` เวรบ่ายของ D กำลังทำงานจึงเช็คอินโดย `seed.check_ins` ไม่สร้างบัญชี contact event หรือเคส
+- `POST /demo/reset {hospital: true|false}`: `true` โหลดชุดนี้, `false` ไม่เอา, ไม่ส่ง body คงตามที่ฐานข้อมูลมีอยู่ (รอบทดสอบใช้แบบนี้) เมื่อเคยโหลดแล้วสั่ง `false` หอและคนยังอยู่แต่ไม่ active และไม่มีเวร (โปรไฟล์ `...-paused`) เพราะคนและบัญชีอยู่ถาวรตามข้อ 6.33.7 ถ้าลบหอ Reset จะล้มด้วย `IdentityConflictError` หน้า Demo control มีช่องติ๊กโหลดชุดนี้ ติ๊กไว้เป็นค่าเริ่มต้น
+- พยาบาลของชุดนี้เช็คอินตรงเวลาเองใน `run_due_work` (`services/hospital_arrival_service.check_in_arrivals` ก่อน NO_SHOW) ไม่งั้นทุกต้นเวรจะเกิด NO_SHOW 20 เคสพร้อมกัน ทำเฉพาะตอนโหลดชุดนี้แบบ active (อ่าน `DEMO_DATASET` ครั้งเดียวต่อรอบของ Job), เฉพาะคนของชุดนี้ (staff ID ถึง `STAFF_LAST`) ที่อยู่ในแถว `REGULAR` ของตัวเอง และไม่ทำให้คนที่มีลาซ้อนเวร หรือมี Event `STAFF_UNAVAILABLE` ของเวรนั้น คนแทนหรือคนอื่นที่ถูกจัดเข้าเวรของชุดนี้ต้องเช็คอินเอง คนแทนที่ไม่มาจึงยังเป็น NO_SHOW (รีวิว #145)
+- รอบทดสอบพักหอเหล่านี้ (id มากกว่า `WARD_BASE` ของ large profile) จึงไม่เข้า pool ไม่เช็คอินเอง และ NO_SHOW ไม่นับหอที่ไม่ active (`no_show_service._candidates`) ไม่งั้นรอบทดสอบจะเกิด NO_SHOW ราว 20 คนต่อเวรในหอที่พัก (รีวิว #145)
+- ทุกหอที่ active เข้า pool ข้ามหอของกันและกันตามข้อ 6.19 เคส Golden ในโหมดนี้จึงอาจมีผู้สมัคร `CROSS_WARD` เพิ่ม แต่คนในหอเดียวกันยังมาก่อนตามลำดับ Ranking
+
+#### 6.36.4 หน้าเว็บ: เมนู, Dashboard, Roster, โค้ดผูก LINE
+
+- เมนู: Demo control อยู่ในเมนูของ `head_nurse` และ `supervisor` (ทุกปุ่มของหน้านี้ที่เปลี่ยน Roster ต้องมี session ของสองบทบาทนี้อยู่แล้ว) หน้า Demo อื่นยังไม่อยู่ในเมนู `session` ทุกบทบาทมีเมนู "เคส" (ข้อ 6.36.6)
+- Dashboard: เอาข้อความนาฬิกา Backend, LINE และ LLM ออก (นาฬิกาอยู่ที่แถบบนแล้ว) แทนด้วยจำนวนหอทั้งหมดกับตัวเลือกหอ รายการเปิดเป็นกล่องสูงคงที่ที่เลื่อนดูได้ `GET /dashboard?ward_id=` กรองตัวเลขทั้งหน้าเหลือหอนั้น หอที่ผู้ใช้ไม่เห็นตอบ 403 และทุกคำตอบมี `ward_options` (id, ชื่อ และ `is_active` ของทุกหอที่ผู้ใช้เห็น) `wards` ยังเป็นหอที่ตัวเลขครอบคลุม Supervisor เลือกหอที่ถูกพักได้ด้วย (อยู่ท้ายรายการพร้อมคำว่า "พักไว้" ไม่นับในจำนวนหอ) ลิงก์ไปหอของชุดโรงพยาบาลระหว่างรอบทดสอบจึงไม่ได้ 403 (รีวิว #145) ถ้าไม่ระบุ `ward_id` ตัวเลขยังครอบเฉพาะหอที่ active
+- Roster: เลิกดูในนาม 900 และเลิก fix เวร 1, 2, 21, 22 เลือกหอจาก `ward_options` วันจากนาฬิกา และเวรจาก `GET /gap/shifts` ซึ่งคืนเฉพาะเวรของหอที่ผู้ใช้เห็น อ่านในนามผู้ล็อกอิน หรือผู้ใช้ Demo ที่เลือกใน "ดูในฐานะ"
+- หน้าจัดการพนักงาน: กดสร้างโค้ดผูก LINE แล้วหน้าเลื่อนไปที่กล่องโค้ดทันที และย้าย focus ไปที่หัวข้อของกล่อง
+
+#### 6.36.5 Demo control เลือกคนและเวรได้อิสระ
+
+ส่วนแจ้งลาและจำลองเช็คอินเลิกใช้รายการที่คัดลอกจาก seed (`DEMO_WARDS`) อ่านจากฐานข้อมูลแทน: `GET /demo/wards` (ทุกหอ พร้อม `is_active`, `is_float_pool`) และ `GET /demo/shifts?ward_id=&date=` (เวรที่ active และเริ่มในวันนั้นตามเวลาไทย พร้อมทุกคนใน Roster สถานะ และเช็คอินแล้วหรือยัง) ใน `session` ต้องมี session ของ head nurse หรือ supervisor เหมือน `POST /demo/events` เพราะคืนชื่อคน หอ Float Pool ไม่อยู่ในตัวเลือกเพราะไม่มีเวรของตัวเอง หลังแจ้งลาหรือเช็คอิน รายการเวรอ่านใหม่ หลัง Reset และหลังเริ่ม จบ หรือยกเลิกรอบทดสอบ รายการหอและเวรอ่านใหม่ทั้งคู่ เพราะหน้าไม่ถูกโหลดใหม่แล้ว (รีวิว #145) ตัวเลือกที่ไม่มีแล้วกลับไปเป็นตัวแรก
+
+#### 6.36.6 รายการเคส และ handoff ที่ค้นหาและแบ่งหน้าได้
+
+- `GET /cases/search?status=&ward_id=&q=&page=&page_size=&sort=` คืน `{items, total, page, page_size}` แถวเดียวกับ `GET /cases` (head nurse หอตัวเอง, supervisor ทุกหอ, staff ใน `session` เฉพาะเคสที่ตัวเองเกี่ยว; staff ใน demo 403) ไม่ส่ง `status` = ทุกสถานะ `q` จับชื่อหอบางส่วนแบบไม่สนตัวพิมพ์ (escape `%` และ `_`) และถ้าเป็นตัวเลขที่ไม่เกิน bigint จับรหัสเคสหรือรหัสเวรด้วย ตัวเลขยาวเกินจึงได้ผลว่าง ไม่ใช่ 500 (รีวิว #145) `sort` เป็น `newest` (ค่าเริ่มต้น) หรือ `oldest` `page_size` 1-100 แต่ละแถวมี `ward_name`, `shift_type`, `shift_start_at` เพิ่มจาก `HandoffCase`
+- หน้าใหม่ `/cases`: ค้นหา, กรองสถานะ (ทุกสถานะ, ต้องมีคนจัดการ, กำลังดำเนินการ, จบแล้ว), 20 แถวต่อหน้า ใหม่ก่อน
+- หน้า handoff ใช้ route เดียวกัน: ค้นหา, กรอง (ส่งต่อหรือล้มเหลว, เฉพาะส่งต่อ, เฉพาะล้มเหลว), 10 แถวต่อหน้า เก่าก่อน การจัดการเคส (เลือกคนเข้าเวรพร้อม note, ยืนยันยกเลิก Offer อื่น, ปิดเคสพร้อมเหตุผล) ย้ายไปอยู่ใน modal ปิดด้วยปุ่มหรือ Escape ระหว่างส่งคำขอปิดไม่ได้ `GET /cases?status=` เดิมยังอยู่
+
+#### 6.36.7 ลำดับความสำคัญของ Ranking
+
+ลำดับที่ใช้: 1) ครอบ Role และ Skill ให้ครบ (Target ของ Solver) 2) ใช้ผู้สมัครน้อยที่สุด โดยยังเผื่อ 10% ของ Target เหมือนเดิม 3) หอเดียวกัน > Float Pool > ข้ามหอ 4) ชั่วโมงทำงานของสัปดาห์ 5) เวรติดต่อกัน 6) OT ที่จะเกิดถ้ารับเวรนี้ `roster_change` (ย้ายคนออกจากเวรอื่น) อยู่ระหว่างข้อ 2 กับ 3 ตามลำดับเดิมของ seed ค่าน้ำหนักใน seed: `candidate_count` 40000, `roster_change` 20000, `candidate_source` 6400, `workload_imbalance` 120 ต่อชั่วโมง, `consecutive_shift` 17 ต่อเวร, `projected_overtime` 1 ต่อชั่วโมง ตรวจด้วยโค้ดแล้วว่าภายใน Hard Rules ของ seed (52 ชั่วโมงต่อสัปดาห์, 7 เวรติดกัน, OT ไม่เกิน 16 ชั่วโมง, 3 source) ขั้นเดียวของแต่ละชั้นชนะช่วงค่ารวมทั้งหมดของชั้นถัดไปสำหรับคนหนึ่งคน: เวรติดกันหนึ่งเวร 17 > OT 16, ชั่วโมงของสัปดาห์หนึ่งชั่วโมง 120 > 118, source หนึ่งขั้น 6400 > 6358, การย้ายหนึ่งครั้ง 20000 > 19158 และคนหนึ่งคน 40000 > 39158 คนหนึ่งคนที่แย่ที่สุดจึงยังถูกกว่าสองคนที่ดีที่สุด ค่าเดิมในรอบแรกของ PR (20 กับ 20) ทำให้ชั่วโมงกับเวรติดกันแลกกันได้ และ source สองขั้นเกิน `roster_change` จึงแก้ (รีวิว #145) ส่วนต่างที่เล็กกว่าหนึ่งชั่วโมงยังแลกกับเวรติดกันได้ เพราะชั่วโมงเป็นเศษส่วน `ranking_key` (ลำดับในแผน) เรียงแบบนี้อยู่แล้ว ไม่เปลี่ยน
+
+OT: `SoftMetrics.overtime_hours` เปลี่ยนจาก "OT ที่ทำไปแล้ว" เป็น `projected_overtime_hours()` = OT ที่ทำไปแล้วจาก ATTENDANCE + ชั่วโมงของสัปดาห์ที่เกิน 40 (`REGULAR_WEEKLY_HOURS`) เมื่อรวมช่วงที่จะมาแทน คนที่ถูกย้ายจากเวรอื่นไม่เพิ่มชั่วโมง เพราะนับที่เวรเดิมแล้ว แผนเก่าเก็บค่าใน snapshot ไว้แล้ว คะแนนจึงไม่เปลี่ยนย้อนหลัง
+
+#### 6.36.8 เพดาน Outreach ของเคส
+
+- คอลัมน์ใหม่ใน `OUTREACH_POLICY`: `maximum_waves_per_case` (seed 10) และ `case_outreach_deadline_seconds` (seed 5400 = 90 นาทีนับจาก `STAFFING_CASES.created_at` ตามที่ผู้ใช้เลือก) ทั้งสองต้องมากกว่า 0 (CHECK) Migration `c3e5a7b9d1f2` ต่อ `f2c9a1d6e8b4` ใส่ค่า 10 และ 5400 ให้ policy เดิมแล้วเอา server default ออก เหมือน `offer_timeout_seconds`
+- เมื่อเคสส่งครบ Wave สุดท้ายที่อนุญาต หรือเลยเวลา (`outreach_limit_service.stop_reason`) จะไม่มี Wave ใหม่: `select_wave` ไม่เลือกใคร และ `has_uncontacted_candidate` เป็นเท็จ เคสจึงรอ Offer ที่ส่งไปแล้ว คำขออนุมัติ และ Offer ที่ถูกพักตามข้อ 5.1 เดิม คำตอบรับของ Wave ที่ส่งไปแล้วยังจัดคนได้ตามปกติ เมื่อไม่เหลืออะไรให้รอ `contact_candidate` ส่งเคสไป `MANUAL_HANDOFF` ด้วย `reason` ใหม่ `WAVE_LIMIT_REACHED` หรือ `OUTREACH_DEADLINE_REACHED` (ตรวจเวลาก่อนจำนวน Wave)
+- เลข Wave อ่านจาก payload `wave` ของ `OFFER_SENT` (`outreach_limit_service.waves_sent`) ซึ่ง `select_wave` ใช้ตัวเดียวกัน
+- **นาฬิกาที่ถูกเลื่อน (รีวิว #145):** เพดานไม่หยุด Wave แรก ถ้าเลื่อนหรือตั้งนาฬิกาข้าม 90 นาทีก่อนเคสส่งอะไร เคสยังส่ง Wave แรกได้ ไม่ไป handoff โดยไม่ได้ถามใคร ถ้าตั้งนาฬิกาย้อนก่อนเปิดเคส เพดานแค่เลื่อนออกไปจนนาฬิกาผ่านจุดนั้นอีกครั้ง ส่วนการเลื่อนข้าม 90 นาทีหลัง Wave แรกถือว่า 90 นาทีผ่านไปจริงตามนาฬิกาของระบบ (D10)
+- `has_uncontacted_candidate` อ่านเพดานเฉพาะเมื่อแผนยังมีคนที่ติดต่อได้ เคสที่ไม่เหลือใครจึงไม่เสีย query เพิ่ม และเพดานอ่านจาก audit ด้วย query รวมครั้งเดียว ข้อนี้ไม่เปลี่ยนสถานะของเคสที่ยังมี Offer เปิด เพราะ `decide_status` ตรวจ Offer เปิด (ข้อ 3) ก่อนคนที่ยังไม่ได้ติดต่อ (ข้อ 4)
+
+#### 6.36.9 จุดที่เสี่ยงพังเงียบ (มีเทสต์)
+
+| ข้อกำหนด | เทสต์ |
+|---|---|
+| `running` เดินจากเวลาที่ตั้ง, advance แล้วยังเดินต่อ, set/resume ตอบ 409 ขณะมีรอบค้าง, เวลานอกช่วง 422 | `test_clock.py`, `test_clock_route.py`, `test_test_runs.py` |
+| Reset (สองครั้ง) เก็บ session และ contact ไว้ ใช้ token เดิมได้ ไม่ชน id ใหม่ | `test_demo_reset_auth.py`, `test_large_demo.py`, `test_registration_races.py` |
+| ปุ่ม Offer เก่าหลัง Reset ไม่ชี้ Offer ใหม่ รวมถึง Offer ที่ commit ระหว่างการอ่านลำดับกับ `DROP`, Reset ไม่คืน session ของบัญชีที่ปิด รอเปลี่ยนรหัส หรือ revoke แล้ว, คนแทนจากนอกชุดโรงพยาบาลไม่เช็คอินเอง, รอบทดสอบไม่เกิด NO_SHOW ในหอที่พัก (สองข้อแรกและข้อสุดท้ายล้มเมื่อถอดการแก้ออก) | `test_reset_review_points.py` |
+| Supervisor เลือกหอที่พักได้, เวรที่ปิดไม่อยู่ใน picker, ตัวเลขยาวเกิน bigint ค้นได้ผลว่าง, Wave แรกไม่ถูกหยุด | `test_dashboard_route.py`, `test_demo_picker.py`, `test_case_search.py`, `test_outreach_limits.py` |
+| ชุดโรงพยาบาล: ทุกเวรมี 4 คน, สถานะตามเวลา, ถูกพักแทนการลบ, รอบทดสอบพักหอ, พยาบาลเช็คอินเองยกเว้นคนที่แจ้งลา และไม่เกิด NO_SHOW | `test_hospital_demo.py` |
+| `ward_id` ของ Dashboard กรองทุกตัวเลข และหอที่ไม่เห็นได้ 403 | `test_dashboard_route.py` |
+| รายการเคส: สิทธิ์ตามแถวเดิม, ตัวกรอง, หน้า, ค้นหาที่ escape ตัวพิเศษ | `test_case_search.py` |
+| ลำดับความสำคัญของน้ำหนักและสูตร OT | `test_ranking_priorities.py` |
+| เพดาน Wave และเวลา รอ Wave ที่ส่งแล้วก่อน handoff และคำตอบรับหลังเวลายังจัดคนได้ (ถ้าเอาตัวตรวจออก เทสต์ล้ม) | `test_outreach_limits.py` |
+
+### 6.37 ข้อมูลตัวอย่าง หน้าเคส การแจ้งเตือน และ Demo control ชุดต่อ (EV7) [รอบ 6 · PR EV7]
+
+แก้ตามรายการของผู้ใช้หลังลองเครื่องจริง (2026-10-24) เป็น PR เดียวแบบ EV6 ตามที่ผู้ใช้เลือก: บัญชีทดสอบอ่านรหัสผ่านจาก env, การแจ้งเตือนอยู่ในเว็บ, เคสตัวอย่างเดินผ่าน flow จริง, คนที่พิมพ์ URL ของหน้าที่ไม่มีสิทธิ์ถูกพากลับ Dashboard เงียบ ๆ, ด่าน Basic Auth ของ Caddy คงเดิม (EV8 เพิ่มการตรวจ session ก่อน ข้อ 6.38.1) และเพิ่มสถานการณ์ทดสอบทั้งสี่แบบ
+
+#### 6.37.1 เคสตัวอย่างของชุดโรงพยาบาล
+
+`POST /demo/reset` ที่ได้ชุดโรงพยาบาลแบบ active เล่นเคสตัวอย่างหลัง Reset commit แล้ว (`services/demo_example_service.py`) ทุกขั้นผ่าน service เดียวกับที่คนกด ในนามของคนนั้นพร้อม `payload.source = SIMULATED` audit และ timeline จึงเป็นของจริง: (1) Surgery ดึก D ลา → คนแรกที่ได้ Offer รับ → หัวหน้าหออนุมัติ → `RESOLVED` (2) Pediatrics ปฏิเสธจนถึง `MANUAL_HANDOFF` และค้างไว้ (3) Emergency ปฏิเสธจน handoff แล้วหัวหน้าหอปิดเคสพร้อมเหตุผล → `UNRESOLVED` (4) Orthopedics ปฏิเสธจน handoff แล้วหัวหน้าหอจัดคนเอง → `RESOLVED` (5) Cardiology รับแล้วรออนุมัติ → `WAITING_APPROVAL` (6) Surgery เช้า D+1 มี Offer รอคำตอบ → `WAITING_RESPONSE` นาฬิกาหยุดที่ D 21:00 Offer จึงไม่หมดเวลาระหว่างเล่น ตัวอย่างที่เล่นไม่ได้ถูก log และข้ามไป เพราะ Reset commit ไปแล้ว การสร้างบัญชีทดสอบ (ข้อ 6.37.9) ที่ล้มก็ถูก log เช่นกัน และ Reset ยังตอบ 200 รอบทดสอบไม่เล่นตัวอย่าง (Reset ของรอบไม่ผ่าน route นี้)
+
+#### 6.37.2 หัวหน้าหน้ารายละเอียดเคส
+
+`GET /cases/{id}` มี `overview` (`services/case_overview_service.py`) อ่านจากแถวที่ workflow เขียนอยู่แล้ว: `events` (ชนิดและคนที่เกี่ยว), `replacements` (ใครมาแทน: `APPROVED`, `TRANSFERRED` หรือ `MANUAL`), `decisions` (การตัดสินของคน รวมถึงอนุมัติอัตโนมัติ คำขอหมดเวลา จัดคนเอง และปิดเคส พร้อมผู้ตัดสิน บทบาท หอ ฝั่ง `DESTINATION` หรือ `SOURCE` คนที่ถูกตัดสิน และเหตุผล การย้ายข้ามหอจึงเห็นผู้อนุมัติของทั้งสองหอ) และ `outcome` (เหตุที่หยุดล่าสุด: `MANUAL_HANDOFF` พร้อมรหัสเหตุผล, `CLOSED_UNRESOLVED` พร้อมข้อความของคนปิด หรือ `FAILED` พร้อมชนิด error) `outcome` มีเฉพาะเคสที่หยุดอยู่ตอนนี้ (สถานะ `MANUAL_HANDOFF`, `UNRESOLVED` หรือ `FAILED`) และไม่นับแถวหยุดที่มีการจัดคนหรือ `CASE_RESOLVED` ตามมาทีหลัง เคสที่ handoff แล้วหัวหน้าหอจัดคนเอง หรือ workflow ที่ฟื้นแล้วไปต่อ จึงไม่มีเหตุที่หยุดค้างอยู่ `staff_id` ใน payload ที่เป็น null หรือไม่ใช่ตัวเลขถูกข้าม หน้าเคสจึงไม่ตอบ 500 เพราะแถว audit แถวเดียว หน้าเคสแสดงส่วน "ใครและเพราะอะไร" ใต้กล่องสถานะ แปลรหัสเหตุผลเป็นคำทั้งสองภาษา (EV8 เปลี่ยนเป็น "สรุปการจัดคนแทน" ข้อ 6.38.6)
+
+#### 6.37.3 Approvals ของ Supervisor
+
+Supervisor ตัดสินได้หลัง `supervisor_from` เท่านั้น (ข้อ 6.21) `GET /approvals?pending=true` ในโหมด `session` จึงไม่ส่งคำขอที่ยังไม่ถึงเวลานั้นให้ Supervisor หัวหน้าหอเห็นตามเดิม เมื่อถึงเวลา คำขอจึงปรากฏในรายการและในกระดิ่งของ Supervisor โหมด demo คงเดิมทุกอย่าง: ผู้ใช้ demo ทุกคนเห็นทุกคำขอ ไม่เรียก `access_viewer` และไม่กรองตามเวลา
+
+#### 6.37.4 หน้าที่แต่ละบทบาทเปิดได้
+
+`lib/routeAccess.ts` กำหนดหน้าตามบทบาทเดียวกับเมนู: `/admin` เฉพาะ supervisor, `/approvals`, `/handoff`, `/demo/control`, `/demo/test-runs` เฉพาะ head nurse และ supervisor หน้าอื่นทุกคนที่ล็อกอิน `AuthGate` พาคนที่พิมพ์ URL ของหน้าที่ไม่มีสิทธิ์กลับ `/` โดยไม่แสดงข้อความ และไม่แสดงหน้านั้นเลย Backend ยังตรวจสิทธิ์ทุกคำขอเหมือนเดิม ผู้เยี่ยมชมที่ไม่ล็อกอินยังเปิดหน้า Demo ได้ตามข้อ 6.33.5 (หลัง Basic Auth) (**EV8 เปลี่ยน:** ต้องล็อกอินเป็นผู้จัดการก่อน และหน้าแรกของพยาบาลคือ My offers ข้อ 6.38.1 และ 6.38.2) ในโหมด demo ไม่มีบทบาทจึงไม่กัน
+
+#### 6.37.5 การแจ้งเตือนในเว็บ
+
+แถบบนมีกระดิ่ง (`components/layout/Alerts.tsx`) สำหรับ head nurse และ supervisor (และทุกคนในโหมด demo โดยอ่านในนาม 950) อ่าน `GET /cases/search?status=MANUAL_HANDOFF&sort=newest` (20 เคสล่าสุด เคสใหม่จึงอยู่ในรายการเสมอ) กับ `GET /approvals?pending=true` ทุก 15 วินาที แสดงตัวเลขสีแดงแบบแอปแชท (นับทุกเคส) กดแล้วเปิดรายการพร้อมลิงก์ และลิงก์ไปรายการเต็มที่หน้า `/handoff` และ `/approvals` เด้ง toast มุมขวาล่างเมื่อมีรายการใหม่ หายเองใน 10 วินาทีหรือกดปิด สิทธิ์ของรายการเป็นของ Backend จึงเหมือนหน้า Handoff และ Approvals
+
+แต่ละรายการเด้งครั้งเดียวต่อแท็บและต่อบัญชี (จำไว้ใน `sessionStorage` แยกตามบัญชี) กุญแจของรายการมีเวลาที่สร้างด้วย (`created_at` ของเคส, `requested_at` ของคำขอ) Reset และการเริ่มรอบทดสอบจาก Demo control เปลี่ยนเลขรุ่นใน `localStorage` (`newAlertGeneration`) ทุกแท็บของเบราว์เซอร์จึงลืมรายการที่เคยเด้ง เพราะหลัง Reset เลขเคสเริ่มใหม่และเวลาอาจซ้ำ การเปลี่ยนบัญชีหรือออกจากระบบสร้างกระดิ่งใหม่ toast, timer และรายการของบัญชีก่อนหน้าจึงหายทันที
+
+#### 6.37.6 หน้าตาอื่น
+
+- รหัสผ่านในหน้าล็อกอิน สมัคร และเปลี่ยนรหัสกดแสดงหรือซ่อนได้ (`PasswordInput`) ส่วนกล่อง Basic Auth ของเครื่อง AWS เป็นของเบราว์เซอร์ จึงใส่ปุ่มนี้ไม่ได้ และคงเดิมตามที่ผู้ใช้เลือก
+- โลโก้ชิดขอบซ้าย แถบบนเต็มความกว้าง เมนูไม่ตัดบรรทัด และพับเป็นปุ่มเมื่อจอแคบกว่า `xl`
+- Staff management แสดงบทบาท ทักษะ (`skills`) และมีบัญชีเว็บหรือไม่ (`has_account`) จาก `GET /admin/staff`
+
+#### 6.37.7 กดแถวเพื่อดูเคส
+
+ตารางของหน้า `/cases` และ `/handoff` กดที่แถวไหนก็ได้เพื่อเปิดหน้าเคส โดยเลขเคสเป็นลิงก์สำหรับผู้ใช้คีย์บอร์ด (`lib/rowClick.ts`) ตั้งแต่ PR #148 ไม่มีปุ่ม Manage หรือลิงก์ "ดูรายละเอียด" ในรายการแล้ว ปุ่ม Manage อยู่บนหน้า `/cases/{id}`; เลขเคสไม่มีเส้นใต้แต่ยังเป็นลิงก์และมีกรอบ focus สำหรับคีย์บอร์ด; ลิงก์ส่งตัวตนที่เลือกต่อเฉพาะ demo mode
+
+#### 6.37.8 Demo control ชุดต่อ
+
+- เลื่อนนาฬิกาเลือกได้ 3, 5, 10, 15, 30, 60 นาที หรือกรอกเอง 1 ถึง 10080 นาที
+- แจ้งผู้ป่วยเพิ่ม (`PATIENT_SURGE`) ของเวรที่เลือก ในนามหัวหน้าหอของหอนั้น (`GET /demo/wards` มี `head_nurse_id` คือ head nurse คนแรกที่ ACTIVE)
+- ตอบ Offer แทน candidate: `GET /demo/offers` คือ Offer ที่ยังตอบได้ทุกอัน พร้อมชื่อคน และ `POST /demo/offers/{outreach_id}/response {response}` ตอบผ่าน `outreach_service.record_response` ในนามของ candidate พร้อม `payload.source = SIMULATED` (404 ไม่มี Offer, 409 ตอบไม่ได้แล้ว) ทั้งสอง route ใน `session` ต้องมี session ของ head nurse หรือ supervisor เหมือน `/demo/events` `GET /demo/offers` อ่าน Offer ของทุก candidate ในครั้งเดียว (`outreach_service.list_offers_of`) จำนวน query ไม่โตตามจำนวนคน
+
+#### 6.37.9 บัญชีทดสอบที่ไม่ต้องผูก LINE
+
+ตั้ง `DEMO_ACCOUNT_PASSWORD` (12 ถึง 128 ตัวเท่ากับรหัสของบัญชีเว็บ ในไฟล์ env ของเครื่อง ห้ามอยู่ใน repo) แล้ว `POST /demo/reset` สร้างบัญชีให้คนที่ยังไม่มีบัญชี (`services/demo_account_service.py`) ไม่ต้องเปลี่ยนรหัสตอนล็อกอินแรก ไม่แตะบัญชีที่มีอยู่แล้ว และเก็บข้าม Reset ตามข้อ 6.33.7 ไม่ตั้งค่า = ไม่สร้าง
+
+รหัสนี้ใช้ร่วมกันและผู้ทดสอบทุกคนรู้ ใครผ่าน Basic Auth ได้ก็ลองได้ จึงสร้างให้เฉพาะพยาบาลเป็นค่าเริ่มต้น: 105, 201, 202, 203 และ RN คนแรกของแต่ละหอในชุดโรงพยาบาล พยาบาลเห็นแค่เวรและ Offer ของตัวเอง บัญชีของ head nurse (900, 902 และหัวหน้าของแต่ละหอ) และ supervisor 950 เปิดได้ทุกหอ Demo control และ Staff management จึงสร้างเมื่อตั้ง `DEMO_MANAGER_ACCOUNTS=true` เพิ่มเท่านั้น ให้เปิดเฉพาะช่วงทดสอบแล้วตั้งกลับเป็น `false` บัญชีที่สร้างไปแล้วยังอยู่จนกว่าจะปิดบัญชีด้วยสคริปต์บัญชี ใช้กับเครื่อง Demo เท่านั้น
+
+บัญชีทั้งหมดสร้างใน transaction เดียว hash รหัสครั้งเดียว และ insert แบบ `ON CONFLICT DO NOTHING` Reset ที่ทับกันจึงไม่ทำให้ล้ม ถ้ายังล้ม Reset ยังตอบ 200 และ log ไว้ Reset ครั้งต่อไปสร้างส่วนที่ขาด
+
+#### 6.37.10 สถานการณ์ทดสอบเพิ่ม
+
+| สถานการณ์ | เริ่มอย่างไร | บทของตัวละคร | ผู้ทดสอบทำอะไร |
+|---|---|---|---|
+| `surge` | 900 แจ้งผู้ป่วยเวรดึก ICU เพิ่มจาก 10 เป็น 14 จึงขาด 2 คน | 201 รับที่ 60 วินาที, 202 รับที่ 90 วินาที | อนุมัติสองคนในฐานะ 900 |
+| `no_show` | ทุกคนในเวรดึก ICU เช็คอินยกเว้น 104 นาฬิกาเริ่ม 23:14 ระบบพบ NO_SHOW หลังช่วงผ่อนผัน (23:15) แล้วเปิดเคสเอง | เหมือน golden | รอเคสเปิด แล้วอนุมัติในฐานะ 900 |
+| `handoff` | 105 ลา | 202, 201, 203 ปฏิเสธที่ 30, 45, 60 วินาที | จัดคนเองจากหน้า handoff |
+| `supervisor` | 105 ลา | เหมือน golden, หัวหน้าหอไม่ตัดสิน | เล่นเป็น 950 รอจนถึงเวลาของ supervisor แล้วอนุมัติ |
+
+เคสของรอบที่ไม่มี event เริ่ม (`no_show`) คือเคสของ event NO_SHOW ของ 104 ในเวรดึก ICU (`simulated_replies_service.run_case_id`) ไม่ใช่เคสแรกของเวร เคสอื่นในเวรเดียวกัน เช่น เคสที่แจ้งเองจาก Demo control ระหว่างรอบ จึงไม่ถูกหยิบไปแทน payload ของ `TEST_RUN_STARTED` จึงมี `shift_id` และ `no_show_staff_id` KPI และตัวละครจำลองใช้ฟังก์ชันเดียวกันหาเคส กดจบรอบก่อนระบบพบ NO_SHOW (ยังไม่มีเคส) ได้ผล invalid เหตุผล `NO_CASE` แทนแถว KPI ที่ว่าง
+
+#### 6.37.11 จุดที่เสี่ยงพังเงียบ (มีเทสต์)
+
+| ข้อกำหนด | เทสต์ |
+|---|---|
+| Reset ชุดโรงพยาบาลได้เคสครบหกแบบ, หน้าเคสบอกคนมาแทน ผู้อนุมัติ หอ ฝั่ง และเหตุผลที่หยุด, เคสที่จัดคนเองหลัง handoff ไม่มีเหตุที่หยุด, `staff_id` ที่ใช้ไม่ได้ไม่ทำให้หน้าเคส 500, ไม่มีชุดโรงพยาบาลไม่เล่นอะไร | `test_demo_examples.py` |
+| บัญชีทดสอบเป็นพยาบาลเป็นค่าเริ่มต้น, head nurse และ supervisor เฉพาะเมื่อเปิด `DEMO_MANAGER_ACCOUNTS`, ไม่สร้างซ้ำ, ไม่ตั้งรหัสไม่สร้าง, สร้างล้มแล้ว Reset ยังตอบ 200 | `test_demo_examples.py` |
+| `DEMO_ACCOUNT_PASSWORD` 12 และ 128 ตัวผ่าน, 11 และ 129 ตัวหยุด startup, ค่าว่างคือไม่ตั้ง | `test_auth_config.py` |
+| การย้ายข้ามหอแสดงผู้อนุมัติ ICU ฝั่งปลายทางและ Medicine ฝั่งต้นทาง | `test_test_run_scenarios.py` |
+| Supervisor ในโหมด `session` ไม่เห็นคำขอก่อน `supervisor_from` และเห็นหลังจากนั้น, โหมด demo เห็นทันทีเหมือนเดิม | `test_route_permissions.py`, `test_au2_review_points.py`, `test_pending_approvals.py` |
+| สถานการณ์ surge, no_show, handoff, supervisor เล่นจนจบได้, รอบ no_show หาเคสของ NO_SHOW ได้แม้มีเคสอื่นในเวร, จบก่อนมีเคสได้ `NO_CASE` | `test_test_run_scenarios.py` |
+| ตอบ Offer จาก Demo control ในนามของ candidate, 404 และ 409, อ่าน Offer ทุกคนในครั้งเดียว, หอบอกหัวหน้าหอ | `test_demo_picker.py` |
+| Staff management มีทักษะและบัญชี | `test_staff_management.py` |
+| หน้าเว็บ: หน้าตามบทบาท, รหัสผ่านแสดงได้, กระดิ่งนับและเด้งครั้งเดียว เด้งใหม่หลัง Reset อ่านเคสล่าสุดพร้อมลิงก์รายการเต็ม และไม่เหลืออะไรของบัญชีก่อนเมื่อเปลี่ยนบัญชี, หัวหน้าหน้าเคส, กดแถว, เลื่อนเวลาเลือกได้, ผู้ป่วยเพิ่ม, ตอบ Offer, ทักษะ, สถานการณ์ใหม่ | `ev7.test.tsx`, `caseList.test.tsx`, `demoControl.test.ts`, `staffManagement.test.tsx`, `testRuns.test.tsx` |
+
+### 6.38 แก้ตามรายการของทีม: ด่าน Demo, สิทธิ์ของพยาบาล, My offers, Dashboard, เคสข้ามหอ และสรุปการจัดคนแทน (EV8) [รอบ 6 · PR EV8]
+
+แก้ตามรายการที่ทีมตกลง (2026-10-24) เป็น PR เดียวแบบ EV6 และ EV7 คำตอบของผู้ใช้ที่ถือเป็นมติทีม: หน้าแรกของพยาบาลคือ My offers, พยาบาลเห็น Roster ทั้งเวรเฉพาะเวรที่ตัวเองอยู่, กติกาอนุมัติข้ามหอคงเดิม (สองหอเฉพาะการย้ายจากเวรของหออื่น คนว่างจากหออื่นหอปลายทางอนุมัติอย่างเดียว ข้อ 6.19 และ 6.21) และทุกหน้า `/demo/*` บน AWS เป็นของ head nurse และ supervisor รวม LINE simulator และ test runs
+
+#### 6.38.1 ด่าน Demo ถาม Basic Auth เฉพาะผู้จัดการ และหน้าสถานะระบบ
+
+- Caddy ถาม Backend ก่อน Basic Auth: `forward_auth` ของ `/demo`, `/demo/*`, `/api/demo`, `/api/demo/*` ไปที่ `GET /auth/demo-gate` (`api/routes/auth.py`) ซึ่งอ่าน cookie `nara_session` แบบเดียวกับทุก route และที่อยู่เดิมจาก `X-Forwarded-Uri` ที่ Caddy ใส่เอง 204 คือ head nurse หรือ supervisor ที่ไม่ต้องเปลี่ยนรหัส Caddy จึงไปถาม Basic Auth ต่อ คำตอบอื่น Caddy ส่งกลับผู้ใช้ตามนั้น: หน้าเว็บได้ 302 ไป `/login?next=<หน้า Demo>` (ไม่มี session), `/change-password` (ต้องเปลี่ยนรหัส) หรือ `/me/offers` (พยาบาล) ส่วน `/api/demo/*` ได้ JSON 401 `AUTH_REQUIRED` หรือ 403 `AUTH_PASSWORD_CHANGE_REQUIRED` / `AUTH_FORBIDDEN` ไม่มี `WWW-Authenticate` เบราว์เซอร์จึงไม่เด้งกล่อง Basic Auth ให้ผู้เยี่ยมชมหรือพยาบาล `next` เป็น path ของหน้า Demo เมื่อเป็นรูปที่ Caddy ยอมรับ ไม่งั้นเป็น `/demo/control` และหน้า login ตรวจซ้ำด้วย `safeNext` โหมด demo ตอบ 204 เสมอ (ไม่มี session) route นี้ไม่ตัดสินแทน route ของ Demo ซึ่งยังตรวจผู้เรียกเองเหมือนเดิม Body ของคำขอเดิม (เช่น `POST /api/demo/reset`) ยังถึง Backend ครบหลังผ่านด่าน
+- ผลที่ตั้งใจ: รหัส Basic Auth อย่างเดียว reset หรือควบคุมนาฬิกาบนเครื่อง AWS ไม่ได้อีก ต้องล็อกอินเป็นผู้จัดการก่อน (ปิดความเสี่ยงที่ข้อ 6.33.4 บันทึกไว้สำหรับเครื่อง AWS) เครื่อง local หรือ staging ที่ไม่มี Caddy ยังเป็นตามเดิม `check_gate.py` ตรวจว่าผู้เยี่ยมชมถูกพาไป login, รหัส Demo อย่างเดียวไม่พอ และเมื่อให้ `--staff-id` ตรวจตามบทบาท: พยาบาลถูกพาไป `/me/offers` ผู้จัดการได้กล่อง Basic Auth รหัสผิดได้ 401
+- หน้าเว็บ: `/demo/*` ต้องมีบัญชี (`AuthGate` พาผู้เยี่ยมชมไป `/login`) และเป็นของ head nurse กับ supervisor (`lib/routeAccess.ts` คำนำหน้า `/demo`) พยาบาลตอบ Offer ที่ My offers
+- ตรวจระบบ (API และฐานข้อมูลจาก `GET /health`) ย้ายจากท้าย Dashboard ไปหน้า `/status` เปิดได้โดยไม่ล็อกอิน ไม่อยู่ในเมนู และแสดงแม้ `GET /auth/config` ตอบไม่ได้ เพราะหน้านี้บอกเองว่า API ตอบหรือไม่
+
+#### 6.38.2 สิ่งที่พยาบาลเข้าถึงได้
+
+- เมนูของ staff: เคส, Roster, My offers, แจ้งลา เท่านั้น หน้าแรกของ staff คือ `/me/offers` (`homeOf()` ใน `lib/routeAccess.ts`) พิมพ์ URL ของ Dashboard (`/` ตรวจแบบตรงตัว), Gap check, Approvals, Handoff, Demo หรือ Staff management ถูกพากลับ `/me/offers` เงียบ ๆ โลโก้ไปหน้าแรกของบทบาท
+- Backend ในโหมด `session`: `GET /dashboard`, `GET /gap/shifts`, `GET /gap/shifts/{id}` ตอบ 403 `AUTH_FORBIDDEN` ให้ staff (`managers_only()` ใน `api/dependencies.py`) โหมด demo ไม่เปลี่ยน
+- เคสที่ staff เห็น (`access_service._part_of` ใช้กับรายการ จำนวน รายละเอียด audit handover และ Event): (1) เคสของ Event ที่เป็นของเขา (ลาเอง, NO_SHOW ของเขา, ถูกยกเลิกเวร) (2) เคสที่จัดเขาเข้าเวร: คำขออนุมัติที่อนุมัติแล้วและมีแถว Roster ของเขาในเวรนั้น (มาแทนหรือย้ายเวร รวมแถวที่จบไปแล้ว) หรือการจัดคนเองของ handoff Offer อย่างเดียวไม่นับแล้ว เคสที่ไม่ใช่ของเขาตอบ 404 เหมือนไม่มี ตามข้อ 6.33.4
+- Roster ของ staff: `GET /roster?shift_id=` ได้เฉพาะเวรที่เขามีแถว Roster (ทุกสถานะ เวรที่ลาหรือถูกย้ายออกจึงยังดูได้) และเห็นทุกคนในเวรนั้น เวรอื่นแม้หอเดียวกันได้ 403 `GET /roster?staff_id=` ได้เฉพาะตัวเอง คนอื่นแม้หอเดียวกันได้ 403 หน้า Roster ของ staff เลือกจากเวรของตัวเอง ใหม่สุดก่อน แทนตัวเลือกหอและวัน ตัวเลือกบอกสถานะของแถวเป็นคำ (เช่น อยู่ในเวร, จบเวรแล้ว)
+- กระดิ่ง (ข้อ 6.37.5) ไม่มีสำหรับ staff เหมือนเดิม
+
+#### 6.38.3 My offers
+
+- กล่องเช็คอินอยู่บนสุด ก่อนรายการ Offer
+- รายการ Offer เรียงใหม่สุดก่อน (`sent_at` แล้ว id) แยกเป็นสองรายการด้วยปุ่มคู่: "ยังรับได้" (สถานะ `SENT` ที่ยังตอบได้) กับ "รับไม่ได้แล้ว" (ตอบแล้ว หมดเวลา ถูกยกเลิก หรือเคสหยุด) ปุ่มบอกจำนวนของแต่ละรายการ หน้าละ 10 แถว (`Pager`) จนกว่าผู้ใช้จะกดเลือก หน้าแสดง "ยังรับได้" ถ้ามี ไม่งั้นแสดงประวัติ LINE simulator ใช้ `OfferList` เดียวกันจึงได้แบบเดียวกัน
+
+#### 6.38.4 Dashboard
+
+- การ์ดสรุปสี่ใบ (`summary` ใหม่ของ `GET /dashboard`): เวรที่ขาดคนภายใน `window_hours` (24) ชั่วโมง, จำนวนตำแหน่งที่ยังขาด (ผลรวม headcount gap ของเวรเหล่านั้น นับแยกทีละเวร ไม่ใช่จำนวนคนที่ไม่ซ้ำ), คำขอรออนุมัติ (คำขอที่ผู้ใช้ตัดสินได้ตอนนี้ตาม `can_decide` ชุดเดียวกับที่หน้า Approvals แสดง: Supervisor นับคำขอหลัง `supervisor_from` เท่านั้น ส่วนคำขอที่เหลือซึ่งยังรอหัวหน้าหออยู่ใน `pending_approvals_later` และการ์ดบอกจำนวนนั้น รีวิว #147) และเคส `MANUAL_HANDOFF` กดการ์ดแล้วไปรายการเร่งด่วน กราฟตามหอ `/approvals` และ `/handoff`
+- Backend วัด Gap ทุกเวรในช่วง (กำลังดำเนินอยู่หรือเริ่มภายใน 24 ชั่วโมง) การ์ดและกราฟจึงนับครบทุกเวร ส่วน `shortages` ยังจำกัด 20 แถวและหน้าเว็บบอกว่าแสดงกี่แถวจากเท่าไร ต้นทุนเท่าเดิม เพราะเดิมก็วัดทุกเวรในช่วงเมื่อเวรที่ขาดมีน้อยกว่า 20
+- กราฟแท่งแนวนอน `shortage_by_ward` (ตำแหน่งที่ขาดและจำนวนเวรของแต่ละหอ มากไปน้อย) ข้อมูลชุดเดียวจึงสีเดียว ค่าอยู่ปลายแท่ง กดแท่งแล้วทั้งหน้ากรองเป็นหอนั้นด้วยตัวกรองหอเดียวกับข้อ 6.36.4 และเลื่อนไปรายการเร่งด่วนที่ลิงก์ไปเคสของหอนั้น
+- กราฟเคสตามกลุ่มสถานะ: กำลังดำเนินการ (OPEN ถึง EXECUTING), จัดคนสำเร็จ (`RESOLVED`), รอจัดการด้วยคน (`MANUAL_HANDOFF`), ปิดโดยยังขาดคน (`UNRESOLVED`), ระบบทำงานล้มเหลว (`FAILED`) แต่ละกลุ่มเป็นแท่งของตัวเองพร้อมไอคอนและชื่อ สีจึงไม่ใช่ทางเดียวที่บอกกลุ่ม สถานะย่อยทั้ง 12 ตัว (เช่น ASSESSING, OPTIMIZING, SAFETY_VALIDATION) อยู่ในส่วนที่กดขยาย พร้อมลิงก์ไปหน้าที่มี
+- ตาราง "เวรที่ขาดคน (เร่งด่วน)": เวรที่กำลังดำเนินอยู่ก่อน (ป้าย "กำลังดำเนินอยู่" จาก `in_progress` ใหม่) แล้วเวรที่ใกล้เริ่มที่สุด แสดงหอ เวลาเริ่มถึงสิ้นสุด จำนวนตำแหน่ง บทบาทและทักษะที่ขาด และลิงก์เคส
+- "สิ่งที่รอคนตอบ": หลังจำนวนคำขอของแต่ละหอบอกในวงเล็บว่ารอใคร เช่น "รออนุมัติจากหัวหน้าหอ (200301)" หรือ "รออนุมัติจากหัวหน้าหอ (200301) หรือ Supervisor" เมื่อถึง `supervisor_from` แล้ว (Supervisor ไม่ใส่รหัส) แถวของ `pending_approvals` จึงเป็น `{ward_id, count, head_nurses: [{staff_id, name}], supervisor}` หอเดียวกันแยกสองแถวเมื่อ Supervisor ตัดสินบางคำขอได้แล้วแต่บางคำขอยังไม่ได้
+- ทุกส่วนบอกช่วงเวลาของข้อมูล (ตอนนี้ถึงอีก 24 ชั่วโมง, ณ ตอนนี้, ทุกเคสของหอที่แสดงตามสถานะปัจจุบัน, 10 รายการล่าสุด) และมีข้อความเมื่อไม่มีข้อมูล ป้าย "ข้อมูลจำลอง (Demo)" แสดงเมื่อ `demo_data` เป็นจริง (หอที่แสดงมีพนักงานของ seed ซึ่งอีเมลลงท้าย `@demo.local`) สองภาษา และจอโทรศัพท์ (การ์ดสองคอลัมน์ ตารางเลื่อนในกล่อง) ยังไม่มีกราฟเส้นย้อนหลังในรอบนี้ ตามรายการของทีม
+- ตัวเลขทั้งหมดยังกรองตามหอที่ผู้ใช้เห็นใน query เดิม (`ward_scope`) โค้ดนับเฉพาะของ staff ใน Dashboard ถูกเอาออก เพราะ staff ได้ 403 แล้ว
+
+#### 6.38.5 เคสตัวอย่างข้ามหอ
+
+- `seed/hospital_demo.py`: วัน D+1 ทุกเวรของ Emergency และ Cardiology มีพยาบาลครบทีมห้าคน (คนที่หยุดตามรอบมาด้วย) เกินเป้าหมาย 1 คน หออื่นจึงย้ายคนจากเวรของสองหอนี้ได้ตามข้อ 6.19 ซึ่งต้องอนุมัติสองหอ วันอื่นและหออื่นยังสี่คนต่อเวร
+- `demo_example_service` เล่นเพิ่มห้าเคสหลังหกเคสเดิม: (7) Pediatrics เช้า D+1 ย้ายคนมา หอปลายทางและหอต้นทางอนุมัติ → `RESOLVED` (8) Orthopedics เช้า D+1 ย้ายคนมา หอปลายทางอนุมัติแล้ว รอหอต้นทาง (9) Surgery บ่าย D+1 ย้ายคนมา รอทั้งสองหอ (10) Pediatrics บ่าย D+1 หอปลายทางอนุมัติ หอต้นทางไม่อนุมัติพร้อมเหตุผล เคสส่ง Offer ต่อ (11) Orthopedics บ่าย D+1 ยืมคนว่างจากหออื่นที่ไม่ต้องย้ายเวร หอปลายทางอนุมัติอย่างเดียว → `RESOLVED` คนก่อนคนที่ต้องการปฏิเสธตามลำดับจริงของ Wave Offer ที่คนตอบไม่ได้ในตอนนั้น (รอผลของเคสอื่น ข้อ 6.8) ถูกข้ามไป และไม่ใช้พยาบาล ICU ของ Golden Case เป็นคนที่ยืม
+
+#### 6.38.6 สรุปการจัดคนแทน (หน้าเคส)
+
+- ส่วน "ใครและเพราะอะไร" ของข้อ 6.37.2 เปลี่ยนชื่อเป็น "สรุปการจัดคนแทน" แบ่งเป็น เกิดอะไรขึ้น / ใครมาแทน / ใครอนุมัติ และเหตุผลที่หยุดเมื่อเคสหยุดอยู่ ชื่อคนเป็นข้อมูลหลัก รหัสพนักงานเป็นข้อมูลรอง หอและบทบาทเป็นป้าย รหัสระบบเป็นคำ (เช่น `STAFF_UNAVAILABLE` = แจ้งไม่พร้อมเข้าเวร, NO_SHOW = ไม่มาเข้าเวร, `HEAD_NURSE` = หัวหน้าหอ) เวรที่ได้รับผลกระทบบอกหอ ชนิดเวร และเวลา
+- `overview` ของ `GET /cases/{id}` เพิ่ม `shift`, `requests` และ `open_offers` (`events` มี `reason` และ `patient_count` เพิ่ม) แต่ละ request คือคำขออนุมัติหนึ่งใบของผู้สมัครหนึ่งคน: หอปลายทาง, `moved_from` (เวรต้นทางเมื่อย้ายเวร), สถานะ (`PENDING`, `APPROVED`, `REJECTED`, `TIMED_OUT` หรือ `CANCELLED` เมื่อเคสหยุดก่อนตัดสิน), `assigned` และ `sides` หนึ่งแถวต่อหอที่ต้องอนุมัติ (`DESTINATION` และ `SOURCE` ของการย้าย) พร้อมผู้ตัดสิน บทบาทที่ตัดสิน (`decided_as`) เวลา และเหตุผล หรือถ้ายังรอ: หัวหน้าหอที่ ACTIVE ของหอนั้นและ `supervisor_from` ผลอนุมัติจึงผูกกับผู้สมัครแต่ละคน และผู้มาแทนหลายคนแยกเป็นรายการของตัวเอง
+- ใครมาแทน: ผู้ที่อยู่ในเวรแล้ว (มาแทน ย้ายเวร หรือจัดเอง) และผู้ที่ตอบรับแล้วรออนุมัติ แสดงหอประจำ → หอที่มาช่วยเมื่อต่างหอ และคำว่า "ย้ายเวร" เฉพาะเมื่อมีเวรต้นทางจริง ถ้ายังไม่มีใคร บอกขั้นตอนตอนนี้ตามสถานะของเคส (เช่น "ส่งข้อเสนอแล้ว 3 คน กำลังรอคำตอบ") พร้อมลิงก์ไปตารางผู้สมัคร
+- ใครอนุมัติ: คำขอสองหอแยกหัวหน้าหอปลายทางและต้นทางคนละแถว พร้อม "รออนุมัติ / อนุมัติแล้ว / ไม่อนุมัติ" **ตรวจกติกาข้ามหอตามรายการของทีม:** การย้ายจากเวรของหออื่นต้องได้สองหอ และหน้าแสดงสองชื่อ เมื่อ Supervisor คนเดียวตัดสินทั้งสองฝั่งด้วยผลเดียวกัน (กดสองครั้งตามข้อ 6.21) หน้าแสดงเป็นแถวเดียว "ทั้งสองหอ ตัดสินแทนทั้งสองหอโดยคนเดียว" คนว่างจากหออื่นยังให้หอปลายทางอนุมัติอย่างเดียวตามข้อ 6.19 (มติทีม: คงกติกาเดิม) การจัดคนเองและการปิดเคสแสดงผู้ทำและเหตุผล
+- เหตุผลที่หยุด: ข้อความสั้น (เช่น "ส่งต่อให้คนจัดการ: ไม่เหลือคนให้ติดต่อ" หรือ "ปิดเคสโดยไม่มีคนแทน: “เหตุผลของหัวหน้าหอ”") และกดขยายดูรหัสระบบ ผู้ทำ และเวลา
+- ข้อมูลทั้งหมดอยู่ในคำตอบของเคสที่ผู้ใช้อ่านได้อยู่แล้ว (ข้อ 6.33.4) ไม่เพิ่มสิทธิ์อ่าน
+
+#### 6.38.7 หน้ารายการเคสและตารางผู้สมัคร
+
+- ตั้งแต่ PR #148 ปุ่ม Manage อยู่มุมขวาบนของกล่องสถานะแรกใน `/cases/{id}` (`CaseManagement.tsx`) เมื่อเคส `can_manage` (`MANUAL_HANDOFF`) และเปิด modal `components/handoff/HandoffManager.tsx` เดิม; `/cases` และ `/handoff` ไม่มีปุ่มนี้ `hooks/useManagedCase.ts` ปิด modal เฉพาะเมื่อแถวของเคสนั้นเองบอกว่าจัดการไม่ได้แล้ว การอ่านผ่าน `GET /cases/search?q=` จัดเลขเคสที่ตรงเป๊ะก่อนผลที่ตรงเลขเวรหรือชื่อหอ จึงยังหาเคสได้แม้มีผลเกิน 100 แถว พยาบาลไม่เห็นปุ่มนี้ และ Backend ยังตรวจสิทธิ์ทุกการกระทำ
+- แถบบัญชีแสดง "หอประจำ {ward}" / "Home ward {ward}" ซึ่งหมายถึงหอประจำของผู้ล็อกอิน ไม่ใช่หอของเคส ใช้ `home_ward_name` จาก `/auth/me` และ login response โดยตรง
+- ตารางผู้สมัคร: คอลัมน์ "ช่วงที่มาแทน" และ "ย้ายมาจาก" แสดงเฉพาะเมื่อมีผู้สมัครอย่างน้อยหนึ่งคนที่มาแทนไม่เต็มเวร หรือถูกย้ายจากเวรอื่น เดิมทุกตารางขึ้น "ทั้งเวร" กับ "—" เหมือนกันหมด
+
+#### 6.38.8 จุดที่เสี่ยงพังเงียบ (มีเทสต์)
+
+| ข้อกำหนด | เทสต์ |
+|---|---|
+| ด่าน Demo: ไม่มี session ไป login ไม่เด้ง Basic, พยาบาลไป `/me/offers` หรือ 403, ผู้จัดการได้ Basic แล้วผ่าน, body ของคำขอยังครบหลังด่าน, การตรวจจากภายนอกตามบทบาท | `deploy/aws/test_gate.py`, `test_route_permissions.py` |
+| staff: Dashboard และ Gap 403, Roster เฉพาะของตัวเองและเวรที่อยู่, เคสที่ได้แค่ Offer ไม่เห็น, เคสที่ลาเองและเคสที่จัดเขาเข้าเวรเห็น | `test_route_permissions.py`, `test_au2_review_points.py` |
+| Dashboard: การ์ด (คำขอที่ตัดสินได้ตอนนี้กับที่ยังรอ), กราฟตามหอ, เวรที่กำลังดำเนินอยู่, ผู้ที่คำขอรอ (หัวหน้าหอ และ Supervisor หลังเวลา), ป้ายข้อมูลจำลอง | `test_dashboard_route.py` |
+| เคสตัวอย่างข้ามหอครบห้าแบบ พร้อมฝั่งของแต่ละหอ และวัน D+1 ของสองหอที่มีห้าคน | `test_demo_examples.py`, `test_hospital_demo.py` |
+| หน้าเว็บ: เมนูและหน้าแรกของพยาบาล, `/status` ไม่ต้องล็อกอิน, Dashboard ใหม่, Roster ของพยาบาล, Offer ใหม่ก่อน สองรายการ แบ่งหน้า และเช็คอินบนสุด, สรุปการจัดคนแทน (สองหอ Supervisor แถวเดียว หลายคน เหตุผลที่หยุด), คอลัมน์ผู้สมัคร, Manage ในกล่องสถานะแรกของ `/cases/{id}` ไม่ปิดเมื่อเคสถูกดันไปหน้าถัดไป และค้นเลขเคสที่ตรงเป๊ะก่อนผลอื่น | `ev8.test.tsx`, `ev7.test.tsx`, `login.test.tsx`, `dashboard.test.tsx`, `caseList.test.tsx` |
+
+### 6.39 Auto approve แยกฝั่งและคิว Supervisor (EV9) [รอบ 6 · PR EV9]
+
+เป้าหมายเดิมของข้อ 6.22: ลดภาระของคนกด (Head Nurse และ Supervisor) ไม่ใช่วัดความวิกฤตของคนไข้ ข้อนี้ขยายไปถึงคำขอข้ามหอที่ต้องอนุมัติสองฝั่ง และแทนข้อ "อนุมัติเองไม่ได้" ของข้อ 6.22
+
+#### 6.39.1 สองคิว แต่ละคิวตัดสินเอง
+
+| คิว | นับอะไร | เพดาน | เกินแล้วอนุมัติอะไร |
+|---|---|---|---|
+| Head Nurse ของหอ W | คำขอที่ยังดำเนินอยู่ (`actionable_pending()` เดียวกับรายการรออนุมัติ) ที่ยังมีฝั่งของหอ W รออยู่ ทั้งฝั่ง `DESTINATION` และ `SOURCE` คำขอหนึ่งนับหนึ่งครั้งต่อหอ แม้ทั้งสองฝั่งเป็นหอเดียวกัน ฝั่งที่ตัดสินแล้วไม่นับ | `min(ratio × Head Nurse ที่ Active ของหอ W, incoming_count)` สูตรเดิม (Seed 2 และ 10) หอที่ไม่มี Head Nurse ที่ Active เพดาน 0 ตาม R4-Q27 ข | ทุกฝั่งของหอ W ในคิวนั้น |
+| Supervisor | คำขอที่ยังดำเนินอยู่ ที่ถึง `supervisor_from` แล้ว (`now >= requested_at + supervisor_after_seconds`) และยังมีฝั่งรออย่างน้อยหนึ่งฝั่ง คำขอหนึ่งนับหนึ่งครั้ง ไม่ว่ามีกี่ฝั่งหรือมี Supervisor กี่คน | `min(supervisor_ratio × Supervisor ที่ Active, supervisor_incoming_count)` ค่าตั้งใหม่ใน `APPROVAL_POLICY` แยกจากของ Head Nurse ค่าเริ่มต้น 5 และ 10 (Supervisor หนึ่งคนรับคำขอที่เลยเวลาได้ราว 5 รายการ และรวมไม่เกิน 10) | ทุกฝั่งที่ยังรอของคำขอในคิวนั้น คือฝั่งที่ Supervisor มีสิทธิ์ตัดสินในขณะนั้น |
+
+* เปิด Auto approve เมื่อคิว **เกิน** เพดานเท่านั้น เท่ากับเพดานยังเป็นงานของคน ค่าทศนิยมเปรียบเทียบตรงไม่ปัดเศษเหมือนข้อ 6.22
+* ไม่มี Supervisor ที่ Active เลย คิว Supervisor ไม่อนุมัติอะไร (ต่างจากหอที่ไม่มี Head Nurse ซึ่งเพดานเป็น 0 และอนุมัติได้ตามกติกาเดิม) เพราะ Supervisor ไม่มีหอของตัวเอง เพดาน 0 จะทำให้อนุมัติทุกคำขอที่เลยเวลาโดยไม่มีใครเลือกให้เป็นอย่างนั้น
+* ฝั่งที่ทั้งสองคิวครอบ บันทึกเหตุผลเป็นคิวของหอ (คิวที่ใกล้ฝั่งนั้นที่สุด)
+* ตัวอย่าง: คำขอย้าย 201 จากเวรของหอ B ไปหอ A รอทั้งสองฝั่ง หอ A มีคำขอรอ 3 รายการ (รวมฝั่งปลายทางของ 201) เพดาน 2 หอ B มีคำขอรอ 1 รายการ เพดาน 2 ระบบอนุมัติเฉพาะฝั่ง `DESTINATION` ของ 201 คำขอยังรอหัวหน้าหอ B ถ้าหอ B ไม่มี Head Nurse ที่ Active (เพดาน 0) ระบบอนุมัติทั้งสองฝั่งแล้วย้ายคน ถ้าคำขอนี้เลยเวลา Supervisor และคิว Supervisor เกินเพดาน ฝั่งที่เหลือถูกอนุมัติด้วยเหตุผลคิว Supervisor
+
+#### 6.39.2 คำขอที่รองรับและการตัดสินแยกฝั่ง
+
+* ทุกชนิดผู้สมัคร: คนหอเดียวกัน, Float Pool, คนว่างจากหออื่น และคนที่ต้องย้ายออกจากเวรต้นทาง ทุกคนต้องตอบรับ Offer และผ่าน Safety กับ Hard Rules ตามเดิม การ Accept อย่างเดียวไม่ถือว่าอนุมัติ
+* คำขอที่ไม่มีเวรต้นทางมีฝั่งเดียว (`DESTINATION`) คำขอที่ย้ายจากเวรอื่นต้องได้ `SOURCE` และ `DESTINATION` ตามข้อ 6.21 แต่ละฝั่งประเมินเกณฑ์ของตัวเองอิสระ: คิวล้นเฉพาะต้นทาง อนุมัติเฉพาะ `SOURCE`, เฉพาะปลายทาง อนุมัติเฉพาะ `DESTINATION`, ล้นทั้งสอง อนุมัติครบสองฝั่ง
+* ไม่ตัดสินซ้ำฝั่งที่มีแถวแล้ว (UNIQUE เดิมและตรวจซ้ำหลังล็อก) ไม่ย้อนคำขอที่ถูกปฏิเสธหรือหมดเวลา (คำขอนั้นไม่อยู่ใน `actionable_pending()`) ย้ายคนและสร้างแถว Roster ปลายทางเฉพาะเมื่อได้อนุมัติครบทุกฝั่ง ฝั่งที่อนุมัติก่อนเขียนแค่แถวตัดสินกับ Audit `APPROVAL_WARD_APPROVED` เหมือนการกดของคน
+* คนกดหนึ่งฝั่งและระบบอนุมัติอีกฝั่งได้ ทั้งสองลำดับ คำขอได้ `approval_mode = AUTO` และ `approver_id` ว่างเมื่อระบบเป็นผู้ตัดสินฝั่งสุดท้าย ถ้าคนเป็นผู้ตัดสินฝั่งสุดท้าย คำขอเป็น `MANUAL` และ `approver_id` เป็นคนนั้น ความจริงของแต่ละฝั่งอยู่ในแถวของฝั่ง
+
+#### 6.39.3 ความปลอดภัยและ Transaction
+
+* ใช้ทางตัดสินเดียวกับคน (`approval_service._decide()` ผ่าน `decide_automatic(approval_id, side, batch)`) ซึ่งตรวจสถานะ Offer คำขอ เคส และเวลาหมดอายุซ้ำหลังล็อก
+* **Hard Rules ตรวจซ้ำก่อนระบบตัดสินทุกฝั่ง:** เรียก `hard_rule_service.check_items()` แบบเดียวกับ Safety ตอนตอบรับ (เวลาทับซ้อน เวลาพัก ชั่วโมงทำงาน ทักษะ และต้นทางต้องเหลือคนและทักษะขั้นต่ำครบหลังย้าย) ถ้าไม่ผ่าน ระบบไม่ตัดสินคำขอนั้นและปล่อยให้คน ไม่เขียนอะไร ข้อนี้เพิ่มเฉพาะทางอัตโนมัติ เพราะไม่มีคนดู ส่วนการกดของคนยังตาม Q38 (ไม่ตรวจ Hard Rules ตอน Execute ของคำขอที่ไม่ย้าย) การย้ายยังตรวจอีกครั้งตอน Execute ตามข้อ 6.19
+* **Snapshot เดียวต่อรอบของ Job:** ล็อกแถว `WARD` ของหอปลายทางของทุกคำขอที่ยังดำเนินอยู่ เรียง ID (คนกดล็อกหอปลายทางของคำขอก่อนเสมอ จึงไม่มีใครตัดสินคำขอเหล่านี้ระหว่างนั้น และไม่มีวงล็อก) ถ้ามีคำขอของหอปลายทางใหม่เข้ามาหลังอ่านรายชื่อหอ เริ่มใหม่ (สูงสุดห้าครั้ง) จากนั้นอ่านคิวทั้งสองแบบใน Snapshot เดียว ล็อกชุดรวม Shift (ปลายทางและต้นทาง) → Request → Offer → เคส → Staff เรียง ID แล้วตัดสินจากเก่าไปใหม่ (`requested_at`, ID) ในคำขอเดียวกันตัดสิน `SOURCE` ก่อน `DESTINATION` ไม่มีสถานะข้ามรอบ
+* ป้องกันการตัดสินซ้ำระหว่างคิว Head Nurse, คิว Supervisor และคนกด: ฝั่งหนึ่งได้เหตุผลเดียว ล็อกหอปลายทางทำให้คนกดรอ และ UNIQUE `(approval_request_id, side)` กันแถวซ้ำ เคสที่ Gap ปิดแล้วหยุด (`RESOLVED`) คำขอที่เหลือจึงไม่อยู่ใน `actionable_pending()` และไม่ถูกจัดเกิน Roster, Handover และการแจ้งเตือนสร้างครั้งเดียวผ่าน `orchestrator.recompute()` เดิม
+* ความล้มเหลวนอก D11 Rollback ทั้งรอบและลองใหม่รอบถัดไป `failed_auto_approval_ward_ids` คืนหอปลายทางทั้งหมดของรอบนั้น `auto_approved_request_ids` คือคำขอที่ระบบอนุมัติอย่างน้อยหนึ่งฝั่งในรอบนั้น
+
+#### 6.39.4 ข้อมูล Audit และ Migration `e7b9d1f3a5c8`
+
+* `APPROVAL_POLICY` เพิ่ม `supervisor_ratio` (`NUMERIC`) และ `supervisor_incoming_count` (`INTEGER`) ไม่เป็นค่าว่าง CHECK ไม่ติดลบ แถวเดิมได้ 5 และ 10 Policy ใหม่ต้องใส่เอง (ไม่มี Default ถาวร แบบเดียวกับ `c3e5a7b9d1f2`)
+* `APPROVAL_WARD_DECISION` เพิ่ม `approval_mode` (`MANUAL`/`AUTO`, แถวเดิมเป็น `MANUAL`), `queue_count`, `queue_cap`, `queue_approver_count` และ `approver_id` ว่างได้ CHECK: `MANUAL` ต้องมี `approver_id` และไม่มีค่าคิว `AUTO` ต้องไม่มี `approver_id` อนุมัติเท่านั้น และมีค่าคิวที่ `queue_count > queue_cap` แถว `AUTO` ใช้ `decided_as` บอกคิว (`HEAD_NURSE` = คิวของหอของฝั่งนั้น, `SUPERVISOR` = คิว Supervisor) Downgrade ถูกปฏิเสธเมื่อมีแถว `AUTO` เพราะไม่มีคนให้ใส่แทน
+* Audit ของฝั่งที่ระบบอนุมัติ (Actor `system`): `APPROVAL_WARD_APPROVED` เมื่อยังรออีกฝั่ง หรือ `APPROVAL_APPROVED` เมื่อครบ Payload มี `ward_id`, `side`, `decided_as`, `approval_mode = AUTO`, `basis` (`HEAD_NURSE_QUEUE` หรือ `SUPERVISOR_QUEUE`), `pending_count`, `approver_count`, `cap` (สามค่าหลังคง key เดิมของข้อ 6.22) Payload ของการกดของคนไม่เปลี่ยน ฝั่งของคนอยู่ในแถว `APPROVAL_WARD_DECISION` ตามเดิม
+* `GET /cases/{id}` `overview`: ฝั่งที่ระบบอนุมัติมี `status = AUTO_APPROVED`, `by = null` และ `auto = {basis, queue_count, cap, approver_count}` `decisions` มีหนึ่งแถวต่อฝั่ง (`kind = AUTO_APPROVED`, `by` เป็น "system") Audit `APPROVAL_APPROVED` แบบใหม่ที่มี `side` ไม่ถูกนับซ้ำ คำขอเก่าก่อน EV9 ที่ไม่มีแถวฝั่งยังแสดงจาก Audit ตามเดิม
+* `GET /approvals` แต่ละฝั่งใน `wards` เพิ่ม `approval_mode` (`null` ขณะรอ) `GET /approvals/auto` ดูตาราง API ของ PR A: คำขอที่ระบบอนุมัติอย่างน้อยหนึ่งฝั่ง Head Nurse เห็นเฉพาะคำขอที่ระบบอนุมัติฝั่งของหอตัวเองและเห็นเฉพาะฝั่งนั้น ตามกติกาเดียวกับรายการรออนุมัติ (ข้อ 6.33.4) Head Nurse จึงไม่เห็นว่าอีกหออนุมัติแล้วหรือยัง แต่ Supervisor เห็นทุกฝั่ง
+
+#### 6.39.5 หน้าเว็บ
+
+* สรุปการจัดคนแทน ส่วน "ใครอนุมัติ": ฝั่งที่ระบบอนุมัติแสดงป้าย "ระบบ" พร้อมคิวที่ทำให้เข้าเกณฑ์ (เช่น "คิวหัวหน้าหอ Emergency รอ 5 รายการ เกินเพดาน 2") ไม่แสดงชื่อบุคคลเป็นผู้อนุมัติ ฝั่งที่คนกดแสดงคนนั้นตามเดิม Timeline แสดง Audit ของ Actor `system`
+* หน้า Approvals แยกรายการรอเป็น "รอการตัดสิน" กับ "อนุมัติแล้วหนึ่งหอ อีกหอยังต้องตัดสิน" (ตามฝั่งที่ผู้ใช้เห็น: Head Nurse ที่หอตัวเองตัดสินแล้วเห็นคำขอในกลุ่มหลัง ส่วนหอที่ยังต้องตัดสินเห็นในกลุ่มแรก) และรายการที่ระบบอนุมัติแยกเป็น "ระบบอนุมัติแล้วหนึ่งฝั่ง อีกหอยังต้องตัดสิน" กับ "อนุมัติครบทุกฝั่งแล้ว" สถานะของฝั่งที่ระบบอนุมัติขึ้นว่า "ระบบอนุมัติแล้ว"
+
+#### 6.39.6 จุดที่เสี่ยงพังเงียบ (มีเทสต์)
+
+| ข้อกำหนด | เทสต์ |
+|---|---|
+| คิวต่ำกว่า เท่ากับ และเกินเพดาน ของ Head Nurse (เดิม) และ Supervisor, Supervisor ตาม `ratio × จำนวนที่ Active` | `test_auto_approval.py`, `test_auto_approval_sides.py` (`test_supervisor_queue_waits_for_supervisor_time_and_its_own_cap`, `test_supervisor_queue_uses_ratio_times_active_supervisors`) |
+| นับ SOURCE และ DESTINATION ของแต่ละหอ คำขอเดียวนับครั้งเดียวในหอเดียว | `test_each_ward_counts_its_own_side_once`, `test_a_move_within_one_ward_counts_once_in_that_ward` |
+| ไม่มี Supervisor ที่ Active, ยังไม่ถึงเวลา Supervisor, คำขอหมดเวลา | `test_no_active_supervisor_never_approves_by_the_supervisor_queue`, `test_supervisor_queue_waits_for_supervisor_time_and_its_own_cap`, `test_expired_requests_are_not_auto_approved` |
+| คนหอเดียวกัน Float Pool คนว่างข้ามหอ และคนย้าย | `test_cross_ward_and_float_pool_requests_are_approved_too`, `test_emergency_short_of_fourteen_reports_each_group_and_side` |
+| ล้นเฉพาะต้นทาง เฉพาะปลายทาง และทั้งสองฝั่ง | `test_only_the_source_queue_over_its_cap_approves_only_the_source`, `test_only_the_destination_queue_over_its_cap_approves_only_the_destination`, `test_both_queues_over_their_caps_approve_both_sides_and_move_the_person` |
+| คนกดหนึ่งฝั่ง ระบบอีกฝั่ง และหน้าเคสไม่แสดงชื่อคนเป็นผู้อนุมัติของฝั่งระบบ | `test_a_person_approves_one_side_and_the_system_the_other`, `ev8.test.tsx` (`names no person for a side the system approved`) |
+| ต้นทางจะต่ำกว่าเกณฑ์หลังย้าย และคนที่ถูกจัดเวรอื่นไปแล้ว ไม่ถูกอนุมัติเอง | `test_a_move_that_would_leave_the_source_short_is_left_for_a_person`, `test_each_ward_counts_its_own_side_once` |
+| ฝั่งหนึ่งปฏิเสธแล้ว อีกฝั่งไม่ถูกอนุมัติจนย้าย | `test_a_rejected_side_is_never_approved_by_the_other_queue` |
+| Job กับ Job และ Job กับคนกดจากคนละ Connection: แต่ละฝั่งตัดสินครั้งเดียว ย้ายครั้งเดียว ไม่ Deadlock | `test_competing_connections_decide_each_side_once_and_move_once`, `test_competing_connections_serialize_the_ward_snapshot` |
+| จำลองหอขาด 14 คน ตอบรับหลายคน แสดงผลแยกตามกลุ่มและฝั่ง | `test_emergency_short_of_fourteen_reports_each_group_and_side` |
+| หน้า Approvals แยกรายการที่รออีกฝั่งกับรายการที่อนุมัติครบ และ Head Nurse ไม่เห็นฝั่งของหออื่นในรายการที่ระบบอนุมัติ | `approvals.test.ts` (`keeps requests one ward approved apart from new ones`), `test_a_head_nurse_reads_only_the_automatic_side_of_their_own_ward` |
+
+### 6.40 แจ้งลาหลายคนในเวรเดียวระหว่างที่เคสเดินอยู่ (EV10) [รอบ 6 · PR EV10]
+
+ปัญหาเดิม: คนแรกแจ้งลาแล้วเปิดเคส คนที่สองแจ้งลาได้ แต่ Event ค้าง `RECEIVED` จนเคสแรกหยุด (Q43) การลาของคนที่สองจึงยังไม่ยกเลิก Roster ไม่สร้างช่วงไม่พร้อม และไม่เข้า Gap ผู้ใช้เห็นว่าลาไม่เกิดผล
+
+#### 6.40.1 ทางที่เลือก: อัปเดตเคสเดิม
+
+* ตรวจ State Machine แล้ว: เคสที่ Commit อยู่มีแค่จุดรอ (`WAITING_RESPONSE`, `WAITING_APPROVAL`) หรือสถานะที่หยุด สถานะอื่นอยู่แค่ภายในรอบเดียวของ Orchestrator
+* เคสของเวรที่อยู่จุดรอไม่กั้น Window แล้ว เมื่อ Window ปิด (ครบ `merge_window_seconds` ของ Event แรกใน Window ตามเดิม) Event ทุกตัวทำงานของตัวเอง (ยกเลิก Roster, สร้างช่วงไม่พร้อม, ผู้ป่วย, ความต้องการ) แล้ว **เข้าเคสนั้น** (`PROCESSED`, `case_id` ของเคสนั้น) ไม่เปิดเคสใหม่ ยังเป็นหนึ่งเคสที่เดินอยู่ต่อเวร ไม่ต้องตรวจ Threshold เพราะเคสกำลังหาคนอยู่แล้ว Event ที่เป็นประวัติอย่างเดียว (`NO_SHOW` ของเวรที่จบแล้ว) ยัง `IGNORED` ตามเดิม
+* เหตุผลที่ไม่ให้เคสใหม่แทนเคสเดิม: เคสใหม่ต้องย้ายหรือทิ้ง Offer, คำตอบรับ และคำขออนุมัติที่ผูกกับเคสเดิม ซึ่งขัดกับข้อ "ไม่ล้างความคืบหน้าโดยไม่จำเป็น" ส่วนเคสใน `MANUAL_HANDOFF` และเคสที่จบแล้วยังเป็นแบบเดิม: Window เปิดเคสใหม่ และเคส `MANUAL_HANDOFF` ถูกปิดด้วยเคสใหม่ (ข้อ 6.12)
+* ทุกชนิด Event เข้าเคสได้ (ลาเอง ลาจาก Demo control, `NO_SHOW`, ยกเลิกเวร, ผู้ป่วยเพิ่ม, ความต้องการเปลี่ยน) เพราะ Gap คำนวณจากข้อมูลจริงทั้งชุด
+* เวรที่ `merge_window_seconds = 0` (Golden Case): Event ถูก Commit เป็น `RECEIVED` ก่อน แล้วปิด Window ใน Transaction ของตัวเองทันที คำตอบของการแจ้งลาจึงมีเคสแล้ว ถ้าเคสเปลี่ยนระหว่างล็อกเกิน 5 ครั้ง Event ยัง `RECEIVED` และ Job ปิดในรอบถัดไป (ไม่ทิ้งการลา)
+
+#### 6.40.2 Gap ใหม่และความคืบหน้าเดิม
+
+* Gap คำนวณใหม่จากเวรตอนนี้ (`gap_service.assess_shift`) ไม่ใช่บวกจำนวนคนที่ขาด โดยไม่นับแถว Roster ที่เคสนับเองอยู่แล้ว (`case_facts_service.credited_assignment_ids`: แถว `REPLACEMENT` ของคนที่เคสจัดเข้า และแถวของคนมาสายที่เคสได้เครดิต) เหมือนตอนเปิดเคสที่ยังไม่มีใครถูกจัด คนที่อนุมัติและจัดเข้าเวรแล้วจึงถูกนับครั้งเดียวผ่าน `load_case_facts()` ตามเดิม บันทึกเป็นแถว `STAFFING_GAP` ใหม่ของเคส (แถวล่าสุดคือ Gap ของเคส) และ Audit `GAP_ASSESSED` ที่มี `event_ids`, `previous_gap_id`, `previous_headcount_gap`
+* Offer และคำขออนุมัติเดิมไม่ถูกล้าง: `late_arrival_service.trim()` ตัวเดียวกับคนมาสาย (ข้อ 6.24) ตัดเฉพาะรายการที่ Gap ใหม่ไม่ต้องใช้แล้ว (`OFFER_CANCELLED_NOT_NEEDED` พร้อม `event_ids`) แล้ว `orchestrator.recompute()` ตัดสินสถานะตามกติกาข้อ 5.3 เดิม: ถ้ามี Offer เปิดอยู่ รอคำตอบก่อน (ไม่ส่ง Wave ซ้อน) ถ้ามีแต่คำขอรออนุมัติแต่ยังขาด ส่ง Wave ถัดไปจาก Plan เดิมทันที (Plan มีผู้สมัครที่ผ่านทุกคนเรียงลำดับไว้แล้ว)
+* Audit `CASE_EVENTS_JOINED` ของเคส (`event_ids`, `shift_id`, `status` ตอนเข้า) บอกว่า Event ไหนเข้าเคสที่เดินอยู่
+
+#### 6.40.3 คนที่แจ้งลาแล้วมี Offer หรือคำขออนุมัติค้าง
+
+* หลังทำ Event ทุกตัว Offer ที่ยังมีผล (`SENT`, `ACCEPTED`) ของคนที่ลาหรือไม่มาเข้าเวร ในเคสที่ยังเดินอยู่ ที่ช่วงเวลาของ Offer (ช่วงของ Candidate Item หรือทั้งเวรที่เสนอ) ทับช่วงไม่พร้อมของเขา ถูกยกเลิก พร้อม Audit `OFFER_CANCELLED_STAFF_UNAVAILABLE` (`cancelled_outreach_id`, `staff_id`, `event_id`) คำขออนุมัติของ Offer นั้นจึงไม่มี Offer ที่ตอบรับแล้วและอนุมัติไม่ได้ (Q38 ไม่ตรวจ Hard Rules ตอน Execute จึงต้องตัดที่นี่) หน้า My offers แสดงเหตุ `STAFF_UNAVAILABLE` เคสอื่นที่เสีย Offer คำนวณใหม่หลัง Commit
+* คนที่เพิ่งแจ้งลาไม่ได้ Offer ใหม่ในช่วงที่ลา เพราะ Hard Rules ของการเลือก Wave และ Safety เห็นช่วงไม่พร้อมแล้ว
+* แจ้งลาซ้ำของคนเดิมในเวรเดียวกัน: แถว Roster ถูกยกเลิกไปแล้ว การรับ Event จึงปฏิเสธเหมือนเดิม (`NoAssignedRosterError`) หรือ Event ที่รออยู่ใน Window เดียวกันเป็น `IGNORED` (`NO_ASSIGNED_ROSTER`) Gap ไม่เพิ่มซ้ำเพราะคำนวณจากข้อมูล
+
+#### 6.40.4 คำตอบและหน้าเว็บ
+
+* `EventResult` (`POST /events`, `GET /events/{id}`, `POST /me/unavailability`, `POST /demo/events`) เพิ่ม `joined_running_case` (เข้าเคสที่เดินอยู่), `ignored_reason` (เหตุของ `IGNORED`) และ `window_closes_at` (เวลาเร็วที่สุดที่ Window ปิด ขณะ `RECEIVED`)
+* หน้าแจ้งลาและ Demo control บอกผลเป็นคำ: เปิดเคสใหม่, เพิ่มเข้าเคสที่หาคนอยู่แล้ว, รับแล้วจะมีผลเมื่อ Window ปิด (พร้อมเวลา) หรือไม่มีอะไรเปลี่ยนพร้อมเหตุ ไม่แสดงแค่ "ยังไม่มีเคส"
+
+#### 6.40.5 จุดที่เสี่ยงพังเงียบ (มีเทสต์)
+
+| ข้อกำหนด | เทสต์ |
+|---|---|
+| Reset → 101 ลา → 102 ลาในเวร 1 โดยไม่ตอบ Offer ทั้งสองไม่พร้อมทำงาน Gap สะท้อนทั้งสองคน Offer เดิมไม่ถูกล้าง | `test_leave_joins_running_case.py` (`test_two_leaves_in_a_row_both_count_without_answering_the_first_offers`) |
+| ส่งพร้อมกันจากคนละ Connection ไม่ทำ Event หาย ไม่เปิดเคสซ้ำ ไม่ Deadlock | `test_leaves_sent_at_once_lose_nothing_and_open_one_case` |
+| แจ้งลาซ้ำคนเดิม Gap ไม่เพิ่ม | `test_the_same_person_reporting_again_adds_nothing` |
+| ลาเพิ่มระหว่าง `WAITING_RESPONSE` และ `WAITING_APPROVAL` คำขอเดิมยังอยู่และส่ง Wave เพิ่ม | `test_two_leaves_in_a_row_...`, `test_a_leave_while_waiting_for_approval_keeps_the_accepted_candidate` |
+| คนที่ลามี Offer หรือคำขอค้างไม่ถูกจัดเข้าเวร และ Offer นอกช่วงลาไม่ถูกยกเลิก | `test_a_person_on_leave_loses_live_offers_for_that_time`, `test_an_offer_outside_the_leave_is_kept` |
+| คนที่อนุมัติและจัดเข้าเวรแล้วนับครั้งเดียวใน Gap ใหม่ | `test_a_leave_after_one_approval_counts_the_replacement_once` |
+| Window ยังรอครบเวลา และเคสที่หยุดแล้วยังให้เคสใหม่ (Q43 เดิม) | `test_merge_window.py` (`test_event_joins_the_case_that_waits_on_its_shift`, `test_event_of_a_shift_whose_case_stopped_opens_a_case_of_its_own`, `test_window_of_zero_seconds_joins_the_running_case_at_once`) |
+| หน้าเว็บบอกว่าเข้าเคสไหน รอถึงเมื่อไร หรือทำไมไม่มีผล | `demoControl.test.ts`, `login.test.tsx` |
 
 ## 7. Audit
 
@@ -2273,7 +2707,7 @@ PR 4 ตรวจชุด Offer ซ้ำหลังล็อก Staff ถ้�
 | `OFFER_CANCELLED_BY_ASSIGNMENT` | ตัวยกเลิก Offer ที่ขัดกับเวรใหม่ เขียนใน**เคสที่เสีย Offer** หนึ่งแถวต่อ Offer | ผู้กระทำของการจัดนั้น | CANDIDATE_OUTREACH | `cancelled_outreach_id` (เอกพจน์), `staff_id`, `by_case_id` (เคสที่เอาคนไป), `assignment_id` (Roster ที่ทำให้ขัด), `source` (`MANUAL_ASSIGNMENT` หรือ `APPROVAL`) |
 | `OFFER_DELIVERY_FAILED` | ตัวส่ง Offer ของ LINE เมื่อตั้ง Offer เป็น `FAILED` (ข้อ 6.16) | `outreach_agent` | CANDIDATE_OUTREACH | `outreach_id`, `staff_id`, `attempts` (จำนวนครั้งที่นับ), `last_result` (รหัส HTTP เป็นข้อความ หรือ `TIMEOUT`) |
 | `LINE_ACCOUNT_LINKED` | Webhook เมื่อรับ `LINK <รหัส>` ที่ใช้ได้ ใน Transaction เดียวกับการผูก | user (พนักงานที่ผูก) | CONTACTS | `contact_id`, `staff_id` |
-| `LINE_ACCOUNT_UNLINKED` | คำสั่งปลดการผูกของผู้ดูแล | `system` | CONTACTS | `contact_id`, `staff_id` |
+| `LINE_ACCOUNT_UNLINKED` | คำสั่งปลดการผูกของผู้ดูแล | `system` สำหรับ CLI; user ของ Supervisor ที่กดยืนยันผ่านเว็บ | CONTACTS | `contact_id`, `staff_id`, `revoked_registration_codes`, `revoked_link_codes` |
 | `ASSIGNMENT_TRANSFERRED` | การย้ายคนจริง เขียนแทน `ASSIGNMENT_CREATED` ของรายการที่มีเวรต้นทาง ใน Transaction เดียวกับการแก้แถวต้นทางและสร้างแถวปลายทาง (ข้อ 6.19) | `workflow_orchestrator` | ROSTER_ASSIGNMENT (แถวปลายทาง) | `assignment_id`, `from_assignment_id`, `staff_id`, `from_shift_id`, `to_shift_id`, `transfer_at`, `from_status` (`RosterStatus` ของแถวต้นทางหลังย้าย: `CANCELLED` เมื่อย้ายตั้งแต่เวลาเริ่มของเวรต้นทาง หรือ `ASSIGNED` เมื่อแถวต้นทางยังอยู่และจบที่ `transfer_at`, R4-Q40; C2 เขียนแต่ `CANCELLED`), `cancelled_outreach_ids` (Offer ของเคสอื่นที่ขัดกับเวรใหม่ ว่างได้ เหมือน `ASSIGNMENT_CREATED`) |
 | `TRANSFER_CHECK_FAILED` | การตรวจตอนย้ายจริงไม่ผ่าน คำขอจบและ Offer ถูกยกเลิก (ข้อ 6.19) | `workflow_orchestrator` | APPROVAL_REQUEST | `approval_id`, `outreach_id`, `staff_id`, `reason` (`TransferFailureReason`), `failed_rules` (ว่างได้) |
 | `APPROVAL_WARD_APPROVED` (PR S) | Head Nurse หรือ Supervisor อนุมัติฝั่งหนึ่งของคำขอสองหอ ขณะอีกฝั่งยังไม่ตัดสิน (ข้อ 6.21) | user (คนกด) | APPROVAL_REQUEST | `approval_id`, `ward_id`, `side`, `decided_as` |
@@ -2342,7 +2776,7 @@ payload ที่เปลี่ยนจาก Skeleton เพราะ Wave
 * ตารางนี้เขียนด้วย `STAFF_UNAVAILABLE` Event อีกสามชนิดเขียน Action ของตัวเองแทน `UNAVAILABILITY_CREATED` ในตำแหน่งเดียวกัน: `ASSIGNMENT_CANCELLED`, `PATIENT_COUNT_UPDATED`, `REQUIREMENT_UPDATED` (ข้อ 3 Q40)
 * `UNAVAILABILITY_CREATED` อยู่คอลัมน์ขวาทุกกรณี เพราะ Update table ทำตอน Window ปิด (Q41) ผลคือใน ต3 ลำดับตาม `id` เป็น `EVENT_RECEIVED` ทุกตัวก่อน แล้วจึงเป็นแถวของ PART B ตามลำดับในตาราง ไม่สลับเป็นคู่กับ `EVENT_RECEIVED`
 * ต3: Event ที่ไม่ผ่าน Threshold แต่อยู่ Window เดียวกับตัวที่ผ่าน เป็น `PROCESSED` และ Link เข้าเคส ไม่มี `EVENT_IGNORED` (Q42)
-* ไม่มีกรณี Event เข้าเคสเดิม: Event ของเวรที่มีเคสเดินอยู่รอเป็น `RECEIVED` จนเคสนั้นจบ แล้วเดินตาม ต3, ต4 หรือ ต5 (Q43)
+* ไม่มีกรณี Event เข้าเคสเดิม: Event ของเวรที่มีเคสเดินอยู่รอเป็น `RECEIVED` จนเคสนั้นจบ แล้วเดินตาม ต3, ต4 หรือ ต5 (Q43) (**EV10 เปลี่ยน:** เคสที่รอคำตอบหรือรออนุมัติไม่กั้น Window แล้ว Event เข้าเคสนั้นเมื่อ Window ปิด ข้อ 6.40)
 * Event ที่ Update table ไม่ได้ (Q44): Event ตัวนั้นได้ `EVENT_IGNORED` พร้อมเหตุผลใน payload ไม่มี `UNAVAILABILITY_CREATED`
 
 #### ช่วงหาคน: เคสขาด 1 คน (Golden Case)
@@ -2802,7 +3236,7 @@ PR 4 เพิ่ม `is_assigned`: Request ของ Item นี้อนุม
 | `GET /cases/{id}/handoff/candidates` (ใหม่) | พนักงาน Active ของหอของเวร `{staff_id, first_name, last_name, role_id, role_name, blocking_rules, other_case_ids}` `blocking_rules` คือรหัส Hard Rules ที่ไม่ผ่านตอนอ่าน (ไม่ล็อก) `other_case_ids` คือเคสที่กำลังเดินซึ่งคนนั้นมี Offer ที่ยังมีผล `404` / `403` ตามลำดับ | H (ทำแล้ว) |
 | `POST /cases/{id}/handoff/assignments` (ใหม่) | Body `{staff_id, reason?, confirm_conflicts?}` คืน `{manual_assignment_id, assignment_id, staff_id, case_id, case_status, cancelled_outreach_ids}` ลำดับ Error: `404` เคสไม่มี → `403` Role หรือหอ → `409` เคสไม่อยู่ `MANUAL_HANDOFF` → `422` คนที่ไม่ใช่พนักงาน Active ของหอ → `409` ไม่ผ่าน Hard Rules (`detail = {code: "HARD_RULES_FAILED", message, failed_rules}`) → `422` เหตุผลยาวเกิน 500 → `409` มี Offer ในเคสอื่นที่ขัดและยังไม่ส่ง `confirm_conflicts: true` (`detail = {code: "CONFLICTING_OFFERS", message, case_ids}`) | H (ทำแล้ว) |
 | `POST /cases/{id}/handoff/close` (ใหม่) | Body `{reason}` คืน `{case_id, case_status}` ลำดับ Error: `404` → `403` → `409` เคสไม่อยู่ `MANUAL_HANDOFF` → `422` เหตุผลว่างหรือยาวเกิน 500 | H (ทำแล้ว) |
-| หน้า `/handoff` (ใหม่) | ทำในชื่อ Head Nurse 900 รายการเคสจาก `GET /cases?status=MANUAL_HANDOFF,FAILED` เคส `FAILED` แสดงว่าจัดการไม่ได้ กด Manage แล้วเห็นพนักงานของหอพร้อมเหตุที่จัดไม่ได้ (รหัสกฎแปลเป็นข้อความ) ปุ่ม Assign ของคนที่ติดกฎกดไม่ได้ ช่องหมายเหตุไม่บังคับ เมื่อได้ `CONFLICTING_OFFERS` แสดงคำเตือนพร้อมเลขเคสและปุ่มยืนยันที่ส่ง `confirm_conflicts: true` เมื่อได้ `HARD_RULES_FAILED` แสดงกฎที่ติด ช่องเหตุผลของการปิดเคสบังคับ ไม่เกิน 500 ตัวอักษร ส่งค่าที่ตัดช่องว่างแล้ว ลิงก์ "Handoff" อยู่ในแถบเมนู | H (ทำแล้ว) |
+| หน้า `/handoff` | รายการเคสตามสิทธิ์พร้อมค้นหา/กรอง/แบ่งหน้า เลขเคสเป็นลิงก์และกดแถวเพื่อเปิดรายละเอียด ตั้งแต่ #148 เอา Manage, "ดูรายละเอียด" และ "จัดการไม่ได้" ออกจากรายการโดยตั้งใจ สถานะเคสยังแสดงอยู่; จัดการได้ในกล่องสถานะแรกของ `/cases/{id}` เมื่อมีสิทธิ์เท่านั้น โดย modal เดิมยังตรวจ Hard Rules, ยืนยัน conflicting offers และบังคับเหตุผลปิดเคสไม่เกิน 500 ตัวอักษร | H, EV6, #148 |
 | `POST /approvals/{id}/decision` | ผู้กดที่ไม่ใช่ Head Nurse ของหอเดียวกับเวรได้ `403` พร้อม `detail` บอกเหตุ | W (ทำแล้ว) |
 | `POST /approvals/{id}/decision` | กดเมื่อ `clock.now() >= expires_at` ได้ `409` | T |
 | `GET /approvals` | เพิ่มเส้นตายของคำขอ (`expires_at`) | T |
@@ -2838,7 +3272,7 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 | `GET /cases/{id}` | แต่ละ `candidates[]` เพิ่ม `home_ward_id`, `home_ward_name`, `cover_start_at`, `cover_end_at` (ว่าง = ทั้งเวร) และ `source_assignment` = `{assignment_id, shift_id, ward_id, ward_name}` หรือ `null` (T1 ส่ง `cover_start_at`, `cover_end_at` และ `source_assignment` ซึ่งเป็น `null` จนกว่า C2 จะสร้างผู้สมัครจากการย้าย ส่วน C1 ส่ง `home_ward_id`, `home_ward_name` แล้ว C2 ทำให้ `source_assignment` มีค่าสำหรับผู้สมัครที่ย้ายทั้งเวร) | T1, C1, C2 (ทำแล้ว) |
 | `GET /cases/{id}` | เพิ่ม `partial_plan` (boolean) เป็น `true` เมื่อ Wave แรกของ Plan ล่าสุดมาจากแผนบางส่วน (ข้อ 6.20) `false` เมื่อไม่มี Plan รูปคำตอบอยู่ข้อ 9.3 | T4 (ทำแล้ว) |
 | `GET /approvals?pending=true` | แต่ละรายการเพิ่ม `home_ward_id`, `source_ward_id` (ว่างเมื่อไม่ใช่การย้าย), `wards` = List ของ `{ward_id, side, status}` (`status` = `PENDING` หรือ `APPROVED`) และ `supervisor_from` (เวลาที่ Supervisor เริ่มกดได้) | S |
-| `GET /approvals/auto` (ใหม่, ต้องมี `X-Demo-User` ของ Head Nurse หรือ Supervisor) | คำขอที่ระบบอนุมัติเอง (`approval_mode = AUTO`) ของหอที่ผู้เรียกดูแล ใหม่สุดก่อน ไม่เกิน 50 รายการ รูปเดียวกับรายการของ `GET /approvals` บวก `decided_at` Head Nurse เห็นหอตัวเอง Supervisor เห็นทุกหอ ประวัติเป็นผลอนุมัติ รวมกรณี Execute ล้มเหลวตาม D11 จึงต้องดูสถานะเคสประกอบ | A (ทำแล้ว) |
+| `GET /approvals/auto` (ใหม่, ต้องมี `X-Demo-User` ของ Head Nurse หรือ Supervisor) | คำขอที่ระบบอนุมัติเอง (`approval_mode = AUTO`) ของหอที่ผู้เรียกดูแล (**EV9 เปลี่ยน:** คำขอที่ระบบอนุมัติอย่างน้อยหนึ่งฝั่ง ทั้งที่ยังรออีกหอ (`is_pending = true`) และที่ครบแล้ว ไม่รวมคำขอที่ถูกปฏิเสธหรือหมดเวลาภายหลัง Head Nurse เห็นเฉพาะคำขอที่ระบบอนุมัติฝั่งของหอตัวเอง และเห็นเฉพาะฝั่งนั้นใน `wards` เหมือนรายการรออนุมัติ (ข้อ 6.33.4) `decided_at` คือเวลาที่ระบบอนุมัติฝั่งล่าสุด ข้อ 6.39) ใหม่สุดก่อน ไม่เกิน 50 รายการ รูปเดียวกับรายการของ `GET /approvals` บวก `decided_at` Head Nurse เห็นหอตัวเอง Supervisor เห็นทุกหอ ประวัติเป็นผลอนุมัติ รวมกรณี Execute ล้มเหลวตาม D11 จึงต้องดูสถานะเคสประกอบ | A (ทำแล้ว) |
 | `POST /approvals/{id}/decision` | Body เพิ่ม `side` (ไม่บังคับ ตามข้อ 6.21) ผู้กดเป็น Supervisor ได้ตามข้อ 6.21 (`403` ถ้ากดก่อน `supervisor_from`) คำตอบเพิ่ม `outcome` = `ASSIGNED`, `WAITING_OTHER_WARD`, `REJECTED`, `TRANSFER_CANCELLED` หรือ `EXECUTION_FAILED` และ `reason` (`TransferFailureReason` หรือ `null`) และ `failed_rules` (List) ทุกผลตอบ `200` (R4-Q35, R4-Q42) `EXECUTION_FAILED` คือทางของ D11: อนุมัติแล้วแต่สร้าง Roster ไม่สำเร็จ และ `case_status` = `FAILED` `is_approved` ในคำตอบเปลี่ยนเป็น `bool` หรือ `null` และเท่ากับ `APPROVAL_REQUEST.is_approved` เสมอ: `WAITING_OTHER_WARD` เป็น `null` เพราะคำขอยังรอ, `REJECTED` เป็น `false`, `ASSIGNED` `TRANSFER_CANCELLED` และ `EXECUTION_FAILED` เป็น `true` **`is_approved = true` บอกแค่ว่าคนอนุมัติแล้ว ไม่ได้บอกว่าคนถูกจัดเวรหรือถูกย้ายแล้ว** ตัวอย่าง: คำขอย้าย 201 ที่อนุมัติครบแต่ตรวจเวรต้นทางไม่ผ่านมี `is_approved = true` แต่ 201 ยังอยู่หอ B ตัวอ่านที่ต้องรู้ว่าจัดเวรสำเร็จหรือไม่ (เช่น รายการประวัติของหน้า `approvals` และข้อความใน Timeline ของ U) ต้องอ่าน `outcome` และ `reason` หรือ Audit Action (`ASSIGNMENT_TRANSFERRED`, `TRANSFER_CHECK_FAILED`, `WORKFLOW_FAILED`) ห้ามอ่าน `is_approved` อย่างเดียว | S, C2 (ทำแล้ว) |
 | หน้า `cases/[id]` | แสดง Gap รายช่วงเมื่อไม่ได้ขาดทั้งเวร, หอบ้านและเวรต้นทางของผู้สมัคร, ข้อความอธิบายอันดับเมื่อใช้แผนบางส่วน | T3, T4, U (ทำแล้ว) |
 | หน้า `approvals` | หอบ้าน หอต้นทาง, สถานะของแต่ละหอ, เวลาที่ Supervisor เริ่มกดได้, รายการ "ระบบอนุมัติแทน", ผลยกเลิกตอนย้ายจริงพร้อมเหตุผล | U (ทำแล้ว) |
@@ -2891,7 +3325,7 @@ Path ของ `/me/offers` และ `/line/webhook` ตกลงใน PR 0 �
 
 ### 9.9 API ล็อกอินและแจ้งลาตัวเอง [AU1, AU2 และ AU5 ทำแล้ว]
 
-รูป request/response/error ที่ใช้ร่วมกันกำหนดในข้อ 6.33.3: AU1 ทำ `/auth/config`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/change-password`; AU2 ทำ self-only POST `/me/unavailability` และ trusted Demo POST `/demo/events`; AU5 ทำ `/auth/register` และคำสั่ง LINE REGISTER ไม่มี API admin เพิ่ม รูป API เดิมของข้อ 9.1–9.8 ยังคงข้อมูลธุรกิจ แต่เงื่อนไข session/สิทธิ์ต้องใช้ matrix ข้อ 6.33.4 หลัง AU2 ทำเสร็จ ไม่อ้างคำว่า "อ่านได้โดยไม่ส่ง X-Demo-User" เดิมเพื่อเปิด endpoint โดยไม่มี session
+รูป request/response/error ที่ใช้ร่วมกันกำหนดในข้อ 6.33.3: AU1 ทำ `/auth/config`, `/auth/login`, `/auth/logout`, `/auth/me`, `/auth/change-password`; AU2 ทำ self-only POST `/me/unavailability` และ trusted Demo POST `/demo/events`; AU5 ทำ `/auth/register` และคำสั่ง LINE REGISTER; ส่วนขยายจัดการพนักงานเพิ่ม `GET /admin/staff`, `POST /admin/staff/{staff_id}/line-code` และ `POST /admin/staff/{staff_id}/line-unlink` (ต้องกรอก Staff ID ยืนยันให้ตรง) ใช้ session จริงของ Supervisor เท่านั้นในทั้งสองโหมด พร้อม allowed Origin/no-store และคำสั่ง LINE `MYID` สำหรับรหัสของผู้ส่งที่ผูกไว้ ดู `docs/demo-runbook.md` รูป API เดิมของข้อ 9.1–9.8 ยังคงข้อมูลธุรกิจ แต่เงื่อนไข session/สิทธิ์ต้องใช้ matrix ข้อ 6.33.4 หลัง AU2 ทำเสร็จ ไม่อ้างคำว่า "อ่านได้โดยไม่ส่ง X-Demo-User" เดิมเพื่อเปิด endpoint โดยไม่มี session
 
 ## 10. Golden Case
 
@@ -3191,3 +3625,14 @@ Escalation ไม่มีเป็นฟีเจอร์แยก การ�
 | 2026-10-22 | รอบ 6 AU5: REGISTER ผ่าน LINE binding เดิม, รหัสสมัคร 192 bit hash แยก domain/หมดอายุ real UTC 600 วินาที, `/auth/register` atomic ไม่ออก session, Origin/rate limit, invalidate เมื่อออกใหม่/unlink/reset, migration `b8f3d5a0c2e4` ต่อ AU1 และ regression สอง connection; เทสต์ fake LINE ไม่ deploy AWS หรืออ้างผลสมัคร live หน้าเว็บ/ด่านรอ AU3/AU4 | คน 3 |
 | 2026-10-22 | รอบ 6 AU3: หน้าเว็บของล็อกอิน (ไม่มี Backend/Migration): `AuthProvider` กับ `AuthGate` อ่าน `GET /auth/config`, หน้า `/login`, `/register`, `/change-password`, `/me/leave`, เมนูตามบทบาท, `ActingAs` หายและ `useActor` คืนผู้ล็อกอินในโหมด `session`, `lib/api.ts` ส่ง cookie และไม่ส่ง `X-Demo-User` ใน `session`, รหัส `AUTH_*` เป็นประโยคสองภาษา; ปุ่ม Demo ที่เรียก `/events` ยังรอ `POST /demo/events` ของ AU2 |
 | 2026-10-22 | รอบ 6 PR AU2: ตรวจสิทธิ์ทุก route ใน `AUTH_MODE=session` ตามข้อ 6.33.4 (`access_service` เป็นเงื่อนไข SQL ใน list/count, `Reader` สำหรับ route ที่ demo อ่านได้โดยไม่ระบุตัว), POST `/events` 403 ทุกบัญชีใน session, เพิ่ม POST `/me/unavailability` (แจ้งลาตัวเองผ่าน flow เดิม) และ POST `/demo/events` (SYSTEM actor, source SIMULATED), PATCH `/unavailability/{id}` เปิดให้ Supervisor ทุกหอ; demo mode ไม่เปลี่ยน; inventory 42 method/path พร้อมเทสต์ 401/403/เจ้าของผิด และแจ้งลาซ้ำทั้งต่อเนื่องและพร้อมกัน ไม่มี Migration | คน 2 |
+| 2026-10-23 | รอบ 6 PR EV1 (#141, ชื่อตอนเปิด E1): สคริปต์ทดลองความปลอดภัยแบบออฟไลน์ `app/evaluation/safety.py` (ข้อ 6.34) เทียบการเลือกคนแทนแบบ manual สามแบบกับ nara บนตารางเวรสังเคราะห์ ตัดสินด้วย `evaluate()` ตัวเดียวกับแอป พร้อมเทสต์; ไม่มี API ไม่มี Migration | คน 1 |
+| 2026-10-23 | รอบ 6 PR EV5-0: สัญญาของโหมดทดสอบและ KPI (ข้อ 6.35) นาฬิกาโหมด `scenario`, API รอบทดสอบ (รวมยกเลิกรอบและการห้าม Reset ขณะมีรอบค้าง), สถานการณ์ `cross_ward`, ตัวละครจำลองใน `run_due_work`, KPI จาก audit log ที่รอด Reset (แถว audit ไม่มี Migration) และเปลี่ยนชื่อ PR วัดผล #141 จาก E1 เป็น EV1 เพราะชื่อซ้ำ | ตกลงกัน |
+| 2026-10-23 | รอบ 6 PR EV5a: Backend ของโหมดทดสอบ (ข้อ 6.35) นาฬิกาโหมด `scenario`, `/demo/test-runs` (เริ่ม จบ ยกเลิก รายการ CSV), ห้าม Reset/Freeze/Unfreeze ขณะมีรอบค้าง, เลื่อนเวลาในรอบเป็นแถว audit, สถานการณ์ `cross_ward` (`seed/scenarios/cross_ward.py`), ตัวละครจำลองใน `run_due_work`, KPI จาก audit log, Reset เก็บแถว `TEST_RUN`; ไม่มี Migration | คน 1 |
+| 2026-10-23 | รอบ 6 PR EV5b: หน้าเว็บของโหมดทดสอบ (ข้อ 6.35.5) ส่วนรอบทดสอบใน Demo control (เริ่ม จบ ยกเลิก, ปิด Reset/Freeze/Unfreeze ขณะมีรอบค้าง), หน้า `/demo/test-runs` (มัธยฐาน ต่ำสุดถึงสูงสุด CSV), แถบนาฬิกาแสดงโหมด scenario, สองภาษา; Backend: การเลื่อนนาฬิกาของรอบทีละ 30 วินาที รวมไม่เกิน 2 ชั่วโมงต่อรอบ และไม่แทรกกับ Finish/Abort | คน 1 |
+| 2026-10-24 | รอบ 6 PR EV7 (ข้อ 6.37): เคสตัวอย่างของชุดโรงพยาบาลที่เล่นผ่าน flow จริงหลัง Reset (`demo_example_service`); `overview` ของ `GET /cases/{id}` และส่วน "ใครและเพราะอะไร" ของหน้าเคส; Supervisor ในโหมด session เห็นคำขออนุมัติหลัง `supervisor_from`; หน้าเว็บกันหน้าตามบทบาท (`lib/routeAccess.ts`); กระดิ่งแจ้งเตือนกับ toast; ช่องรหัสผ่านแสดงได้; โลโก้ชิดซ้าย; `skills`, `has_account` ใน `GET /admin/staff`; กดแถวดูเคส; Demo control เลื่อนเวลาเลือกได้ ผู้ป่วยเพิ่ม และ `GET /demo/offers`, `POST /demo/offers/{id}/response`; `DEMO_ACCOUNT_PASSWORD` สร้างบัญชีทดสอบของพยาบาล และ `DEMO_MANAGER_ACCOUNTS` เพิ่ม head nurse กับ supervisor (`demo_account_service`); สถานการณ์ `surge`, `no_show`, `handoff`, `supervisor`; ไม่มี Migration | คน 1 |
+| 2026-10-25 | รอบ 6 PR EV9 (ข้อ 6.39): Auto approve ทุกชนิดผู้สมัครทีละฝั่ง SOURCE/DESTINATION; คิว Head Nurse ของหอนับคำขอที่ยังรอหอนั้นทั้งสองฝั่งครั้งเดียว; คิว Supervisor นับคำขอที่ถึง `supervisor_from` ครั้งเดียว เพดาน `min(supervisor_ratio × Supervisor ที่ Active, supervisor_incoming_count)` (5 และ 10) ไม่มี Supervisor ไม่อนุมัติ; ตรวจ Hard Rules ซ้ำก่อนระบบตัดสิน; Snapshot เดียวล็อกหอปลายทางทุกหอเรียง ID; `APPROVAL_WARD_DECISION` เก็บแถว `AUTO` พร้อมคิวและเพดาน, Audit มี `basis`; หน้า Who approved และ Approvals แสดงฝั่งที่ระบบอนุมัติ; Migration `e7b9d1f3a5c8` | คน 1 |
+| 2026-10-25 | รอบ 6 PR EV10 (ข้อ 6.40): เคสของเวรที่อยู่จุดรอไม่กั้น Window; Event เข้าเคสนั้น (`CASE_EVENTS_JOINED`) Gap คำนวณใหม่จากเวรตอนนี้โดยไม่นับแถวที่เคสนับเอง, `trim()` ตัด Offer ที่ไม่ต้องใช้ แล้ว `recompute()`; Offer ที่ยังมีผลของคนที่ลาในช่วงที่ลาถูกยกเลิก (`OFFER_CANCELLED_STAFF_UNAVAILABLE`); `EventResult` เพิ่ม `joined_running_case`, `ignored_reason`, `window_closes_at`; หน้าแจ้งลาและ Demo control บอกผลเป็นคำ; ไม่มี Migration | คน 1 |
+| 2026-10-24 | รอบ 6 PR EV8 (ข้อ 6.38): Caddy ถาม `GET /auth/demo-gate` ก่อน Basic Auth ของ Demo จึงถามเฉพาะ head nurse และ supervisor (ผู้เยี่ยมชมไป login พยาบาลไป My offers); หน้า Demo ต้องล็อกอิน; หน้า `/status` แทนตรวจระบบท้าย Dashboard; staff มีเฉพาะเคส Roster My offers แจ้งลา (Dashboard และ Gap 403, เคสเฉพาะที่ลาเองหรือถูกจัดเข้าเวร, Roster เฉพาะเวรที่อยู่); My offers เช็คอินบนสุด ใหม่ก่อน สองรายการ แบ่งหน้า; Dashboard มี `summary`, `shortage_by_ward`, `in_progress`, ผู้ที่คำขอรอใน `pending_approvals`, `demo_data`; Emergency และ Cardiology มีห้าคนในวัน D+1 และเคสตัวอย่างข้ามหอห้าแบบ; `overview` มี `shift`, `requests`, `open_offers` และหน้าเคสมี "สรุปการจัดคนแทน"; Manage ในหน้า `/cases`; คอลัมน์ผู้สมัครที่เหมือนกันทุกแถวถูกซ่อน; ไม่มี Migration | คน 2 |
+| 2026-10-23 | รอบ 6 PR EV6 (ข้อ 6.36): นาฬิกาโหมด `running` กับ `POST /demo/clock/set` และ `/resume`; Reset เก็บ `AUTH_SESSION` และ `CONTACTS`; Demo ชุดโรงพยาบาล (`seed/hospital_demo.py`, `POST /demo/reset {hospital}`) พร้อมเช็คอินเอง; `GET /demo/wards`, `GET /demo/shifts`; `GET /dashboard?ward_id=` และ `ward_options`; `GET /cases/search` กับหน้า `/cases`; handoff ค้นหา แบ่งหน้า และ modal; Roster ตามสิทธิ์; Demo control ในเมนูของผู้จัดการ; น้ำหนัก Ranking ตามลำดับความสำคัญและ OT แบบคาดการณ์; เพดาน 10 Wave และ 90 นาทีใน `OUTREACH_POLICY` (Migration `c3e5a7b9d1f2`) | คน 1 |
+| 2026-10-24 | PR #148: ย้าย Manage ไปหัวหน้า `/cases/{id}` เปิด modal เดิม, Cases/Handoff ใช้เลขเคสและกดแถวเพื่อเปิดรายละเอียด ไม่มี See details/Manage/จัดการไม่ได้ ในรายการ; แถบบัญชีใช้ `home_ward_name` แสดงหอประจำ; ค้นเลขเคสที่ตรงเป๊ะก่อนผลอื่นเพื่อไม่หลุดหน้าแรก; ไม่มี Migration | คน 3 |
+| 2026-10-25 | PR #149: เอาเส้นใต้เลขเคสออกจาก Cases/Handoff ย้าย Manage ไปด้านขวาของกล่องสถานะแรก ข้อความผลลัพธ์จำกัดความกว้างและตัดบรรทัด บนจอแคบที่ตกบรรทัดใหม่จัดชิดซ้าย กล่องว่างของพยาบาลไม่กินช่องว่าง; ไม่มี Migration | คน 3 |

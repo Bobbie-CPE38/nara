@@ -14,6 +14,7 @@ interval (workflow.md 6.20). `get_case_gap()` returns those slices for deciding,
 from the same point on: time that has passed is never refilled (round 4 PR C3).
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 
@@ -74,11 +75,17 @@ class CaseGap:
         return self.gap.headcount_gap
 
 
-def assess_shift(db: Session, shift: Shift) -> ShiftAssessment:
+def assess_shift(
+    db: Session, shift: Shift, *, exclude_assignment_ids: Collection[int] = ()
+) -> ShiftAssessment:
     """Compare the shift's current roster with its headcount and role/skill requirement.
 
     The headcount target comes from required_staff and minimum_staff of the
     current requirement and the preserve_minimum_staffing flag of the hard policy.
+
+    `exclude_assignment_ids` leaves roster rows out: a running case measures its new gap
+    without the rows it already counts itself (round 6 PR EV10, 6.40), as it was measured
+    when the case opened, before it put anyone on the shift.
     """
     # The caller may have just cancelled a roster row. SessionLocal has
     # autoflush off, so send that change before the roster is read back
@@ -94,7 +101,7 @@ def assess_shift(db: Session, shift: Shift) -> ShiftAssessment:
         preserve_minimum_staffing=policy.preserve_minimum_staffing,
         required_roles=shift_requirement.required_roles,
         required_skills=shift_requirement.required_skills,
-        roster=load_roster(db, shift.id),
+        roster=load_roster(db, shift.id, exclude_assignment_ids=exclude_assignment_ids),
         window=window,
     )
     return ShiftAssessment(shift_requirement=shift_requirement, result=result)
@@ -342,12 +349,14 @@ def _interval_gaps(
     )
 
 
-def load_roster(db: Session, shift_id: int) -> list[RosterMember]:
+def load_roster(
+    db: Session, shift_id: int, *, exclude_assignment_ids: Collection[int] = ()
+) -> list[RosterMember]:
     """Every roster row of the shift, each with the person's role and full skill set.
 
     Each row carries its effective interval: actual times, else the shift times
     (roster_time_service, round 4 PR T2). Reads the database as it is: flush
-    pending roster changes first.
+    pending roster changes first. `exclude_assignment_ids`: rows to leave out.
     """
     rows = db.execute(
         select(
@@ -359,7 +368,10 @@ def load_roster(db: Session, shift_id: int) -> list[RosterMember]:
         )
         .join(Staff, Staff.id == RosterAssignment.staff_id)
         .join(Shift, Shift.id == RosterAssignment.shift_id)
-        .where(RosterAssignment.shift_id == shift_id)
+        .where(
+            RosterAssignment.shift_id == shift_id,
+            RosterAssignment.id.not_in(list(exclude_assignment_ids)),
+        )
     ).all()
 
     skills = load_skill_sets(db, {row.staff_id for row in rows})

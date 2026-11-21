@@ -93,7 +93,7 @@ def test_golden_candidates_and_complete_flow(production_seeded: Session, large: 
                 item.source.value == "CROSS_WARD" for item in items if item.staff_id > STAFF_BASE
             )
             assert plan.solver_status.value == "OPTIMAL"
-            assert plan.objective_score == 2023
+            assert plan.objective_score == 81011
             assert {row.staff_id for row in offers} == {201, 202}
             assert run.answer(201, "ACCEPT") == "WAITING_APPROVAL"
             assert run.decide(201, approved=True) == "RESOLVED"

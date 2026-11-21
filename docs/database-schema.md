@@ -41,7 +41,9 @@
 >
 > * `c5f8b0d3e7a1` (Issue #98 ต่อ) accepted_as_reserve และชนิดข้อความ FINAL/RESERVE_PROMOTED
 >
-> **Migration head ปัจจุบัน: `f2c9a1d6e8b4`** (รอบ 6 auth/LLM และ Demo profile ดูหัวข้อท้ายไฟล์) ตรวจด้วย `alembic heads` ต้องได้ head เดียว
+> * `e7b9d1f3a5c8` (รอบ 6 PR EV9) ค่าตั้งคิว Supervisor ใน `APPROVAL_POLICY` และแถวตัดสินของระบบใน `APPROVAL_WARD_DECISION`
+>
+> **Migration head ปัจจุบัน: `e7b9d1f3a5c8`** (รอบ 6 PR EV9 ต่อจาก `c3e5a7b9d1f2` ของ EV6) ตรวจด้วย `alembic heads` ต้องได้ head เดียว
 
 
 ## สรุปการตัดสินใจ
@@ -437,6 +439,8 @@ CHECK `ck_attendance_overtime_within_work`: `overtime_minutes >= 0 AND overtime_
 | `ratio` | numeric | NOT NULL |  | จำนวนคำขอรออนุมัติที่ Head Nurse หนึ่งคนรับไหว ใช้คำนวณเพดานของ Auto-Approval (`docs/workflow.md` ข้อ 6.22, รอบ 4 PR A) Seed = 2 ความหมายเดิม (ตัวคูณ Ratio ผู้ป่วยต่อพยาบาล) ยกเลิกในรอบ 4 |
 | `approval_timeout_seconds` | integer | NOT NULL | CHECK > 0 | Seed = 900; ใช้ตั้งเส้นตายตอนสร้างคำขอ PR T |
 | `supervisor_after_seconds` | integer | NOT NULL | CHECK > 0 และ < approval_timeout_seconds | Seed = 600; Supervisor กดแทนได้ตั้งแต่ requested_at + ค่านี้ (PR S) |
+| `supervisor_ratio` | numeric | NOT NULL | CHECK >= 0 (ร่วมกับ `supervisor_incoming_count`) | จำนวนคำขอที่เลย `supervisor_from` แล้วที่ Supervisor หนึ่งคนรับไหว เพดานคิว Supervisor คือ `min(supervisor_ratio × Supervisor ที่ Active, supervisor_incoming_count)` ไม่มี Supervisor ที่ Active คิวนี้ไม่อนุมัติ (`docs/workflow.md` ข้อ 6.39, รอบ 6 PR EV9) Seed และแถวเดิม = 5 |
+| `supervisor_incoming_count` | integer | NOT NULL | CHECK >= 0 | เพดานสูงสุดของคิว Supervisor Seed และแถวเดิม = 10 |
 | `incoming_count` | integer | NOT NULL |  | เพดานสูงสุดของคิวคำขอรออนุมัติต่อหอ เพดานของ Auto-Approval คือค่าที่ต่ำกว่าระหว่าง `ratio` × จำนวน Head Nurse ที่ Active ของหอ กับค่านี้ (`docs/workflow.md` ข้อ 6.22) Seed = 10 |
 | `version` | text | NOT NULL |  |  |
 | `created_at` | timestamptz | NOT NULL |  |  |
@@ -638,9 +642,9 @@ UNIQUE `(gap_id, skill_id, start_at)`
 | `requested_at` | timestamptz | NOT NULL |  |  |
 
 
-### 28.1 APPROVAL_WARD_DECISION (PR S)
+### 28.1 APPROVAL_WARD_DECISION (PR S, EV9)
 
-หนึ่งแถวต่อการตัดสินของคนในแต่ละฝั่ง คำขอหอเดียวใช้ DESTINATION; การย้ายใช้ DESTINATION และ SOURCE ตามหอของเวรต้นทาง ไม่ใช่หอบ้านของผู้สมัคร UNIQUE (`approval_request_id`, `side`) คำขอก่อน S ไม่ Backfill แถวประวัติ
+หนึ่งแถวต่อการตัดสินของแต่ละฝั่ง ของคน หรือของระบบตั้งแต่รอบ 6 PR EV9 คำขอหอเดียวใช้ DESTINATION; การย้ายใช้ DESTINATION และ SOURCE ตามหอของเวรต้นทาง ไม่ใช่หอบ้านของผู้สมัคร UNIQUE (`approval_request_id`, `side`) คำขอก่อน S ไม่ Backfill แถวประวัติ
 
 | Field | Type | Null | Key | Enum / หมายเหตุ |
 | :-- | :-- | :-- | :-- | :-- |
@@ -648,13 +652,19 @@ UNIQUE `(gap_id, skill_id, start_at)`
 | `approval_request_id` | bigint | NOT NULL | FK APPROVAL_REQUEST.id | |
 | `ward_id` | bigint | NOT NULL | FK WARD.id | |
 | `side` | text | NOT NULL | UNIQUE ร่วม | `ApprovalSide`: DESTINATION / SOURCE |
-| `approver_id` | bigint | NOT NULL | FK STAFF.id | ผู้กดจริง |
+| `approver_id` | bigint | NULL | FK STAFF.id | ผู้กดจริง ว่างเมื่อระบบอนุมัติ (`approval_mode = AUTO`) |
 | `decided_as` | text | NOT NULL | | `ApproverCapacity`: HEAD_NURSE / SUPERVISOR |
 | `is_approved` | boolean | NOT NULL | | |
 | `reason` | text | NULL | | เหตุผลของฝั่งนั้น |
 | `decided_at` | timestamptz | NOT NULL | | |
+| `approval_mode` | text | NOT NULL | | `ApprovalMode`: MANUAL (คนกด, แถวก่อน EV9 ทั้งหมด) / AUTO (ระบบอนุมัติเพราะคิวเกินเพดาน) |
+| `queue_count` | integer | NULL | | AUTO เท่านั้น: จำนวนในคิวที่เกินเพดานตอนตัดสิน |
+| `queue_cap` | numeric | NULL | | AUTO เท่านั้น: เพดานของคิวนั้น |
+| `queue_approver_count` | integer | NULL | | AUTO เท่านั้น: Head Nurse ที่ Active ของหอ (คิวของหอ) หรือ Supervisor ที่ Active (คิว Supervisor) |
 
-การอนุมัติฝั่งแรกไม่เปลี่ยนผลรวมของ APPROVAL_REQUEST (`is_pending=true`, `is_approved/approver_id/decided_at=null`) ฝั่งสุดท้ายหรือการปฏิเสธจึงเขียนผลรวม Timeout คงประวัติฝั่งที่กดแล้ว Auto-Approval ไม่เขียนตารางนี้
+CHECK `mode_matches_decider`: MANUAL ต้องมี `approver_id` และไม่มีค่าคิว AUTO ต้องไม่มี `approver_id` เป็นการอนุมัติเท่านั้น และมีค่าคิวครบที่ `queue_count > queue_cap` แถว AUTO ใช้ `decided_as` บอกคิว: HEAD_NURSE = คิวของหอของฝั่งนั้น, SUPERVISOR = คิว Supervisor (`docs/workflow.md` ข้อ 6.39)
+
+การอนุมัติฝั่งแรกไม่เปลี่ยนผลรวมของ APPROVAL_REQUEST (`is_pending=true`, `is_approved/approver_id/decided_at=null`) ฝั่งสุดท้ายหรือการปฏิเสธจึงเขียนผลรวม Timeout คงประวัติฝั่งที่กดแล้ว Auto-Approval ก่อน EV9 ไม่เขียนตารางนี้ (คำขอเก่าเหล่านั้นอ่านจาก `APPROVAL_REQUEST.approval_mode`) ตั้งแต่ EV9 ระบบเขียนหนึ่งแถว AUTO ต่อฝั่งที่อนุมัติ และ `APPROVAL_REQUEST.approval_mode = AUTO` เมื่อระบบตัดสินฝั่งสุดท้าย
 
 Migration ตั้ง delay ของ Policy เดิมเป็น `min(600, approval_timeout_seconds - 1)` เพื่อรองรับ Policy ที่สั้นกว่า 600 วินาที ถ้า timeout <= 1 หยุดก่อน DDL ต้องแก้ Policy ก่อนอัปเกรด ไม่เปลี่ยนเส้นตายของคำขอเดิม `supervisor_from` คำนวณจากเวลาสร้างกับ Policy ปัจจุบันเมื่ออ่าน
 
@@ -858,7 +868,7 @@ UNIQUE (`case_id`, `input_hash`, `prompt_version`) ข้อมูลเปล�
 | `CandidateResponse` | API ของ LINE / LINE Sim (ไม่เก็บใน DB) | `ACCEPT`, `REJECT` |
 | `Channel` | CANDIDATE_OUTREACH.channel | `LINE` |
 | `ValidationResult` | ผลตรวจรายข้อใน validation_snapshot | `PASS`, `FAIL` |
-| `ApprovalMode` | APPROVAL_REQUEST.approval_mode | `MANUAL`, `AUTO` |
+| `ApprovalMode` | APPROVAL_REQUEST.approval_mode, APPROVAL_WARD_DECISION.approval_mode (รอบ 6 PR EV9) | `MANUAL`, `AUTO` |
 | `ApprovalOutcome` | API การตัดสิน (ไม่เก็บเป็นคอลัมน์) | `WAITING_OTHER_WARD`, `ASSIGNED`, `REJECTED`, `TRANSFER_CANCELLED`, `EXECUTION_FAILED` |
 | `ApprovalSide` | APPROVAL_WARD_DECISION.side (รอบ 4 PR S) | `DESTINATION`, `SOURCE` |
 | `ApproverCapacity` | APPROVAL_WARD_DECISION.decided_as (รอบ 4 PR S) | `HEAD_NURSE`, `SUPERVISOR` |

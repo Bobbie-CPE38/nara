@@ -29,13 +29,16 @@ def get_roster(
     Demo mode: any active staff member reads any shift or person. Session mode (6.33.4):
     a shift needs its ward visible (home ward, every ward for a supervisor); your own
     rows come from every ward; someone else's need their home ward visible and keep only
-    the rows of shifts in wards you see. Anything else is 403.
+    the rows of shifts in wards you see. A nurse reads only their own rows and the shifts
+    they are on, with everyone on them (round 6 PR EV8). Anything else is 403.
     """
     viewer = access_viewer(db, user) if session_mode() else None
     try:
         if shift_id is not None and staff_id is None:
             roster = roster_service.get_shift_roster(db, shift_id)
-            if viewer is not None and not access_service.sees_ward(viewer, roster.shift.ward_id):
+            if viewer is not None and not access_service.sees_shift_roster(
+                db, viewer, shift_id, roster.shift.ward_id
+            ):
                 raise forbidden()
             return roster
         if staff_id is not None and shift_id is None:

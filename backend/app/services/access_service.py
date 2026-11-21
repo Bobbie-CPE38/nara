@@ -7,9 +7,10 @@ database, never from the client:
   supervisor  every ward and every case
   head_nurse  their home ward, plus a case whose two-ward approval request has its
               SOURCE side in their ward (6.21): they decide that side, so they read it
-  staff       their home ward for rosters and gaps, and only the cases they are part
-              of: an offer to them, an event about them, or a roster row the case gave
-              them by hand. An approval always follows an offer, so it needs no rule
+  staff       only the cases they are part of: an event about them (their leave, their
+              no-show), or a roster row the case gave them (an approved offer, a move or
+              a manual assignment). An offer alone is not enough (round 6 PR EV8). Their
+              roster is the shifts they are on, with everyone on those shifts; no gaps
 
 Lists and counts take `case_condition()` into their own query, so rows a user may not
 see are never loaded and then hidden.
@@ -23,7 +24,6 @@ from sqlalchemy.orm import Session, aliased
 from app.db.models import (
     ApprovalRequest,
     CandidateItem,
-    CandidateOutreach,
     ManualAssignment,
     Role,
     RosterAssignment,
@@ -80,10 +80,23 @@ def _source_side_in(ward_id: int) -> ColumnElement[bool]:
 
 
 def _part_of(staff_id: int) -> ColumnElement[bool]:
-    offered = exists(
-        select(CandidateOutreach.id)
-        .join(CandidateItem, CandidateItem.id == CandidateOutreach.candidate_item_id)
-        .where(CandidateOutreach.case_id == StaffingCase.id, CandidateItem.staff_id == staff_id)
+    """The case is about them (an event of theirs), or the case put them on a shift: an
+    approved request with their roster row on the proposed shift (a replacement or a move,
+    kept as history when the row ends later), or a manual assignment. Round 6 PR EV8: an
+    offer they were sent, or answered, is no longer enough."""
+    approved = exists(
+        select(ApprovalRequest.id)
+        .join(CandidateItem, CandidateItem.id == ApprovalRequest.candidate_item_id)
+        .join(
+            RosterAssignment,
+            (RosterAssignment.staff_id == CandidateItem.staff_id)
+            & (RosterAssignment.shift_id == CandidateItem.proposed_shift_id),
+        )
+        .where(
+            ApprovalRequest.case_id == StaffingCase.id,
+            ApprovalRequest.is_approved.is_(True),
+            CandidateItem.staff_id == staff_id,
+        )
     )
     reported = exists(
         select(StaffingEvent.id).where(
@@ -95,7 +108,7 @@ def _part_of(staff_id: int) -> ColumnElement[bool]:
         .join(RosterAssignment, RosterAssignment.id == ManualAssignment.roster_assignment_id)
         .where(ManualAssignment.case_id == StaffingCase.id, RosterAssignment.staff_id == staff_id)
     )
-    return or_(offered, reported, assigned)
+    return or_(reported, approved, assigned)
 
 
 def approval_request_condition(viewer: Viewer | None) -> ColumnElement[bool]:
@@ -167,14 +180,41 @@ def sees_event(db: Session, viewer: Viewer, event_id: int) -> bool:
 
 
 def roster_shift_condition(viewer: Viewer) -> ColumnElement[bool]:
-    """SHIFT rows whose roster this viewer reads when it is not their own row."""
-    return true() if viewer.role == "supervisor" else Shift.ward_id == viewer.home_ward_id
+    """SHIFT rows whose roster this viewer reads when it is not their own row. A nurse has
+    none: they read only their own roster (round 6 PR EV8)."""
+    if viewer.role == "supervisor":
+        return true()
+    if viewer.role == "staff":
+        return false()
+    return Shift.ward_id == viewer.home_ward_id
+
+
+def sees_shift_roster(db: Session, viewer: Viewer, shift_id: int, ward_id: int) -> bool:
+    """The whole roster of one shift: a manager's ward, or for a nurse a shift they are on
+    (a roster row of theirs in any status, so a shift they left or were moved from stays
+    readable). Round 6 PR EV8."""
+    if viewer.role != "staff":
+        return sees_ward(viewer, ward_id)
+    return (
+        db.scalar(
+            select(RosterAssignment.id)
+            .where(
+                RosterAssignment.shift_id == shift_id,
+                RosterAssignment.staff_id == viewer.staff_id,
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 def sees_staff_roster(db: Session, viewer: Viewer, staff_id: int) -> bool | None:
-    """Someone else's roster: their home ward must be visible. None for unknown staff."""
+    """Someone else's roster: their home ward must be visible, and a nurse reads only their
+    own (round 6 PR EV8). None for unknown staff."""
     if staff_id == viewer.staff_id:
         return True
+    if viewer.role == "staff":
+        return False
     home_ward_id = db.scalar(select(Staff.home_ward_id).where(Staff.id == staff_id))
     if home_ward_id is None:
         return None

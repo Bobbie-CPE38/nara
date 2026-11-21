@@ -56,6 +56,10 @@ def _waiting_event(client: TestClient) -> int:
         "event_status": "RECEIVED",
         "case_id": None,
         "case_status": None,
+        # Round 6 PR EV10 (6.40): what the reporter is told while the event waits
+        "joined_running_case": False,
+        "ignored_reason": None,
+        "window_closes_at": "2026-10-09T21:10:00+07:00",
     }
     return int(body["event_id"])
 
@@ -78,6 +82,9 @@ def test_reporter_can_follow_an_event_from_received_to_its_case(
         "event_status": "RECEIVED",
         "case_id": None,
         "case_status": None,
+        "joined_running_case": False,
+        "ignored_reason": None,
+        "window_closes_at": "2026-10-09T21:10:00+07:00",
     }
     case_id = seeded.scalars(select(StaffingCase.id)).one()
     assert closed.json() == {
@@ -85,6 +92,9 @@ def test_reporter_can_follow_an_event_from_received_to_its_case(
         "event_status": "PROCESSED",
         "case_id": case_id,
         "case_status": "WAITING_RESPONSE",
+        "joined_running_case": False,
+        "ignored_reason": None,
+        "window_closes_at": None,
     }
 
 

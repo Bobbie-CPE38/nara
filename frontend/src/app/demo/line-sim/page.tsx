@@ -5,6 +5,7 @@ import { useSessionUser } from "@/components/AuthProvider";
 import { type OfferApi, OfferList } from "@/components/outreach/OfferList";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { apiRequest } from "@/lib/api";
+import { POLL_INTERVAL_MS } from "@/lib/constants";
 import { DEMO_STAFF_IDS } from "@/lib/demo";
 import { useT } from "@/lib/i18n/LanguageProvider";
 import type { Offer, OfferResponse } from "@/lib/types/outreach";
@@ -37,7 +38,7 @@ export default function LineSimulatorPage() {
   const api = useMemo(() => simulatorApi(staffId), [staffId]);
   return (
     <main className="mx-auto max-w-6xl px-4 py-6 sm:py-8">
-      <PageHeader title={t("sim.title")} description={me ? t("sim.sessionIntro") : t("sim.intro")}>
+      <PageHeader title={t("sim.title")} description={me ? t("sim.sessionIntro") : t("sim.intro", { seconds: POLL_INTERVAL_MS / 1000 })}>
         {!me && (
           <label className="flex flex-wrap items-center gap-2 text-sm font-medium" htmlFor="staff">
             {t("sim.staffMember")}

@@ -93,7 +93,13 @@ def test_login_sets_a_hardened_cookie_and_answers_like_me(client: TestClient, db
     response = login(client)
 
     assert response.status_code == 200
-    me = {"staff_id": 105, "role": "staff", "home_ward_id": 1, "must_change_password": False}
+    me = {
+        "staff_id": 105,
+        "role": "staff",
+        "home_ward_id": 1,
+        "home_ward_name": "ICU",
+        "must_change_password": False,
+    }
     assert response.json() == me
     assert response.headers["cache-control"] == "no-store"
     cookie = response.headers["set-cookie"]

@@ -9,6 +9,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.api.exception_handlers import register_exception_handlers
 from app.api.origin_guard import AuthHttpGuard
 from app.api.routes import (
+    admin_staff,
     approvals,
     auth,
     cases,
@@ -46,6 +47,7 @@ app = FastAPI(title="Staffing API")
 
 # Register each router once; route implementations live in their own modules.
 for module in (
+    admin_staff,
     auth,
     demo,
     clock,
